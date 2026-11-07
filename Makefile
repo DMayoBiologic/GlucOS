@@ -51,11 +51,12 @@ sparkle-keys: resolve
 	@gh auth status >/dev/null 2>&1 || gh auth login
 	@"$(SPARKLE_BIN)/generate_keys" >/dev/null 2>&1 || true
 	@PUB=$$("$(SPARKLE_BIN)/generate_keys" -p); \
-	 TMP=$$(mktemp); "$(SPARKLE_BIN)/generate_keys" -x "$$TMP"; \
-	 gh secret set SPARKLE_PRIVATE_KEY -R $(REPO) < "$$TMP"; rm -f "$$TMP"; \
+	 TMPD=$$(mktemp -d); "$(SPARKLE_BIN)/generate_keys" -x "$$TMPD/key" || exit 1; \
+	 test -s "$$TMPD/key" || { echo "Private key export is empty"; exit 1; }; \
+	 gh secret set SPARKLE_PRIVATE_KEY -R $(REPO) < "$$TMPD/key"; rm -rf "$$TMPD"; \
 	 gh variable set SPARKLE_PUBLIC_ED_KEY -R $(REPO) --body "$$PUB"; \
 	 sed -i '' -E "s|SPARKLE_PUBLIC_ED_KEY: \"[^\"]*\"|SPARKLE_PUBLIC_ED_KEY: \"$$PUB\"|" project.yml; \
-	 git add project.yml; git commit -m "Add Sparkle public key" >/dev/null 2>&1 || true; git push; \
+	 git add project.yml; git commit -m "Add Sparkle public key" >/dev/null 2>&1 || true; git pull -q --rebase && git push; \
 	 echo "Sparkle public key: $$PUB"; \
 	 echo "Private key is in your login Keychain (Sparkle) and in the repo secret SPARKLE_PRIVATE_KEY."
 
