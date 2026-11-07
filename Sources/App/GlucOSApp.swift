@@ -18,6 +18,17 @@ struct GlucOSApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        // The pop-out dashboard, opened from the popover. Never opened at launch: the
+        // MenuBarExtra above is the app's primary scene.
+        Window("GlucOS Dashboard", id: DashboardView.windowID) {
+            DashboardView()
+                .environmentObject(store)
+                .environmentObject(store.settings)
+        }
+        .defaultSize(width: 1040, height: 720)
+        .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.unified)
+
         Settings {
             SettingsView()
                 .environmentObject(store)

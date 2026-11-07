@@ -13,6 +13,8 @@ final class GlucoseStore: ObservableObject {
     @Published private(set) var statusLine: String = "Starting…"
     /// True when alerts are on but macOS is blocking GlucOS notifications.
     @Published private(set) var notificationsBlocked = false
+    /// Every reading kept on disk (up to 90 days), oldest → newest. Feeds the dashboard window.
+    @Published private(set) var archive: [GlucoseReading]
 
     let settings = AppSettings.shared
     let alerts = AlertManager()
@@ -21,9 +23,12 @@ final class GlucoseStore: ObservableObject {
     private var loopTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     private var tick = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
+    private var historyArchive: HistoryArchive
 
     init() {
         snapshot = SharedStore.load() ?? .empty
+        historyArchive = HistoryArchive.load()
+        archive = historyArchive.readings
         client = LibreLinkUpClient(region: settings.region,
                                    clientVersion: settings.clientVersion,
                                    sensorLifetimeDays: settings.sensorLifetimeDays)
@@ -43,6 +48,8 @@ final class GlucoseStore: ObservableObject {
         // Re-render age text every 15 s even without new data.
         tick.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+
+        record(snapshot)
     }
 
     func start() {
@@ -93,6 +100,7 @@ final class GlucoseStore: ObservableObject {
             s.lastError = nil
             snapshot = s
             applySettings()
+            record(s)
             let host = await client.currentRegionHost
             statusLine = "Connected to \(host)"
         } catch {
@@ -107,6 +115,16 @@ final class GlucoseStore: ObservableObject {
     func checkNotificationPermission() async {
         let allowed = await AlertManager.notificationsAllowed()
         notificationsBlocked = settings.alertsEnabled && allowed == false
+    }
+
+    /// Adds a snapshot's readings to the on-disk archive. Recording only; nothing reads it back
+    /// into the snapshot, the widget or alerts.
+    private func record(_ s: GlucoseSnapshot) {
+        var incoming = s.history
+        if let current = s.current { incoming.append(current) }
+        guard historyArchive.merge(incoming) else { return }
+        archive = historyArchive.readings
+        historyArchive.save()
     }
 
     private func applySettings() {
