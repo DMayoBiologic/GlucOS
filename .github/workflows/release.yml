@@ -5,7 +5,7 @@ name: Release
 #
 # Versioning is automatic, from the latest vX.Y.Z tag:
 #   patch bump by default; put [minor] or [major] in the PR title / merge commit message to bump more.
-#   [skip release] in the commit message skips the release. Docs-only pushes (*.md) are skipped.
+#   [skip release] in the PR title / commit subject skips the release. Docs-only pushes (*.md) are skipped.
 # Manual run (Actions → Release → Run workflow) can force a specific version, or leave it blank to auto-bump.
 #
 # Required secret:   SPARKLE_PRIVATE_KEY   (from `make sparkle-keys`)
@@ -33,8 +33,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Only the subject line can skip a release (for a squash merge that's the PR title; for a merge
+  # commit, the PR title line under "Merge pull request …"). Scanning the whole message would let
+  # a squash body that merely mentions the marker skip a release by accident.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.s.outputs.skip }}
+    steps:
+      - id: s
+        env:
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          TITLE=$(printf '%s\n' "$MSG" | head -1)
+          case "$TITLE" in
+            "Merge pull request "*) TITLE="$TITLE $(printf '%s\n' "$MSG" | sed -n '3p')" ;;
+          esac
+          case "$TITLE" in
+            *"[skip release]"*) echo "skip=true"  >> "$GITHUB_OUTPUT"; echo "Skipping: $TITLE" ;;
+            *)                  echo "skip=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
   release:
-    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4

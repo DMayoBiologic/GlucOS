@@ -62,7 +62,7 @@ notarizes if the Apple secrets are set), zips, generates the Sparkle appcast, an
 Release + tag. Every installed copy updates and relaunches itself within the hour. Nothing is committed back to `main`.
 
 - `[minor]` or `[major]` in the PR title / merge commit message bumps that part instead.
-- `[skip release]` in the commit message skips the release; docs-only (`*.md`) pushes are skipped too.
+- `[skip release]` in the PR title (or commit subject) skips the release; docs-only (`*.md`) pushes are skipped too.
 - Re-running a release job for a commit that already shipped rebuilds the same version.
 - To force a version: Actions → Release → Run workflow, or `make release V=1.0.0`.
 
