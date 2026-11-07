@@ -162,7 +162,6 @@ struct SettingsView: View {
                 }
             }
             Section {
-                LabeledContent("App Group", value: SharedStore.appGroupID)
                 LabeledContent("Snapshot", value: SharedStore.snapshotURL?.path ?? "unavailable")
                     .textSelection(.enabled)
                 Button("Reconnect") { store.reconnect() }

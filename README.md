@@ -67,13 +67,13 @@ Every installed copy updates itself within 6 h. `ci.yml` compiles every push.
 
 ```
 project.yml              XcodeGen spec — app + widget targets, Sparkle package, Info.plist keys
-Sources/Shared/          models, stats, App Group store, chart (compiled into both targets)
+Sources/Shared/          models, stats, shared snapshot store, chart (compiled into both targets)
 Sources/App/             menu bar app: LibreLinkUp client, Keychain, poll loop, alerts, Sparkle, views
 Sources/Widget/          WidgetKit extension: timeline provider + small/medium/large views
 .github/workflows/       ci.yml (compile check), release.yml (tag → release + appcast)
 ```
 
-The app polls every 60 s, writes `snapshot.json` into the App Group container, then calls
+The app polls every 60 s, writes `~/Library/Application Support/GlucOS/snapshot.json`, then calls
 `WidgetCenter.reloadAllTimelines()`. The widget only reads that file — no network, no credentials.
 
 ## Alerts
@@ -90,7 +90,7 @@ client version. Per-type cooldown is configurable.
 | "terms acceptance required" | Open LibreLinkUp on your phone, accept the new T&Cs |
 | "not following anyone" | Accept the invitation in the LibreLinkUp app (not LibreLink) |
 | Stale data, phone fine | LibreLink must be running in the background with internet |
-| Widget shows "no data" | App must have run once; Advanced tab shows the App Group path |
+| Widget shows "no data" | App must have run once; Advanced tab shows the snapshot path |
 | "Updates not configured" | Build has no Sparkle public key — run `make sparkle-keys`, re-release |
 | Release job fails on key | `SPARKLE_PRIVATE_KEY` secret missing — `make sparkle-keys` |
 

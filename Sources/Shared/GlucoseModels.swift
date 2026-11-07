@@ -234,15 +234,18 @@ struct GlucoseSnapshot: Codable {
     }
 }
 
-// MARK: - Shared store (App Group container)
+// MARK: - Shared store (~/Library/Application Support/GlucOS)
 
 enum SharedStore {
-    static var appGroupID: String {
-        (Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String) ?? ""
-    }
-
+    /// The real ~/Library/Application Support/GlucOS. Inside the widget's sandbox the home
+    /// directory APIs point at its container, so this goes through the password database.
+    /// The widget's entitlements grant read-only access to exactly this folder.
     static var containerURL: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID)
+        guard let pw = getpwuid(getuid()), let home = pw.pointee.pw_dir else { return nil }
+        let url = URL(fileURLWithPath: String(cString: home), isDirectory: true)
+            .appendingPathComponent("Library/Application Support/GlucOS", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
     static var snapshotURL: URL? {
