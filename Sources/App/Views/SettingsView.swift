@@ -13,12 +13,11 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             accountTab.tabItem { Label("Account", systemImage: "person.crop.circle") }
-            displayTab.tabItem { Label("Display", systemImage: "gauge") }
-            alertsTab.tabItem { Label("Alerts", systemImage: "bell") }
-            advancedTab.tabItem { Label("Advanced", systemImage: "wrench") }
+            displayTab.tabItem { Label("Display", systemImage: "chart.xyaxis.line") }
+            alertsTab.tabItem { Label("Alerts", systemImage: "bell.badge") }
+            advancedTab.tabItem { Label("Advanced", systemImage: "gearshape.2") }
         }
-        .frame(width: 440)
-        .padding()
+        .frame(width: 480)
         .onAppear { password = settings.password }
     }
 
@@ -43,58 +42,97 @@ struct SettingsView: View {
                     Text("Auto-detect (global)").tag("global")
                 }
             } header: {
-                Text("LibreLinkUp follower account")
+                Text("LibreLinkUp Follower Account")
             } footer: {
-                Text("Use the *follower* account you created to accept the invitation from LibreLink — not your LibreLink login. Credentials are stored in the macOS Keychain and only ever sent to Abbott.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("Use the *follower* account you created to accept the invitation from LibreLink, not your LibreLink login. Credentials are stored in the macOS Keychain and only ever sent to Abbott.")
+                    .foregroundStyle(.secondary)
             }
 
-            HStack {
-                Button("Save & Connect") {
-                    settings.password = password
-                    store.reconnect()
+            Section {
+                LabeledContent("Status") {
+                    HStack(spacing: 6) {
+                        if store.isRefreshing {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Circle().fill(connectionColor).frame(width: 8, height: 8)
+                        }
+                        Text(store.statusLine).lineLimit(2).multilineTextAlignment(.trailing)
+                    }
+                    .foregroundStyle(.secondary)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(settings.email.isEmpty || password.isEmpty)
-                Spacer()
-                Text(store.statusLine).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            }
-            if let err = store.snapshot.lastError {
-                Text(err).font(.caption).foregroundStyle(.red)
+                if let err = store.snapshot.lastError {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.callout)
+                }
+            } footer: {
+                HStack {
+                    Spacer()
+                    Button("Save & Connect") {
+                        settings.password = password
+                        store.reconnect()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(settings.email.isEmpty || password.isEmpty)
+                }
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var connectionColor: Color {
+        if store.snapshot.lastError != nil { return .orange }
+        if !settings.hasCredentials { return .secondary }
+        return store.snapshot.current == nil || store.snapshot.isStale() ? .yellow : .green
     }
 
     // MARK: Display
 
     private var displayTab: some View {
         Form {
-            Picker("Units", selection: $settings.unit) {
-                ForEach(GlucoseUnit.allCases) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
-
-            thresholdField("Low threshold", mgdl: $settings.lowMgdl)
-            thresholdField("High threshold", mgdl: $settings.highMgdl)
-
-            Toggle("Show change since last reading in menu bar", isOn: $settings.showDeltaInMenuBar)
-
-            Toggle("Launch at login", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, on in
-                    do {
-                        if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-                        loginError = nil
-                    } catch {
-                        loginError = error.localizedDescription
-                        launchAtLogin = SMAppService.mainApp.status == .enabled
-                    }
+            Section("Units") {
+                Picker("Glucose units", selection: $settings.unit) {
+                    ForEach(GlucoseUnit.allCases) { Text($0.label).tag($0) }
                 }
-            if let loginError { Text(loginError).font(.caption).foregroundStyle(.red) }
+                .pickerStyle(.segmented)
+            }
 
             Section {
+                thresholdField("Low", mgdl: $settings.lowMgdl)
+                thresholdField("High", mgdl: $settings.highMgdl)
+            } header: {
+                Text("Target Range")
+            } footer: {
+                if settings.lowMgdl >= settings.highMgdl {
+                    Label("Low must be below high.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("Readings between \(settings.unit.format(mgdl: settings.lowMgdl)) and \(settings.unit.format(mgdl: settings.highMgdl, withUnit: true)) count as in range.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Menu Bar") {
+                Toggle("Show change since last reading", isOn: $settings.showDeltaInMenuBar)
+            }
+
+            Section {
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, on in
+                        do {
+                            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+                            loginError = nil
+                        } catch {
+                            loginError = error.localizedDescription
+                            launchAtLogin = SMAppService.mainApp.status == .enabled
+                        }
+                    }
+                if let loginError { Text(loginError).font(.callout).foregroundStyle(.red) }
+            } header: {
+                Text("General")
+            } footer: {
                 Text("Add the widget: right-click the desktop → Edit Widgets → search “GlucOS”. Widgets refresh each time the app fetches new data.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -106,13 +144,16 @@ struct SettingsView: View {
             get: { unit.value(fromMgdl: mgdl.wrappedValue) },
             set: { mgdl.wrappedValue = unit.mgdl(fromDisplay: $0) }
         )
-        return HStack {
-            Text(label)
-            Spacer()
-            TextField("", value: display, format: .number.precision(.fractionLength(unit == .mmol ? 1 : 0)))
-                .frame(width: 70)
-                .multilineTextAlignment(.trailing)
-            Text(unit.label).foregroundStyle(.secondary)
+        return LabeledContent(label) {
+            HStack(spacing: 6) {
+                TextField(label, value: display, format: .number.precision(.fractionLength(unit == .mmol ? 1 : 0)))
+                    .labelsHidden()
+                    .frame(width: 64)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                Text(unit.label).foregroundStyle(.secondary)
+                    .frame(width: 52, alignment: .leading)
+            }
         }
     }
 
@@ -120,18 +161,21 @@ struct SettingsView: View {
 
     private var alertsTab: some View {
         Form {
-            Toggle("Enable notifications", isOn: $settings.alertsEnabled)
-            Group {
-                Toggle("Rising / falling quickly", isOn: $settings.alertOnRapidChange)
+            Section {
+                Toggle("Enable notifications", isOn: $settings.alertsEnabled)
+            }
+            Section {
+                Toggle("Rising or falling quickly", isOn: $settings.alertOnRapidChange)
                 Toggle("No data for more than 6 minutes", isOn: $settings.alertOnStale)
-                Toggle("Sensor expiring within 24 h", isOn: $settings.alertOnSensorExpiry)
-                Stepper("Repeat alerts after \(settings.alertCooldownMinutes) min", value: $settings.alertCooldownMinutes, in: 5...120, step: 5)
+                Toggle("Sensor expiring within 24 hours", isOn: $settings.alertOnSensorExpiry)
+                Stepper("Repeat after \(settings.alertCooldownMinutes) min", value: $settings.alertCooldownMinutes, in: 5...120, step: 5)
+            } header: {
+                Text("Also Notify Me About")
+            } footer: {
+                Text("Low and high alerts use your target range on the Display tab. Urgent low (below 3.0 mmol/L) repeats every 5 minutes regardless. These supplement, never replace, the alarms on your phone.")
+                    .foregroundStyle(.secondary)
             }
             .disabled(!settings.alertsEnabled)
-            Section {
-                Text("Low/high alerts use the thresholds on the Display tab. Urgent-low (< 3.0 mmol/L) repeats every 5 minutes regardless. These supplement — never replace — the alarms on your phone.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
         }
         .formStyle(.grouped)
     }
@@ -140,31 +184,42 @@ struct SettingsView: View {
 
     private var advancedTab: some View {
         Form {
-            Stepper("Poll every \(settings.pollIntervalSeconds) s", value: $settings.pollIntervalSeconds, in: 30...300, step: 30)
-            Stepper("Sensor lifetime \(settings.sensorLifetimeDays) days", value: $settings.sensorLifetimeDays, in: 10...15)
-            TextField("Client version header", text: $settings.clientVersion)
             Section {
-                Text("Abbott periodically raises the minimum LibreLinkUp client version. If you see a “requires version” error, bump this to the number in the error and reconnect.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Stepper("Poll every \(settings.pollIntervalSeconds) s", value: $settings.pollIntervalSeconds, in: 30...300, step: 30)
+                Stepper("Sensor lifetime \(settings.sensorLifetimeDays) days", value: $settings.sensorLifetimeDays, in: 10...15)
+                TextField("Client version header", text: $settings.clientVersion)
+                    .monospacedDigit()
+            } header: {
+                Text("Connection")
+            } footer: {
+                Text("Abbott periodically raises the minimum LibreLinkUp client version. If you see a “requires version” error, set this to the number in the error and reconnect.")
+                    .foregroundStyle(.secondary)
             }
-            Section {
+            Section("Updates") {
                 LabeledContent("Version", value: updater.version)
-                HStack {
+                LabeledContent {
                     Button("Check for Updates…") { updater.checkForUpdates() }
                         .disabled(!updater.canCheck)
+                } label: {
                     if !updater.isConfigured {
-                        Text("Updates not configured in this build (no Sparkle public key).")
-                            .font(.caption).foregroundStyle(.orange)
+                        Label("Not configured in this build (no Sparkle public key).", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
                     } else {
-                        Text("Checks every 6 h and installs automatically on relaunch.")
-                            .font(.caption).foregroundStyle(.secondary)
+                        Text("Checks every 6 hours and installs on relaunch.")
                     }
                 }
             }
-            Section {
-                LabeledContent("Snapshot", value: SharedStore.snapshotURL?.path ?? "unavailable")
-                    .textSelection(.enabled)
-                Button("Reconnect") { store.reconnect() }
+            Section("Diagnostics") {
+                LabeledContent("Snapshot") {
+                    Text(SharedStore.snapshotURL?.path ?? "unavailable")
+                        .font(.callout.monospaced())
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                LabeledContent("Session") {
+                    Button("Reconnect") { store.reconnect() }
+                }
             }
         }
         .formStyle(.grouped)
