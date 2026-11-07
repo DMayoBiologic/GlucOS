@@ -121,7 +121,6 @@ final class GlucoseStore: ObservableObject {
         if settings.showDeltaInMenuBar, let d = snapshot.deltaMgdl {
             t += " " + snapshot.unit.formatDelta(mgdl: d)
         }
-        if snapshot.isStale() { t += " ⚠︎" }
         return t
     }
 }

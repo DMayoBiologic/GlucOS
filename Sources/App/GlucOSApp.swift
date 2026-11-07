@@ -30,12 +30,15 @@ struct MenuBarLabel: View {
     @ObservedObject var store: GlucoseStore
 
     var body: some View {
+        let stale = store.snapshot.current != nil && store.snapshot.isStale()
         HStack(spacing: 3) {
-            Image(systemName: "drop.fill")
+            Image(systemName: stale ? "exclamationmark.triangle.fill" : "drop.fill")
                 .imageScale(.small)
             Text(store.menuBarText)
                 .monospacedDigit()
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(store.snapshot.accessibilitySummary())
         .task { store.start() }   // ensure polling starts even if the popover is never opened
     }
 }

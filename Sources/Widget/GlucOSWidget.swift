@@ -71,38 +71,39 @@ struct GlucoseWidgetView: View {
         }
     }
 
-    private var rangeColor: Color {
-        switch s.range {
-        case .urgentLow, .low, .veryHigh: return .red
-        case .high: return .orange
-        case .inRange, .none: return .primary
-        }
-    }
+    private var rangeColor: Color { s.range?.valueColor ?? .primary }
 
     private var value: some View {
         Group {
             if let cur = s.current {
                 Text(s.unit.format(mgdl: cur.mgdl))
                     .foregroundStyle(stale ? Color.secondary : rangeColor)
+                    .contentTransition(.numericText(value: cur.mgdl))
+                    .widgetAccentable()
             } else {
                 Text("––").foregroundStyle(.secondary)
             }
         }
-        .font(.system(size: 40, weight: .semibold, design: .rounded))
+        .font(.system(size: 44, weight: .semibold, design: .rounded))
         .monospacedDigit()
         .minimumScaleFactor(0.6)
         .lineLimit(1)
+        .accessibilityLabel(s.accessibilitySummary(at: entry.date))
     }
 
     private var trendLine: some View {
         HStack(spacing: 6) {
             if let cur = s.current {
-                Text(cur.trend.arrow).font(.title3.weight(.bold))
+                TrendSymbol(trend: cur.trend).font(.headline)
                 if let d = s.deltaMgdl {
-                    Text(s.unit.formatDelta(mgdl: d)).font(.subheadline).monospacedDigit()
+                    Text(s.unit.formatDelta(mgdl: d))
+                        .font(.subheadline.weight(.medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
                 }
             }
         }
+        .accessibilityHidden(true)
     }
 
     private var ageLine: some View {
@@ -110,13 +111,21 @@ struct GlucoseWidgetView: View {
             if stale { Image(systemName: "exclamationmark.triangle.fill") }
             Text(s.current.map { Format.age($0.age(at: entry.date)) } ?? (s.lastError == nil ? "no data" : "error"))
         }
-        .font(.caption2)
+        .font(.caption2.weight(.medium))
         .foregroundStyle(stale ? Color.orange : Color.secondary)
+        .accessibilityHidden(s.current != nil)
     }
 
     private var small: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack { Image(systemName: "drop.fill").font(.caption).foregroundStyle(.secondary); Spacer(); ageLine }
+            HStack {
+                Image(systemName: "drop.fill")
+                    .font(.caption)
+                    .foregroundStyle(s.range?.color ?? .secondary)
+                    .widgetAccentable()
+                Spacer()
+                ageLine
+            }
             Spacer(minLength: 0)
             value
             trendLine
@@ -156,6 +165,7 @@ struct GlucoseWidgetView: View {
                 }
             }
             GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, hours: 12)
+            if let st { TimeInRangeBar(stats: st, height: 6) }
             HStack {
                 stat("In range", st.map { Format.percent($0.timeInRange) } ?? "–")
                 stat("Below", st.map { Format.percent($0.timeBelowRange) } ?? "–")
@@ -169,9 +179,10 @@ struct GlucoseWidgetView: View {
     private func stat(_ title: String, _ v: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title).font(.caption2).foregroundStyle(.secondary)
-            Text(v).font(.caption.weight(.semibold)).monospacedDigit()
+            Text(v).font(.system(.callout, design: .rounded).weight(.semibold)).monospacedDigit()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 
