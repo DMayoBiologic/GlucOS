@@ -18,6 +18,7 @@ struct SettingsView: View {
             accountTab.tabItem { Label("Account", systemImage: "person.crop.circle") }
             displayTab.tabItem { Label("Display", systemImage: "chart.xyaxis.line") }
             alertsTab.tabItem { Label("Alerts", systemImage: "bell.badge") }
+            insulinTab.tabItem { Label("Insulin", systemImage: "syringe") }
             advancedTab.tabItem { Label("Advanced", systemImage: "gearshape.2") }
         }
         .frame(width: 480)
@@ -221,6 +222,54 @@ struct SettingsView: View {
         notificationsAllowed = await AlertManager.notificationsAllowed()
         permissionChecked = true
         await store.checkNotificationPermission()
+    }
+
+    // MARK: Insulin
+
+    private var insulinTab: some View {
+        Form {
+            Section {
+                Picker("Therapy", selection: $settings.therapy) {
+                    if settings.therapy == .notSet { Text("Choose…").tag(TherapyType.notSet) }
+                    ForEach([TherapyType.injections, .pump, .noInsulin]) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("How You Take Insulin")
+            } footer: {
+                Text(settings.therapy == .notSet
+                     ? "Decides what GlucOS asks when you log, and which patterns it shows."
+                     : settings.therapy.detail)
+                    .foregroundStyle(.secondary)
+            }
+
+            if settings.therapy.logsInsulin {
+                Section {
+                    Picker("Type", selection: $settings.bolusInsulinKind) {
+                        ForEach(settings.therapy == .pump ? InsulinKind.pumpKinds : InsulinKind.allCases.filter(\.isBolus)) {
+                            Text($0.title).tag($0)
+                        }
+                    }
+                    TextField("Name", text: $settings.bolusInsulinName, prompt: Text(settings.bolusInsulinKind.examples))
+                } header: {
+                    Text(settings.therapy == .pump ? "Insulin in Your Pump" : "Mealtime Insulin")
+                } footer: {
+                    Text("Pre-filled when you log a dose.").foregroundStyle(.secondary)
+                }
+            }
+            if settings.therapy == .injections {
+                Section("Long-Acting Insulin") {
+                    TextField("Name", text: $settings.basalInsulinName, prompt: Text(InsulinKind.long.examples))
+                }
+            }
+
+            Section {
+                Text("Patterns in Dashboard → Insights are observations from your own logs and readings. They aren't medical advice and GlucOS never suggests a dose. Don't change your insulin, ratios or pump settings based on them without talking to your diabetes care team.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .formStyle(.grouped)
     }
 
     // MARK: Advanced

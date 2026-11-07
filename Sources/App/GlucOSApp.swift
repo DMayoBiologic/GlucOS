@@ -6,6 +6,7 @@ struct GlucOSApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = GlucoseStore()
     @StateObject private var updater = Updater()
+    @StateObject private var logbook = LogbookStore()
 
     var body: some Scene {
         MenuBarExtra {
@@ -13,6 +14,7 @@ struct GlucOSApp: App {
                 .environmentObject(store)
                 .environmentObject(store.settings)
                 .environmentObject(updater)
+                .environmentObject(logbook)
         } label: {
             MenuBarLabel(store: store)
         }
@@ -24,6 +26,7 @@ struct GlucOSApp: App {
             DashboardView()
                 .environmentObject(store)
                 .environmentObject(store.settings)
+                .environmentObject(logbook)
         }
         .defaultSize(width: 1040, height: 720)
         .windowResizability(.contentMinSize)
@@ -34,6 +37,7 @@ struct GlucOSApp: App {
                 .environmentObject(store)
                 .environmentObject(store.settings)
                 .environmentObject(updater)
+                .environmentObject(logbook)
         }
     }
 }
