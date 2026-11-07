@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import ServiceManagement
 
 struct SettingsView: View {
@@ -9,6 +10,7 @@ struct SettingsView: View {
     @State private var password: String = ""
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
+    @State private var notificationsAllowed: Bool?
 
     var body: some View {
         TabView {
@@ -112,8 +114,14 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Menu Bar") {
+            Section {
                 Toggle("Show change since last reading", isOn: $settings.showDeltaInMenuBar)
+                Toggle("Colour-code the menu bar icon", isOn: $settings.colorMenuBarIcon)
+            } header: {
+                Text("Menu Bar")
+            } footer: {
+                Text("Tints the drop green, orange or red by range. Stale data always shows a plain warning sign instead.")
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -163,6 +171,27 @@ struct SettingsView: View {
         Form {
             Section {
                 Toggle("Enable notifications", isOn: $settings.alertsEnabled)
+                LabeledContent("macOS permission") {
+                    HStack(spacing: 6) {
+                        switch notificationsAllowed {
+                        case .some(true):
+                            Label("Allowed", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        case .some(false):
+                            Label("Off", systemImage: "bell.slash.fill")
+                                .foregroundStyle(.red)
+                            Button("Open Notification Settings…") {
+                                NSWorkspace.shared.open(AlertManager.notificationSettingsURL)
+                            }
+                        case .none:
+                            ProgressView().controlSize(.mini)
+                        }
+                    }
+                }
+                LabeledContent("Test") {
+                    Button("Send Test Alert") { store.alerts.sendTest() }
+                        .disabled(notificationsAllowed != true)
+                }
             }
             Section {
                 Toggle("Rising or falling quickly", isOn: $settings.alertOnRapidChange)
@@ -178,6 +207,16 @@ struct SettingsView: View {
             .disabled(!settings.alertsEnabled)
         }
         .formStyle(.grouped)
+        .task { await refreshNotificationStatus() }
+        // Pick up a change made in System Settings when the user comes back.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await refreshNotificationStatus() }
+        }
+    }
+
+    private func refreshNotificationStatus() async {
+        notificationsAllowed = await AlertManager.notificationsAllowed()
+        await store.checkNotificationPermission()
     }
 
     // MARK: Advanced

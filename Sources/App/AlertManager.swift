@@ -17,6 +17,28 @@ final class AlertManager {
         }
     }
 
+    /// Whether macOS will actually show GlucOS notifications.
+    static func notificationsAllowed() async -> Bool {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional: return settings.alertSetting != .disabled
+        default: return false
+        }
+    }
+
+    /// System Settings → Notifications → GlucOS.
+    static let notificationSettingsURL = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=au.com.declanmayo.glucos")!
+
+    /// A harmless sample alert so you can check banners and sound are working.
+    func sendTest() {
+        let content = UNMutableNotificationContent()
+        content.title = "GlucOS test alert"
+        content.body = "If you can see and hear this, glucose alerts will reach you."
+        content.sound = .default
+        let req = UNNotificationRequest(identifier: "glucos.test", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(req)
+    }
+
     func evaluate(_ s: GlucoseSnapshot, settings: AppSettings, now: Date = Date()) {
         guard settings.alertsEnabled else { return }
         let unit = s.unit

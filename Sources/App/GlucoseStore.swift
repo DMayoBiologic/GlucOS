@@ -11,6 +11,8 @@ final class GlucoseStore: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastAttempt: Date?
     @Published private(set) var statusLine: String = "Starting…"
+    /// True when alerts are on but macOS is blocking GlucOS notifications.
+    @Published private(set) var notificationsBlocked = false
 
     let settings = AppSettings.shared
     let alerts = AlertManager()
@@ -99,6 +101,12 @@ final class GlucoseStore: ObservableObject {
             publish()
         }
         alerts.evaluate(snapshot, settings: settings)
+        await checkNotificationPermission()
+    }
+
+    func checkNotificationPermission() async {
+        let allowed = await AlertManager.notificationsAllowed()
+        notificationsBlocked = settings.alertsEnabled && !allowed
     }
 
     private func applySettings() {

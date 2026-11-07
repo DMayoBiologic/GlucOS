@@ -60,6 +60,10 @@ targets:
         SUAutomaticallyUpdate: true
         SUScheduledCheckInterval: 3600 # hourly, Sparkle's minimum
         SUAllowsAutomaticUpdates: true
+        # glucos://open, used by the widget (and anything else) to bring up the popover.
+        CFBundleURLTypes:
+          - CFBundleURLName: au.com.declanmayo.glucos
+            CFBundleURLSchemes: [glucos]
     entitlements:
       path: Sources/App/GlucOS.entitlements
       properties:
@@ -71,6 +75,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: au.com.declanmayo.glucos
         PRODUCT_NAME: GlucOS
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
 
   GlucOSWidget:

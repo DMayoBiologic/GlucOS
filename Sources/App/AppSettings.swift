@@ -21,6 +21,9 @@ final class AppSettings: ObservableObject {
     @Published var alertCooldownMinutes: Int { didSet { d.set(alertCooldownMinutes, forKey: "alertCooldown") } }
     @Published var sensorLifetimeDays: Int { didSet { d.set(sensorLifetimeDays, forKey: "sensorLifetimeDays") } }
     @Published var showDeltaInMenuBar: Bool { didSet { d.set(showDeltaInMenuBar, forKey: "showDelta") } }
+    @Published var colorMenuBarIcon: Bool { didSet { d.set(colorMenuBarIcon, forKey: "colorMenuBarIcon") } }
+    /// Hours of history in the popover chart (3, 6 or 12).
+    @Published var chartHours: Int { didSet { d.set(chartHours, forKey: "chartHours") } }
 
     var password: String {
         get { Keychain.get("password") ?? "" }
@@ -47,5 +50,8 @@ final class AppSettings: ObservableObject {
         alertCooldownMinutes = d.object(forKey: "alertCooldown") as? Int ?? 15
         sensorLifetimeDays = d.object(forKey: "sensorLifetimeDays") as? Int ?? 15   // Libre 2 Plus
         showDeltaInMenuBar = d.object(forKey: "showDelta") as? Bool ?? false
+        colorMenuBarIcon = d.object(forKey: "colorMenuBarIcon") as? Bool ?? false
+        let hours = d.object(forKey: "chartHours") as? Int ?? 12
+        chartHours = [3, 6, 12].contains(hours) ? hours : 12
     }
 }
