@@ -271,7 +271,7 @@ private struct SummaryCard: View {
                 GridRow {
                     Metric("Average", u.format(mgdl: stats.meanMgdl), sub: u.label)
                     Metric("GMI", String(format: "%.1f%%", stats.gmiPercent),
-                           sub: stats.spanHours >= 14 * 24 ? "estimated A1c" : "needs 14 days",
+                           sub: stats.spanHours >= 14 * 24 - 1 ? "estimated A1c" : "needs 14 days",
                            help: "Glucose Management Indicator: an A1c estimate from average glucose. Only reliable over 14+ days of data.")
                 }
                 GridRow {

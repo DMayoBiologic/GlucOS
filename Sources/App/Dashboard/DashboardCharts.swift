@@ -94,7 +94,9 @@ struct TrendChart: View {
     /// Zooms around the centre of what's on screen.
     private func zoom(to length: TimeInterval) {
         let newLength = min(max(length, Self.minimumVisible), fullLength)
-        let center = scrollStart.addingTimeInterval(visible / 2)
+        // Unzoomed, `scrollStart` isn't kept in step as the domain moves forward.
+        let currentStart = isZoomed ? scrollStart : domain.lowerBound
+        let center = currentStart.addingTimeInterval(visible / 2)
         var start = center.addingTimeInterval(-newLength / 2)
         start = max(domain.lowerBound, min(start, domain.upperBound.addingTimeInterval(-newLength)))
         visibleLength = newLength
