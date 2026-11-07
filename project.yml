@@ -26,7 +26,7 @@ settings:
     APP_GROUP_ID: group.au.com.declanmayo.glucos
     SPARKLE_FEED_URL: https://github.com/DMayoBiologic/GlucOS/releases/latest/download/appcast.xml
     # Public EdDSA key for Sparkle update signatures. `make sparkle-keys` fills this in.
-    SPARKLE_PUBLIC_ED_KEY: ""
+    SPARKLE_PUBLIC_ED_KEY: "9fjmJfnCALm3vAZqtJNPRkCqYDs51XPtKzy77eCukKk="
     ENABLE_HARDENED_RUNTIME: YES
     SWIFT_STRICT_CONCURRENCY: minimal
     DEAD_CODE_STRIPPING: YES
