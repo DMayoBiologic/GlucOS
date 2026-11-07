@@ -15,7 +15,7 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MARKETING_VERSION: "0.1.1"
+    MARKETING_VERSION: "0.1.2"
     CURRENT_PROJECT_VERSION: "1"
     # Ad-hoc signing by default so local builds and CI builds are interchangeable for Sparkle.
     # CI overrides these when a Developer ID certificate is configured (see .github/workflows/release.yml).
