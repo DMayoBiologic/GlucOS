@@ -4,3 +4,7 @@ build/
 DerivedData/
 .DS_Store
 xcuserdata/
+Sources/App/Info.plist
+Sources/App/GlucOS.entitlements
+Sources/Widget/Info.plist
+Sources/Widget/GlucOSWidget.entitlements
