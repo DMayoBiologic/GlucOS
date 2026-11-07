@@ -6,6 +6,7 @@ struct MenuBarView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var updater: Updater
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var s: GlucoseSnapshot { store.snapshot }
@@ -97,6 +98,7 @@ struct MenuBarView: View {
                 .labelsHidden()
                 .controlSize(.mini)
                 .fixedSize()
+                iconButton("Open in Dashboard", systemImage: "arrow.up.left.and.arrow.down.right") { showDashboard() }
             }
             GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                          hours: Double(settings.chartHours), interactive: true)
@@ -252,6 +254,8 @@ struct MenuBarView: View {
                 iconButton("Refresh", systemImage: "arrow.clockwise") { Task { await store.refresh() } }
                     .disabled(store.isRefreshing)
                     .keyboardShortcut("r")
+                iconButton("Open Dashboard (⌘D)", systemImage: "macwindow") { showDashboard() }
+                    .keyboardShortcut("d")
                 iconButton("Settings…", systemImage: "gearshape") { showSettings() }
                     .keyboardShortcut(",")
                 iconButton("Check for Updates (v\(updater.version))", systemImage: "arrow.down.circle") { updater.checkForUpdates() }
@@ -292,6 +296,11 @@ struct MenuBarView: View {
     /// behind whatever app was frontmost.
     private func showSettings() {
         openSettings()
+        NSApp.activate()
+    }
+
+    private func showDashboard() {
+        openWindow(id: DashboardView.windowID)
         NSApp.activate()
     }
 }

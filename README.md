@@ -29,6 +29,16 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 - **Click the widget** (or a GlucOS notification, or launch GlucOS again from Finder/Spotlight) to open
   the menu bar popover.
 - **Hover the chart** to read any individual reading and its time; the 3h / 6h / 12h control sets the range.
+- **Dashboard** (⌘D in the popover, or the expand button on the chart): a resizable window with
+  - an interactive chart from 3 hours to 30 days: hover for any reading, pinch or ⌘+ / ⌘− to zoom,
+    scroll sideways to pan;
+  - time in range across five ranges, average, GMI, standard deviation, CV, lowest/highest and data capture;
+  - daily patterns (median and percentile bands by time of day) or the last 7 days overlaid;
+  - a per-day table with time in range and low episodes, and every reading in a list, exportable as CSV;
+  - Keep on Top, to leave it floating beside your work.
+
+  LibreLinkUp only provides the last 12 hours, so GlucOS keeps every reading it sees (up to 90 days)
+  in `~/Library/Application Support/GlucOS/history.json`. Longer ranges fill in while GlucOS runs.
 - **Colour-coded menu bar icon** (Settings → Display, off by default): tints the drop green/orange/red by
   range. Stale data always shows the plain warning sign instead.
 - **Settings → Alerts** shows whether macOS is allowing GlucOS notifications and can send a test alert.
