@@ -4,7 +4,7 @@ name: Release
 # Installed copies of GlucOS pick the update up from releases/latest/download/appcast.xml.
 #
 # Versioning is automatic, from the latest vX.Y.Z tag:
-#   patch bump by default; put #minor or #major in the merge commit message (or PR title) to bump more.
+#   patch bump by default; put [minor] or [major] in the PR title / merge commit message to bump more.
 #   [skip release] in the commit message skips the release. Docs-only pushes (*.md) are skipped.
 # Manual run (Actions → Release → Run workflow) can force a specific version, or leave it blank to auto-bump.
 #
@@ -40,6 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve version
         id: v
@@ -59,13 +60,23 @@ jobs:
             V="$EXISTING"
           else
             IFS=. read -r MA MI PA <<< "$LATEST"
-            case "$COMMIT_MSG" in
-              *"#major"*) V="$((MA + 1)).0.0" ;;
-              *"#minor"*) V="$MA.$((MI + 1)).0" ;;
+            # Look at every commit since the last release, not just HEAD, so a [minor]/[major]
+            # marker isn't lost when a queued run is superseded or a PR is rebase-merged.
+            MSGS="$COMMIT_MSG"
+            if git rev-parse -q --verify "refs/tags/v$LATEST" >/dev/null; then
+              MSGS="$MSGS $(git log --format=%B "v$LATEST..HEAD")"
+            fi
+            case "$MSGS" in
+              *"[major]"*) V="$((MA + 1)).0.0" ;;
+              *"[minor]"*) V="$MA.$((MI + 1)).0" ;;
               *)          V="$MA.$MI.$((PA + 1))" ;;
             esac
           fi
           echo "$V" | grep -qE "$SEMVER" || { echo "::error::Bad version '$V' (want X.Y.Z)"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/v$V" >/dev/null; then
+            [ "$(git rev-parse "v$V^{commit}")" = "$(git rev-parse HEAD)" ] || {
+              echo "::error::Tag v$V already exists on another commit; pick a new version"; exit 1; }
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Latest tag v$LATEST → releasing $V"
 
