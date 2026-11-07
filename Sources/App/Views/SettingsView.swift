@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
     @State private var notificationsAllowed: Bool?
+    @State private var permissionChecked = false
 
     var body: some View {
         TabView {
@@ -183,6 +184,8 @@ struct SettingsView: View {
                             Button("Open Notification Settings…") {
                                 NSWorkspace.shared.open(AlertManager.notificationSettingsURL)
                             }
+                        case .none where permissionChecked:
+                            Text("Not asked yet").foregroundStyle(.secondary)
                         case .none:
                             ProgressView().controlSize(.mini)
                         }
@@ -216,6 +219,7 @@ struct SettingsView: View {
 
     private func refreshNotificationStatus() async {
         notificationsAllowed = await AlertManager.notificationsAllowed()
+        permissionChecked = true
         await store.checkNotificationPermission()
     }
 

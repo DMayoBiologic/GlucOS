@@ -106,7 +106,7 @@ final class GlucoseStore: ObservableObject {
 
     func checkNotificationPermission() async {
         let allowed = await AlertManager.notificationsAllowed()
-        notificationsBlocked = settings.alertsEnabled && !allowed
+        notificationsBlocked = settings.alertsEnabled && allowed == false
     }
 
     private func applySettings() {

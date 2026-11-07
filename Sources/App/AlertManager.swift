@@ -17,11 +17,13 @@ final class AlertManager {
         }
     }
 
-    /// Whether macOS will actually show GlucOS notifications.
-    static func notificationsAllowed() async -> Bool {
+    /// Whether macOS will actually show GlucOS notifications. `nil` while the user hasn't been
+    /// asked yet (or the first-launch prompt is still open), so that isn't reported as "blocked".
+    static func notificationsAllowed() async -> Bool? {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         switch settings.authorizationStatus {
         case .authorized, .provisional: return settings.alertSetting != .disabled
+        case .notDetermined: return nil
         default: return false
         }
     }

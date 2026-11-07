@@ -1,4 +1,5 @@
 import AppKit
+import os
 import UserNotifications
 
 /// App-level plumbing SwiftUI's `App` doesn't cover for a menu bar app:
@@ -68,6 +69,9 @@ enum StatusItemPopover {
                 return
             }
         }
+        // AppKit's private window/button names changed: make the regression visible in Console.
+        Logger(subsystem: "au.com.declanmayo.glucos", category: "popover")
+            .error("Couldn't find the status bar button to open the popover")
     }
 
     private static func findButton(in view: NSView?) -> NSStatusBarButton? {
