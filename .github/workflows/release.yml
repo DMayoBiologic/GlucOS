@@ -56,7 +56,8 @@ jobs:
 
   release:
     needs: gate
-    if: needs.gate.outputs.skip != 'true'
+    # Releases only ever come from main, even when run by hand from another branch.
+    if: needs.gate.outputs.skip != 'true' && github.ref == 'refs/heads/main'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +99,10 @@ jobs:
           if git rev-parse -q --verify "refs/tags/v$V" >/dev/null; then
             [ "$(git rev-parse "v$V^{commit}")" = "$(git rev-parse HEAD)" ] || {
               echo "::error::Tag v$V already exists on another commit; pick a new version"; exit 1; }
+          elif [ "$V" != "$LATEST" ] && [ "$(printf '%s\n%s\n' "$V" "$LATEST" | sort -V | tail -1)" != "$V" ]; then
+            # A new release is always marked latest (that's what installed copies update to),
+            # so it must be newer than everything already shipped.
+            echo "::error::$V is older than the latest release v$LATEST"; exit 1
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Latest tag v$LATEST → releasing $V"
