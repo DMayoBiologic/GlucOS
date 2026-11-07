@@ -17,6 +17,18 @@ final class GlucoseStore: ObservableObject {
 
     private var client: LibreLinkUpClient
     private var loopTask: Task<Void, Never>?
+    private var sleepTask: Task<Void, Never>?
+    private var lastPublished: GlucoseSnapshot?
+
+    /// Consecutive failed fetches; drives exponential backoff so a broken network or an
+    /// Abbott outage doesn't mean a login attempt every minute.
+    private var consecutiveFailures = 0
+    /// Set when retrying can't help (wrong password). Auto-polling stops until Reconnect, so
+    /// we don't get the account locked by repeating a bad login.
+    private(set) var pausedForCredentials = false
+    private var lastErrorNeedsAttention = false
+
+    static let maxBackoff: TimeInterval = 15 * 60
     private var cancellables = Set<AnyCancellable>()
     private var tick = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
@@ -35,7 +47,7 @@ final class GlucoseStore: ObservableObject {
         // Refresh promptly after sleep/wake.
         NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didWakeNotification)
-            .sink { [weak self] _ in Task { await self?.refresh() } }
+            .sink { [weak self] _ in self?.wakeLoop() }
             .store(in: &cancellables)
 
         // Re-render age text every 15 s even without new data.
@@ -48,14 +60,37 @@ final class GlucoseStore: ObservableObject {
         alerts.requestAuthorization()
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.refresh()
-                let secs = max(30, self?.settings.pollIntervalSeconds ?? 60)
-                try? await Task.sleep(nanoseconds: UInt64(secs) * 1_000_000_000)
+                guard let self else { return }
+                await self.refresh()
+                await self.sleep(seconds: self.nextDelay())
             }
         }
     }
 
-    func stop() { loopTask?.cancel() }
+    func stop() {
+        loopTask?.cancel()
+        wakeLoop()
+    }
+
+    /// Seconds until the next automatic poll.
+    func nextDelay() -> TimeInterval {
+        let base = TimeInterval(max(30, settings.pollIntervalSeconds))
+        guard consecutiveFailures > 0 else { return base }
+        let backoff = base * pow(2, Double(min(consecutiveFailures, 10) - 1))
+        return min(max(base, backoff), Self.maxBackoff)
+    }
+
+    /// Interruptible sleep: `wakeLoop()` (wake from sleep, reconnect) ends it early.
+    private func sleep(seconds: TimeInterval) async {
+        let t = Task { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+        sleepTask = t
+        await t.value
+        sleepTask = nil
+    }
+
+    private func wakeLoop() {
+        sleepTask?.cancel()
+    }
 
     /// Called when credentials/region/version change in Settings.
     func reconnect() {
@@ -64,11 +99,18 @@ final class GlucoseStore: ObservableObject {
                                    clientVersion: settings.clientVersion,
                                    sensorLifetimeDays: settings.sensorLifetimeDays)
             await client.invalidateSession()
-            await refresh()
+            consecutiveFailures = 0
+            pausedForCredentials = false
+            if sleepTask != nil {
+                wakeLoop()     // the poll loop refreshes now and restarts its (possibly backed-off) timer
+            } else {
+                await refresh(userInitiated: true)
+            }
         }
     }
 
-    func refresh() async {
+    /// - Parameter userInitiated: a button press. Bypasses the credentials pause.
+    func refresh(userInitiated: Bool = false) async {
         guard !isRefreshing else { return }
         guard settings.hasCredentials else {
             statusLine = "Add your LibreLinkUp login in Settings"
@@ -76,29 +118,58 @@ final class GlucoseStore: ObservableObject {
             publish()
             return
         }
+        guard userInitiated || !pausedForCredentials else { return }
         isRefreshing = true
         lastAttempt = Date()
         defer { isRefreshing = false }
 
         let creds = LibreLinkUpClient.Credentials(email: settings.email, password: settings.password)
         do {
-            let r = try await client.fetch(credentials: creds)
+            let r = try await fetchAdoptingClientVersion(creds)
             var s = snapshot
-            s.current = r.current
-            s.history = r.history
-            s.sensor = r.sensor
+            let current = r.current ?? s.current
+            s.history = GlucoseSnapshot.mergeHistory(previous: s.history, graph: r.history, current: current)
+            s.current = current
+            s.sensor = r.sensor ?? s.sensor
             s.fetchedAt = Date()
             s.lastError = nil
             snapshot = s
+            consecutiveFailures = 0
+            pausedForCredentials = false
+            lastErrorNeedsAttention = false
             applySettings()
             let host = await client.currentRegionHost
             statusLine = "Connected to \(host)"
         } catch {
+            consecutiveFailures += 1
+            let clientError = error as? LibreLinkUpClient.ClientError
+            pausedForCredentials = clientError?.stopsPolling ?? false
+            lastErrorNeedsAttention = clientError?.needsAttention ?? false
             snapshot.lastError = error.localizedDescription
-            statusLine = "Error: \(error.localizedDescription)"
+            if pausedForCredentials {
+                statusLine = "Paused — fix the login in Settings, then Save & Connect"
+            } else {
+                statusLine = "Error — retrying in \(Format.duration(nextDelay()))"
+            }
             publish()
         }
-        alerts.evaluate(snapshot, settings: settings)
+        alerts.evaluate(snapshot, settings: settings, needsAttention: lastErrorNeedsAttention)
+    }
+
+    /// Abbott rejects clients older than a minimum version and tells us which one it wants.
+    /// Adopt it (only ever upgrading) and retry once, instead of failing until the user edits
+    /// the header by hand.
+    private func fetchAdoptingClientVersion(_ creds: LibreLinkUpClient.Credentials) async throws -> LibreLinkUpClient.Result {
+        do {
+            return try await client.fetch(credentials: creds)
+        } catch LibreLinkUpClient.ClientError.versionTooOld(let minimum)
+                    where minimum.compare(settings.clientVersion, options: .numeric) == .orderedDescending {
+            settings.clientVersion = minimum
+            await client.configure(region: settings.region,
+                                   clientVersion: minimum,
+                                   sensorLifetimeDays: settings.sensorLifetimeDays)
+            return try await client.fetch(credentials: creds)
+        }
     }
 
     private func applySettings() {
@@ -108,8 +179,14 @@ final class GlucoseStore: ObservableObject {
         publish()
     }
 
+    /// Writes the snapshot and reloads widgets — but only when something the widget shows has
+    /// changed. WidgetKit budgets reloads; burning one per poll on identical data is wasteful.
     private func publish() {
-        SharedStore.save(snapshot)
+        var comparable = snapshot
+        comparable.fetchedAt = .distantPast
+        guard comparable != lastPublished else { return }
+        guard SharedStore.save(snapshot) else { return }
+        lastPublished = comparable
         WidgetCenter.shared.reloadAllTimelines()
     }
 

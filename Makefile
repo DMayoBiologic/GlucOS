@@ -4,6 +4,7 @@
 #   make sparkle-keys     one-time: generate Sparkle EdDSA keys, set repo secret, commit public key
 #   make release V=0.2.0  bump version, tag, push → GitHub Actions builds & publishes the release
 #   make install-release  install the latest GitHub release (what auto-updates will deliver)
+#   make test             run the unit tests (shared models/stats/history logic)
 #   make open             open the generated project in Xcode
 
 PROJECT   := GlucOS.xcodeproj
@@ -13,7 +14,7 @@ APP       := $(BUILD_DIR)/Build/Products/Release/GlucOS.app
 REPO      := DMayoBiologic/GlucOS
 SPARKLE_BIN = $(shell find $(BUILD_DIR)/SourcePackages/artifacts -type d -path '*Sparkle/bin' 2>/dev/null | head -1)
 
-.PHONY: all generate resolve build install run open sparkle-keys release install-release doctor clean
+.PHONY: all generate resolve build test install run open sparkle-keys release install-release doctor clean
 
 all: build install run
 
@@ -31,6 +32,13 @@ build: generate
 	  | grep -E "error:|BUILD" || true
 	@test -d "$(APP)" || { echo "Build failed — run 'make open' to see errors in Xcode"; exit 1; }
 	@echo "Built $(APP)"
+
+test: generate
+	@mkdir -p $(BUILD_DIR)
+	@xcodebuild -project $(PROJECT) -scheme $(SCHEME) -derivedDataPath $(BUILD_DIR) \
+	  -skipPackagePluginValidation -skipMacroValidation test > $(BUILD_DIR)/test.log 2>&1; \
+	 grep -E "error:|failed|Executed|TEST" $(BUILD_DIR)/test.log; \
+	 grep -q "TEST SUCCEEDED" $(BUILD_DIR)/test.log
 
 install:
 	@pkill -x GlucOS 2>/dev/null || true

@@ -16,6 +16,18 @@ struct GlucoseChart: View {
         return readings.filter { $0.timestamp >= cutoff }
     }
 
+    /// Readings tagged with a segment index that increments at every gap longer than
+    /// `GlucoseStats.maxGap`, so the line breaks over missing data instead of bridging it.
+    private var segmented: [(segment: Int, reading: GlucoseReading)] {
+        var segment = 0
+        var previous: Date?
+        return window.map { r in
+            if let previous, r.timestamp.timeIntervalSince(previous) > GlucoseStats.maxGap { segment += 1 }
+            previous = r.timestamp
+            return (segment, r)
+        }
+    }
+
     private var yDomain: ClosedRange<Double> {
         let values = window.map(\.mgdl) + [lowMgdl, highMgdl]
         let lo = min(values.min() ?? 60, 60) - 10
@@ -31,10 +43,11 @@ struct GlucoseChart: View {
             )
             .foregroundStyle(.green.opacity(0.12))
 
-            ForEach(window) { r in
+            ForEach(segmented, id: \.reading.id) { item in
                 LineMark(
-                    x: .value("Time", r.timestamp),
-                    y: .value("Glucose", unit.value(fromMgdl: r.mgdl))
+                    x: .value("Time", item.reading.timestamp),
+                    y: .value("Glucose", unit.value(fromMgdl: item.reading.mgdl)),
+                    series: .value("Segment", item.segment)
                 )
                 .interpolationMethod(.monotone)
                 .foregroundStyle(.primary.opacity(0.85))

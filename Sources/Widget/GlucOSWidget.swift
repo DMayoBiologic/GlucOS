@@ -187,8 +187,9 @@ extension GlucoseSnapshot {
             hist.append(GlucoseReading(timestamp: t, mgdl: v, trend: .flat))
         }
         var s = GlucoseSnapshot()
-        s.history = hist
-        s.current = GlucoseReading(timestamp: now.addingTimeInterval(-90), mgdl: 101, trend: .rising)
+        let current = GlucoseReading(timestamp: now.addingTimeInterval(-90), mgdl: 101, trend: .rising)
+        s.history = hist + [current]
+        s.current = current
         s.sensor = SensorInfo(serial: "0M0001ABCDE", activated: now.addingTimeInterval(-9 * 86_400), lifetimeDays: 15)
         s.fetchedAt = now
         return s

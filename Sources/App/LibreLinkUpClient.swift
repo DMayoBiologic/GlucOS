@@ -28,6 +28,7 @@ actor LibreLinkUpClient {
         case termsAcceptanceRequired
         case versionTooOld(minimum: String)
         case noConnections
+        case rateLimited
         case http(Int, String)
         case decoding(String)
         case unexpectedStatus(Int)
@@ -39,9 +40,24 @@ actor LibreLinkUpClient {
             case .termsAcceptanceRequired: return "Open the LibreLinkUp app on your phone and accept the updated terms, then retry."
             case .versionTooOld(let m): return "Abbott now requires client version \(m)+. Update the version in Settings."
             case .noConnections: return "This LibreLinkUp account isn't following anyone. Accept the invitation in the LibreLinkUp app."
+            case .rateLimited: return "LibreLinkUp is rate-limiting this account. Backing off before retrying."
             case .http(let code, let body): return "HTTP \(code): \(body.prefix(200))"
             case .decoding(let what): return "Unexpected response (\(what)). The API may have changed."
             case .unexpectedStatus(let s): return "LibreLinkUp returned status \(s)."
+            }
+        }
+
+        /// Retrying can't fix this; repeating a bad login also risks Abbott locking the account.
+        var stopsPolling: Bool {
+            if case .badCredentials = self { return true }
+            return false
+        }
+
+        /// Something the user (or a GlucOS update) has to act on — worth a notification.
+        var needsAttention: Bool {
+            switch self {
+            case .badCredentials, .termsAcceptanceRequired, .versionTooOld, .decoding, .noConnections: return true
+            case .notConfigured, .rateLimited, .http, .unexpectedStatus: return false
             }
         }
     }
@@ -133,6 +149,7 @@ actor LibreLinkUpClient {
 
         if status == 2 { throw ClientError.badCredentials }
         if status == 4 { throw ClientError.termsAcceptanceRequired }
+        if status == 429 { throw ClientError.rateLimited }
         guard status == 0 else { throw ClientError.unexpectedStatus(status) }
 
         // Region redirect: {"data":{"redirect":true,"region":"au"}}
@@ -255,6 +272,7 @@ actor LibreLinkUpClient {
     private func perform(_ req: URLRequest) async throws -> (Data, Int) {
         let (data, resp) = try await session.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        if code == 429 { throw ClientError.rateLimited }
         return (data, code)
     }
 

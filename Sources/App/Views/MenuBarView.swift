@@ -129,7 +129,7 @@ struct MenuBarView: View {
                 Text(store.statusLine).font(.caption2).foregroundStyle(.tertiary)
             }
             HStack {
-                Button { Task { await store.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                Button { Task { await store.refresh(userInitiated: true) } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                     .disabled(store.isRefreshing)
                 Button { openSettings() } label: { Label("Settings…", systemImage: "gear") }
                 Button { updater.checkForUpdates() } label: { Label("Updates", systemImage: "arrow.down.circle") }

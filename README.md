@@ -36,6 +36,7 @@ Requirements: macOS 14+, Xcode 15+, Homebrew. No Apple Developer account needed 
 
 ```sh
 make            # xcodegen → xcodebuild Release → /Applications → launch
+make test       # unit tests for the shared models, stats and history merge
 make open       # open in Xcode
 ```
 
@@ -70,23 +71,37 @@ project.yml              XcodeGen spec — app + widget targets, Sparkle package
 Sources/Shared/          models, stats, shared snapshot store, chart (compiled into both targets)
 Sources/App/             menu bar app: LibreLinkUp client, Keychain, poll loop, alerts, Sparkle, views
 Sources/Widget/          WidgetKit extension: timeline provider + small/medium/large views
-.github/workflows/       ci.yml (compile check), release.yml (tag → release + appcast)
+Tests/                   XCTest logic tests (Shared sources compiled in, no host app)
+.github/workflows/       ci.yml (build + tests), release.yml (tag → release + appcast)
 ```
 
 The app polls every 60 s, writes `~/Library/Application Support/GlucOS/snapshot.json`, then calls
-`WidgetCenter.reloadAllTimelines()`. The widget only reads that file — no network, no credentials.
+`WidgetCenter.reloadAllTimelines()` — only when something the widget shows actually changed, to stay
+inside WidgetKit's reload budget. The widget only reads that file — no network, no credentials.
+
+LibreLinkUp's graph endpoint only returns ~12 h of 15-minute points, so GlucOS keeps its own history:
+older points it already had, the graph points, and the 1-minute live readings since the last graph
+point. That gives a chart that reaches "now", a delta over ~5 minutes rather than ~15, and 24 h of
+stats. Stats are time-weighted (each reading counts for the time until the next, capped at 15 min),
+so the dense recent readings don't skew time-in-range, and gaps don't count as time spent at the
+last value. The chart breaks the line over gaps longer than 15 min.
+
+On errors the poll interval backs off exponentially (up to 15 min). A rejected password pauses
+polling until **Save & Connect** — repeated bad logins can get the account locked.
 
 ## Alerts
 
 Low / high (thresholds in Settings), urgent-low (< 3.0 mmol/L, repeats every 5 min), rising/falling
-quickly, no data > 6 min, sensor expiring within 24 h, and "API changed" if Abbott bumps the minimum
-client version. Per-type cooldown is configurable.
+quickly, no data > 6 min, sensor expiring within 24 h, and "needs attention" when the login stops
+working (wrong password, new T&Cs, no one followed, API change). Per-type cooldown is configurable.
+"Very high" is above 13.9 mmol/L or your high threshold, whichever is higher.
 
 ## When it breaks
 
 | Symptom | Fix |
 |---|---|
-| "requires client version X" | Settings → Advanced → set the version header to X → Reconnect |
+| "requires client version X" | Normally adopted automatically. If it persists: Settings → Advanced → set the version header to X → Reconnect |
+| "Paused — fix the login" | Correct the password in Settings → **Save & Connect** |
 | "terms acceptance required" | Open LibreLinkUp on your phone, accept the new T&Cs |
 | "not following anyone" | Accept the invitation in the LibreLinkUp app (not LibreLink) |
 | Stale data, phone fine | LibreLink must be running in the background with internet |

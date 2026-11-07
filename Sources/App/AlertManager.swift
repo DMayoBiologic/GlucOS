@@ -9,15 +9,14 @@ final class AlertManager {
     }
 
     private var lastFired: [Kind: Date] = [:]
-    private var authorized = false
 
     func requestAuthorization() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] ok, _ in
-            Task { @MainActor in self?.authorized = ok }
-        }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
-    func evaluate(_ s: GlucoseSnapshot, settings: AppSettings, now: Date = Date()) {
+    /// - Parameter needsAttention: the last fetch failed in a way the user has to fix
+    ///   (credentials, T&Cs, API change) rather than a transient network error.
+    func evaluate(_ s: GlucoseSnapshot, settings: AppSettings, needsAttention: Bool = false, now: Date = Date()) {
         guard settings.alertsEnabled else { return }
         let unit = s.unit
         let cooldown = TimeInterval(settings.alertCooldownMinutes * 60)
@@ -61,8 +60,10 @@ final class AlertManager {
             }
         }
 
-        if let err = s.lastError, err.contains("version") || err.contains("API may have changed") {
+        if needsAttention, let err = s.lastError {
             fire(.apiBroken, title: "GlucOS needs attention", body: err, cooldown: 6 * 3600, now: now)
+        } else if s.lastError == nil {
+            lastFired[.apiBroken] = nil
         }
     }
 

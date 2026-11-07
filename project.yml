@@ -102,6 +102,19 @@ targets:
         PRODUCT_NAME: GlucOSWidget
         SKIP_INSTALL: YES
 
+  GlucOSTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+      # Shared logic is compiled straight in, so the tests need no host app.
+      - path: Sources/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: au.com.declanmayo.glucos.tests
+        GENERATE_INFOPLIST_FILE: YES
+        ENABLE_HARDENED_RUNTIME: NO
+
 schemes:
   GlucOS:
     build:
@@ -109,5 +122,9 @@ schemes:
         GlucOS: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - GlucOSTests
     archive:
       config: Release

@@ -75,8 +75,11 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
 
-            thresholdField("Low threshold", mgdl: $settings.lowMgdl)
-            thresholdField("High threshold", mgdl: $settings.highMgdl)
+            // Keep at least 1 mmol/L (18 mg/dL) between the thresholds so the target band is real.
+            thresholdField("Low threshold", mgdl: $settings.lowMgdl,
+                           allowed: 54...max(54, min(150, settings.highMgdl - 18)))
+            thresholdField("High threshold", mgdl: $settings.highMgdl,
+                           allowed: min(400, max(120, settings.lowMgdl + 18))...400)
 
             Toggle("Show change since last reading in menu bar", isOn: $settings.showDeltaInMenuBar)
 
@@ -100,11 +103,11 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
-    private func thresholdField(_ label: String, mgdl: Binding<Double>) -> some View {
+    private func thresholdField(_ label: String, mgdl: Binding<Double>, allowed: ClosedRange<Double>) -> some View {
         let unit = settings.unit
         let display = Binding<Double>(
             get: { unit.value(fromMgdl: mgdl.wrappedValue) },
-            set: { mgdl.wrappedValue = unit.mgdl(fromDisplay: $0) }
+            set: { mgdl.wrappedValue = min(max(unit.mgdl(fromDisplay: $0), allowed.lowerBound), allowed.upperBound) }
         )
         return HStack {
             Text(label)
@@ -144,7 +147,7 @@ struct SettingsView: View {
             Stepper("Sensor lifetime \(settings.sensorLifetimeDays) days", value: $settings.sensorLifetimeDays, in: 10...15)
             TextField("Client version header", text: $settings.clientVersion)
             Section {
-                Text("Abbott periodically raises the minimum LibreLinkUp client version. If you see a “requires version” error, bump this to the number in the error and reconnect.")
+                Text("Abbott periodically raises the minimum LibreLinkUp client version. GlucOS adopts the version Abbott asks for automatically; edit this only if that fails.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

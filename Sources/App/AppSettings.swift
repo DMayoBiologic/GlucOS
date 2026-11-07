@@ -22,10 +22,21 @@ final class AppSettings: ObservableObject {
     @Published var sensorLifetimeDays: Int { didSet { d.set(sensorLifetimeDays, forKey: "sensorLifetimeDays") } }
     @Published var showDeltaInMenuBar: Bool { didSet { d.set(showDeltaInMenuBar, forKey: "showDelta") } }
 
+    /// Cached after the first read: `hasCredentials` is evaluated on every poll and view render,
+    /// and each Keychain hit can raise an access prompt for an ad-hoc-signed build.
+    private var cachedPassword: String?
+
     var password: String {
-        get { Keychain.get("password") ?? "" }
+        get {
+            if let cachedPassword { return cachedPassword }
+            let value = Keychain.get("password") ?? ""
+            cachedPassword = value
+            return value
+        }
         set {
+            guard newValue != cachedPassword else { return }
             if newValue.isEmpty { Keychain.delete("password") } else { Keychain.set(newValue, for: "password") }
+            cachedPassword = newValue
             objectWillChange.send()
         }
     }
