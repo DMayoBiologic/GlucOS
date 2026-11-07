@@ -9,6 +9,9 @@ struct DashboardView: View {
 
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var logbook: LogbookStore
+
+    @State private var logSheet: LogSheetTarget?
 
     @AppStorage("dashboardRange") private var range: DashboardRange = .h24
     @AppStorage("dashboardSection") private var section: DashboardSection = .overview
@@ -26,7 +29,13 @@ struct DashboardView: View {
             .safeAreaInset(edge: .bottom) { CurrentReadingTile(snapshot: store.snapshot).padding(10) }
         } detail: {
             Group {
-                if store.archive.isEmpty {
+                if section == .logbook {
+                    LogbookSection(data: data) { logSheet = $0 }
+                } else if section == .insights {
+                    InsightsSection(readings: store.archive, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl) {
+                        logSheet = .new
+                    }
+                } else if store.archive.isEmpty {
                     ContentUnavailableView {
                         Label("No Readings Yet", systemImage: "drop")
                     } description: {
@@ -36,15 +45,16 @@ struct DashboardView: View {
                     }
                 } else {
                     switch section {
-                    case .overview: OverviewSection(data: data)
+                    case .overview: OverviewSection(data: data, events: logbook.chartEvents(in: data.domain))
                     case .patterns: PatternsSection(data: data)
                     case .days: DaysSection(data: data)
                     case .readings: ReadingsSection(data: data)
+                    case .logbook, .insights: EmptyView()
                     }
                 }
             }
             .navigationTitle(section.title)
-            .navigationSubtitle(range.title)
+            .navigationSubtitle(section == .insights ? "All stored history" : range.title)
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -55,6 +65,12 @@ struct DashboardView: View {
                 .help("Time range")
             }
             ToolbarItemGroup(placement: .primaryAction) {
+                Button { logSheet = .new } label: {
+                    Label("Log Insulin or Food…", systemImage: "plus")
+                }
+                .keyboardShortcut("l")
+                .help("Log insulin, food or a site change (⌘L)")
+
                 Button { Task { await store.refresh() } } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
@@ -74,6 +90,14 @@ struct DashboardView: View {
                 .help("Keep this window above other windows")
             }
         }
+        .sheet(item: $logSheet) { target in
+            LogSheet(target: target)
+                .environmentObject(logbook)
+                .environmentObject(settings)
+        }
+        .onChange(of: logbook.logSheetRequested) { _, requested in
+            if requested { openRequestedLogSheet() }
+        }
         .background(WindowConfigurator(floating: keepOnTop))
         .frame(minWidth: 760, minHeight: 520)
         // A menu bar app has no Dock icon, so a window it opens can get lost behind others and
@@ -81,8 +105,15 @@ struct DashboardView: View {
         .onAppear {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate()
+            if logbook.logSheetRequested { openRequestedLogSheet() }
         }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
+    }
+
+    /// The menu bar popover asked for the log sheet.
+    private func openRequestedLogSheet() {
+        logbook.logSheetRequested = false
+        if logSheet == nil { logSheet = .new }
     }
 
     private func exportCSV(_ readings: [GlucoseReading]) {
@@ -95,7 +126,7 @@ struct DashboardView: View {
 }
 
 enum DashboardSection: String, CaseIterable, Identifiable {
-    case overview, patterns, days, readings
+    case overview, patterns, days, readings, logbook, insights
     var id: String { rawValue }
 
     var title: String {
@@ -104,6 +135,8 @@ enum DashboardSection: String, CaseIterable, Identifiable {
         case .patterns: return "Daily Patterns"
         case .days: return "Days"
         case .readings: return "Readings"
+        case .logbook: return "Logbook"
+        case .insights: return "Insights"
         }
     }
 
@@ -113,6 +146,8 @@ enum DashboardSection: String, CaseIterable, Identifiable {
         case .patterns: return "clock"
         case .days: return "calendar"
         case .readings: return "list.bullet"
+        case .logbook: return "book"
+        case .insights: return "lightbulb"
         }
     }
 }
@@ -167,6 +202,7 @@ struct DashboardData {
 
 private struct OverviewSection: View {
     let data: DashboardData
+    let events: [ChartEvent]
 
     var body: some View {
         ScrollView {
@@ -177,7 +213,7 @@ private struct OverviewSection: View {
                         .frame(height: 360)
                 } else {
                     TrendChart(readings: data.readings, domain: data.domain, unit: data.unit,
-                               lowMgdl: data.lowMgdl, highMgdl: data.highMgdl)
+                               lowMgdl: data.lowMgdl, highMgdl: data.highMgdl, events: events)
                         .id("\(data.range.rawValue)")
                         .frame(height: 360)
                         .dashboardCard()
@@ -542,7 +578,7 @@ private struct CurrentReadingTile: View {
     }
 }
 
-private struct CardTitle: View {
+struct CardTitle: View {
     let title: String
     let trailing: String?
 
@@ -562,7 +598,7 @@ private struct CardTitle: View {
     }
 }
 
-private struct Metric: View {
+struct Metric: View {
     let title: String
     let value: String
     let sub: String?
@@ -594,7 +630,7 @@ private struct Metric: View {
     }
 }
 
-private struct HistoryNote: View {
+struct HistoryNote: View {
     let text: String
 
     var body: some View {
@@ -605,7 +641,7 @@ private struct HistoryNote: View {
     }
 }
 
-private struct Disclaimer: View {
+struct Disclaimer: View {
     var body: some View {
         Text("Not a medical device. Confirm on your phone before treating.")
             .font(.caption2)
@@ -625,7 +661,7 @@ private struct WindowConfigurator: NSViewRepresentable {
     }
 }
 
-private extension View {
+extension View {
     func dashboardCard() -> some View {
         padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)

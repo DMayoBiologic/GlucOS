@@ -12,6 +12,8 @@ struct TrendChart: View {
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
+    /// Logged insulin, food and site changes to mark on the chart.
+    let events: [ChartEvent]
 
     @State private var visibleLength: TimeInterval
     @State private var scrollStart: Date
@@ -20,8 +22,10 @@ struct TrendChart: View {
 
     static let minimumVisible: TimeInterval = 30 * 60
 
-    init(readings: [GlucoseReading], domain: ClosedRange<Date>, unit: GlucoseUnit, lowMgdl: Double, highMgdl: Double) {
+    init(readings: [GlucoseReading], domain: ClosedRange<Date>, unit: GlucoseUnit, lowMgdl: Double, highMgdl: Double,
+         events: [ChartEvent] = []) {
         self.readings = readings
+        self.events = events
         self.domain = domain
         self.unit = unit
         self.lowMgdl = lowMgdl
@@ -48,6 +52,7 @@ struct TrendChart: View {
                         }
                         .onEnded { _ in pinchBase = nil }
                 )
+            if !events.isEmpty { ChartEventLegend(kinds: Set(events.map(\.kind))) }
         }
     }
 
@@ -125,6 +130,23 @@ struct TrendChart: View {
         let showOutliers = Double(points.count) * visible / fullLength < 900
         let multiDay = fullLength > 86_400
 
+        // Insulin sits along the bottom of the chart, food along the top.
+        let yd = yDomain
+        let inset = (yd.upperBound - yd.lowerBound) * 0.045
+        let insulinY = yd.lowerBound + inset
+        let foodY = yd.upperBound - inset
+        let viewStart = isZoomed ? scrollStart : domain.lowerBound
+        let viewEnd = viewStart.addingTimeInterval(visible)
+        let inView = events.filter { $0.date >= viewStart && $0.date <= viewEnd }
+        let showLabels = inView.count <= 40
+        let insulin = events.filter { $0.kind == .bolus || $0.kind == .basal }
+        let food = events.filter { $0.kind == .food || $0.kind == .context }
+        let siteChanges = events.filter { $0.kind == .siteChange }
+        let hoveredEvents: [ChartEvent] = hoverDate.map { d in
+            let tolerance = max(10 * 60, visible / 150)
+            return events.filter { abs($0.date.timeIntervalSince(d)) <= tolerance }
+        } ?? []
+
         return Chart {
             RectangleMark(
                 yStart: .value("Low", unit.value(fromMgdl: lowMgdl)),
@@ -137,6 +159,12 @@ struct TrendChart: View {
             RuleMark(y: .value("High", unit.value(fromMgdl: highMgdl)))
                 .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
                 .foregroundStyle(Color.green.opacity(0.5))
+
+            ForEach(siteChanges) { e in
+                RuleMark(x: .value("Time", e.date))
+                    .foregroundStyle(ChartEvent.Kind.siteChange.color.opacity(0.55))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            }
 
             ForEach(points) { p in
                 LineMark(
@@ -160,6 +188,29 @@ struct TrendChart: View {
                 }
             }
 
+            ForEach(insulin) { e in
+                PointMark(x: .value("Time", e.date), y: .value("Glucose", insulinY))
+                    .symbol(.triangle)
+                    .symbolSize(70)
+                    .foregroundStyle(e.kind.color)
+                    .annotation(position: .top, spacing: 2) {
+                        if showLabels {
+                            Text(e.label).font(.caption2.weight(.semibold)).foregroundStyle(e.kind.color)
+                        }
+                    }
+            }
+            ForEach(food) { e in
+                PointMark(x: .value("Time", e.date), y: .value("Glucose", foodY))
+                    .symbol(e.kind == .context ? BasicChartSymbolShape.diamond : BasicChartSymbolShape.circle)
+                    .symbolSize(60)
+                    .foregroundStyle(e.kind.color)
+                    .annotation(position: .bottom, spacing: 2) {
+                        if showLabels {
+                            Text(e.label).font(.caption2.weight(.semibold)).foregroundStyle(e.kind.color)
+                        }
+                    }
+            }
+
             if let last = readings.last {
                 PointMark(x: .value("Time", last.timestamp), y: .value("Glucose", unit.value(fromMgdl: last.mgdl)))
                     .symbolSize(160)
@@ -179,12 +230,12 @@ struct TrendChart: View {
                     .annotation(position: .top, spacing: 8,
                                 overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                         ReadingCallout(reading: h, unit: unit, range: GlucoseRange.classify(mgdl: h.mgdl, low: lowMgdl, high: highMgdl),
-                                       showDate: multiDay)
+                                       showDate: multiDay, events: hoveredEvents)
                     }
             }
         }
         .chartXScale(domain: domain)
-        .chartYScale(domain: yDomain)
+        .chartYScale(domain: yd)
         .chartScrollableAxes(.horizontal)
         .chartXVisibleDomain(length: visible)
         .chartScrollPosition(x: $scrollStart)
@@ -221,6 +272,7 @@ struct ReadingCallout: View {
     let unit: GlucoseUnit
     let range: GlucoseRange
     var showDate: Bool = false
+    var events: [ChartEvent] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -238,11 +290,80 @@ struct ReadingCallout: View {
                  : reading.timestamp.formatted(date: .omitted, time: .shortened))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+            ForEach(events) { e in
+                HStack(spacing: 4) {
+                    Image(systemName: e.kind.systemImage).foregroundStyle(e.kind.color)
+                    Text(e.detail)
+                    Text(e.date.formatted(date: .omitted, time: .shortened)).foregroundStyle(.secondary)
+                }
+                .font(.caption2)
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+    }
+}
+
+// MARK: - Logged events on the chart
+
+/// A logged dose, meal or site change, ready to plot.
+struct ChartEvent: Identifiable, Hashable {
+    enum Kind: Hashable {
+        case bolus, basal, food, siteChange, context
+
+        var color: Color {
+            switch self {
+            case .bolus: return .blue
+            case .basal: return .indigo
+            case .food: return .orange
+            case .siteChange: return .purple
+            case .context: return .teal
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .bolus, .basal: return "syringe"
+            case .food: return "fork.knife"
+            case .siteChange: return "arrow.triangle.2.circlepath"
+            case .context: return "tag"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .bolus: return "Bolus insulin"
+            case .basal: return "Long-acting insulin"
+            case .food: return "Food"
+            case .siteChange: return "Site change"
+            case .context: return "Context"
+            }
+        }
+    }
+
+    let id: UUID
+    let date: Date
+    let kind: Kind
+    /// Short text on the chart, e.g. "4u" or "45g".
+    let label: String
+    /// Longer text for the hover callout.
+    let detail: String
+}
+
+struct ChartEventLegend: View {
+    let kinds: Set<ChartEvent.Kind>
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ForEach([ChartEvent.Kind.bolus, .basal, .food, .siteChange, .context].filter { kinds.contains($0) }, id: \.self) { k in
+                Label(k.title, systemImage: k.systemImage)
+                    .foregroundStyle(k.color)
+            }
+        }
+        .font(.caption)
+        .labelStyle(.titleAndIcon)
     }
 }
 

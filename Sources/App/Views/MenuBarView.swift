@@ -5,6 +5,7 @@ struct MenuBarView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var updater: Updater
+    @EnvironmentObject var logbook: LogbookStore
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -254,6 +255,8 @@ struct MenuBarView: View {
                 iconButton("Refresh", systemImage: "arrow.clockwise") { Task { await store.refresh() } }
                     .disabled(store.isRefreshing)
                     .keyboardShortcut("r")
+                iconButton("Log Insulin or Food (⌘L)", systemImage: "plus.circle") { showLogSheet() }
+                    .keyboardShortcut("l")
                 iconButton("Open Dashboard (⌘D)", systemImage: "macwindow") { showDashboard() }
                     .keyboardShortcut("d")
                 iconButton("Settings…", systemImage: "gearshape") { showSettings() }
@@ -302,6 +305,12 @@ struct MenuBarView: View {
     private func showDashboard() {
         openWindow(id: DashboardView.windowID)
         NSApp.activate()
+    }
+
+    /// The log sheet lives in the dashboard window, since a sheet can't hang off the popover.
+    private func showLogSheet() {
+        logbook.logSheetRequested = true
+        showDashboard()
     }
 }
 

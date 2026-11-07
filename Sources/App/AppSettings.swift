@@ -25,6 +25,20 @@ final class AppSettings: ObservableObject {
     /// Hours of history in the popover chart (3, 6 or 12).
     @Published var chartHours: Int { didSet { d.set(chartHours, forKey: "chartHours") } }
 
+    // Insulin & food logging
+    @Published var therapy: TherapyType {
+        didSet {
+            d.set(therapy.rawValue, forKey: "therapy")
+            // A pump only delivers rapid or ultra-rapid insulin.
+            if therapy == .pump, !InsulinKind.pumpKinds.contains(bolusInsulinKind) { bolusInsulinKind = .rapid }
+        }
+    }
+    /// Mealtime / correction insulin (pump users: the insulin in the pump).
+    @Published var bolusInsulinKind: InsulinKind { didSet { d.set(bolusInsulinKind.rawValue, forKey: "bolusInsulinKind") } }
+    @Published var bolusInsulinName: String { didSet { d.set(bolusInsulinName, forKey: "bolusInsulinName") } }
+    /// Long-acting insulin (injections only).
+    @Published var basalInsulinName: String { didSet { d.set(basalInsulinName, forKey: "basalInsulinName") } }
+
     var password: String {
         get { Keychain.get("password") ?? "" }
         set {
@@ -53,5 +67,16 @@ final class AppSettings: ObservableObject {
         colorMenuBarIcon = d.object(forKey: "colorMenuBarIcon") as? Bool ?? false
         let hours = d.object(forKey: "chartHours") as? Int ?? 12
         chartHours = [3, 6, 12].contains(hours) ? hours : 12
+        therapy = TherapyType(rawValue: d.string(forKey: "therapy") ?? "") ?? .notSet
+        bolusInsulinKind = InsulinKind(rawValue: d.string(forKey: "bolusInsulinKind") ?? "") ?? .rapid
+        bolusInsulinName = d.string(forKey: "bolusInsulinName") ?? ""
+        basalInsulinName = d.string(forKey: "basalInsulinName") ?? ""
+    }
+
+    /// The name to pre-fill when logging a dose of `kind`.
+    func defaultInsulinName(for kind: InsulinKind) -> String {
+        if kind == bolusInsulinKind { return bolusInsulinName }
+        if kind == .long { return basalInsulinName }
+        return ""
     }
 }

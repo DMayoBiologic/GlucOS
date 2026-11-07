@@ -39,6 +39,25 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 
   LibreLinkUp only provides the last 12 hours, so GlucOS keeps every reading it sees (up to 90 days)
   in `~/Library/Application Support/GlucOS/history.json`. Longer ranges fill in while GlucOS runs.
+- **Insulin & food logging** (⊕ in the popover, or ⌘L in the dashboard). The first time, GlucOS asks
+  how you take insulin (injections, pump, or none) and adapts:
+  - *Injections*: log units, insulin type and name, and injection site (the picker shows when each
+    site was last used, to help rotation). Long-acting doses are logged too.
+  - *Pump*: log boluses, food, and infusion site changes. Boluses count against the site in use.
+  - Food: grams of carbohydrate and what you ate, on its own or with a dose.
+  - Context tags (optional): exercise, unwell, alcohol, stress, period, hypo treatment, site or
+    delivery problem. Doses and meals around a tag are kept out of the typical figures in Insights
+    (exercise, illness, alcohol, stress and period get their own "With …" rows instead).
+
+  Doses and meals appear on the Overview chart (insulin along the bottom, food along the top, site
+  changes as dashed lines) and in **Logbook**, where entries can be edited or deleted. They're kept
+  in `~/Library/Application Support/GlucOS/logbook.json`.
+- **Insights** show patterns observed in your own data, once there are at least 3 clean examples:
+  how soon glucose starts falling after a bolus taken without food, when it stops falling, and how
+  far it fell per unit, overall and by body area; the rise after meals, with and without insulin;
+  glucose by day of infusion-site wear (pump); and injection-site rotation (injections).
+  These are observations, not advice. GlucOS never suggests or calculates a dose, and the
+  "drop per unit" is not a correction factor. Talk to your care team before changing anything.
 - **Colour-coded menu bar icon** (Settings → Display, off by default): tints the drop green/orange/red by
   range. Stale data always shows the plain warning sign instead.
 - **Settings → Alerts** shows whether macOS is allowing GlucOS notifications and can send a test alert.
