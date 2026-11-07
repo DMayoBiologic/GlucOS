@@ -24,6 +24,16 @@ First launch: drop icon in the menu bar → **Settings…** → LibreLinkUp *fol
 region **Australia** → **Save & Connect**. Then **Display → Launch at login**, and add a widget via
 right-click desktop → **Edit Widgets** → "GlucOS".
 
+### Using it
+
+- **Click the widget** (or a GlucOS notification, or launch GlucOS again from Finder/Spotlight) to open
+  the menu bar popover.
+- **Hover the chart** to read any individual reading and its time; the 3h / 6h / 12h control sets the range.
+- **Colour-coded menu bar icon** (Settings → Display, off by default): tints the drop green/orange/red by
+  range. Stale data always shows the plain warning sign instead.
+- **Settings → Alerts** shows whether macOS is allowing GlucOS notifications and can send a test alert.
+  If notifications are turned off while alerts are enabled, the popover says so.
+
 ### Updates
 
 GlucOS checks `releases/latest/download/appcast.xml` every hour via [Sparkle](https://sparkle-project.org).
@@ -73,8 +83,10 @@ Release + tag. Every installed copy updates and relaunches itself within the hou
 ```
 project.yml              XcodeGen spec — app + widget targets, Sparkle package, Info.plist keys
 Sources/Shared/          models, stats, shared snapshot store, chart (compiled into both targets)
-Sources/App/             menu bar app: LibreLinkUp client, Keychain, poll loop, alerts, Sparkle, views
+Sources/App/             menu bar app: LibreLinkUp client, Keychain, poll loop, alerts, Sparkle, views,
+                         app delegate (glucos:// URLs, notification presentation), Assets.xcassets (app icon)
 Sources/Widget/          WidgetKit extension: timeline provider + small/medium/large views
+scripts/make_app_icon.py regenerates the app icon PNGs (Pillow)
 .github/workflows/       ci.yml (compile check), release.yml (merge to main → release + appcast)
 ```
 

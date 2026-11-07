@@ -47,6 +47,8 @@ struct GlucoseWidget: Widget {
         StaticConfiguration(kind: kind, provider: GlucoseProvider()) { entry in
             GlucoseWidgetView(entry: entry)
                 .containerBackground(for: .widget) { Color(nsColor: .windowBackgroundColor) }
+                // Click the widget to open the GlucOS popover (handled in AppDelegate).
+                .widgetURL(URL(string: "glucos://open"))
         }
         .configurationDisplayName("Glucose")
         .description("Current reading, trend and recent history from LibreLinkUp.")

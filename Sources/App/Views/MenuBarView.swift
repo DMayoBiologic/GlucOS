@@ -21,12 +21,14 @@ struct MenuBarView: View {
                 emptyState
             }
             if let err = s.lastError { errorBanner(err) }
+            if store.notificationsBlocked { notificationsBanner }
             footer
         }
         .padding(16)
         .frame(width: 360)
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: s.current)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: s.lastError)
+        .task { await store.checkNotificationPermission() }
     }
 
     // MARK: Header
@@ -59,7 +61,7 @@ struct MenuBarView: View {
                                 .contentTransition(.numericText(value: d))
                         }
                     }
-                    Text(Format.age(cur.age()))
+                    Text("\(Format.age(cur.age())) · \(cur.timestamp.formatted(date: .omitted, time: .shortened))")
                         .font(.caption)
                         .foregroundStyle(s.isStale() ? Color.orange : Color.secondary)
                 }
@@ -83,9 +85,23 @@ struct MenuBarView: View {
 
     private var chartCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Last 12 hours").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-            GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, hours: 12)
+            HStack {
+                Text("Last \(settings.chartHours) hours").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Spacer()
+                Picker("Chart range", selection: $settings.chartHours) {
+                    Text("3h").tag(3)
+                    Text("6h").tag(6)
+                    Text("12h").tag(12)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.mini)
+                .fixedSize()
+            }
+            GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
+                         hours: Double(settings.chartHours), interactive: true)
                 .frame(height: 140)
+                .help("Hover to see individual readings")
         }
         .card()
     }
@@ -210,6 +226,24 @@ struct MenuBarView: View {
         .padding(10)
         .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    /// Alerts are on but macOS won't show them. Easy to miss otherwise, since nothing else breaks.
+    private var notificationsBanner: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Label {
+                Text("Notifications are off for GlucOS, so glucose alerts can't reach you.")
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "bell.slash.fill").foregroundStyle(.red)
+            }
+            Spacer(minLength: 4)
+            Button("Turn On…") { NSWorkspace.shared.open(AlertManager.notificationSettingsURL) }
+                .controlSize(.small)
+        }
+        .font(.caption)
+        .padding(10)
+        .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var footer: some View {
