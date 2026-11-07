@@ -15,10 +15,13 @@ struct GlucoseChart: View {
     @State private var hoverDate: Date?
 
     /// The real reading nearest the pointer. Only actual readings are ever shown, never an
-    /// interpolated value between two of them.
+    /// interpolated value between two of them. Over a gap in the data (sensor warm-up, phone out
+    /// of signal) nothing is shown, rather than a reading from well before or after the pointer.
     private func nearest(to date: Date?, in window: [GlucoseReading]) -> GlucoseReading? {
         guard let date else { return nil }
-        return window.min { abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date)) }
+        let distance = { (r: GlucoseReading) in abs(r.timestamp.timeIntervalSince(date)) }
+        guard let best = window.min(by: { distance($0) < distance($1) }), distance(best) <= 10 * 60 else { return nil }
+        return best
     }
 
     private var window: [GlucoseReading] {
