@@ -205,7 +205,7 @@ struct SettingsView: View {
                         Label("Not configured in this build (no Sparkle public key).", systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
                     } else {
-                        Text("Checks every 6 hours and installs on relaunch.")
+                        Text("Checks hourly; installs and relaunches automatically.")
                     }
                 }
             }

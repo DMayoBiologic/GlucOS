@@ -26,8 +26,9 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 
 ### Updates
 
-GlucOS checks `releases/latest/download/appcast.xml` every 6 h via [Sparkle](https://sparkle-project.org)
-and installs new versions automatically (applied on relaunch). **Updates** in the menu checks on demand.
+GlucOS checks `releases/latest/download/appcast.xml` every hour via [Sparkle](https://sparkle-project.org).
+A new version downloads in the background, installs, and GlucOS relaunches itself on it: no prompts,
+nothing to click, no restart needed. **Check for Updates** in the menu checks on demand.
 Downloads are verified with an EdDSA signature, so an ad-hoc-signed build is fine.
 
 ## Developing
@@ -58,7 +59,7 @@ Optional repo secrets for proper Developer ID signing + notarization (needs a pa
 Merging to `main` ships. [`release.yml`](.github/workflows/release.yml) runs on every push to `main`:
 it takes the latest `vX.Y.Z` tag, bumps the patch number, builds on a macOS runner, signs (and
 notarizes if the Apple secrets are set), zips, generates the Sparkle appcast, and publishes the GitHub
-Release + tag. Every installed copy updates itself within 6 h. Nothing is committed back to `main`.
+Release + tag. Every installed copy updates and relaunches itself within the hour. Nothing is committed back to `main`.
 
 - `[minor]` or `[major]` in the PR title / merge commit message bumps that part instead.
 - `[skip release]` in the commit message skips the release; docs-only (`*.md`) pushes are skipped too.

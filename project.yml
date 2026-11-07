@@ -58,7 +58,7 @@ targets:
         SUPublicEDKey: $(SPARKLE_PUBLIC_ED_KEY)
         SUEnableAutomaticChecks: true
         SUAutomaticallyUpdate: true
-        SUScheduledCheckInterval: 21600
+        SUScheduledCheckInterval: 3600 # hourly, Sparkle's minimum
         SUAllowsAutomaticUpdates: true
     entitlements:
       path: Sources/App/GlucOS.entitlements
