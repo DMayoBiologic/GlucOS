@@ -72,6 +72,8 @@ struct DoseResponse: Identifiable, Hashable {
     /// Time until glucose was 0.5 mmol/L below the start. Nil when it never got there.
     let onset: TimeInterval?
     let curve: [CurvePoint]
+    /// Context logged around it (exercise, illness…). Tagged examples are kept out of the main figures.
+    var tags: Set<ContextTag> = []
 
     var id: UUID { dose.id }
     var drop: Double { startMgdl - lowestMgdl }
@@ -91,6 +93,7 @@ struct MealResponse: Identifiable, Hashable {
     /// Bolus insulin logged within 30 minutes of the meal, if any.
     let insulinUnits: Double?
     let curve: [CurvePoint]
+    var tags: Set<ContextTag> = []
 
     var rise: Double { peakMgdl - startMgdl }
     var risePer10g: Double { rise / carbs * 10 }
@@ -99,6 +102,8 @@ struct MealResponse: Identifiable, Hashable {
 struct DoseSummary: Identifiable, Hashable {
     /// Nil for all areas together.
     let area: BodyArea?
+    /// Set for a row of examples with this context.
+    var tag: ContextTag? = nil
     let examples: Int
     /// Examples with a clear enough fall to read timings from.
     let measurable: Int
@@ -107,8 +112,11 @@ struct DoseSummary: Identifiable, Hashable {
     let dropPerUnit: Spread?
     let curve: [CurvePoint]
 
-    var id: String { area?.rawValue ?? "all" }
-    var title: String { area?.title ?? "All sites" }
+    var id: String { tag.map { "tag-\($0.rawValue)" } ?? area?.rawValue ?? "all" }
+    var title: String {
+        if let tag { return "With \(tag.title.lowercased())" }
+        return area?.title ?? "All sites"
+    }
 }
 
 struct MealSummary: Hashable {
@@ -135,48 +143,91 @@ struct SiteAgeBucket: Identifiable, Hashable {
 struct LogInsights {
     /// Bolus doses logged in the analysed period.
     let bolusCount: Int
-    /// Boluses without food that had clean enough data to use.
+    /// Boluses without food that had clean enough data to use and no context tags.
     let corrections: [DoseResponse]
     let overall: DoseSummary
     /// Areas with at least one clean example, most examples first.
     let byArea: [DoseSummary]
+    /// Clean examples with a context tag, kept out of the figures above.
+    let correctionsSetAside: Int
+    /// One row per comparable tag (exercise, illness…) that has examples.
+    let byTag: [DoseSummary]
 
     let mealCount: Int
+    /// Untagged meals with clean enough data to use.
     let mealResponses: [MealResponse]
+    let mealsSetAside: Int
     let mealsWithInsulin: MealSummary
     let mealsWithoutInsulin: MealSummary
 
     let siteAge: [SiteAgeBucket]
 
-    static func compute(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry],
-                        siteChanges: [SiteChange], low: Double, high: Double,
+    static func compute(readings: [GlucoseReading], doses: [InsulinDose], meals rawMeals: [MealEntry],
+                        siteChanges: [SiteChange], contexts: [ContextEvent], low: Double, high: Double,
                         siteOf: (InsulinDose) -> InjectionSite?, now: Date = Date()) -> LogInsights {
         let start = readings.first?.timestamp ?? now
         let boluses = doses.filter { $0.kind.isBolus && $0.timestamp >= start }
-        let mealsInPeriod = meals.filter { $0.timestamp >= start }
+        let mealsInPeriod = rawMeals.filter { $0.timestamp >= start }
+        // A hypo treatment is food as far as the glucose trace is concerned.
+        let meals = (rawMeals + contexts.filter { $0.tags.contains(.hypoTreatment) }
+            .map { MealEntry(id: $0.id, timestamp: $0.timestamp, carbs: 0) })
+            .sorted { $0.timestamp < $1.timestamp }
 
-        let corrections = boluses.compactMap { dose -> DoseResponse? in
-            correctionResponse(dose, readings: readings, doses: doses, meals: meals, area: siteOf(dose)?.area)
+        var allCorrections: [DoseResponse] = []
+        for dose in boluses {
+            guard var r = correctionResponse(dose, readings: readings, doses: doses, meals: meals,
+                                             area: siteOf(dose)?.area) else { continue }
+            r.tags = tags(around: dose.timestamp, through: dose.timestamp.addingTimeInterval(dose.kind.responseWindow),
+                          in: contexts)
+            allCorrections.append(r)
         }
+        let corrections = allCorrections.filter { $0.tags.isEmpty }
+        let byTag = ContextTag.allCases.filter(\.isComparable).compactMap { tag -> DoseSummary? in
+            let tagged = allCorrections.filter { $0.tags.contains(tag) }
+            guard !tagged.isEmpty else { return nil }
+            var s = summarize(tagged, area: nil)
+            s.tag = tag
+            return s
+        }
+
         let areas = Dictionary(grouping: corrections) { $0.area ?? .other }
         let byArea = areas.map { summarize($0.value, area: $0.key) }
             .sorted { $0.examples != $1.examples ? $0.examples > $1.examples : $0.title < $1.title }
 
-        let mealResponses = groupMeals(mealsInPeriod).compactMap {
-            mealResponse($0, readings: readings, doses: doses, meals: meals)
+        let allMeals = groupMeals(mealsInPeriod).compactMap { meal -> MealResponse? in
+            guard var r = mealResponse(meal, readings: readings, doses: doses, meals: meals) else { return nil }
+            r.tags = tags(around: meal.timestamp, through: meal.timestamp.addingTimeInterval(InsightRules.mealWindow),
+                          in: contexts)
+            return r
         }
+        let mealResponses = allMeals.filter { $0.tags.isEmpty }
 
         return LogInsights(
             bolusCount: boluses.count,
             corrections: corrections,
             overall: summarize(corrections, area: nil),
             byArea: byArea,
+            correctionsSetAside: allCorrections.count - corrections.count,
+            byTag: byTag,
             mealCount: mealsInPeriod.count,
             mealResponses: mealResponses,
+            mealsSetAside: allMeals.count - mealResponses.count,
             mealsWithInsulin: summarize(mealResponses.filter { $0.insulinUnits != nil }),
             mealsWithoutInsulin: summarize(mealResponses.filter { $0.insulinUnits == nil }),
             siteAge: siteAge(readings: readings, siteChanges: siteChanges, low: low, high: high, now: now)
         )
+    }
+
+    /// Tags that could affect an example running from `start` to `end`. Hypo treatments are
+    /// left out: they're handled as food (the window ends at them, or the example is skipped).
+    static func tags(around start: Date, through end: Date, in contexts: [ContextEvent]) -> Set<ContextTag> {
+        var out = Set<ContextTag>()
+        for c in contexts where c.timestamp <= end {
+            for tag in c.tags where tag != .hypoTreatment && c.timestamp >= start.addingTimeInterval(-tag.reach) {
+                out.insert(tag)
+            }
+        }
+        return out
     }
 
     // MARK: Corrections

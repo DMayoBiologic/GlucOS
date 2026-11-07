@@ -140,7 +140,7 @@ struct TrendChart: View {
         let inView = events.filter { $0.date >= viewStart && $0.date <= viewEnd }
         let showLabels = inView.count <= 40
         let insulin = events.filter { $0.kind == .bolus || $0.kind == .basal }
-        let food = events.filter { $0.kind == .food }
+        let food = events.filter { $0.kind == .food || $0.kind == .context }
         let siteChanges = events.filter { $0.kind == .siteChange }
         let hoveredEvents: [ChartEvent] = hoverDate.map { d in
             let tolerance = max(10 * 60, visible / 150)
@@ -201,7 +201,7 @@ struct TrendChart: View {
             }
             ForEach(food) { e in
                 PointMark(x: .value("Time", e.date), y: .value("Glucose", foodY))
-                    .symbol(.circle)
+                    .symbol(e.kind == .context ? BasicChartSymbolShape.diamond : BasicChartSymbolShape.circle)
                     .symbolSize(60)
                     .foregroundStyle(e.kind.color)
                     .annotation(position: .bottom, spacing: 2) {
@@ -311,7 +311,7 @@ struct ReadingCallout: View {
 /// A logged dose, meal or site change, ready to plot.
 struct ChartEvent: Identifiable, Hashable {
     enum Kind: Hashable {
-        case bolus, basal, food, siteChange
+        case bolus, basal, food, siteChange, context
 
         var color: Color {
             switch self {
@@ -319,6 +319,7 @@ struct ChartEvent: Identifiable, Hashable {
             case .basal: return .indigo
             case .food: return .orange
             case .siteChange: return .purple
+            case .context: return .teal
             }
         }
 
@@ -327,6 +328,7 @@ struct ChartEvent: Identifiable, Hashable {
             case .bolus, .basal: return "syringe"
             case .food: return "fork.knife"
             case .siteChange: return "arrow.triangle.2.circlepath"
+            case .context: return "tag"
             }
         }
 
@@ -336,6 +338,7 @@ struct ChartEvent: Identifiable, Hashable {
             case .basal: return "Long-acting insulin"
             case .food: return "Food"
             case .siteChange: return "Site change"
+            case .context: return "Context"
             }
         }
     }
@@ -354,7 +357,7 @@ struct ChartEventLegend: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            ForEach([ChartEvent.Kind.bolus, .basal, .food, .siteChange].filter { kinds.contains($0) }, id: \.self) { k in
+            ForEach([ChartEvent.Kind.bolus, .basal, .food, .siteChange, .context].filter { kinds.contains($0) }, id: \.self) { k in
                 Label(k.title, systemImage: k.systemImage)
                     .foregroundStyle(k.color)
             }

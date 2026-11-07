@@ -45,6 +45,9 @@ right-click desktop → **Edit Widgets** → "GlucOS".
     site was last used, to help rotation). Long-acting doses are logged too.
   - *Pump*: log boluses, food, and infusion site changes. Boluses count against the site in use.
   - Food: grams of carbohydrate and what you ate, on its own or with a dose.
+  - Context tags (optional): exercise, unwell, alcohol, stress, period, hypo treatment, site or
+    delivery problem. Doses and meals around a tag are kept out of the typical figures in Insights
+    (exercise, illness, alcohol, stress and period get their own "With …" rows instead).
 
   Doses and meals appear on the Overview chart (insulin along the bottom, food along the top, site
   changes as dashed lines) and in **Logbook**, where entries can be edited or deleted. They're kept

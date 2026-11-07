@@ -169,17 +169,92 @@ struct SiteChange: Codable, Identifiable, Hashable {
     var note: String = ""
 }
 
+/// Something going on that changes how glucose responds. Examples affected by a tag are set
+/// aside from the main insights (or shown on their own), so they don't skew the typical figures.
+enum ContextTag: String, CaseIterable, Identifiable, Codable {
+    case exercise, illness, alcohol, stress, period, hypoTreatment, siteProblem
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .exercise: return "Exercise"
+        case .illness: return "Unwell"
+        case .alcohol: return "Alcohol"
+        case .stress: return "Stress"
+        case .period: return "Period"
+        case .hypoTreatment: return "Hypo treatment"
+        case .siteProblem: return "Site or delivery problem"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .exercise: return "figure.run"
+        case .illness: return "thermometer.medium"
+        case .alcohol: return "wineglass"
+        case .stress: return "bolt.heart"
+        case .period: return "calendar.circle"
+        case .hypoTreatment: return "cube"
+        case .siteProblem: return "bandage"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .exercise: return "Exercise can make insulin work harder and for longer, for hours afterwards."
+        case .illness: return "Being unwell usually pushes glucose up and makes insulin less effective."
+        case .alcohol: return "Alcohol can lower glucose for many hours, often overnight."
+        case .stress: return "Stress hormones can push glucose up."
+        case .period: return "Insulin needs often shift across the menstrual cycle."
+        case .hypoTreatment: return "Fast sugar taken for a low. Counted like food."
+        case .siteProblem: return "A bent cannula, leak or bad site means insulin may not have gone in properly."
+        }
+    }
+
+    /// How long before an example a tag can still affect it.
+    var reach: TimeInterval {
+        switch self {
+        case .exercise: return 6 * 3600
+        case .alcohol: return 12 * 3600
+        case .illness, .stress, .period: return 24 * 3600
+        case .hypoTreatment, .siteProblem: return 0
+        }
+    }
+
+    /// Tags whose examples are shown as their own rows rather than only set aside.
+    var isComparable: Bool {
+        switch self {
+        case .exercise, .illness, .alcohol, .stress, .period: return true
+        case .hypoTreatment, .siteProblem: return false
+        }
+    }
+}
+
+/// Context logged at a time, on its own or alongside a dose or meal.
+struct ContextEvent: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var timestamp: Date
+    var tags: Set<ContextTag>
+    var note: String = ""
+
+    /// Tags in a stable order for display.
+    var sortedTags: [ContextTag] { ContextTag.allCases.filter(tags.contains) }
+}
+
 /// One row in the logbook, whatever its type.
 enum LogEntry: Identifiable, Hashable {
     case dose(InsulinDose)
     case meal(MealEntry)
     case siteChange(SiteChange)
+    case context(ContextEvent)
 
     var id: UUID {
         switch self {
         case .dose(let d): return d.id
         case .meal(let m): return m.id
         case .siteChange(let s): return s.id
+        case .context(let c): return c.id
         }
     }
 
@@ -188,6 +263,7 @@ enum LogEntry: Identifiable, Hashable {
         case .dose(let d): return d.timestamp
         case .meal(let m): return m.timestamp
         case .siteChange(let s): return s.timestamp
+        case .context(let c): return c.timestamp
         }
     }
 }

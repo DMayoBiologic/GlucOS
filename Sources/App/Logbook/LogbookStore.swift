@@ -10,6 +10,7 @@ final class LogbookStore: ObservableObject {
     @Published private(set) var doses: [InsulinDose] = []
     @Published private(set) var meals: [MealEntry] = []
     @Published private(set) var siteChanges: [SiteChange] = []
+    @Published private(set) var contexts: [ContextEvent] = []
 
     /// Set by the menu bar popover to have the dashboard open the log sheet.
     @Published var logSheetRequested = false
@@ -19,6 +20,7 @@ final class LogbookStore: ObservableObject {
         var doses: [InsulinDose] = []
         var meals: [MealEntry] = []
         var siteChanges: [SiteChange] = []
+        var contexts: [ContextEvent]? = []
     }
 
     private static var url: URL? {
@@ -41,13 +43,15 @@ final class LogbookStore: ObservableObject {
         doses = file.doses.sorted { $0.timestamp < $1.timestamp }
         meals = file.meals.sorted { $0.timestamp < $1.timestamp }
         siteChanges = file.siteChanges.sorted { $0.timestamp < $1.timestamp }
+        contexts = (file.contexts ?? []).sorted { $0.timestamp < $1.timestamp }
     }
 
-    var isEmpty: Bool { doses.isEmpty && meals.isEmpty && siteChanges.isEmpty }
+    var isEmpty: Bool { doses.isEmpty && meals.isEmpty && siteChanges.isEmpty && contexts.isEmpty }
 
     /// Every entry, newest first.
     var entries: [LogEntry] {
-        (doses.map(LogEntry.dose) + meals.map(LogEntry.meal) + siteChanges.map(LogEntry.siteChange))
+        (doses.map(LogEntry.dose) + meals.map(LogEntry.meal) + siteChanges.map(LogEntry.siteChange)
+            + contexts.map(LogEntry.context))
             .sorted { $0.timestamp > $1.timestamp }
     }
 
@@ -55,6 +59,7 @@ final class LogbookStore: ObservableObject {
         if let d = doses.first(where: { $0.id == id }) { return .dose(d) }
         if let m = meals.first(where: { $0.id == id }) { return .meal(m) }
         if let s = siteChanges.first(where: { $0.id == id }) { return .siteChange(s) }
+        if let c = contexts.first(where: { $0.id == id }) { return .context(c) }
         return nil
     }
 
@@ -66,6 +71,7 @@ final class LogbookStore: ObservableObject {
         case .dose(let d): Self.upsert(d, into: &doses)
         case .meal(let m): Self.upsert(m, into: &meals)
         case .siteChange(let s): Self.upsert(s, into: &siteChanges)
+        case .context(let c): Self.upsert(c, into: &contexts)
         }
         persist()
     }
@@ -75,6 +81,7 @@ final class LogbookStore: ObservableObject {
         doses.removeAll { ids.contains($0.id) }
         meals.removeAll { ids.contains($0.id) }
         siteChanges.removeAll { ids.contains($0.id) }
+        contexts.removeAll { ids.contains($0.id) }
         persist()
     }
 
@@ -86,7 +93,7 @@ final class LogbookStore: ObservableObject {
 
     private func persist() {
         guard let url = Self.url else { return }
-        let file = File(doses: doses, meals: meals, siteChanges: siteChanges)
+        let file = File(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts)
         Self.writeQueue.async {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .secondsSince1970
@@ -130,6 +137,7 @@ protocol Timestamped {
 extension InsulinDose: Timestamped {}
 extension MealEntry: Timestamped {}
 extension SiteChange: Timestamped {}
+extension ContextEvent: Timestamped {}
 
 // MARK: - Chart events
 
@@ -148,6 +156,11 @@ extension LogbookStore {
             let detail = m.carbs > 0 ? "\(LogFormat.grams(m.carbs)) carbs · \(what)" : what
             out.append(ChartEvent(id: m.id, date: m.timestamp, kind: .food,
                                   label: m.carbs > 0 ? "\(LogFormat.number(m.carbs))g" : "•", detail: detail))
+        }
+        for c in contexts where domain.contains(c.timestamp) && !c.tags.isEmpty {
+            let titles = c.sortedTags.map(\.title).joined(separator: ", ")
+            out.append(ChartEvent(id: c.id, date: c.timestamp, kind: .context,
+                                  label: c.sortedTags.first?.title ?? "", detail: titles))
         }
         for s in siteChanges where domain.contains(s.timestamp) {
             out.append(ChartEvent(id: s.id, date: s.timestamp, kind: .siteChange,

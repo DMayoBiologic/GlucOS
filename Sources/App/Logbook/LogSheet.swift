@@ -16,7 +16,7 @@ enum LogSheetTarget: Identifiable {
 /// Logs insulin, food and (on a pump) a site change, all at one time. What it asks for follows
 /// the therapy type in Settings. It records what the user enters and never suggests an amount.
 struct LogSheet: View {
-    private enum Part { case dose, meal, siteChange }
+    private enum Part { case dose, meal, siteChange, context }
 
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
@@ -27,6 +27,7 @@ struct LogSheet: View {
     private let doseID: UUID
     private let mealID: UUID
     private let siteID: UUID
+    private let contextID: UUID
 
     @State private var time: Date
     @State private var includeInsulin: Bool
@@ -40,12 +41,13 @@ struct LogSheet: View {
     @State private var carbsText: String
     @State private var food: String
     @State private var newSite: InjectionSite
+    @State private var tags: Set<ContextTag>
     @State private var note: String
 
     init(target: LogSheetTarget) {
         let s = AppSettings.shared
         var editing: Part?
-        var doseID = UUID(), mealID = UUID(), siteID = UUID()
+        var doseID = UUID(), mealID = UUID(), siteID = UUID(), contextID = UUID()
         var time = Date()
         var includeInsulin = s.therapy.logsInsulin
         var includeFood = !s.therapy.logsInsulin
@@ -58,6 +60,7 @@ struct LogSheet: View {
         var carbsText = ""
         var food = ""
         var newSite = InjectionSite.abdomenLeft
+        var tags = Set<ContextTag>()
         var note = ""
 
         if case .edit(let entry) = target {
@@ -88,6 +91,11 @@ struct LogSheet: View {
                 includeSiteChange = true
                 newSite = c.site
                 note = c.note
+            case .context(let c):
+                editing = .context
+                contextID = c.id
+                tags = c.tags
+                note = c.note
             }
         }
 
@@ -95,6 +103,7 @@ struct LogSheet: View {
         self.doseID = doseID
         self.mealID = mealID
         self.siteID = siteID
+        self.contextID = contextID
         _time = State(initialValue: time)
         _includeInsulin = State(initialValue: includeInsulin)
         _includeFood = State(initialValue: includeFood)
@@ -107,6 +116,7 @@ struct LogSheet: View {
         _carbsText = State(initialValue: carbsText)
         _food = State(initialValue: food)
         _newSite = State(initialValue: newSite)
+        _tags = State(initialValue: tags)
         _note = State(initialValue: note)
     }
 
@@ -161,6 +171,13 @@ struct LogSheet: View {
     private var showsInsulin: Bool { editing == .dose || (editing == nil && settings.therapy.logsInsulin) }
     private var showsFood: Bool { editing == .meal || editing == nil }
     private var showsSiteChange: Bool { editing == .siteChange || (editing == nil && settings.therapy == .pump) }
+    private var showsTags: Bool { editing == .context || editing == nil }
+
+    private var tagChoices: [ContextTag] {
+        settings.therapy.logsInsulin || tags.contains(.siteProblem)
+            ? ContextTag.allCases
+            : ContextTag.allCases.filter { $0 != .siteProblem }
+    }
 
     private var form: some View {
         Form {
@@ -171,6 +188,7 @@ struct LogSheet: View {
             if showsInsulin { insulinSection }
             if showsFood { foodSection }
             if showsSiteChange { siteChangeSection }
+            if showsTags { tagsSection }
 
             Section {
                 TextField("Note", text: $note, prompt: Text("Optional"), axis: .vertical)
@@ -279,6 +297,28 @@ struct LogSheet: View {
         }
     }
 
+    private var tagsSection: some View {
+        Section {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)], alignment: .leading, spacing: 8) {
+                ForEach(tagChoices) { t in
+                    Toggle(isOn: Binding(
+                        get: { tags.contains(t) },
+                        set: { on in if on { tags.insert(t) } else { tags.remove(t) } }
+                    )) {
+                        Label(t.title, systemImage: t.systemImage)
+                    }
+                    .toggleStyle(.button)
+                    .help(t.help)
+                }
+            }
+        } header: {
+            Text(editing == .context ? "Context" : "Anything Else Going On?")
+        } footer: {
+            Text("Optional. Doses and meals around these are kept out of the typical figures in Insights, so they don't skew them.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
     // MARK: Values
 
     private static func parse(_ text: String) -> Double? {
@@ -327,6 +367,7 @@ struct LogSheet: View {
             (showsInsulin && includeInsulin, insulinValid),
             (showsFood && includeFood, foodValid),
             (showsSiteChange && includeSiteChange, true),
+            (showsTags && !tags.isEmpty, true),
         ].filter { $0.0 }
         return !parts.isEmpty && parts.allSatisfy { $0.1 }
     }
@@ -356,6 +397,9 @@ struct LogSheet: View {
         }
         if showsSiteChange && includeSiteChange {
             logbook.save(.siteChange(SiteChange(id: siteID, timestamp: time, site: newSite, note: trimmedNote)))
+        }
+        if showsTags && !tags.isEmpty {
+            logbook.save(.context(ContextEvent(id: contextID, timestamp: time, tags: tags, note: trimmedNote)))
         }
         dismiss()
     }

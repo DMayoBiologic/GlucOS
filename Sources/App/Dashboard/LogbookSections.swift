@@ -44,7 +44,7 @@ struct LogbookSection: View {
             switch e {
             case .dose(let d): if d.kind.isBolus { bolus += d.units } else { basal += d.units }
             case .meal(let m): carbs += m.carbs
-            case .siteChange: break
+            case .siteChange, .context: break
             }
         }
         return HStack(alignment: .top, spacing: 16) {
@@ -114,6 +114,7 @@ struct LogbookSection: View {
         case .dose(let d): return d.kind.isBolus ? .bolus : .basal
         case .meal: return .food
         case .siteChange: return .siteChange
+        case .context: return .context
         }
     }
 
@@ -122,6 +123,7 @@ struct LogbookSection: View {
         case .dose(let d): return d.viaPump ? "Bolus" : (d.kind.isBolus ? "Insulin" : "Long-acting")
         case .meal: return "Food"
         case .siteChange: return "Site change"
+        case .context: return "Context"
         }
     }
 
@@ -129,7 +131,7 @@ struct LogbookSection: View {
         switch e {
         case .dose(let d): return LogFormat.units(d.units)
         case .meal(let m): return m.carbs > 0 ? LogFormat.grams(m.carbs) : "–"
-        case .siteChange: return ""
+        case .siteChange, .context: return ""
         }
     }
 
@@ -139,6 +141,7 @@ struct LogbookSection: View {
         case .dose(let d): parts.append(d.displayName); parts.append(d.note)
         case .meal(let m): parts.append(m.food); parts.append(m.note)
         case .siteChange(let c): parts.append(c.note)
+        case .context(let c): parts.append(c.sortedTags.map(\.title).joined(separator: ", ")); parts.append(c.note)
         }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
@@ -148,6 +151,7 @@ struct LogbookSection: View {
         case .dose(let d): return logbook.site(of: d)?.title
         case .meal: return nil
         case .siteChange(let c): return c.site.title
+        case .context: return nil
         }
     }
 }
@@ -172,7 +176,8 @@ struct InsightsSection: View {
                     TherapySetupView().dashboardCard()
                 } else {
                     let insights = LogInsights.compute(readings: readings, doses: logbook.doses, meals: logbook.meals,
-                                                       siteChanges: logbook.siteChanges, low: lowMgdl, high: highMgdl,
+                                                       siteChanges: logbook.siteChanges, contexts: logbook.contexts,
+                                                       low: lowMgdl, high: highMgdl,
                                                        siteOf: { logbook.site(of: $0) })
                     SafetyNote()
                     if logbook.isEmpty {
@@ -313,7 +318,7 @@ private struct InsulinActionCard: View {
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     Divider().gridCellUnsizedAxes(.horizontal)
-                    ForEach([overall] + insights.byArea) { s in
+                    ForEach([overall] + insights.byArea + insights.byTag) { s in
                         GridRow {
                             Text(s.title).fontWeight(s.area == nil ? .semibold : .regular)
                             Text("\(s.examples)").monospacedDigit()
@@ -326,6 +331,10 @@ private struct InsulinActionCard: View {
                     }
                 }
             }
+            if insights.correctionsSetAside > 0 {
+                setAsideNote(insights.correctionsSetAside, noun: "bolus", plural: "boluses",
+                             hasRows: !insights.byTag.isEmpty && overall.examples >= need)
+            }
             Text("“Starts working” is when glucose was 0.5 mmol/L below where it started. “Stops falling after” is when it reached its lowest point: a rough guide to how long the insulin kept acting. “Drop per unit” is how far glucose fell per unit in those doses. It is an observation, not your correction factor (ISF), which your care team sets.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -333,6 +342,15 @@ private struct InsulinActionCard: View {
         }
         .dashboardCard()
     }
+}
+
+/// "3 examples with exercise, illness… set aside" line.
+private func setAsideNote(_ count: Int, noun: String, plural: String, hasRows: Bool) -> some View {
+    Label("\(count) \(count == 1 ? noun : plural) logged around exercise, illness, alcohol, stress, a period or a site problem \(count == 1 ? "is" : "are") kept out of the typical figures\(hasRows ? " and shown in the “With …” rows" : "").",
+          systemImage: "tag")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
 }
 
 // MARK: Meals
@@ -392,6 +410,9 @@ private struct MealResponseCard: View {
                         .monospacedDigit()
                     }
                 }
+            }
+            if insights.mealsSetAside > 0 {
+                setAsideNote(insights.mealsSetAside, noun: "meal", plural: "meals", hasRows: false)
             }
             Text(showsInsulin
                  ? "Rise is from your glucose when you logged the meal to the highest point in the next 3 hours. “With insulin” means a bolus was logged within 30 minutes of eating, so the rise reflects both the food and the insulin."
