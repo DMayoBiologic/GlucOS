@@ -1,7 +1,12 @@
 name: Release
 
-# Tag `vX.Y.Z` (or run manually with a version) → build → sign → zip → Sparkle appcast → GitHub Release.
+# Every push to main ships: next version → build → sign → zip → Sparkle appcast → GitHub Release.
 # Installed copies of GlucOS pick the update up from releases/latest/download/appcast.xml.
+#
+# Versioning is automatic, from the latest vX.Y.Z tag:
+#   patch bump by default; put [minor] or [major] in the PR title / merge commit message to bump more.
+#   [skip release] in the PR title / commit subject skips the release. Docs-only pushes (*.md) are skipped.
+# Manual run (Actions → Release → Run workflow) can force a specific version, or leave it blank to auto-bump.
 #
 # Required secret:   SPARKLE_PRIVATE_KEY   (from `make sparkle-keys`)
 # Optional secrets:  MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD   (Developer ID Application, base64 .p12)
@@ -10,12 +15,15 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 0.2.0)"
-        required: true
+        description: "Version to release (e.g. 0.2.0). Leave blank to auto-bump the patch version."
+        required: false
 
 permissions:
   contents: write
@@ -25,21 +33,79 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Only the subject line can skip a release (for a squash merge that's the PR title; for a merge
+  # commit, the PR title line under "Merge pull request …"). Scanning the whole message would let
+  # a squash body that merely mentions the marker skip a release by accident.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.s.outputs.skip }}
+    steps:
+      - id: s
+        env:
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          TITLE=$(printf '%s\n' "$MSG" | head -1)
+          case "$TITLE" in
+            "Merge pull request "*) TITLE="$TITLE $(printf '%s\n' "$MSG" | sed -n '3p')" ;;
+          esac
+          case "$TITLE" in
+            *"[skip release]"*) echo "skip=true"  >> "$GITHUB_OUTPUT"; echo "Skipping: $TITLE" ;;
+            *)                  echo "skip=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
   release:
+    needs: gate
+    # Releases only ever come from main, even when run by hand from another branch.
+    if: needs.gate.outputs.skip != 'true' && github.ref == 'refs/heads/main'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve version
         id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            V="${{ inputs.version }}"
+          git fetch --tags --force --quiet
+          SEMVER='^[0-9]+\.[0-9]+\.[0-9]+$'
+          # Re-run of a commit that already shipped: rebuild the same version instead of bumping.
+          EXISTING=$(git tag --points-at HEAD -l 'v*' | sed 's/^v//' | grep -E "$SEMVER" | sort -V | tail -1 || true)
+          LATEST=$(git tag -l 'v*' | sed 's/^v//' | grep -E "$SEMVER" | sort -V | tail -1 || true)
+          LATEST=${LATEST:-0.0.0}
+          if [ -n "$INPUT_VERSION" ]; then
+            V="${INPUT_VERSION#v}"
+          elif [ -n "$EXISTING" ]; then
+            V="$EXISTING"
           else
-            V="${GITHUB_REF_NAME#v}"
+            IFS=. read -r MA MI PA <<< "$LATEST"
+            # Look at every commit since the last release, not just HEAD, so a [minor]/[major]
+            # marker isn't lost when a queued run is superseded or a PR is rebase-merged.
+            MSGS="$COMMIT_MSG"
+            if git rev-parse -q --verify "refs/tags/v$LATEST" >/dev/null; then
+              MSGS="$MSGS $(git log --format=%B "v$LATEST..HEAD")"
+            fi
+            case "$MSGS" in
+              *"[major]"*) V="$((MA + 1)).0.0" ;;
+              *"[minor]"*) V="$MA.$((MI + 1)).0" ;;
+              *)          V="$MA.$MI.$((PA + 1))" ;;
+            esac
+          fi
+          echo "$V" | grep -qE "$SEMVER" || { echo "::error::Bad version '$V' (want X.Y.Z)"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/v$V" >/dev/null; then
+            [ "$(git rev-parse "v$V^{commit}")" = "$(git rev-parse HEAD)" ] || {
+              echo "::error::Tag v$V already exists on another commit; pick a new version"; exit 1; }
+          elif [ "$V" != "$LATEST" ] && [ "$(printf '%s\n%s\n' "$V" "$LATEST" | sort -V | tail -1)" != "$V" ]; then
+            # A new release is always marked latest (that's what installed copies update to),
+            # so it must be newer than everything already shipped.
+            echo "::error::$V is older than the latest release v$LATEST"; exit 1
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "Releasing $V"
+          echo "Latest tag v$LATEST → releasing $V"
 
       - name: Sparkle public key
         id: key
@@ -151,6 +217,6 @@ jobs:
             gh release upload "v$V" "dist/GlucOS-$V.zip" dist/appcast.xml --clobber
           else
             gh release create "v$V" "dist/GlucOS-$V.zip" dist/appcast.xml \
-              --title "GlucOS $V" --generate-notes
+              --target "$GITHUB_SHA" --title "GlucOS $V" --generate-notes --latest
           fi
           echo "Published https://github.com/${{ github.repository }}/releases/tag/v$V"

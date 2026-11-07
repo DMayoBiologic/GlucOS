@@ -2,7 +2,8 @@
 #
 #   make                  build locally (ad-hoc signed), install to /Applications, launch
 #   make sparkle-keys     one-time: generate Sparkle EdDSA keys, set repo secret, commit public key
-#   make release V=0.2.0  bump version, tag, push → GitHub Actions builds & publishes the release
+#   (releases)            automatic: every merge to main ships via .github/workflows/release.yml
+#   make release V=0.2.0  optional: force a specific version now (runs the same workflow)
 #   make install-release  install the latest GitHub release (what auto-updates will deliver)
 #   make open             open the generated project in Xcode
 
@@ -60,15 +61,12 @@ sparkle-keys: resolve
 	 echo "Sparkle public key: $$PUB"; \
 	 echo "Private key is in your login Keychain (Sparkle) and in the repo secret SPARKLE_PRIVATE_KEY."
 
-## Cut a release: make release V=0.2.0
+## Optional: force a specific version (normal releases happen automatically on merge to main).
 release:
-	@test -n "$(V)" || { echo "Usage: make release V=0.2.0"; exit 1; }
-	@sed -i '' -E 's|MARKETING_VERSION: "[^"]*"|MARKETING_VERSION: "$(V)"|' project.yml
-	git add project.yml
-	git commit -m "Release $(V)" || true
-	git tag -a "v$(V)" -m "GlucOS $(V)"
-	git push && git push origin "v$(V)"
-	@echo "Tagged v$(V). Watch: https://github.com/$(REPO)/actions"
+	@test -n "$(V)" || { echo "Usage: make release V=0.2.0  (or just merge to main for an automatic patch bump)"; exit 1; }
+	@command -v gh >/dev/null 2>&1 || brew install gh
+	gh workflow run release.yml -R $(REPO) --ref main -f version="$(V)"
+	@echo "Queued $(V). Watch: https://github.com/$(REPO)/actions/workflows/release.yml"
 
 ## Install the latest published release (identical to what auto-update delivers).
 install-release:
