@@ -190,7 +190,8 @@ struct LogInsights {
             return s
         }
 
-        let areas = Dictionary(grouping: corrections) { $0.area ?? .other }
+        // Doses with no recorded site count towards "All sites" only.
+        let areas = Dictionary(grouping: corrections.filter { $0.area != nil }) { $0.area ?? .other }
         let byArea = areas.map { summarize($0.value, area: $0.key) }
             .sorted { $0.examples != $1.examples ? $0.examples > $1.examples : $0.title < $1.title }
 

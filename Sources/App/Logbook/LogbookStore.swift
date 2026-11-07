@@ -98,8 +98,12 @@ final class LogbookStore: ObservableObject {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .secondsSince1970
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            guard let data = try? encoder.encode(file) else { return }
-            try? data.write(to: url, options: .atomic)
+            do {
+                let data = try encoder.encode(file)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                NSLog("GlucOS: failed to save logbook: \(error)")
+            }
         }
     }
 

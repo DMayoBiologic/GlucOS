@@ -26,7 +26,13 @@ final class AppSettings: ObservableObject {
     @Published var chartHours: Int { didSet { d.set(chartHours, forKey: "chartHours") } }
 
     // Insulin & food logging
-    @Published var therapy: TherapyType { didSet { d.set(therapy.rawValue, forKey: "therapy") } }
+    @Published var therapy: TherapyType {
+        didSet {
+            d.set(therapy.rawValue, forKey: "therapy")
+            // A pump only delivers rapid or ultra-rapid insulin.
+            if therapy == .pump, !InsulinKind.pumpKinds.contains(bolusInsulinKind) { bolusInsulinKind = .rapid }
+        }
+    }
     /// Mealtime / correction insulin (pump users: the insulin in the pump).
     @Published var bolusInsulinKind: InsulinKind { didSet { d.set(bolusInsulinKind.rawValue, forKey: "bolusInsulinKind") } }
     @Published var bolusInsulinName: String { didSet { d.set(bolusInsulinName, forKey: "bolusInsulinName") } }

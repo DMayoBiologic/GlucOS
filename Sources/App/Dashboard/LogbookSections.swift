@@ -11,6 +11,7 @@ struct LogbookSection: View {
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
     @State private var selection = Set<UUID>()
+    @State private var pendingDelete: Set<UUID> = []
 
     var body: some View {
         let entries = logbook.entries.filter { data.domain.contains($0.timestamp) }
@@ -99,14 +100,25 @@ struct LogbookSection: View {
                 Button("Edit…") { open(.edit(entry)) }
             }
             if !ids.isEmpty {
-                Button(ids.count == 1 ? "Delete" : "Delete \(ids.count) Entries", role: .destructive) {
-                    logbook.delete(ids: ids)
+                Button(ids.count == 1 ? "Delete…" : "Delete \(ids.count) Entries…", role: .destructive) {
+                    pendingDelete = ids
                 }
             }
         } primaryAction: { ids in
             if ids.count == 1, let id = ids.first, let entry = logbook.entry(id: id) { open(.edit(entry)) }
         }
-        .onDeleteCommand { logbook.delete(ids: selection) }
+        .onDeleteCommand { pendingDelete = selection }
+        .confirmationDialog(pendingDelete.count == 1 ? "Delete this entry?" : "Delete \(pendingDelete.count) entries?",
+                            isPresented: Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } })) {
+            Button("Delete", role: .destructive) {
+                logbook.delete(ids: pendingDelete)
+                selection.subtract(pendingDelete)
+                pendingDelete = []
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = [] }
+        } message: {
+            Text("This can't be undone.")
+        }
     }
 
     private func kind(_ e: LogEntry) -> ChartEvent.Kind {
