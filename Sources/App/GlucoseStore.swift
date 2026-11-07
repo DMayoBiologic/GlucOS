@@ -82,7 +82,7 @@ final class GlucoseStore: ObservableObject {
 
     /// Interruptible sleep: `wakeLoop()` (wake from sleep, reconnect) ends it early.
     private func sleep(seconds: TimeInterval) async {
-        let t = Task { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+        let t = Task<Void, Never> { _ = try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
         sleepTask = t
         await t.value
         sleepTask = nil
