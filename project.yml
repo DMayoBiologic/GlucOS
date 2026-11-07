@@ -1,0 +1,108 @@
+name: GlucOS
+
+options:
+  bundleIdPrefix: au.com.declanmayo
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Ad-hoc signing by default so local builds and CI builds are interchangeable for Sparkle.
+    # CI overrides these when a Developer ID certificate is configured (see .github/workflows/release.yml).
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    PROVISIONING_PROFILE_SPECIFIER: ""
+    APP_GROUP_ID: group.au.com.declanmayo.glucos
+    SPARKLE_FEED_URL: https://github.com/DMayoBiologic/GlucOS/releases/latest/download/appcast.xml
+    # Public EdDSA key for Sparkle update signatures. `make sparkle-keys` fills this in.
+    SPARKLE_PUBLIC_ED_KEY: ""
+    ENABLE_HARDENED_RUNTIME: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+    DEAD_CODE_STRIPPING: YES
+
+targets:
+  GlucOS:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/App
+      - path: Sources/Shared
+    dependencies:
+      - target: GlucOSWidget
+        embed: true
+        codeSign: true
+      - package: Sparkle
+    info:
+      path: Sources/App/Info.plist
+      properties:
+        CFBundleDisplayName: GlucOS
+        CFBundleName: GlucOS
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.medical
+        NSHumanReadableCopyright: "Personal use. Not a medical device."
+        AppGroupIdentifier: $(APP_GROUP_ID)
+        # Sparkle
+        SUFeedURL: $(SPARKLE_FEED_URL)
+        SUPublicEDKey: $(SPARKLE_PUBLIC_ED_KEY)
+        SUEnableAutomaticChecks: true
+        SUAutomaticallyUpdate: true
+        SUScheduledCheckInterval: 21600
+        SUAllowsAutomaticUpdates: true
+    entitlements:
+      path: Sources/App/GlucOS.entitlements
+      properties:
+        # Not sandboxed: keeps Sparkle's installer simple. Hardened runtime stays on.
+        com.apple.security.application-groups:
+          - $(APP_GROUP_ID)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: au.com.declanmayo.glucos
+        PRODUCT_NAME: GlucOS
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+
+  GlucOSWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Sources/Widget
+      - path: Sources/Shared
+    info:
+      path: Sources/Widget/Info.plist
+      properties:
+        CFBundleDisplayName: GlucOS
+        CFBundleName: GlucOSWidget
+        AppGroupIdentifier: $(APP_GROUP_ID)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Sources/Widget/GlucOSWidget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - $(APP_GROUP_ID)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: au.com.declanmayo.glucos.widget
+        PRODUCT_NAME: GlucOSWidget
+        SKIP_INSTALL: YES
+
+schemes:
+  GlucOS:
+    build:
+      targets:
+        GlucOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release
