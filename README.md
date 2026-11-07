@@ -53,15 +53,19 @@ Optional repo secrets for proper Developer ID signing + notarization (needs a pa
 `MACOS_CERTIFICATE_P12` (base64 .p12), `MACOS_CERTIFICATE_PASSWORD`, `APPLE_API_KEY_ID`,
 `APPLE_API_ISSUER_ID`, `APPLE_API_KEY_P8`. Without them releases are ad-hoc signed.
 
-### Cutting a release
+### Releases
 
-```sh
-make release V=0.2.0
-```
+Merging to `main` ships. [`release.yml`](.github/workflows/release.yml) runs on every push to `main`:
+it takes the latest `vX.Y.Z` tag, bumps the patch number, builds on a macOS runner, signs (and
+notarizes if the Apple secrets are set), zips, generates the Sparkle appcast, and publishes the GitHub
+Release + tag. Every installed copy updates itself within 6 h. Nothing is committed back to `main`.
 
-Bumps `MARKETING_VERSION`, tags `v0.2.0`, pushes. [`release.yml`](.github/workflows/release.yml)
-then builds on a macOS runner, signs, zips, generates the appcast, and publishes the GitHub Release.
-Every installed copy updates itself within 6 h. `ci.yml` compiles every push.
+- `#minor` or `#major` in the merge commit message / PR title bumps that part instead.
+- `[skip release]` in the commit message skips the release; docs-only (`*.md`) pushes are skipped too.
+- Re-running a release job for a commit that already shipped rebuilds the same version.
+- To force a version: Actions → Release → Run workflow, or `make release V=1.0.0`.
+
+`ci.yml` compiles every push and PR.
 
 ## Layout
 
@@ -70,7 +74,7 @@ project.yml              XcodeGen spec — app + widget targets, Sparkle package
 Sources/Shared/          models, stats, shared snapshot store, chart (compiled into both targets)
 Sources/App/             menu bar app: LibreLinkUp client, Keychain, poll loop, alerts, Sparkle, views
 Sources/Widget/          WidgetKit extension: timeline provider + small/medium/large views
-.github/workflows/       ci.yml (compile check), release.yml (tag → release + appcast)
+.github/workflows/       ci.yml (compile check), release.yml (merge to main → release + appcast)
 ```
 
 The app polls every 60 s, writes `~/Library/Application Support/GlucOS/snapshot.json`, then calls

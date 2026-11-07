@@ -1,7 +1,12 @@
 name: Release
 
-# Tag `vX.Y.Z` (or run manually with a version) → build → sign → zip → Sparkle appcast → GitHub Release.
+# Every push to main ships: next version → build → sign → zip → Sparkle appcast → GitHub Release.
 # Installed copies of GlucOS pick the update up from releases/latest/download/appcast.xml.
+#
+# Versioning is automatic, from the latest vX.Y.Z tag:
+#   patch bump by default; put #minor or #major in the merge commit message (or PR title) to bump more.
+#   [skip release] in the commit message skips the release. Docs-only pushes (*.md) are skipped.
+# Manual run (Actions → Release → Run workflow) can force a specific version, or leave it blank to auto-bump.
 #
 # Required secret:   SPARKLE_PRIVATE_KEY   (from `make sparkle-keys`)
 # Optional secrets:  MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD   (Developer ID Application, base64 .p12)
@@ -10,12 +15,15 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 0.2.0)"
-        required: true
+        description: "Version to release (e.g. 0.2.0). Leave blank to auto-bump the patch version."
+        required: false
 
 permissions:
   contents: write
@@ -26,20 +34,40 @@ concurrency:
 
 jobs:
   release:
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Resolve version
         id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            V="${{ inputs.version }}"
+          git fetch --tags --force --quiet
+          SEMVER='^[0-9]+\.[0-9]+\.[0-9]+$'
+          # Re-run of a commit that already shipped: rebuild the same version instead of bumping.
+          EXISTING=$(git tag --points-at HEAD -l 'v*' | sed 's/^v//' | grep -E "$SEMVER" | sort -V | tail -1 || true)
+          LATEST=$(git tag -l 'v*' | sed 's/^v//' | grep -E "$SEMVER" | sort -V | tail -1 || true)
+          LATEST=${LATEST:-0.0.0}
+          if [ -n "$INPUT_VERSION" ]; then
+            V="${INPUT_VERSION#v}"
+          elif [ -n "$EXISTING" ]; then
+            V="$EXISTING"
           else
-            V="${GITHUB_REF_NAME#v}"
+            IFS=. read -r MA MI PA <<< "$LATEST"
+            case "$COMMIT_MSG" in
+              *"#major"*) V="$((MA + 1)).0.0" ;;
+              *"#minor"*) V="$MA.$((MI + 1)).0" ;;
+              *)          V="$MA.$MI.$((PA + 1))" ;;
+            esac
           fi
+          echo "$V" | grep -qE "$SEMVER" || { echo "::error::Bad version '$V' (want X.Y.Z)"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "Releasing $V"
+          echo "Latest tag v$LATEST → releasing $V"
 
       - name: Sparkle public key
         id: key
@@ -151,6 +179,6 @@ jobs:
             gh release upload "v$V" "dist/GlucOS-$V.zip" dist/appcast.xml --clobber
           else
             gh release create "v$V" "dist/GlucOS-$V.zip" dist/appcast.xml \
-              --title "GlucOS $V" --generate-notes
+              --target "$GITHUB_SHA" --title "GlucOS $V" --generate-notes --latest
           fi
           echo "Published https://github.com/${{ github.repository }}/releases/tag/v$V"
