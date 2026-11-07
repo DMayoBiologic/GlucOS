@@ -1,4 +1,3 @@
-Config/Local.xcconfig
 *.xcodeproj
 *.xcworkspace
 build/
