@@ -141,9 +141,18 @@ struct GlucoseWidgetView: View {
             }
             .frame(maxHeight: .infinity)
 
+            outlookRow
+
             if config.showsStats {
                 summaryStrip(caption: "Last 12h")
             }
+        }
+    }
+
+    /// Forecast and insulin still acting, only while the reading they came from is current.
+    @ViewBuilder private var outlookRow: some View {
+        if let o = s.currentOutlook(at: entry.date), o.showsInsulin || !o.forecast.isEmpty {
+            OutlookSummaryRow(outlook: o, unit: s.unit, lowMgdl: s.lowMgdl)
         }
     }
 
@@ -166,6 +175,7 @@ struct GlucoseWidgetView: View {
                         DetailLine(entry: entry, showsTrendWord: false)
                     }
                 }
+                outlookRow
                 Spacer(minLength: 0)
                 if config.showsStats {
                     summaryStrip(caption: "Last 12h")

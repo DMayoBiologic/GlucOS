@@ -37,6 +37,7 @@ targets:
     platform: macOS
     sources:
       - path: Sources/App
+      - path: Sources/Engine
       - path: Sources/Shared
     dependencies:
       - target: GlucOSWidget

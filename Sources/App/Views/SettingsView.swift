@@ -64,6 +64,7 @@ private struct GeneralSettingsTab: View {
                     Text("Last 6 hours").tag(6)
                     Text("Last 12 hours").tag(12)
                 }
+                Toggle("Show the forecast on the popover chart", isOn: $settings.showForecast)
             } header: {
                 Text("Menu Bar")
             } footer: {
@@ -458,6 +459,25 @@ private struct AlertSettingsTab: View {
                     Button("Change Target Range…", action: openGlucoseTab)
                         .buttonStyle(.link)
                 }
+            }
+            .disabled(!settings.alertsEnabled)
+
+            Section {
+                AlertRow(title: "Low predicted", detail: "When the forecast goes below \(u.format(mgdl: settings.lowMgdl, withUnit: true)), or urgent low, within the time below",
+                         tint: GlucoseRange.low.tint, systemImage: "arrow.down.forward.and.arrow.up.backward", isOn: $settings.alertOnPredictedLow)
+                AlertRow(title: "High predicted", detail: settings.alertOnHigh
+                            ? "When the forecast goes above \(u.format(mgdl: settings.highMgdl, withUnit: true)) or very high"
+                            : "When the forecast goes above \(u.format(mgdl: 250, withUnit: true)) (high alerts are off)",
+                         tint: GlucoseRange.high.tint, systemImage: "arrow.up.forward", isOn: $settings.alertOnPredictedHigh)
+                Picker("Warn me up to", selection: $settings.predictiveAlertMinutes) {
+                    ForEach([10, 15, 20, 30], id: \.self) { m in Text("\(m) minutes ahead").tag(m) }
+                }
+                .disabled(!settings.alertOnPredictedLow && !settings.alertOnPredictedHigh)
+            } header: {
+                Text("Forecast")
+            } footer: {
+                Text("A heads-up from GlucOS's estimate of where glucose is heading, based on the recent trend and, once it has learnt from your logs, the insulin and carbs still acting. Forecasts can be wrong: always check your reading before acting. Only fires while glucose is falling or rising, and never replaces the alerts above.")
+                    .foregroundStyle(.secondary)
             }
             .disabled(!settings.alertsEnabled)
 

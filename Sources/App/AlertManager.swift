@@ -6,6 +6,16 @@ import UserNotifications
 final class AlertManager {
     enum Kind: String, CaseIterable {
         case urgentLow, low, high, veryHigh, rapidChange, stale, sensorExpiring, apiBroken
+        case predictedUrgentLow, predictedLow, predictedHigh, predictedVeryHigh
+    }
+
+    private static func kind(for e: PredictedExcursion) -> Kind {
+        switch e {
+        case .urgentLow: return .predictedUrgentLow
+        case .low: return .predictedLow
+        case .high: return .predictedHigh
+        case .veryHigh: return .predictedVeryHigh
+        }
     }
 
     private var lastFired: [Kind: Date] = [:]
@@ -90,6 +100,63 @@ final class AlertManager {
         if let err = s.lastError, err.contains("version") || err.contains("API may have changed") {
             fire(.apiBroken, title: "GlucOS needs attention", body: err, cooldown: 6 * 3600, now: now)
         }
+    }
+
+    /// Heads-up alerts from the forecast: glucose is heading out of range within the lead time.
+    /// Only while the reading is current and still on the right side of the threshold, so these
+    /// never stand in for the alerts on actual readings above.
+    func evaluatePrediction(_ s: GlucoseSnapshot, forecast: GlucoseForecast?, settings: AppSettings, now: Date = Date()) {
+        guard settings.alertsEnabled, settings.alertOnPredictedLow || settings.alertOnPredictedHigh else { return }
+        guard let r = s.current, !s.isStale(at: now), let forecast else {
+            clearPredictions(now: now)
+            return
+        }
+        let rules = PredictiveAlertSettings(lows: settings.alertOnPredictedLow, highs: settings.alertOnPredictedHigh,
+                                            leadTime: TimeInterval(settings.predictiveAlertMinutes * 60),
+                                            lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, highAlertsOn: settings.alertOnHigh)
+        guard let d = PredictiveAlertRules.evaluate(forecast, settings: rules, now: now) else {
+            clearPredictions(now: now)
+            return
+        }
+        quietSince = nil
+        let cooldown = TimeInterval(settings.alertCooldownMinutes * 60)
+        let highCooldown = max(cooldown, 30 * 60)
+        // Each kind keeps its own repeat timer, so a forecast hovering between two thresholds
+        // can't alternate its way past them. A milder heads-up is held back while the more
+        // severe one in the same direction is still recent; escalation always gets through.
+        let severer: Kind? = d.kind == .low ? .predictedUrgentLow : d.kind == .high ? .predictedVeryHigh : nil
+        let holdFor = severer == .predictedVeryHigh ? highCooldown : cooldown
+        if let severer, let last = lastFired[severer], now.timeIntervalSince(last) < holdFor { return }
+        let unit = s.unit
+        let minutes = d.minutesAway(from: now)
+        let when = minutes <= 1 ? "any minute" : "in about \(minutes) min"
+        let current = "Now \(unit.format(mgdl: r.mgdl, withUnit: true)) \(r.trend.arrow)."
+        let threshold = unit.format(mgdl: d.thresholdMgdl, withUnit: true)
+        let note = "Forecast, not a reading: check before acting."
+        switch d.kind {
+        case .urgentLow:
+            fire(.predictedUrgentLow, title: "Urgent low predicted \(when)",
+                 body: "\(current) Heading below \(threshold). \(note)", cooldown: min(cooldown, 10 * 60), critical: true, now: now)
+        case .low:
+            fire(.predictedLow, title: "Low predicted \(when)",
+                 body: "\(current) Heading below \(threshold). \(note)", cooldown: cooldown, now: now)
+        case .high:
+            fire(.predictedHigh, title: "High predicted \(when)",
+                 body: "\(current) Heading above \(threshold). \(note)", cooldown: highCooldown, now: now)
+        case .veryHigh:
+            fire(.predictedVeryHigh, title: "Very high predicted \(when)",
+                 body: "\(current) Heading above \(threshold). \(note)", cooldown: highCooldown, now: now)
+        }
+    }
+
+    /// Since when no excursion has been predicted. A forecast can hover around a threshold from
+    /// one reading to the next, so the repeat timer only resets after a quiet spell.
+    private var quietSince: Date?
+
+    private func clearPredictions(now: Date) {
+        if quietSince == nil { quietSince = now }
+        guard let q = quietSince, now.timeIntervalSince(q) >= 15 * 60 else { return }
+        for k in [Kind.predictedUrgentLow, .predictedLow, .predictedHigh, .predictedVeryHigh] { lastFired[k] = nil }
     }
 
     private func fire(_ kind: Kind, title: String, body: String, cooldown: TimeInterval, critical: Bool = false, now: Date) {

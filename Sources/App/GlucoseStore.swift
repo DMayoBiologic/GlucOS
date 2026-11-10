@@ -20,6 +20,25 @@ final class GlucoseStore: ObservableObject {
 
     let settings = AppSettings.shared
     let alerts = AlertManager()
+    /// Forecast and insulin/carbs still acting. Recomputed on every reading and logbook change.
+    let outlook = OutlookStore()
+
+    /// The logbook, for the outlook. Set once at launch.
+    weak var logbook: LogbookStore? {
+        didSet {
+            logbookObserver = logbook?.objectWillChange
+                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    self.refreshOutlook()
+                    self.publish()
+                    self.alerts.evaluatePrediction(self.snapshot, forecast: self.outlook.outlook?.glucoseForecast,
+                                                   settings: self.settings)
+                }
+            refreshOutlook()
+        }
+    }
+    private var logbookObserver: AnyCancellable?
 
     private var client: LibreLinkUpClient
     private var loopTask: Task<Void, Never>?
@@ -113,8 +132,9 @@ final class GlucoseStore: ObservableObject {
             s.lastError = nil
             snapshot = s
             connectionProblem = nil
-            applySettings()
             record(s)
+            refreshOutlook()
+            applySettings()
             let host = await client.currentRegionHost
             statusLine = "Connected to \(host)"
         } catch {
@@ -125,6 +145,7 @@ final class GlucoseStore: ObservableObject {
             publish()
         }
         alerts.evaluate(snapshot, settings: settings)
+        alerts.evaluatePrediction(snapshot, forecast: outlook.outlook?.glucoseForecast, settings: settings)
         await checkNotificationPermission()
     }
 
@@ -184,6 +205,26 @@ final class GlucoseStore: ObservableObject {
         guard historyArchive.merge(incoming) else { return }
         archive = historyArchive.readings
         historyArchive.save()
+    }
+
+    /// Works out the outlook for the latest reading and puts it in the snapshot (the caller
+    /// publishes). Starts relearning from history in the background when that's due.
+    private func refreshOutlook(now: Date = Date()) {
+        guard snapshot.current != nil else {
+            snapshot.outlook = nil
+            return
+        }
+        let o = outlook.update(archive: archive, snapshot: snapshot, logbook: logbook, now: now)
+        snapshot.outlook = o?.snapshot(lowMgdl: settings.lowMgdl)
+        outlook.relearnIfNeeded(archive: archive, logbook: logbook, low: settings.lowMgdl,
+                                high: settings.highMgdl, now: now) { [weak self] in
+            guard let self else { return }
+            self.refreshOutlook()
+            self.publish()
+            // A relearnt model can change the forecast, so check it now rather than at the next fetch.
+            self.alerts.evaluatePrediction(self.snapshot, forecast: self.outlook.outlook?.glucoseForecast,
+                                           settings: self.settings)
+        }
     }
 
     private func applySettings() {

@@ -64,7 +64,7 @@ struct DashboardView: View {
                     .allowsHitTesting(false)
             }
             .navigationTitle(section.title)
-            .navigationSubtitle(section.usesRange ? data.periodTitle : "All stored history")
+            .navigationSubtitle(section.usesRange ? data.periodTitle : section == .outlook ? "Estimates, not readings" : "All stored history")
         }
         .toolbar { toolbarContent(data) }
         .background(shortcutButtons)
@@ -139,6 +139,8 @@ struct DashboardView: View {
         switch section {
         case .logbook:
             LogbookSection(data: data) { logSheet = $0 }
+        case .outlook:
+            OutlookSection { logSheet = .new }
         case .insights:
             InsightsSection(readings: store.archive, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl) {
                 logSheet = .new
@@ -178,7 +180,7 @@ struct DashboardView: View {
                     ReadingsSection(data: data) { showMoment($0) }
                 case .report:
                     ReportSection(model: reportModel(data), onExport: { exportPDF(data) })
-                case .logbook, .insights:
+                case .logbook, .insights, .outlook:
                     EmptyView()
                 }
             }
@@ -378,7 +380,7 @@ struct DashboardView: View {
         })
     }
 
-    /// ⌘1–⌘7 pick a section, ⌃1–⌃8 a range, ⌘/ lists the shortcuts. Invisible buttons, so the
+    /// ⌘1–⌘8 pick a section, ⌃1–⌃8 a range, ⌘/ lists the shortcuts. Invisible buttons, so the
     /// shortcuts work from anywhere in the window.
     private var shortcutButtons: some View {
         ZStack {
@@ -477,7 +479,7 @@ struct DashboardView: View {
 // MARK: - Sections
 
 enum DashboardSection: String, CaseIterable, Identifiable {
-    case overview, patterns, days, readings, logbook, insights, report
+    case overview, outlook, patterns, days, readings, logbook, insights, report
     var id: String { rawValue }
 
     enum Group: String, CaseIterable, Identifiable {
@@ -499,7 +501,7 @@ enum DashboardSection: String, CaseIterable, Identifiable {
 
     var group: Group {
         switch self {
-        case .overview, .patterns, .days, .readings: return .glucose
+        case .overview, .outlook, .patterns, .days, .readings: return .glucose
         case .logbook, .insights: return .logs
         case .report: return .share
         }
@@ -508,6 +510,7 @@ enum DashboardSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .overview: return "Overview"
+        case .outlook: return "Outlook"
         case .patterns: return "Daily Patterns"
         case .days: return "Days"
         case .readings: return "Readings"
@@ -520,6 +523,7 @@ enum DashboardSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .overview: return "Chart and headline numbers"
+        case .outlook: return "Forecast and insulin still acting"
         case .patterns: return "Glucose by time of day and weekday"
         case .days: return "Each day at a glance"
         case .readings: return "Every reading"
@@ -532,6 +536,7 @@ enum DashboardSection: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .overview: return "chart.xyaxis.line"
+        case .outlook: return "chart.line.uptrend.xyaxis"
         case .patterns: return "clock"
         case .days: return "calendar"
         case .readings: return "list.bullet"
@@ -542,7 +547,7 @@ enum DashboardSection: String, CaseIterable, Identifiable {
     }
 
     /// Insights always uses all stored history; everything else follows the range picker.
-    var usesRange: Bool { self != .insights }
+    var usesRange: Bool { self != .insights && self != .outlook }
 
     var shortcutDigit: Int { (DashboardSection.allCases.firstIndex(of: self) ?? 0) + 1 }
 }
@@ -574,7 +579,7 @@ private struct RangePicker: View {
 
 private struct ShortcutsHelp: View {
     private let rows: [(String, String)] = [
-        ("⌘1 – ⌘7", "Switch section"),
+        ("⌘1 – ⌘8", "Switch section"),
         ("⌃1 – ⌃8", "Pick a time range"),
         ("⌘[  ⌘]", "Previous or next period"),
         ("⌘J", "Back to now"),

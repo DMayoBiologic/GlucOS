@@ -4,14 +4,23 @@ import AppKit
 @main
 struct GlucOSApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var store = GlucoseStore()
+    @StateObject private var store: GlucoseStore
     @StateObject private var updater = Updater()
-    @StateObject private var logbook = LogbookStore()
+    @StateObject private var logbook: LogbookStore
+
+    init() {
+        let store = GlucoseStore()
+        let logbook = LogbookStore()
+        store.logbook = logbook
+        _store = StateObject(wrappedValue: store)
+        _logbook = StateObject(wrappedValue: logbook)
+    }
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
                 .environmentObject(store)
+                .environmentObject(store.outlook)
                 .environmentObject(store.settings)
                 .environmentObject(updater)
                 .environmentObject(logbook)
@@ -25,6 +34,7 @@ struct GlucOSApp: App {
         Window("GlucOS Dashboard", id: DashboardView.windowID) {
             DashboardView()
                 .environmentObject(store)
+                .environmentObject(store.outlook)
                 .environmentObject(store.settings)
                 .environmentObject(logbook)
         }
@@ -36,6 +46,7 @@ struct GlucOSApp: App {
         Window("Welcome to GlucOS", id: OnboardingView.windowID) {
             OnboardingView()
                 .environmentObject(store)
+                .environmentObject(store.outlook)
                 .environmentObject(store.settings)
         }
         // Opens at its ideal size; resizable down to a minimum that fits a 13" display, and up
@@ -58,6 +69,7 @@ struct GlucOSApp: App {
         Settings {
             SettingsView()
                 .environmentObject(store)
+                .environmentObject(store.outlook)
                 .environmentObject(store.settings)
                 .environmentObject(updater)
                 .environmentObject(logbook)
