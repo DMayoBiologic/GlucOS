@@ -55,6 +55,7 @@ final class AlertManager {
         guard settings.alertsEnabled else { return }
         let unit = s.unit
         let cooldown = TimeInterval(settings.alertCooldownMinutes * 60)
+        let highCooldown = max(cooldown, 30 * 60)
 
         if let r = s.current, !s.isStale(at: now) {
             let v = unit.format(mgdl: r.mgdl, withUnit: true)
@@ -120,11 +121,13 @@ final class AlertManager {
         }
         quietSince = nil
         let cooldown = TimeInterval(settings.alertCooldownMinutes * 60)
+        let highCooldown = max(cooldown, 30 * 60)
         // Each kind keeps its own repeat timer, so a forecast hovering between two thresholds
         // can't alternate its way past them. A milder heads-up is held back while the more
         // severe one in the same direction is still recent; escalation always gets through.
         let severer: Kind? = d.kind == .low ? .predictedUrgentLow : d.kind == .high ? .predictedVeryHigh : nil
-        if let severer, let last = lastFired[severer], now.timeIntervalSince(last) < cooldown { return }
+        let holdFor = severer == .predictedVeryHigh ? highCooldown : cooldown
+        if let severer, let last = lastFired[severer], now.timeIntervalSince(last) < holdFor { return }
         let unit = s.unit
         let minutes = d.minutesAway(from: now)
         let when = minutes <= 1 ? "any minute" : "in about \(minutes) min"
@@ -140,10 +143,10 @@ final class AlertManager {
                  body: "\(current) Heading below \(threshold). \(note)", cooldown: cooldown, now: now)
         case .high:
             fire(.predictedHigh, title: "High predicted \(when)",
-                 body: "\(current) Heading above \(threshold). \(note)", cooldown: max(cooldown, 30 * 60), now: now)
+                 body: "\(current) Heading above \(threshold). \(note)", cooldown: highCooldown, now: now)
         case .veryHigh:
             fire(.predictedVeryHigh, title: "Very high predicted \(when)",
-                 body: "\(current) Heading above \(threshold). \(note)", cooldown: max(cooldown, 30 * 60), now: now)
+                 body: "\(current) Heading above \(threshold). \(note)", cooldown: highCooldown, now: now)
         }
     }
 
