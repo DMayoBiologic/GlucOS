@@ -48,7 +48,7 @@ struct LogbookSection: View {
             case .siteChange, .context: break
             }
         }
-        return HStack(alignment: .top, spacing: 20) {
+        return HStack(alignment: .top, spacing: DS.Space.xl) {
             if settings.therapy.logsInsulin || bolus + basal > 0 {
                 Metric(settings.therapy == .pump ? "Boluses logged" : "Mealtime insulin logged", LogFormat.number(bolus), sub: "units")
                 if settings.therapy == .injections || basal > 0 {
@@ -194,7 +194,7 @@ struct InsightsSection: View {
                 SafetyNote()
                 if logbook.isEmpty {
                     // The sentence wraps; the button keeps its size.
-                    HStack(alignment: .center, spacing: 16) {
+                    HStack(alignment: .center, spacing: DS.Space.lg) {
                         startLogging
                         Spacer(minLength: 12)
                         logButton
@@ -274,8 +274,8 @@ private struct NeedsMore: View {
     let explanation: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            HStack(spacing: DS.Space.sm + 2) {
                 ProgressView(value: Double(min(have, need)), total: Double(need))
                     .frame(width: 120)
                 Text("\(have) of \(need) examples so far")
@@ -315,7 +315,7 @@ private struct InsulinActionCard: View {
 
     var body: some View {
         let overall = insights.overall
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
             SectionHeader("How Long Insulin Seems to Work",
                           subtitle: "\(overall.examples) usable of \(insights.bolusCount) boluses")
             if overall.examples < need {
@@ -398,7 +398,7 @@ private struct MealResponseCard: View {
                MealRow(name: "Without insulin", summary: insights.mealsWithoutInsulin)]
             : [MealRow(name: "Meals", summary: insights.mealsWithoutInsulin)]
         let usable = insights.mealResponses.count
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
             SectionHeader("After Meals", subtitle: "\(usable) usable of \(insights.mealCount) logged")
             if rows.allSatisfy({ $0.summary.examples < need }) {
                 NeedsMore(have: rows.map(\.summary.examples).max() ?? 0, need: need,
@@ -459,7 +459,7 @@ private struct SiteAgeCard: View {
     let hasSiteChanges: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
             SectionHeader("Glucose by Day of Site Wear")
             if buckets.isEmpty {
                 NeedsMore(have: 0, need: 2,
@@ -497,7 +497,7 @@ private struct SiteRotationCard: View {
         let last = logbook.lastInjectionBySite
         let since = Date().addingTimeInterval(-14 * 86_400)
         let recent = Dictionary(grouping: logbook.doses.filter { !$0.viaPump && $0.timestamp >= since && $0.site != nil }) { $0.site! }
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
             SectionHeader("Injection Sites", subtitle: "Last 14 days")
             if last.isEmpty {
                 Text("Choose an injection site when you log a dose to see how you've been rotating.")

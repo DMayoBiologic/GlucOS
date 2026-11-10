@@ -107,7 +107,7 @@ struct DashboardView: View {
             TimelineView(.periodic(from: .now, by: 30)) { ctx in
                 CurrentReadingTile(snapshot: store.snapshot, recent: recentReadings(now: ctx.date), now: ctx.date)
             }
-            .padding(10)
+            .padding(DS.Space.sm + 2)
         }
     }
 
@@ -270,8 +270,7 @@ struct DashboardView: View {
             StatusBanner(severity: toast.severity, title: toast.title, message: toast.message,
                          onDismiss: { DS.animate(.standard, reduceMotion: reduceMotion) { self.toast = nil } })
                 .frame(maxWidth: 520)
-                .padding(20)
-                .dsShadow(.high)
+                .padding(DS.Space.xl)
                 .transition(DS.Transition.toast(reduceMotion: reduceMotion))
                 .task(id: toast.id) {
                     try? await Task.sleep(for: .seconds(8))

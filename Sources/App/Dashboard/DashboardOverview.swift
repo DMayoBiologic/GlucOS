@@ -21,7 +21,7 @@ struct OverviewSection: View {
 
             Group {
                 if data.readings.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: DS.Space.md) {
                         SectionHeader("Glucose", subtitle: data.periodTitle)
                         EmptyStateView(systemImage: "chart.xyaxis.line", title: "No Readings in This Period",
                                        message: data.isLive
@@ -73,7 +73,7 @@ private struct OverviewHeader: View {
     let layout: DashboardLayout
 
     var body: some View {
-        switch layout.widthClass {
+        switch data.stats == nil ? DashboardLayout.WidthClass.compact : layout.widthClass {
         case .compact:
             VStack(spacing: layout.gutter) {
                 CurrentReadingPanel(snapshot: snapshot, isLive: data.isLive)
@@ -224,6 +224,7 @@ private struct CurrentReadingPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .dsCard(.hero(snapshot.displayTone(at: now)), radius: DS.Radius.panel)
+        .help(isLive ? "" : "This is your current reading. The numbers beside it are for the earlier period you're viewing.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(snapshot.accessibilitySummary(at: now))
     }
@@ -234,17 +235,17 @@ private struct TimeInRangeCard: View {
     let data: DashboardData
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
             SectionHeader("Time in Range",
                           subtitle: "Target \(data.unit.format(mgdl: data.lowMgdl))–\(data.unit.format(mgdl: data.highMgdl)) \(data.unit.label)")
             // Ring beside the legend when there's room, above it when the card is narrow, so the
             // labels never wrap.
             ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 20) {
+                HStack(alignment: .center, spacing: DS.Space.xl) {
                     ring(size: 124)
                     legend.frame(minWidth: 220)
                 }
-                VStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .center, spacing: DS.Space.lg) {
                     ring(size: 116)
                     legend
                 }
@@ -288,7 +289,7 @@ private struct StatisticsCard: View {
     var body: some View {
         let u = data.unit
         let fullGMI = stats.spanHours >= 14 * 24 - 1
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
             SectionHeader("Statistics", subtitle: "\(stats.count) readings over \(spanText(stats.spanHours))")
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 14) {
                 GridRow {
@@ -326,9 +327,9 @@ private struct HighlightsCard: View {
         let h = PeriodHighlights.compute(data.readings, low: data.lowMgdl, high: data.highMgdl)
         let u = data.unit
         let multiDay = data.range.duration > 86_400
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
             SectionHeader("Highlights", subtitle: "Moments worth knowing about")
-            VStack(alignment: .leading, spacing: 11) {
+            VStack(alignment: .leading, spacing: DS.Space.md) {
                 if let lo = h.lowest {
                     row("arrow.down.to.line", tint: GlucoseRange.classify(mgdl: lo.mgdl, low: data.lowMgdl, high: data.highMgdl).tint,
                         title: "Lowest \(u.format(mgdl: lo.mgdl, withUnit: true))", detail: when(lo.timestamp, multiDay))

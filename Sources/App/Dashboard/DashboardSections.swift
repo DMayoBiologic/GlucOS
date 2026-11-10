@@ -10,7 +10,7 @@ struct PatternsSection: View {
         let o = overlay
         DashboardPage { layout in
             let chartHeight = layout.chartHeight(reserving: 220, minimum: 260, maximum: 520)
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: DS.Space.lg) {
                 SectionHeader(style == 0 ? "Glucose by Time of Day" : "Days Overlaid",
                               subtitle: style == 0 ? "Median and spread across \(dayCount) \(dayCount == 1 ? "day" : "days")"
                                                    : "The last \(o.labels.count) \(o.labels.count == 1 ? "day" : "days"), by time of day") {
@@ -123,7 +123,7 @@ private struct BreakdownTable: View {
 
     var body: some View {
         let worst = rows.compactMap { r in r.breakdown.map { (r.id, $0.below) } }.max { $0.1 < $1.1 }
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
             SectionHeader(title, subtitle: subtitle)
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 GridRow {
@@ -239,7 +239,7 @@ struct DaysSection: View {
         let average = days.map(\.breakdown.inRange).reduce(0, +) / Double(max(1, days.count))
         return VStack(alignment: .leading, spacing: 0) {
             if days.count > 1 {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: DS.Space.md) {
                     SectionHeader("Time in Range by Day",
                                   subtitle: "\(days.count) days, \(Format.percent(average)) in range on an average day")
                     DailyRangeChart(days: days)
@@ -262,7 +262,7 @@ struct DaysSection: View {
                 }
                 .width(min: 100, ideal: 160)
                 TableColumn("In range") { (d: DaySummary) in
-                    HStack(spacing: 6) {
+                    HStack(spacing: DS.Space.sm - 2) {
                         Text(Format.percent(d.breakdown.inRange)).monospacedDigit().frame(width: 38, alignment: .trailing)
                         MiniRangeBar(breakdown: d.breakdown).frame(height: 6)
                     }
@@ -381,7 +381,7 @@ struct ReadingsSection: View {
                 }
                 TableColumn("Range") { (r: GlucoseReading) in
                     let range = GlucoseRange.classify(mgdl: r.mgdl, low: data.lowMgdl, high: data.highMgdl)
-                    HStack(spacing: 6) {
+                    HStack(spacing: DS.Space.sm - 2) {
                         Circle().fill(range.color).frame(width: 7, height: 7)
                         Text(range.label)
                     }
