@@ -21,6 +21,10 @@ struct DashboardView: View {
     /// Notices closed this session. Keyed by content, so a new problem shows again.
     @State private var dismissedNotices: Set<String> = []
     @State private var toast: DashboardToast?
+    /// Page padding for the detail column's width, so the notices and the table pages line up
+    /// with the scrolling pages. Stored as the padding, not the width, so resizing the window
+    /// only redraws when the padding actually changes.
+    @State private var detailPadding: CGFloat = DashboardMetrics.padding(for: 900)
 
     @AppStorage("dashboardRange") private var range: DashboardRange = .h24
     @AppStorage("dashboardSection") private var section: DashboardSection = .overview
@@ -40,7 +44,18 @@ struct DashboardView: View {
                 detail(data)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .environment(\.dashboardPadding, detailPadding)
+            // Roomier cards and gutters when the window has the whole screen.
+            .environment(\.dsDensity, windowState.isFullScreen ? .comfortable : .regular)
+            .background(GeometryReader { geo in
+                Color.clear.preference(key: WidthPreferenceKey.self, value: geo.size.width)
+            })
+            .onPreferenceChange(WidthPreferenceKey.self) { width in
+                let padding = DashboardMetrics.padding(for: DashboardMetrics.stepped(width))
+                if width > 0 && padding != detailPadding { detailPadding = padding }
+            }
             .overlay(alignment: .bottom) { toastView }
+            .sheet(isPresented: $showShortcuts) { ShortcutsHelp() }
             .background(alignment: .top) {
                 AmbientGlow(tint: store.snapshot.displayTint(), intensity: 0.35)
                     .frame(height: 320)
@@ -94,7 +109,7 @@ struct DashboardView: View {
             TimelineView(.periodic(from: .now, by: 30)) { ctx in
                 CurrentReadingTile(snapshot: store.snapshot, recent: recentReadings(now: ctx.date), now: ctx.date)
             }
-            .padding(10)
+            .padding(DS.Space.sm + 2)
         }
     }
 
@@ -130,12 +145,24 @@ struct DashboardView: View {
             }
         default:
             if store.archive.isEmpty {
-                ContentUnavailableView {
-                    Label("No Readings Yet", systemImage: "drop")
-                } description: {
-                    Text(settings.hasCredentials
-                         ? "Readings appear here as soon as GlucOS fetches them from LibreLinkUp."
-                         : "Sign in with your LibreLinkUp follower account in Settings to start.")
+                if store.isRefreshing && settings.hasCredentials {
+                    VStack(spacing: DS.Space.md) {
+                        ProgressView().controlSize(.large)
+                        Text("Fetching your readings…").dsFont(.sectionTitle)
+                        Text("This usually takes a few seconds.").dsFont(.callout).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityElement(children: .combine)
+                } else if settings.hasCredentials {
+                    EmptyStateView(systemImage: "drop", title: "No Readings Yet",
+                                   message: "Readings appear here as soon as GlucOS fetches them from LibreLinkUp.",
+                                   actionTitle: "Refresh Now", action: { Task { await store.refresh() } })
+                        .frame(maxHeight: .infinity)
+                } else {
+                    EmptyStateView(systemImage: "person.crop.circle.badge.plus", title: "Connect LibreLinkUp",
+                                   message: "Sign in with your LibreLinkUp follower account in Settings to start.",
+                                   tone: .brand, actionTitle: "Open Settings…", action: { openSettings() })
+                        .frame(maxHeight: .infinity)
                 }
             } else {
                 switch section {
@@ -243,19 +270,19 @@ struct DashboardView: View {
     private var toastView: some View {
         if let toast {
             StatusBanner(severity: toast.severity, title: toast.title, message: toast.message,
-                         onDismiss: { withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { self.toast = nil } })
+                         onDismiss: { DS.animate(.standard, reduceMotion: reduceMotion) { self.toast = nil } })
                 .frame(maxWidth: 520)
-                .padding(20)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .padding(DS.Space.xl)
+                .transition(DS.Transition.toast(reduceMotion: reduceMotion))
                 .task(id: toast.id) {
                     try? await Task.sleep(for: .seconds(8))
-                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { if self.toast?.id == toast.id { self.toast = nil } }
+                    DS.animate(.standard, reduceMotion: reduceMotion) { if self.toast?.id == toast.id { self.toast = nil } }
                 }
         }
     }
 
     private func showToast(_ t: DashboardToast) {
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { toast = t }
+        DS.animate(.standard, reduceMotion: reduceMotion) { toast = t }
     }
 
     // MARK: Toolbar
@@ -318,12 +345,6 @@ struct DashboardView: View {
             }
             .help("Export the readings or a report for this period")
 
-            Toggle(isOn: $keepOnTop) {
-                Label("Keep on Top", systemImage: keepOnTop ? "pin.fill" : "pin")
-            }
-            .disabled(windowState.isFullScreen)
-            .help("Keep this window above other windows")
-
             Button { windowState.toggleFullScreen() } label: {
                 Label(windowState.isFullScreen ? "Exit Full Screen" : "Enter Full Screen",
                       systemImage: windowState.isFullScreen
@@ -333,22 +354,32 @@ struct DashboardView: View {
             .keyboardShortcut("f", modifiers: [.command, .control])
             .help(windowState.isFullScreen ? "Exit full screen (⌃⌘F)" : "Enter full screen (⌃⌘F)")
 
-            Button { showShortcuts.toggle() } label: {
-                Label("Keyboard Shortcuts", systemImage: "keyboard")
+            // Less-used window options, out of the way so the toolbar doesn't crowd.
+            Menu {
+                Toggle("Keep on Top", isOn: $keepOnTop)
+                    .disabled(windowState.isFullScreen)
+                Divider()
+                Button("Keyboard Shortcuts…", action: showShortcutsHelp)
+            } label: {
+                Label("More", systemImage: keepOnTop ? "pin.circle.fill" : "ellipsis.circle")
             }
-            .help("Keyboard shortcuts")
-            .popover(isPresented: $showShortcuts, arrowEdge: .bottom) { ShortcutsHelp() }
+            .help(keepOnTop ? "Window options. Keep on Top is on." : "Window options and keyboard shortcuts (⌘/)")
         }
+    }
+
+    /// Not over the log sheet: two sheets at once would stack.
+    private func showShortcutsHelp() {
+        if logSheet == nil { showShortcuts = true }
     }
 
     private var rangeBinding: Binding<DashboardRange> {
         Binding(get: { range }, set: { new in
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { range = new }
+            DS.animate(.standard, reduceMotion: reduceMotion) { range = new }
         })
     }
 
-    /// ⌘1–⌘7 pick a section, ⌃1–⌃8 a range. Invisible buttons, so the shortcuts work from anywhere
-    /// in the window.
+    /// ⌘1–⌘7 pick a section, ⌃1–⌃8 a range, ⌘/ lists the shortcuts. Invisible buttons, so the
+    /// shortcuts work from anywhere in the window.
     private var shortcutButtons: some View {
         ZStack {
             ForEach(DashboardSection.allCases) { s in
@@ -359,6 +390,8 @@ struct DashboardView: View {
                 Button(r.title) { rangeBinding.wrappedValue = r }
                     .keyboardShortcut(KeyEquivalent(Character(String(i + 1))), modifiers: .control)
             }
+            Button("Keyboard Shortcuts", action: showShortcutsHelp)
+                .keyboardShortcut("/", modifiers: .command)
         }
         .buttonStyle(.plain)
         .opacity(0)
@@ -369,7 +402,7 @@ struct DashboardView: View {
     // MARK: Navigation
 
     private func select(_ s: DashboardSection) {
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { section = s }
+        DS.animate(.standard, reduceMotion: reduceMotion) { section = s }
     }
 
     /// Moves a whole period earlier or later.
@@ -379,7 +412,7 @@ struct DashboardView: View {
     }
 
     private func setPeriodEnd(_ end: Date?) {
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
+        DS.animate(.standard, reduceMotion: reduceMotion) {
             if let end, end < DashboardData.liveEnd(archive: store.archive) {
                 periodEnd = end
             } else {
@@ -553,21 +586,35 @@ private struct ShortcutsHelp: View {
         ("⌘R", "Refresh"),
         ("⌃⌘F", "Enter or exit full screen"),
         ("⇧⌘P", "Export report as PDF"),
+        ("⌘/", "Show this list"),
     ]
 
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Keyboard Shortcuts").font(.headline)
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
+            Text("Keyboard Shortcuts")
+                .dsFont(.title)
+            Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
                 ForEach(rows.indices, id: \.self) { i in
                     GridRow {
-                        Text(rows[i].0).font(.callout.monospaced()).foregroundStyle(.secondary)
-                        Text(rows[i].1).font(.callout)
+                        Text(rows[i].0)
+                            .font(.callout.monospaced())
+                            .foregroundStyle(.secondary)
+                            .gridColumnAlignment(.trailing)
+                        Text(rows[i].1).dsFont(.body)
                     }
                 }
             }
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .buttonStyle(.ds(.primary))
+                    .keyboardShortcut(.defaultAction)
+            }
         }
-        .padding(16)
+        .padding(DS.Space.xxl)
+        .frame(minWidth: 380)
     }
 }
 
@@ -583,28 +630,31 @@ private struct CurrentReadingTile: View {
         if let cur = snapshot.current {
             let stale = snapshot.isStale(at: now)
             let tint = snapshot.displayTint(at: now)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
+            VStack(alignment: .leading, spacing: DS.Space.sm - 2) {
+                HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
                     Text(snapshot.unit.format(mgdl: cur.mgdl))
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(stale ? Color.secondary : (snapshot.range?.valueColor ?? .primary))
+                        .dsFont(.metricValueLarge)
+                        .foregroundStyle(stale ? Palette.stale : (snapshot.range?.valueColor ?? .primary))
                         .contentTransition(.numericText(value: cur.mgdl))
-                    TrendSymbol(trend: cur.trend)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    // An old trend arrow could be read as what's happening now.
+                    TrendSymbol(trend: stale ? .unknown : cur.trend)
                         .font(.title3)
-                        .foregroundStyle(stale ? Color.secondary : tint)
+                        .foregroundStyle(stale ? Palette.stale : tint)
                     Spacer(minLength: 0)
                     if let range = snapshot.range { RangeBadge(range: range, stale: stale) }
                 }
-                HStack(spacing: 4) {
+                HStack(spacing: DS.Space.xs) {
                     Text(snapshot.unit.label)
                     if let d = snapshot.deltaMgdl, !stale { Text("· \(snapshot.unit.formatDelta(mgdl: d))").monospacedDigit() }
                     Spacer(minLength: 0)
                     Text(Format.age(cur.age(at: now)))
-                        .foregroundStyle(stale ? Color.orange : Color.secondary)
+                        .foregroundStyle(stale ? Tone.warning.textColor : Color.secondary)
                 }
-                .font(.caption)
+                .dsFont(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
                 if recent.count > 2 {
                     GlucoseSparkline(readings: recent, domain: now.addingTimeInterval(-3 * 3600)...now,
                                      lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl, stale: stale)
@@ -612,22 +662,12 @@ private struct CurrentReadingTile: View {
                 }
                 if stale {
                     Label("No new reading. Check your sensor.", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.orange)
+                        .fontWeight(.semibold).dsFont(.caption)
+                        .foregroundStyle(Tone.warning.textColor)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.ultraThinMaterial)
-                    AmbientGlow(tint: tint)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
-            }
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(tint.opacity(0.35), lineWidth: 0.75))
+            .dsCard(.hero(snapshot.displayTone(at: now)), padding: DS.Space.md, radius: DS.Radius.card - 2)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(snapshot.accessibilitySummary(at: now))
         }

@@ -7,67 +7,70 @@ struct PatternsSection: View {
     @AppStorage("dashboardPatternStyle") private var style = 0   // 0 percentiles, 1 overlay
 
     var body: some View {
+        // Worked out here rather than inside the page, which re-runs its content when the window
+        // changes size.
         let o = overlay
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        CardTitle(style == 0 ? "Glucose by Time of Day" : "Days Overlaid",
-                                  trailing: style == 0 ? "median and spread across \(dayCount) days" : "last \(o.labels.count) days")
-                        Picker("Style", selection: $style) {
-                            Text("Percentiles").tag(0)
-                            Text("Overlay").tag(1)
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .fixedSize()
+        let bins = style == 0 ? GlucoseAnalytics.dailyPattern(data.readings, binMinutes: PatternChart.binMinutes) : []
+        let byTime = GlucoseAnalytics.timeOfDay(data.readings, low: data.lowMgdl, high: data.highMgdl)
+        let byWeekday = data.range.duration >= 7 * 86_400
+            ? GlucoseAnalytics.weekdays(data.readings, low: data.lowMgdl, high: data.highMgdl) : []
+        DashboardPage { layout in
+            let chartHeight = layout.chartHeight(reserving: 220, minimum: 260, maximum: 520)
+            VStack(alignment: .leading, spacing: DS.Space.lg) {
+                SectionHeader(style == 0 ? "Glucose by Time of Day" : "Days Overlaid",
+                              subtitle: style == 0 ? "Median and spread across \(dayCount) \(dayCount == 1 ? "day" : "days")"
+                                                   : "The last \(o.labels.count) \(o.labels.count == 1 ? "day" : "days"), by time of day") {
+                    Picker("Style", selection: $style) {
+                        Text("Percentiles").tag(0)
+                        Text("Overlay").tag(1)
                     }
-                    Group {
-                        if style == 0 {
-                            let bins = GlucoseAnalytics.dailyPattern(data.readings, binMinutes: PatternChart.binMinutes)
-                            if bins.isEmpty {
-                                notEnough
-                            } else {
-                                PatternChart(bins: bins, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl)
-                                    .frame(height: 380)
-                            }
-                        } else {
-                            if o.points.isEmpty {
-                                notEnough
-                            } else {
-                                OverlayChart(points: o.points, dayLabels: o.labels, unit: data.unit,
-                                             lowMgdl: data.lowMgdl, highMgdl: data.highMgdl, reference: o.reference)
-                                    .frame(height: 380)
-                            }
-                        }
-                    }
-                    .transition(.opacity)
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
                 }
-                .dashboardCard()
-                .animation(.smooth(duration: 0.25), value: style)
+                Group {
+                    if style == 0 {
+                        if bins.isEmpty {
+                            notEnough
+                        } else {
+                            PatternChart(bins: bins, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl)
+                        }
+                    } else {
+                        if o.points.isEmpty {
+                            notEnough
+                        } else {
+                            OverlayChart(points: o.points, dayLabels: o.labels, unit: data.unit,
+                                         lowMgdl: data.lowMgdl, highMgdl: data.highMgdl, reference: o.reference)
+                        }
+                    }
+                }
+                // A new identity per style, so switching crossfades instead of swapping.
+                .id(style)
+                .transition(.opacity)
+                .frame(height: chartHeight)
 
                 Text(style == 0
                      ? "The line is the median reading at each time of day; the darker band holds the middle 50% of readings and the lighter band 90%. A wide band means that time of day varies a lot. Patterns are most useful over 7 days or more."
-                     : "Each line is one day, plotted by time of day. Today is drawn thicker.")
-                    .font(.caption)
+                     : "Each line is one day, plotted by time of day. The most recent day is drawn thicker.")
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-
-                CardGrid(minColumnWidth: 340, maxColumns: 2) {
-                    BreakdownTable(title: "By Time of Day", trailing: "local time",
-                                   rows: GlucoseAnalytics.timeOfDay(data.readings, low: data.lowMgdl, high: data.highMgdl),
-                                   unit: data.unit)
-                    if data.range.duration >= 7 * 86_400 {
-                        BreakdownTable(title: "By Weekday", trailing: nil,
-                                       rows: GlucoseAnalytics.weekdays(data.readings, low: data.lowMgdl, high: data.highMgdl),
-                                       unit: data.unit)
-                    }
-                }
-
-                if let note = data.historyNote { HistoryNote(text: note) }
-                Disclaimer()
             }
-            .padding(20)
+            .dashboardCard()
+            .dsAnimation(.standard, value: style)
+
+            CardGrid(minColumnWidth: 360, maxColumns: 2, spacing: layout.gutter) {
+                BreakdownTable(title: "By Time of Day", subtitle: "Local time", rows: byTime, unit: data.unit)
+                if !byWeekday.isEmpty {
+                    BreakdownTable(title: "By Weekday", subtitle: nil, rows: byWeekday, unit: data.unit)
+                }
+            }
+
+            if data.range.duration < 7 * 86_400 {
+                HistoryNote(text: "Pick 7D or longer in the toolbar to compare weekdays.")
+            }
+            if let note = data.historyNote { HistoryNote(text: note) }
+            Disclaimer()
         }
     }
 
@@ -76,9 +79,9 @@ struct PatternsSection: View {
     }
 
     private var notEnough: some View {
-        ContentUnavailableView("Not Enough Data", systemImage: "clock",
-                               description: Text("Pick a longer range, or check back once GlucOS has collected more readings."))
-            .frame(height: 380)
+        EmptyStateView(systemImage: "clock", title: "Not Enough Data",
+                       message: "Pick a longer range, or check back once GlucOS has collected more readings.")
+            .frame(maxHeight: .infinity)
     }
 
     /// The most recent 7 days, each on the same 24-hour axis.
@@ -117,15 +120,15 @@ struct BreakdownRow: Identifiable {
 /// Rows of range bars, so the worst time of day or weekday stands out.
 private struct BreakdownTable: View {
     let title: String
-    let trailing: String?
+    let subtitle: String?
     let rows: [BreakdownRow]
     let unit: GlucoseUnit
 
     var body: some View {
         let worst = rows.compactMap { r in r.breakdown.map { (r.id, $0.below) } }.max { $0.1 < $1.1 }
-        VStack(alignment: .leading, spacing: 12) {
-            CardTitle(title, trailing: trailing)
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 9) {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
+            SectionHeader(title, subtitle: subtitle)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 GridRow {
                     Text("").gridColumnAlignment(.leading)
                     Text("Range").gridColumnAlignment(.leading)
@@ -133,27 +136,28 @@ private struct BreakdownTable: View {
                     Text("Below").gridColumnAlignment(.trailing)
                     Text("Avg").gridColumnAlignment(.trailing)
                 }
-                .font(.caption2.weight(.semibold))
+                .fontWeight(.semibold).dsFont(.caption)
                 .foregroundStyle(.secondary)
                 ForEach(rows) { row in
                     GridRow {
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(row.label).font(.callout.weight(.semibold))
+                            Text(row.label).fontWeight(.semibold).dsFont(.callout)
                             if let detail = row.detail {
-                                Text(detail).font(.caption2).foregroundStyle(.tertiary)
+                                Text(detail).dsFont(.caption).foregroundStyle(.tertiary)
                             }
                         }
                         if let b = row.breakdown, let mean = row.meanMgdl {
                             MiniRangeBar(breakdown: b)
                                 .frame(minWidth: 80, maxWidth: .infinity)
                                 .frame(height: 8)
-                            Text(Format.percent(b.inRange)).monospacedDigit().font(.callout.weight(.semibold))
-                            Text(Format.percent(b.below)).monospacedDigit().font(.callout)
-                                .foregroundStyle(b.below > 0.04 ? GlucoseRange.low.tint : Color.primary)
+                            Text(Format.percent(b.inRange)).monospacedDigit().fontWeight(.semibold).dsFont(.callout)
+                            Text(Format.percent(b.below)).monospacedDigit()
                                 .fontWeight(worst?.0 == row.id && b.below > 0.04 ? .bold : .regular)
-                            Text(unit.format(mgdl: mean)).monospacedDigit().font(.callout).foregroundStyle(.secondary)
+                                .dsFont(.callout)
+                                .foregroundStyle(b.below > 0.04 ? GlucoseRange.low.textTint : Color.primary)
+                            Text(unit.format(mgdl: mean)).monospacedDigit().dsFont(.callout).foregroundStyle(.secondary)
                         } else {
-                            Text("Not enough data").font(.caption).foregroundStyle(.tertiary)
+                            Text("Not enough data").dsFont(.caption).foregroundStyle(.tertiary)
                                 .gridCellColumns(4)
                         }
                     }
@@ -219,17 +223,35 @@ struct DaysSection: View {
     let onShowDay: (Date) -> Void
 
     @State private var selection = Set<Date>()
+    @Environment(\.dashboardPadding) private var padding
 
     var body: some View {
         let days = GlucoseAnalytics.days(data.readings, low: data.lowMgdl, high: data.highMgdl)
+        if days.isEmpty {
+            EmptyStateView(systemImage: "calendar", title: "No Days in This Period",
+                           message: "GlucOS has no readings stored for this stretch. Use the arrows in the toolbar to try another period.")
+                .frame(maxHeight: .infinity)
+        } else {
+            content(days)
+        }
+    }
+
+    private func content(_ days: [DaySummary]) -> some View {
         let byDay = Dictionary(grouping: data.readings) { Calendar.current.startOfDay(for: $0.timestamp) }
         let u = data.unit
-        VStack(alignment: .leading, spacing: 12) {
+        let average = days.map(\.breakdown.inRange).reduce(0, +) / Double(max(1, days.count))
+        return VStack(alignment: .leading, spacing: 0) {
             if days.count > 1 {
-                DailyRangeChart(days: days)
-                    .frame(height: 170)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
+                VStack(alignment: .leading, spacing: DS.Space.md) {
+                    SectionHeader("Time in Range by Day",
+                                  subtitle: "\(days.count) days, \(Format.percent(average)) in range on an average day")
+                    DailyRangeChart(days: days)
+                        .frame(height: 150)
+                }
+                .dsCard(.standard)
+                .padding(.horizontal, padding)
+                .padding(.vertical, DS.Space.md + 2)
+                DSDivider()
             }
             Table(days, selection: $selection) {
                 TableColumn("Day") { (d: DaySummary) in
@@ -243,7 +265,7 @@ struct DaysSection: View {
                 }
                 .width(min: 100, ideal: 160)
                 TableColumn("In range") { (d: DaySummary) in
-                    HStack(spacing: 6) {
+                    HStack(spacing: DS.Space.sm - 2) {
                         Text(Format.percent(d.breakdown.inRange)).monospacedDigit().frame(width: 38, alignment: .trailing)
                         MiniRangeBar(breakdown: d.breakdown).frame(height: 6)
                     }
@@ -251,7 +273,7 @@ struct DaysSection: View {
                 .width(min: 120, ideal: 160)
                 TableColumn("Below") { (d: DaySummary) in
                     Text(Format.percent(d.breakdown.below)).monospacedDigit()
-                        .foregroundStyle(d.breakdown.below > 0.04 ? Color.red : Color.primary)
+                        .foregroundStyle(d.breakdown.below > 0.04 ? GlucoseRange.low.textTint : Color.primary)
                 }
                 TableColumn("Above") { (d: DaySummary) in
                     Text(Format.percent(d.breakdown.above)).monospacedDigit()
@@ -264,17 +286,18 @@ struct DaysSection: View {
                 }
                 TableColumn("CV") { (d: DaySummary) in
                     Text(Format.percent(d.stats.coefficientOfVariation)).monospacedDigit()
-                        .foregroundStyle(d.stats.coefficientOfVariation > 0.36 ? Color.orange : Color.primary)
+                        .foregroundStyle(d.stats.coefficientOfVariation > 0.36 ? Tone.warning.textColor : Color.primary)
                 }
                 TableColumn("Lows") { (d: DaySummary) in
                     Text("\(d.lowEpisodes)").monospacedDigit()
-                        .foregroundStyle(d.lowEpisodes > 0 ? Color.red : Color.secondary)
+                        .foregroundStyle(d.lowEpisodes > 0 ? GlucoseRange.low.textTint : Color.secondary)
                         .help("Episodes below \(u.format(mgdl: data.lowMgdl, withUnit: true)) lasting 15 minutes or more")
                 }
                 TableColumn("Readings") { (d: DaySummary) in
                     Text("\(d.stats.count)").monospacedDigit().foregroundStyle(.secondary)
                 }
             }
+            .tableStyle(.inset(alternatesRowBackgrounds: true))
             .contextMenu(forSelectionType: Date.self) { ids in
                 if let day = ids.first {
                     Button("Show on Chart") { onShowDay(day) }
@@ -304,6 +327,14 @@ struct ReadingsSection: View {
             case .above: return "Above"
             }
         }
+        var phrase: String {
+            switch self {
+            case .all: return "stored"
+            case .below: return "below your target"
+            case .inRange: return "within your target"
+            case .above: return "above your target"
+            }
+        }
     }
 
     @State private var filter: Filter = .all
@@ -311,24 +342,26 @@ struct ReadingsSection: View {
 
     var body: some View {
         let all = Array(data.readings.reversed())
-        let rows = all.filter(matches)
+        let rows = filter == .all ? all : all.filter { matches($0, filter) }
+        let counts = bucketCounts(all)
         let u = data.unit
         VStack(spacing: 0) {
-            HStack {
+            TableHeaderBar {
                 Picker("Show", selection: $filter) {
-                    ForEach(Filter.allCases) { f in Text(f.title).tag(f) }
+                    ForEach(Filter.allCases) { f in
+                        Text(f == .all ? f.title : "\(f.title) \(counts[f] ?? 0)").tag(f)
+                    }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
-                Spacer()
+            } trailing: {
                 Text(rows.count == all.count ? "\(all.count) readings" : "\(rows.count) of \(all.count) readings")
-                    .font(.caption)
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
 
             Table(rows, selection: $selection) {
                 TableColumn("Time") { (r: GlucoseReading) in
@@ -352,12 +385,13 @@ struct ReadingsSection: View {
                 }
                 TableColumn("Range") { (r: GlucoseReading) in
                     let range = GlucoseRange.classify(mgdl: r.mgdl, low: data.lowMgdl, high: data.highMgdl)
-                    HStack(spacing: 6) {
+                    HStack(spacing: DS.Space.sm - 2) {
                         Circle().fill(range.color).frame(width: 7, height: 7)
                         Text(range.label)
                     }
                 }
             }
+            .tableStyle(.inset(alternatesRowBackgrounds: true))
             .contextMenu(forSelectionType: Date.self) { ids in
                 if let t = ids.first {
                     Button("Show on Chart") { onShow(t) }
@@ -366,10 +400,35 @@ struct ReadingsSection: View {
                 if let t = ids.first { onShow(t) }
             }
             .help("Double-click a reading to see it on the chart")
+            .overlay {
+                if rows.isEmpty {
+                    EmptyStateView(systemImage: "list.bullet",
+                                   title: all.isEmpty ? "No Readings in This Period" : "No \(filter.title) Readings",
+                                   message: all.isEmpty
+                                       ? "Use the arrows in the toolbar to try another period."
+                                       : "No reading in this period was \(filter.phrase).",
+                                   actionTitle: all.isEmpty ? nil : "Show All",
+                                   action: all.isEmpty ? nil : { filter = .all })
+                        .frame(maxHeight: .infinity)
+                }
+            }
         }
     }
 
-    private func matches(_ r: GlucoseReading) -> Bool {
+    /// How many readings fall in each filter, in one pass, for the labels on the filter buttons.
+    private func bucketCounts(_ readings: [GlucoseReading]) -> [Filter: Int] {
+        var counts: [Filter: Int] = [:]
+        for r in readings {
+            switch GlucoseRange.classify(mgdl: r.mgdl, low: data.lowMgdl, high: data.highMgdl) {
+            case .urgentLow, .low: counts[.below, default: 0] += 1
+            case .inRange: counts[.inRange, default: 0] += 1
+            case .high, .veryHigh: counts[.above, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    private func matches(_ r: GlucoseReading, _ filter: Filter) -> Bool {
         // Same classification as the Range column and the time-in-range breakdowns.
         let range = GlucoseRange.classify(mgdl: r.mgdl, low: data.lowMgdl, high: data.highMgdl)
         switch filter {
