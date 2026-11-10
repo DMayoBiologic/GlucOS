@@ -221,6 +221,9 @@ final class GlucoseStore: ObservableObject {
             guard let self else { return }
             self.refreshOutlook()
             self.publish()
+            // A relearnt model can change the forecast, so check it now rather than at the next fetch.
+            self.alerts.evaluatePrediction(self.snapshot, forecast: self.outlook.outlook?.glucoseForecast,
+                                           settings: self.settings)
         }
     }
 

@@ -297,8 +297,11 @@ final class BacktestTests: XCTestCase {
         let sim = person.run()
         let profile = EffectProfileLearner.learn(readings: sim.readings, doses: sim.doses, meals: sim.meals, contexts: [],
                                                  low: 70, now: referenceNow, calendar: utc)
+        // Checked honestly: each stretch is replayed with a profile that never saw it.
+        let heldOut = EffectProfileLearner.heldOut(readings: sim.readings, doses: sim.doses, meals: sim.meals, contexts: [],
+                                                   profile: profile, low: 70, backtestDays: 21, now: referenceNow, calendar: utc)
         let cal = ForecastBacktest.run(readings: sim.readings, doses: sim.doses, meals: sim.meals, contexts: [],
-                                       profile: profile, days: 21, now: referenceNow)
+                                       profile: profile, days: 21, now: referenceNow, profileAt: heldOut)
         XCTAssertGreaterThan(cal.origins, 300)
         let model = try XCTUnwrap(cal.stats(for: .trendInsulinCarbs))
         let at60 = try XCTUnwrap(model.first { $0.minutes == 60 })
@@ -308,6 +311,23 @@ final class BacktestTests: XCTestCase {
         // The 80% range really holds about 80% (between 10th and 90th percentiles by construction).
         XCTAssertLessThan(at60.lower, 0)
         XCTAssertGreaterThan(at60.upper, 0)
+    }
+
+    func testHeldOutProfilesLeaveOutTheirOwnStretch() throws {
+        let sim = SimulatedPerson(days: 21).run()
+        let profile = EffectProfileLearner.learn(readings: sim.readings, doses: sim.doses, meals: sim.meals, contexts: [],
+                                                 low: 70, now: referenceNow, calendar: utc)
+        let heldOut = EffectProfileLearner.heldOut(readings: sim.readings, doses: sim.doses, meals: sim.meals, contexts: [],
+                                                   profile: profile, low: 70, backtestDays: 21, now: referenceNow, calendar: utc)
+        let early = heldOut(referenceNow.addingTimeInterval(-20 * 86_400))
+        let late = heldOut(referenceNow.addingTimeInterval(-86_400))
+        // Fitted on fewer intervals than the full profile, and on different ones.
+        XCTAssertLessThan(early.intervals, profile.intervals)
+        XCTAssertLessThan(late.intervals, profile.intervals)
+        XCTAssertNotEqual(early.insulin?.value, late.insulin?.value)
+        // Still close to the real effect: leaving a few days out shouldn't lose it.
+        let s = try XCTUnwrap(early.reliableInsulin?.value)
+        XCTAssertEqual(s, profile.insulin?.value ?? 0, accuracy: 15)
     }
 
     func testNothingToReplay() {

@@ -90,7 +90,8 @@ enum ForecastBacktest {
     static let spacing: TimeInterval = 30 * 60
 
     static func run(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
-                    profile: EffectProfile, days: Int = 30, now: Date = Date()) -> ForecastCalibration {
+                    profile: EffectProfile, days: Int = 30, now: Date = Date(),
+                    profileAt: ((Date) -> EffectProfile)? = nil) -> ForecastCalibration {
         let series = GlucoseSeries(readings)
         let start = now.addingTimeInterval(-Double(days) * 86_400)
         let maxH = TimeInterval((ForecastCalibration.horizons.max() ?? 180) * 60)
@@ -106,7 +107,7 @@ enum ForecastBacktest {
             let input = ForecastInputs(readings: series.upTo(r.timestamp), doses: doses.filter { $0.timestamp <= r.timestamp },
                                        meals: meals.filter { $0.timestamp <= r.timestamp },
                                        contexts: contexts.filter { $0.timestamp <= r.timestamp },
-                                       profile: profile, calibration: nil, now: r.timestamp)
+                                       profile: profileAt?(r.timestamp) ?? profile, calibration: nil, now: r.timestamp)
             guard case .success(let f) = GlucoseForecaster.forecast(input, maxHorizon: maxH) else { continue }
             lastOrigin = r.timestamp
             origins += 1

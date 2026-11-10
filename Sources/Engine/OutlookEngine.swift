@@ -52,8 +52,11 @@ enum OutlookEngine {
                       low: Double, high: Double, now: Date = Date(), calendar: Calendar = .current) -> OutlookModel {
         let profile = EffectProfileLearner.learn(readings: readings, doses: doses, meals: meals, contexts: contexts,
                                                  low: low, now: now, calendar: calendar)
+        // Each replayed forecast uses a profile fitted without the stretch it's checked against.
+        let heldOut = EffectProfileLearner.heldOut(readings: readings, doses: doses, meals: meals, contexts: contexts,
+                                                   profile: profile, low: low, now: now, calendar: calendar)
         let calibration = ForecastBacktest.run(readings: readings, doses: doses, meals: meals, contexts: contexts,
-                                               profile: profile, now: now)
+                                               profile: profile, now: now, profileAt: heldOut)
         let patterns = RecurringPatternFinder.find(readings: readings, low: low, high: high, now: now, calendar: calendar)
         return OutlookModel(profile: profile, calibration: calibration.origins > 0 ? calibration : nil,
                             patterns: patterns, learnedAt: now)

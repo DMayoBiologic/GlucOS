@@ -98,6 +98,33 @@ enum EffectProfileLearner {
         return best
     }
 
+    /// Profiles for checking forecasts honestly. The backtest window is cut into `folds` equal
+    /// stretches, and each stretch gets a profile fitted without its own intervals or the 3 hours
+    /// after it (a forecast reaches 3 hours ahead). So a replayed forecast is never judged by a
+    /// profile that has already seen the readings it is being compared with.
+    static func heldOut(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry],
+                        contexts: [ContextEvent], profile: EffectProfile, low: Double, backtestDays: Int = 30,
+                        folds: Int = 5, now: Date = Date(), calendar: Calendar = .current) -> (Date) -> EffectProfile {
+        let series = GlucoseSeries(readings)
+        let fitDays = profile.days > 30 ? 90 : 30
+        let all = rows(series: series, doses: doses, meals: meals, contexts: contexts, low: low,
+                       from: now.addingTimeInterval(-Double(fitDays) * 86_400), to: now, calendar: calendar)
+        let start = now.addingTimeInterval(-Double(backtestDays) * 86_400)
+        let length = Double(backtestDays) * 86_400 / Double(max(1, folds))
+        let profiles: [EffectProfile] = (0..<max(1, folds)).map { k in
+            let from = start.addingTimeInterval(Double(k) * length)
+            let to = from.addingTimeInterval(length + 3 * 3600)
+            var p = fit(all.filter { $0.start < from || $0.start >= to })
+            p.days = profile.days
+            p.learnedAt = profile.learnedAt
+            return p
+        }
+        return { date in
+            let k = Int((date.timeIntervalSince(start) / length).rounded(.down))
+            return profiles[min(profiles.count - 1, max(0, k))]
+        }
+    }
+
     static func block(of date: Date, calendar: Calendar) -> Int {
         min(3, max(0, calendar.component(.hour, from: date) / 6))
     }
