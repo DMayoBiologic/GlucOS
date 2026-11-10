@@ -48,6 +48,12 @@ struct GlucoseWidgetView: View {
         }
     }
 
+    /// `stats(hours:)` is anchored on the newest reading, not on now, so once that reading has
+    /// expired the numbers describe an old window. Don't present them as current.
+    private var stats12h: GlucoseStats? {
+        entry.freshness.showsValue ? s.stats(hours: 12) : nil
+    }
+
     private var chartCaption: String { "Last \(Int(hours))h" }
 
     private func chart(axes: Bool, lineWidth: CGFloat = 2.25) -> some View {
@@ -156,7 +162,7 @@ struct GlucoseWidgetView: View {
                 }
                 .padding(.top, 4)
                 Spacer(minLength: 0)
-                if config.showsStats, let st = s.stats(hours: 12) {
+                if config.showsStats, let st = stats12h {
                     VStack(alignment: .leading, spacing: 6) {
                         WidgetCaption(text: "Last 12h in range")
                         TimeInRangeBar(stats: st, height: 8)
@@ -193,7 +199,7 @@ struct GlucoseWidgetView: View {
     // MARK: Stats
 
     private func statsRow(ringSize: CGFloat) -> some View {
-        let st = s.stats(hours: 12)
+        let st = stats12h
         return HStack(spacing: 12) {
             if let st {
                 TimeInRangeRing(stats: st, lineWidth: 6)
@@ -204,7 +210,7 @@ struct GlucoseWidgetView: View {
     }
 
     private var statsGrid: some View {
-        let st = s.stats(hours: 12)
+        let st = stats12h
         return Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
             GridRow {
                 WidgetStat(title: "Average", value: st.map { s.unit.format(mgdl: $0.meanMgdl) } ?? "–")
