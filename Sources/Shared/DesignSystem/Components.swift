@@ -154,7 +154,7 @@ extension SectionHeader where Trailing == EmptyView {
 // MARK: - Status pill
 
 /// A small capsule naming a status ("In range", "Stale", "Sensor ending").
-struct StatusPill: View {
+struct TonePill: View {
     let text: String
     var systemImage: String?
     var tone: Tone = .neutral

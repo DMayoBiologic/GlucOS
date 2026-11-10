@@ -44,7 +44,7 @@ macOS has no Dynamic Type for third-party apps, so GlucOS has its own Text Size 
 | --- | --- |
 | `.buttonStyle(.ds(.primary / .secondary / .tinted(Tone) / .ghost, size: .small / .regular / .large))` | All buttons |
 | `DSChip`, `DSChipButtonStyle`, `DSChipPicker` | Time ranges, filters, toggles |
-| `StatusPill(text:systemImage:tone:)` | Small status capsule; `RangeBadge` is built on it |
+| `TonePill(text:systemImage:tone:)` | Small status capsule; `RangeBadge` is built on it |
 | `StatTile(_:value:unit:caption:tone:large:boxed:)` | A labelled headline number |
 | `SectionHeader(_:systemImage:subtitle:trailing:)` | Card titles, with a caption or controls that drop below when narrow |
 | `LegendItem(color:label:value:detail:)` | Chart and ring keys |

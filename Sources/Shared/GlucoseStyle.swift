@@ -75,7 +75,7 @@ struct RangeBadge: View {
     var stale: Bool = false
 
     var body: some View {
-        StatusPill(text: stale ? "Stale" : range.label,
+        TonePill(text: stale ? "Stale" : range.label,
                    systemImage: stale ? "exclamationmark.triangle.fill" : range.systemImage,
                    tone: range.tone(stale: stale))
     }
