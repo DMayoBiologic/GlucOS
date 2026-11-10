@@ -52,7 +52,7 @@ struct TimeInRangeWidgetView: View {
         if sum.coverage < 0.7 {
             Label("\(Format.percent(sum.coverage)) of period has data", systemImage: "exclamationmark.circle")
                 .font(.system(size: 9.5, weight: .medium))
-                .foregroundStyle(BannerSeverity.warning.tint)
+                .foregroundStyle(Tone.warning.textColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }

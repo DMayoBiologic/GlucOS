@@ -103,7 +103,7 @@ private struct PanelTitleLabelStyle: LabelStyle {
             if showsIcon { configuration.icon.foregroundStyle(tint) }
             configuration.title
         }
-        .font(.system(.subheadline, design: .rounded).weight(.bold))
+        .dsFont(.sectionTitle)
     }
 }
 
@@ -116,7 +116,7 @@ struct FieldProblem: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: BannerSeverity.warning.defaultSymbol)
                 .imageScale(.small)
-                .foregroundStyle(BannerSeverity.warning.tint)
+                .foregroundStyle(Tone.warning.color)
             Text(text)
                 .foregroundStyle(.primary.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
@@ -124,7 +124,7 @@ struct FieldProblem: View {
         .font(.callout)
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(BannerSeverity.warning.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Tone.warning.color.opacity(0.12), in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
         .transition(.opacity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Warning: \(text)")
@@ -147,7 +147,7 @@ struct NumberStepperField: View {
             TextField(title, text: $text, prompt: Text("0"))
                 .labelsHidden()
                 .textFieldStyle(.plain)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .dsFont(.metricValueLarge)
                 .multilineTextAlignment(.center)
                 .monospacedDigit()
                 .frame(width: 92)

@@ -226,7 +226,7 @@ struct LogSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
-                    .font(.system(.title2, design: .rounded).weight(.bold))
+                    .dsFont(.title)
                 Spacer()
                 DatePicker("Time", selection: $time, in: ...Date().addingTimeInterval(15 * 60),
                            displayedComponents: [.date, .hourAndMinute])
@@ -339,10 +339,10 @@ struct LogSheet: View {
     private var showsSiteChange: Bool { editing == .siteChange || (editing == nil && settings.therapy == .pump) }
     private var showsTags: Bool { editing == .context || editing == nil }
 
-    private static let insulinTint = Color.blue
-    private static let foodTint = Color.orange
-    private static let siteTint = Color.purple
-    private static let contextTint = Color.teal
+    private static let insulinTint = Palette.insulin
+    private static let foodTint = Palette.food
+    private static let siteTint = Palette.site
+    private static let contextTint = Palette.context
 
     private var partPicker: some View {
         HStack(spacing: 8) {
@@ -719,7 +719,7 @@ struct TherapySetupView: View {
                     HStack(spacing: 12) {
                         Image(systemName: t.systemImage)
                             .font(.title2)
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Palette.brand)
                             .frame(width: 32)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(t.title).font(.headline)
@@ -728,7 +728,7 @@ struct TherapySetupView: View {
                         }
                         Spacer(minLength: 0)
                         if settings.therapy == t {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.brand)
                         }
                     }
                     .padding(12)

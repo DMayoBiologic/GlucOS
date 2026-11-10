@@ -72,6 +72,12 @@ private struct GeneralSettingsTab: View {
             }
 
             Section {
+                TextSizePicker()
+            } header: {
+                Text("Appearance")
+            }
+
+            Section {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, on in
                         // Ignore the reset to the real state in the catch block below, so it
@@ -381,10 +387,10 @@ private struct AlertSettingsTab: View {
                         switch notificationsAllowed {
                         case .some(true):
                             Label("Allowed", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(BannerSeverity.success.tint)
+                                .foregroundStyle(Tone.success.textColor)
                         case .some(false):
                             Label("Off", systemImage: "bell.slash.fill")
-                                .foregroundStyle(BannerSeverity.critical.tint)
+                                .foregroundStyle(Tone.critical.textColor)
                         case .none where permissionChecked:
                             Button("Allow Notifications…") {
                                 store.alerts.requestAuthorization()
@@ -664,7 +670,7 @@ private struct AdvancedSettingsTab: View {
                 } label: {
                     if !updater.isConfigured {
                         Label("Not configured in this build (no Sparkle public key).", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(BannerSeverity.warning.tint)
+                            .foregroundStyle(Tone.warning.textColor)
                     } else {
                         Text("Checks hourly; installs and relaunches automatically.")
                     }

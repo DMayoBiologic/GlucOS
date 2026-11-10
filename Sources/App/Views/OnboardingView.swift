@@ -168,9 +168,10 @@ struct OnboardingView: View {
     private func heading(_ title: String, _ subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                .dsFont(.title)
             Text(subtitle)
-                .font(.title3)
+                .fontWeight(.regular)
+                .dsFont(.sectionTitle)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -338,7 +339,7 @@ struct OnboardingView: View {
                     switch notificationsAllowed {
                     case .some(true):
                         Label("Notifications are allowed", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(BannerSeverity.success.tint)
+                            .foregroundStyle(Tone.success.textColor)
                         Spacer()
                         Button("Send Test Alert") { store.alerts.sendTest() }
                     case .some(false):

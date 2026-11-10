@@ -15,7 +15,9 @@ extension WidgetRenderingMode {
 }
 
 extension GlucoseEntry {
-    var tint: Color { freshness == .fresh ? (snapshot.range?.tint ?? Palette.stale) : Palette.stale }
+    /// `.stale` unless the reading is fresh, so old data can never take a range colour.
+    var tone: Tone { snapshot.range?.tone(stale: freshness != .fresh) ?? .stale }
+    var tint: Color { tone.color }
 }
 
 // MARK: - Backdrop
@@ -159,7 +161,7 @@ struct DetailLine: View {
                         Image(systemName: "clock.badge.exclamationmark")
                         Text("Last \(s.unit.format(mgdl: cur.mgdl)) at \(cur.timestamp.formatted(date: .omitted, time: .shortened))")
                     }
-                    .foregroundStyle(BannerSeverity.warning.tint)
+                    .foregroundStyle(Tone.warning.textColor)
                 }
             } else {
                 Text(s.lastError == nil ? "Waiting for GlucOS" : "Open GlucOS to reconnect")
@@ -183,7 +185,7 @@ struct AgeLabel: View {
                 if stale { Image(systemName: "exclamationmark.triangle.fill").imageScale(.small) }
                 Text(Format.age(cur.age(at: entry.date)))
             }
-            .foregroundStyle(stale ? AnyShapeStyle(BannerSeverity.warning.tint) : AnyShapeStyle(HierarchicalShapeStyle.secondary))
+            .foregroundStyle(stale ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(HierarchicalShapeStyle.secondary))
             .monospacedDigit()
         }
     }
@@ -376,7 +378,7 @@ struct WidgetChart: View {
             if gapToNow > GlucoseSnapshot.staleAfter {
                 RuleMark(x: .value("Now", now))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
-                    .foregroundStyle(BannerSeverity.warning.tint.opacity(0.7))
+                    .foregroundStyle(Tone.warning.color.opacity(0.7))
             }
 
             if let last {

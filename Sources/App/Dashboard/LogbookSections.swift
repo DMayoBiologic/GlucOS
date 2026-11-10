@@ -578,7 +578,7 @@ private struct SiteAgeCard: View {
             } else {
                 Chart(buckets) { b in
                     BarMark(x: .value("Day", b.title), y: .value("Average", unit.value(fromMgdl: b.meanMgdl)))
-                        .foregroundStyle(Color.purple.gradient)
+                        .foregroundStyle(Palette.site.gradient)
                         .annotation(position: .top, spacing: 4) {
                             VStack(spacing: 0) {
                                 Text(unit.format(mgdl: b.meanMgdl)).font(.caption.weight(.semibold))
