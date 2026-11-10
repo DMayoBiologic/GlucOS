@@ -17,8 +17,9 @@ struct OverviewSection: View {
             return GlucoseStats.compute(comparison, low: data.lowMgdl, high: data.highMgdl)
         }()
         GeometryReader { geo in
+            let gutter = DashboardMetrics.gutter(for: geo.size.width)
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: gutter) {
                     HeroBanner(snapshot: snapshot, data: data, previous: previousStats)
                     if data.readings.isEmpty {
                         ContentUnavailableView("No Readings in This Period", systemImage: "chart.xyaxis.line",
@@ -33,13 +34,12 @@ struct OverviewSection: View {
                                    latestIsStale: data.isLive && snapshot.isStale(),
                                    now: data.isLive ? Date() : nil)
                             .id("\(data.range.rawValue)-\(data.isLive ? "live" : String(data.domain.upperBound.timeIntervalSince1970))")
-                            .frame(height: Self.chartHeight(for: geo.size.height))
+                            .frame(height: Self.chartHeight(for: geo.size))
                             .dashboardCard()
                     }
                     if let note = data.historyNote { HistoryNote(text: note) }
                     if let st = data.stats, let b = data.breakdown {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 16, alignment: .top)],
-                                  alignment: .leading, spacing: 16) {
+                        CardGrid(minColumnWidth: 320, maxColumns: 3, spacing: gutter) {
                             TimeInRangeCard(breakdown: b, data: data, previous: previousStats)
                             SummaryCard(stats: st, data: data)
                             HighlightsCard(data: data)
@@ -47,14 +47,19 @@ struct OverviewSection: View {
                     }
                     Disclaimer()
                 }
-                .padding(20)
+                .padding(gutter + 4)
+                .frame(maxWidth: DashboardMetrics.maxContentWidth)
+                .frame(maxWidth: .infinity)
             }
         }
     }
 
-    /// The chart grows with the window, within reason.
-    static func chartHeight(for available: CGFloat) -> CGFloat {
-        min(640, max(340, available * 0.52))
+    /// The chart grows with the window but leaves room to see the cards below it start, so the
+    /// page never looks like it ends at the chart. Shorter on a wide, short window.
+    static func chartHeight(for size: CGSize) -> CGFloat {
+        let byHeight = size.height * (size.height > 900 ? 0.5 : 0.44)
+        let byWidth = size.width * 0.42
+        return min(620, max(280, min(byHeight, byWidth)))
     }
 }
 
@@ -204,31 +209,16 @@ private struct TimeInRangeCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             CardTitle("Time in Range", trailing: "target \(data.unit.format(mgdl: data.lowMgdl))–\(data.unit.format(mgdl: data.highMgdl))")
-            HStack(alignment: .center, spacing: 16) {
-                TimeInRangeRing(
-                    segments: breakdown.rows.reversed().map { (fraction: $0.fraction, color: $0.range.reportColor) },
-                    inRange: breakdown.inRange, lineWidth: 14)
-                    .frame(width: 150, height: 150)
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(breakdown.rows) { row in
-                        HStack(spacing: 6) {
-                            Capsule().fill(row.range.reportColor.gradient)
-                                .frame(width: 4, height: 14)
-                            Text(row.range.label)
-                                .font(.callout)
-                            Spacer(minLength: 8)
-                            Text(GlucoseAnalytics.perDay(row.fraction))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                                .help("Average time per day")
-                            Text(Format.percent(row.fraction))
-                                .font(.callout.weight(row.range == .inRange ? .bold : .semibold))
-                                .monospacedDigit()
-                                .frame(minWidth: 40, alignment: .trailing)
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
+            // Ring beside the legend when there's room, above it when the card is narrow, so the
+            // labels never wrap.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 18) {
+                    ring(size: 132)
+                    legend.frame(minWidth: 210)
+                }
+                VStack(alignment: .center, spacing: 14) {
+                    ring(size: 120)
+                    legend
                 }
             }
             if let previous {
@@ -239,11 +229,63 @@ private struct TimeInRangeCard: View {
                     Text("in range").font(.caption).foregroundStyle(.secondary)
                 }
             }
+            Spacer(minLength: 0)
             Text("Consensus targets: over 70% in range, under 4% below, under 1% urgent low.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .dashboardCard()
+    }
+
+    private func ring(size: CGFloat) -> some View {
+        TimeInRangeRing(
+            segments: breakdown.rows.reversed().map { (fraction: $0.fraction, color: $0.range.reportColor) },
+            inRange: breakdown.inRange, lineWidth: 13)
+            .frame(width: size, height: size)
+            .frame(maxWidth: .infinity)
+            .layoutPriority(-1)
+    }
+
+    private var legend: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(breakdown.rows) { row in
+                HStack(spacing: 8) {
+                    Capsule().fill(row.range.reportColor.gradient)
+                        .frame(width: 4, height: 16)
+                    Text(row.range.label)
+                        .font(.callout)
+                        .lineLimit(1)
+                        .fixedSize()
+                    Spacer(minLength: 10)
+                    Text(GlucoseAnalytics.perDay(row.fraction))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help("Average time per day")
+                    Text(Format.percent(row.fraction))
+                        .font(.callout.weight(row.range == .inRange ? .bold : .semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(minWidth: 40, alignment: .trailing)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// Spacing and widths shared by the dashboard sections, so they breathe the same way.
+enum DashboardMetrics {
+    /// Past this the cards get too wide to scan; the content centres instead.
+    static let maxContentWidth: CGFloat = 1800
+
+    static func gutter(for width: CGFloat) -> CGFloat {
+        width < 760 ? 14 : (width < 1200 ? 16 : 20)
     }
 }
 

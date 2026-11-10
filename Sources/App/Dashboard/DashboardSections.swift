@@ -53,8 +53,7 @@ struct PatternsSection: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16, alignment: .top)],
-                          alignment: .leading, spacing: 16) {
+                CardGrid(minColumnWidth: 340, maxColumns: 2) {
                     BreakdownTable(title: "By Time of Day", trailing: "local time",
                                    rows: GlucoseAnalytics.timeOfDay(data.readings, low: data.lowMgdl, high: data.highMgdl),
                                    unit: data.unit)
