@@ -708,7 +708,7 @@ struct TherapySetupView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("How do you take insulin?")
                     .font(.title2.weight(.semibold))
-                Text("GlucOS uses this to decide what to ask when you log, and which patterns to show you. You can change it any time in Settings → Insulin.")
+                Text("GlucOS uses this to decide what to ask when you log, and which patterns to show you. You can change it any time in Settings → Logging.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
