@@ -209,3 +209,76 @@ struct CarbActivity: Hashable {
                             mostlyAbsorbedAt: mostly, mealCount: timed.count, uncountedFood: uncounted)
     }
 }
+
+/// Background ("basal") insulin logged by someone on injections: long-acting doses, NPH, and the
+/// slow part of premixed insulin. It isn't part of the forecast, which assumes background insulin
+/// holds glucose level. A pump's basal isn't logged, so it isn't here either.
+///
+/// The amount left is rough on purpose. Long-acting analogues are close to flat, so what's left is
+/// taken to fall in a straight line over the insulin's usual duration; NPH uses its curve.
+struct BackgroundInsulinActivity: Hashable {
+    let at: Date
+    /// The most recent background dose still within its usual action time.
+    let latest: InsulinDose?
+    /// When that dose's usual action time runs out.
+    let latestCoverEndsAt: Date?
+    /// Estimated background units still to act, from every dose still within its action time.
+    let onBoard: Double
+    /// Background doses still within their action time.
+    let doseCount: Int
+
+    var isActive: Bool { doseCount > 0 }
+
+    /// Share of the latest dose's usual action time already gone, 0…1.
+    var latestElapsedFraction: Double? {
+        guard let latest, let end = latestCoverEndsAt else { return nil }
+        let total = end.timeIntervalSince(latest.timestamp)
+        guard total > 0 else { return nil }
+        return min(1, max(0, at.timeIntervalSince(latest.timestamp) / total))
+    }
+
+    /// Typical action time of a long-acting insulin, from its brand or generic name when given.
+    static func longActingDuration(name: String) -> TimeInterval {
+        let n = name.lowercased()
+        if n.contains("tresiba") || n.contains("degludec") { return 42 * 3600 }
+        if n.contains("toujeo") { return 36 * 3600 }
+        if n.contains("levemir") || n.contains("detemir") { return 20 * 3600 }
+        return 24 * 3600   // glargine (Lantus, Optisulin, Basaglar, Semglee) and unknown
+    }
+
+    /// How long the background part of `dose` acts, or nil when it has none.
+    static func duration(of dose: InsulinDose) -> TimeInterval? {
+        switch dose.kind {
+        case .long: return longActingDuration(name: dose.name)
+        case .intermediate, .premixed: return InsulinActionCurve.nph.totalDuration
+        case .rapid, .ultraRapid, .short: return nil
+        }
+    }
+
+    /// Units of the background part of `dose` still to act at `date`.
+    static func remaining(of dose: InsulinDose, at date: Date) -> Double {
+        let t = date.timeIntervalSince(dose.timestamp)
+        guard t >= 0, dose.units > 0, let total = duration(of: dose), t < total else { return 0 }
+        switch dose.kind {
+        case .long: return dose.units * (1 - t / total)
+        case .intermediate: return dose.units * InsulinActionCurve.nph.fractionRemaining(after: t)
+        case .premixed:
+            let slow = InsulinKind.premixed.components.filter { $0.curve == .nph }
+            return slow.reduce(0) { $0 + dose.units * $1.share * $1.curve.fractionRemaining(after: t) }
+        case .rapid, .ultraRapid, .short: return 0
+        }
+    }
+
+    static func compute(doses: [InsulinDose], at now: Date) -> BackgroundInsulinActivity {
+        let acting = doses.filter { d in
+            guard d.units > 0, d.timestamp <= now, let total = duration(of: d) else { return false }
+            return now.timeIntervalSince(d.timestamp) < total
+        }
+        let latest = acting.max { $0.timestamp < $1.timestamp }
+        return BackgroundInsulinActivity(
+            at: now, latest: latest,
+            latestCoverEndsAt: latest.flatMap { d in duration(of: d).map { d.timestamp.addingTimeInterval($0) } },
+            onBoard: acting.reduce(0) { $0 + remaining(of: $1, at: now) },
+            doseCount: acting.count)
+    }
+}
