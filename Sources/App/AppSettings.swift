@@ -20,6 +20,15 @@ final class AppSettings: ObservableObject {
     @Published var alertOnRapidChange: Bool { didSet { d.set(alertOnRapidChange, forKey: "alertRapid") } }
     @Published var alertOnStale: Bool { didSet { d.set(alertOnStale, forKey: "alertStale") } }
     @Published var alertOnSensorExpiry: Bool { didSet { d.set(alertOnSensorExpiry, forKey: "alertSensor") } }
+    /// Heads-up when the forecast says glucose will go low (or urgent low) soon.
+    @Published var alertOnPredictedLow: Bool { didSet { d.set(alertOnPredictedLow, forKey: "alertPredictedLow") } }
+    /// Heads-up when the forecast says glucose will go high (or very high) soon. Predicted highs
+    /// above target also need `alertOnHigh`.
+    @Published var alertOnPredictedHigh: Bool { didSet { d.set(alertOnPredictedHigh, forKey: "alertPredictedHigh") } }
+    /// How far ahead a predicted low may be to alert, in minutes.
+    @Published var predictiveAlertMinutes: Int { didSet { d.set(predictiveAlertMinutes, forKey: "predictiveAlertMinutes") } }
+    /// Draw the forecast on charts.
+    @Published var showForecast: Bool { didSet { d.set(showForecast, forKey: "showForecast") } }
     @Published var alertCooldownMinutes: Int { didSet { d.set(alertCooldownMinutes, forKey: "alertCooldown") } }
     @Published var sensorLifetimeDays: Int { didSet { d.set(sensorLifetimeDays, forKey: "sensorLifetimeDays") } }
     @Published var showDeltaInMenuBar: Bool { didSet { d.set(showDeltaInMenuBar, forKey: "showDelta") } }
@@ -67,6 +76,11 @@ final class AppSettings: ObservableObject {
         alertOnRapidChange = d.object(forKey: "alertRapid") as? Bool ?? true
         alertOnStale = d.object(forKey: "alertStale") as? Bool ?? true
         alertOnSensorExpiry = d.object(forKey: "alertSensor") as? Bool ?? true
+        alertOnPredictedLow = d.object(forKey: "alertPredictedLow") as? Bool ?? true
+        alertOnPredictedHigh = d.object(forKey: "alertPredictedHigh") as? Bool ?? true
+        let lead = d.object(forKey: "predictiveAlertMinutes") as? Int ?? 20
+        predictiveAlertMinutes = [10, 15, 20, 30].contains(lead) ? lead : 20
+        showForecast = d.object(forKey: "showForecast") as? Bool ?? true
         alertCooldownMinutes = d.object(forKey: "alertCooldown") as? Int ?? 15
         sensorLifetimeDays = d.object(forKey: "sensorLifetimeDays") as? Int ?? 15   // Libre 2 Plus
         showDeltaInMenuBar = d.object(forKey: "showDelta") as? Bool ?? false

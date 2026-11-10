@@ -19,6 +19,10 @@ struct GlucoseChart: View {
     /// the newest reading's age, with the same threshold as `GlucoseSnapshot.isStale`. Pass `false`
     /// only when showing a past period on purpose.
     var latestIsStale: Bool? = nil
+    /// An estimate of where glucose may go next, drawn as a dashed grey line with its likely
+    /// range, never in a reading's colour. Pass only a current forecast (`OutlookSnapshot.isCurrent`);
+    /// it's hidden anyway while the newest reading is stale.
+    var forecast: [ForecastSample] = []
 
     @State private var hoverDate: Date?
 
@@ -39,7 +43,7 @@ struct GlucoseChart: View {
     }
 
     private var yDomainMgdl: ClosedRange<Double> {
-        let values = window.map(\.mgdl) + [lowMgdl, highMgdl]
+        let values = window.map(\.mgdl) + [lowMgdl, highMgdl] + forecast.map(\.mgdl)
         let lo = min(values.min() ?? 60, 60) - 10
         let hi = max(values.max() ?? 200, 200) + 10
         return lo...hi
@@ -63,6 +67,8 @@ struct GlucoseChart: View {
         let stale = latestIsStale
             ?? (window.last.map { Date().timeIntervalSince($0.timestamp) > GlucoseSnapshot.staleAfter } ?? true)
         let currentTint = stale ? Palette.stale : (window.last.map { color(for: $0.mgdl) } ?? Palette.stale)
+        let projection = stale ? [] : forecast
+        let yd = yDomain
         Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
@@ -101,6 +107,28 @@ struct GlucoseChart: View {
                 .interpolationMethod(.monotone)
                 .foregroundStyle(lineStyle)
                 .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+            }
+
+            // The forecast: a neutral band and dashed line, so it can't be mistaken for readings.
+            ForEach(projection) { p in
+                AreaMark(
+                    x: .value("Time", p.date),
+                    yStart: .value("Forecast low", min(max(unit.value(fromMgdl: p.lowerMgdl), yd.lowerBound), yd.upperBound)),
+                    yEnd: .value("Forecast high", min(max(unit.value(fromMgdl: p.upperMgdl), yd.lowerBound), yd.upperBound)),
+                    series: .value("Series", "Forecast range")
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(Palette.stale.opacity(0.16))
+            }
+            ForEach(projection) { p in
+                LineMark(
+                    x: .value("Time", p.date),
+                    y: .value("Forecast", unit.value(fromMgdl: p.mgdl)),
+                    series: .value("Series", "Forecast")
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(Palette.stale)
+                .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 3]))
             }
 
             // Current reading: solid dot with a soft halo.
@@ -180,7 +208,8 @@ struct GlucoseChart: View {
             }
         }
         .hoverSelection(interactive, $hoverDate)
-        .accessibilityLabel("Glucose, last \(Int(hours)) hours")
+        .accessibilityLabel(projection.isEmpty ? "Glucose, last \(Int(hours)) hours"
+                                                : "Glucose, last \(Int(hours)) hours, with an estimated forecast")
     }
 }
 

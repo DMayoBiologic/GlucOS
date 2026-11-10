@@ -38,8 +38,10 @@ struct PopoverChartCard: View {
             }
             .frame(height: 24)
             .animation(PopoverMotion.quick(reduceMotion), value: pinned)
+            let outlook = s.currentOutlook()
             GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
-                         hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned)
+                         hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
+                         forecast: settings.showForecast ? (outlook?.forecast ?? []) : [])
                 .frame(height: 136)
                 .focusable()
                 .focused($chartFocused)
@@ -67,8 +69,18 @@ struct PopoverChartCard: View {
                 .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
                 .accessibilityValue(chartSummary(window))
                 .accessibilityHint("Use the left and right arrow keys to step through readings")
+            if let outlook, outlook.showsInsulin || (settings.showForecast && !outlook.forecast.isEmpty) {
+                OutlookSummaryRow(outlook: settings.showForecast ? outlook : withoutForecast(outlook),
+                                  unit: s.unit, lowMgdl: s.lowMgdl)
+            }
         }
         .dsCard(.standard)
+    }
+
+    private func withoutForecast(_ o: OutlookSnapshot) -> OutlookSnapshot {
+        var copy = o
+        copy.forecast = []
+        return copy
     }
 
     private var header: some View {
