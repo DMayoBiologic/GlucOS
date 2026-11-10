@@ -55,7 +55,7 @@ final class PredictiveAlertTests: XCTestCase {
         XCTAssertEqual(d?.kind, .veryHigh)
     }
 
-    func testModelledFallWithoutAFallingTrendDoesNotAlert() {
+    func testModelledFallWithoutAFallingTrendDoesNotAlert() throws {
         // Flat at 90 with insulin acting and its effect learnt: the forecast's line crosses 70,
         // but the trend isn't falling yet, so there's no heads-up (by design: the trend has to agree).
         let r = readings(endingAt: now, minutes: 20) { _ in 90 }
@@ -65,7 +65,9 @@ final class PredictiveAlertTests: XCTestCase {
         let input = ForecastInputs(readings: GlucoseSeries(r), doses: [dose], meals: [], contexts: [], profile: profile, now: now)
         guard case .success(let f) = GlucoseForecaster.forecast(input) else { return XCTFail("no forecast") }
         XCTAssertEqual(f.basis, .trendInsulinCarbs)
-        XCTAssertNotNil(f.firstBelow(70))
+        // The crossing is inside the lead time, so only the trend gate can be holding the alert back.
+        let crossing = try XCTUnwrap(f.firstBelow(70))
+        XCTAssertLessThanOrEqual(crossing.timeIntervalSince(now), settings.leadTime)
         XCTAssertNil(PredictiveAlertRules.evaluate(f, settings: settings, now: now))
     }
 
