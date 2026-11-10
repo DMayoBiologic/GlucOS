@@ -52,26 +52,43 @@ enum RecurringPatternFinder {
     /// An hour counts as high when at least half its readings are above the high threshold.
     static let highFraction = 0.5
 
-    static func find(readings: [GlucoseReading], low: Double, high: Double, now: Date = Date(),
-                     calendar: Calendar = .current) -> [RecurringPattern] {
-        let start = calendar.startOfDay(for: now.addingTimeInterval(-Double(days) * 86_400))
-        let recent = readings.filter { $0.timestamp >= start && $0.timestamp <= now }
-        guard !recent.isEmpty else { return [] }
+    /// Readings in an hour for it to count as covered (about one every 15 minutes or closer).
+    static let readingsPerCoveredHour = 3
 
-        // [day index][hour] → readings
+    /// Whether the finder has enough recent data to judge: some hour of the day covered on at
+    /// least `minimumDaysWithData` days. Without it, "nothing recurring" would mean "can't tell".
+    static func hasEnoughHistory(readings: [GlucoseReading], now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        let cells = self.cells(readings: readings, now: now, calendar: calendar)
+        var dataDays = [Set<Int>](repeating: [], count: 24)
+        for (day, hours) in cells {
+            for (hour, values) in hours where values.count >= readingsPerCoveredHour { dataDays[hour].insert(day) }
+        }
+        return dataDays.contains { $0.count >= minimumDaysWithData }
+    }
+
+    /// Recent readings by [day index][hour].
+    private static func cells(readings: [GlucoseReading], now: Date, calendar: Calendar) -> [Int: [Int: [Double]]] {
+        let start = calendar.startOfDay(for: now.addingTimeInterval(-Double(days) * 86_400))
         var cells: [Int: [Int: [Double]]] = [:]
-        for r in recent {
+        for r in readings where r.timestamp >= start && r.timestamp <= now {
             let day = calendar.dateComponents([.day], from: start, to: calendar.startOfDay(for: r.timestamp)).day ?? 0
             let hour = calendar.component(.hour, from: r.timestamp)
             cells[day, default: [:]][hour, default: []].append(r.mgdl)
         }
+        return cells
+    }
+
+    static func find(readings: [GlucoseReading], low: Double, high: Double, now: Date = Date(),
+                     calendar: Calendar = .current) -> [RecurringPattern] {
+        let cells = self.cells(readings: readings, now: now, calendar: calendar)
+        guard !cells.isEmpty else { return [] }
 
         // Per hour: which days had data, which had a low, which a high.
         var dataDays = [Set<Int>](repeating: [], count: 24)
         var lowDays = [Set<Int>](repeating: [], count: 24)
         var highDays = [Set<Int>](repeating: [], count: 24)
         for (day, hours) in cells {
-            for (hour, values) in hours where values.count >= 3 {   // 3+ readings ≈ a covered hour at 15-min spacing
+            for (hour, values) in hours where values.count >= readingsPerCoveredHour {
                 dataDays[hour].insert(day)
                 let below = values.filter { $0 < low }.count
                 if below >= 2 || values.contains(where: { $0 < urgentLow }) { lowDays[hour].insert(day) }

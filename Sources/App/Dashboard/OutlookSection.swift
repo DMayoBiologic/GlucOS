@@ -75,13 +75,9 @@ struct OutlookSection: View {
         }
     }
 
-    /// Enough recent history for the pattern finder to have judged: readings on at least as many
-    /// of the last 14 days as it needs for any hour.
+    /// Enough recent history for the pattern finder to have judged, by its own coverage rule.
     private func hasPatternHistory(now: Date) -> Bool {
-        let cutoff = now.addingTimeInterval(-Double(RecurringPatternFinder.days) * 86_400)
-        let days = Set(GlucoseAnalytics.slice(store.archive, from: cutoff, to: now)
-            .map { Calendar.current.startOfDay(for: $0.timestamp) })
-        return days.count >= RecurringPatternFinder.minimumDaysWithData
+        RecurringPatternFinder.hasEnoughHistory(readings: store.archive, now: now)
     }
 
     private func subtitle(_ o: OutlookSnapshot?) -> String {

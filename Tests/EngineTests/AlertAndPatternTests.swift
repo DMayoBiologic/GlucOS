@@ -133,6 +133,22 @@ final class RecurringPatternTests: XCTestCase {
         XCTAssertEqual(highs.first?.hours, 3)
     }
 
+    func testHistoryIsEnoughOnlyWithACoveredHourOnSevenDays() {
+        let end = utc.startOfDay(for: referenceNow)
+        // One reading a day for ten days: plenty of days, but no hour is ever covered.
+        let sparse = (1...10).map { reading(end.addingTimeInterval(-Double($0) * 86_400 + 3 * 3600), 120) }
+        XCTAssertFalse(RecurringPatternFinder.hasEnoughHistory(readings: sparse, now: referenceNow, calendar: utc))
+        // 3 am covered (every 15 minutes) on seven days.
+        let covered = (1...7).flatMap { d in
+            (0..<4).map { q in reading(end.addingTimeInterval(-Double(d) * 86_400 + 3 * 3600 + Double(q) * 900), 120) }
+        }
+        XCTAssertTrue(RecurringPatternFinder.hasEnoughHistory(readings: covered, now: referenceNow, calendar: utc))
+        // …but six days isn't enough.
+        let six = covered.filter { $0.timestamp > end.addingTimeInterval(-6.5 * 86_400) }
+        XCTAssertFalse(RecurringPatternFinder.hasEnoughHistory(readings: six, now: referenceNow, calendar: utc))
+        XCTAssertTrue(RecurringPatternFinder.hasEnoughHistory(readings: history(), now: referenceNow, calendar: utc))
+    }
+
     func testNotEnoughDaysIsNotAPattern() {
         let all = history { _, hour in hour == 3 ? 60 : nil }
         let recent = all.filter { $0.timestamp >= referenceNow.addingTimeInterval(-5 * 86_400) }
