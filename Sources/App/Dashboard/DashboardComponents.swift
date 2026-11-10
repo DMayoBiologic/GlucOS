@@ -98,6 +98,8 @@ struct CardGrid: Layout {
 
     private func columns(for width: CGFloat, count: Int) -> Int {
         guard count > 0 else { return 1 }
+        // SwiftUI can probe a layout with an infinite width; Int(.infinity) would trap.
+        guard width.isFinite else { return max(1, min(count, maxColumns)) }
         let fit = Int(((width + spacing) / (minColumnWidth + spacing)).rounded(.down))
         return max(1, min(count, maxColumns, fit))
     }
@@ -121,7 +123,8 @@ struct CardGrid: Layout {
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? (minColumnWidth * CGFloat(min(maxColumns, subviews.count)))
+        let ideal = minColumnWidth * CGFloat(min(maxColumns, max(1, subviews.count)))
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? ideal
         let heights = rowHeights(subviews, width: width).map { $0.1 }
         let total = heights.reduce(0, +) + spacing * CGFloat(max(0, heights.count - 1))
         return CGSize(width: width, height: total)

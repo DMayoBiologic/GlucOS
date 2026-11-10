@@ -222,7 +222,7 @@ struct DashboardView: View {
                     message: "Readings stop until you start a new sensor."))
             } else if remaining < 1 {
                 out.append(DashboardNotice(
-                    id: "sensor-ending:\(sensor.serial)", severity: remaining < 0.25 ? .warning : .info,
+                    id: "sensor-ending:\(sensor.serial):\(remaining < 0.25 ? "soon" : "today")", severity: remaining < 0.25 ? .warning : .info,
                     systemImage: "sensor.tag.radiowaves.forward.fill",
                     title: "Sensor ends in \(Format.days(remaining))",
                     message: "Have a replacement ready so you don't lose readings.",
@@ -243,13 +243,13 @@ struct DashboardView: View {
     private var toastView: some View {
         if let toast {
             StatusBanner(severity: toast.severity, title: toast.title, message: toast.message,
-                         onDismiss: { withAnimation(.smooth(duration: 0.25)) { self.toast = nil } })
+                         onDismiss: { withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { self.toast = nil } })
                 .frame(maxWidth: 520)
                 .padding(20)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .task(id: toast.id) {
                     try? await Task.sleep(for: .seconds(8))
-                    withAnimation(.smooth(duration: 0.25)) { if self.toast?.id == toast.id { self.toast = nil } }
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { if self.toast?.id == toast.id { self.toast = nil } }
                 }
         }
     }
