@@ -9,7 +9,8 @@ import Accessibility
 struct TrendChart: View {
     /// Oldest → newest, already limited to `domain`.
     let readings: [GlucoseReading]
-    let domain: ClosedRange<Date>
+    /// The period on screen. The chart's own axis (`domain`) runs on past it when a forecast is drawn.
+    let periodDomain: ClosedRange<Date>
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
@@ -22,6 +23,11 @@ struct TrendChart: View {
     let latestIsStale: Bool
     /// When set, the period is live and a "now" line is drawn.
     let now: Date?
+    /// Where glucose may go next, drawn past "now" as a dashed grey line with its likely range.
+    /// Pass only a current forecast (`GlucoseSnapshot.currentOutlook`); it's hidden while stale.
+    let forecast: [ForecastSample]
+    /// What the forecast was built from, for the legend.
+    let forecastBasis: ForecastBasis?
 
     @State private var visibleLength: TimeInterval
     @State private var scrollStart: Date
@@ -37,6 +43,7 @@ struct TrendChart: View {
     @AppStorage("chartShowGaps") private var showGaps = true
     @AppStorage("chartComparePrevious") private var comparePrevious = false
     @AppStorage("chartShowOverviewStrip") private var showStrip = true
+    @AppStorage("chartShowForecast") private var showForecast = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -45,10 +52,11 @@ struct TrendChart: View {
 
     init(readings: [GlucoseReading], domain: ClosedRange<Date>, unit: GlucoseUnit, lowMgdl: Double, highMgdl: Double,
          events: [ChartEvent] = [], comparison: [GlucoseReading] = [], comparisonShift: TimeInterval = 0,
-         latestIsStale: Bool = false, now: Date? = nil) {
+         latestIsStale: Bool = false, now: Date? = nil,
+         forecast: [ForecastSample] = [], forecastBasis: ForecastBasis? = nil) {
         self.readings = readings
         self.events = events
-        self.domain = domain
+        self.periodDomain = domain
         self.unit = unit
         self.lowMgdl = lowMgdl
         self.highMgdl = highMgdl
@@ -56,8 +64,32 @@ struct TrendChart: View {
         self.comparisonShift = comparisonShift
         self.latestIsStale = latestIsStale
         self.now = now
-        _visibleLength = State(initialValue: domain.upperBound.timeIntervalSince(domain.lowerBound))
+        self.forecast = forecast
+        self.forecastBasis = forecastBasis
+        // "The whole period", however far the forecast stretches the axis.
+        _visibleLength = State(initialValue: Self.wholePeriod)
         _scrollStart = State(initialValue: domain.lowerBound)
+    }
+
+    /// Stands for "show everything" in `visibleLength`, so the view stays unzoomed when the
+    /// forecast's length (and so the axis) changes.
+    private static let wholePeriod: TimeInterval = .greatestFiniteMagnitude
+
+    /// The forecast actually drawn: only on a live period, never while the latest reading is old,
+    /// and only when it starts from the newest reading on the chart.
+    private var projection: [ForecastSample] {
+        guard showForecast, now != nil, !latestIsStale, let first = forecast.first,
+              let last = readings.last, first.date >= last.timestamp.addingTimeInterval(-5 * 60) else { return [] }
+        return forecast
+    }
+
+    /// The chart's axis: the period, run on to the end of the forecast (to the next quarter hour,
+    /// so it doesn't creep with every new forecast).
+    private var domain: ClosedRange<Date> {
+        guard let end = projection.last?.date, end > periodDomain.upperBound else { return periodDomain }
+        let step: TimeInterval = 15 * 60
+        let rounded = Date(timeIntervalSince1970: (end.timeIntervalSince1970 / step).rounded(.up) * step)
+        return periodDomain.lowerBound...rounded
     }
 
     private var fullLength: TimeInterval { domain.upperBound.timeIntervalSince(domain.lowerBound) }
@@ -189,6 +221,7 @@ struct TrendChart: View {
                 Toggle("Site Changes", isOn: $showSites)
             }
             Section("Glucose") {
+                Toggle("Predicted Glucose", isOn: $showForecast)
                 Toggle("Compare with Previous Period", isOn: $comparePrevious)
                 Toggle("Shade Gaps in Data", isOn: $showGaps)
                 Toggle("Overview Strip When Zoomed", isOn: $showStrip)
@@ -205,9 +238,13 @@ struct TrendChart: View {
     private var legend: some View {
         let kinds = Set(visibleEvents.map(\.kind))
         let comparing = comparePrevious && !comparison.isEmpty
-        if !kinds.isEmpty || comparing {
+        let forecasting = !projection.isEmpty
+        if !kinds.isEmpty || comparing || forecasting {
             HStack(spacing: 14) {
                 ChartEventLegend(kinds: kinds)
+                if forecasting {
+                    ForecastLegend(basis: forecastBasis)
+                }
                 if comparing {
                     HStack(spacing: 5) {
                         Capsule()
@@ -251,7 +288,7 @@ struct TrendChart: View {
         let newLength = min(max(length, Self.minimumVisible), fullLength)
         let center = viewStart.addingTimeInterval(visible / 2)
         DS.animate(.standard, reduceMotion: reduceMotion) {
-            visibleLength = newLength
+            visibleLength = newLength >= fullLength - 1 ? Self.wholePeriod : newLength
             scrollStart = clampStart(center.addingTimeInterval(-newLength / 2), length: newLength)
         }
     }
@@ -278,6 +315,7 @@ struct TrendChart: View {
     private var yDomain: ClosedRange<Double> {
         var values = readings.map(\.mgdl) + [lowMgdl, highMgdl]
         if comparePrevious { values += comparison.map(\.mgdl) }
+        values += projection.map(\.mgdl)
         let lo = min(values.min() ?? 60, 60) - 10
         let hi = max(values.max() ?? 200, 200) + 10
         return unit.value(fromMgdl: lo)...unit.value(fromMgdl: hi)
@@ -294,7 +332,16 @@ struct TrendChart: View {
         let maxGap = max(30 * 60, bucket * 3)
         let points = GlucoseAnalytics.plotPoints(readings, bucket: bucket, maxGap: maxGap)
         let ghost = comparePrevious ? GlucoseAnalytics.plotPoints(comparison, bucket: bucket, maxGap: maxGap) : []
-        let hovered = hoverDate.flatMap {
+        let projection = self.projection
+        // Past the newest reading the pointer reads the forecast instead, never a reading.
+        let hoveredForecast: ForecastSample? = {
+            guard let d = hoverDate, let last = readings.last, !projection.isEmpty,
+                  d > last.timestamp.addingTimeInterval(max(2.5 * 60, visible / 600)) else { return nil }
+            guard let best = projection.min(by: { abs($0.date.timeIntervalSince(d)) < abs($1.date.timeIntervalSince(d)) }),
+                  abs(best.date.timeIntervalSince(d)) <= max(5 * 60, visible / 150) else { return nil }
+            return best
+        }()
+        let hovered: GlucoseReading? = hoveredForecast != nil ? nil : hoverDate.flatMap {
             GlucoseAnalytics.nearest(to: $0, in: readings, tolerance: max(10 * 60, visible / 300))
         }
         let showOutliers = Double(points.count) * visible / fullLength < 900
@@ -336,6 +383,7 @@ struct TrendChart: View {
             EventMarks(events: shown, insulinY: yd.lowerBound + inset, foodY: yd.upperBound - inset,
                        showLabels: inView.count <= 40)
             if let now { NowMarks(date: now) }
+            ForecastMarks(samples: projection, unit: unit, yDomain: yd)
             if let last = readings.last {
                 LatestMarks(reading: last, unit: unit, color: latestIsStale ? Palette.stale : color(last.mgdl))
             }
@@ -343,6 +391,9 @@ struct TrendChart: View {
                 HoverMarks(reading: h, unit: unit, color: color(h.mgdl),
                            range: GlucoseRange.classify(mgdl: h.mgdl, low: lowMgdl, high: highMgdl),
                            showDate: multiDay, events: hoveredEvents, change15: change15)
+            }
+            if let f = hoveredForecast {
+                ForecastHoverMarks(sample: f, unit: unit, lowMgdl: lowMgdl)
             }
         }
         .chartXScale(domain: domain)
@@ -545,6 +596,119 @@ private struct EventMarks: ChartContent {
                     }
                 }
         }
+    }
+}
+
+/// The forecast: a neutral band for the likely range and a dashed grey line, so it can't be
+/// mistaken for readings.
+private struct ForecastMarks: ChartContent {
+    let samples: [ForecastSample]
+    let unit: GlucoseUnit
+    let yDomain: ClosedRange<Double>
+
+    private func clamp(_ mgdl: Double) -> Double {
+        min(max(unit.value(fromMgdl: mgdl), yDomain.lowerBound), yDomain.upperBound)
+    }
+
+    var body: some ChartContent {
+        ForEach(samples) { p in
+            AreaMark(
+                x: .value("Time", p.date),
+                yStart: .value("Forecast low", clamp(p.lowerMgdl)),
+                yEnd: .value("Forecast high", clamp(p.upperMgdl)),
+                series: .value("Forecast series", "Range")
+            )
+            .interpolationMethod(.monotone)
+            .foregroundStyle(Palette.stale.opacity(0.18))
+        }
+        ForEach(samples) { p in
+            LineMark(
+                x: .value("Time", p.date),
+                y: .value("Glucose", unit.value(fromMgdl: p.mgdl)),
+                series: .value("Forecast series", "Line")
+            )
+            .interpolationMethod(.monotone)
+            .foregroundStyle(Palette.stale)
+            .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 4]))
+        }
+    }
+}
+
+private struct ForecastHoverMarks: ChartContent {
+    let sample: ForecastSample
+    let unit: GlucoseUnit
+    let lowMgdl: Double
+
+    var body: some ChartContent {
+        RuleMark(x: .value("Time", sample.date))
+            .foregroundStyle(Color.secondary.opacity(0.45))
+            .lineStyle(StrokeStyle(lineWidth: 1))
+        PointMark(x: .value("Time", sample.date), y: .value("Glucose", unit.value(fromMgdl: sample.mgdl)))
+            .symbolSize(60)
+            .foregroundStyle(Palette.stale)
+            .annotation(position: .top, spacing: 8,
+                        overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                ForecastCallout(sample: sample, unit: unit, lowMgdl: lowMgdl)
+            }
+    }
+}
+
+/// Floating readout for a point on the forecast. Grey, "≈" and labelled as an estimate.
+private struct ForecastCallout: View {
+    let sample: ForecastSample
+    let unit: GlucoseUnit
+    let lowMgdl: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: "chart.line.uptrend.xyaxis").foregroundStyle(Palette.stale)
+                Text("\(OutlookFormat.approx(sample.mgdl, unit: unit)) \(unit.label)")
+                    .fontWeight(.semibold).dsFont(.callout)
+                    .monospacedDigit()
+            }
+            Text("Likely \(OutlookFormat.range(sample, unit: unit)) around \(OutlookFormat.time(sample.date))")
+                .dsFont(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+            if sample.lowerMgdl < lowMgdl {
+                Text("The likely range reaches below \(unit.format(mgdl: lowMgdl, withUnit: true))")
+                    .dsFont(.caption)
+                    .foregroundStyle(Tone.warning.textColor)
+            }
+            Text("Estimate, not a reading")
+                .dsFont(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.stale.opacity(0.35), lineWidth: 0.75))
+        .dsShadow(.medium)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// "Predicted (trend, insulin and carbs)" with a dashed swatch, and the likely range.
+private struct ForecastLegend: View {
+    let basis: ForecastBasis?
+
+    var body: some View {
+        HStack(spacing: 14) {
+            HStack(spacing: 5) {
+                Capsule()
+                    .strokeBorder(Palette.stale, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                    .frame(width: 18, height: 3)
+                Text(basis.map { "Predicted (from \($0.title.lowercased()))" } ?? "Predicted")
+            }
+            HStack(spacing: 5) {
+                RoundedRectangle(cornerRadius: 2).fill(Palette.stale.opacity(0.3)).frame(width: 14, height: 8)
+                Text("Likely range")
+            }
+            .help("About 8 in 10 past forecasts this far ahead landed inside the range.")
+        }
+        .dsFont(.caption)
+        .foregroundStyle(.secondary)
     }
 }
 

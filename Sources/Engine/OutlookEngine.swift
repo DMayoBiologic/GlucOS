@@ -16,6 +16,8 @@ struct Outlook {
     let at: Date
     let forecast: Result<GlucoseForecast, ForecastFailure>
     let insulin: InsulinActivity
+    /// Long-acting, NPH and the slow part of premixed insulin. Not in the forecast.
+    let background: BackgroundInsulinActivity
     let carbs: CarbActivity
     let model: OutlookModel
 
@@ -72,6 +74,7 @@ enum OutlookEngine {
         return Outlook(at: now,
                        forecast: GlucoseForecaster.forecast(input),
                        insulin: InsulinActivity.compute(doses: doses, at: now),
+                       background: BackgroundInsulinActivity.compute(doses: doses, at: now),
                        carbs: CarbActivity.compute(meals: meals, hypoTreatments: hypo, at: now),
                        model: model)
     }

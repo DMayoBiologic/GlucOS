@@ -170,4 +170,58 @@ final class ActiveTherapyTests: XCTestCase {
         XCTAssertTrue(CarbActivity.compute(meals: [], hypoTreatments: [now.addingTimeInterval(-600)], at: now).uncountedFood)
         XCTAssertFalse(CarbActivity.compute(meals: [], hypoTreatments: [now.addingTimeInterval(-5 * 3600)], at: now).uncountedFood)
     }
+
+    // MARK: Background insulin
+
+    func testNoBackgroundInsulin() {
+        let rapid = InsulinDose(timestamp: now.addingTimeInterval(-3600), units: 4, kind: .rapid)
+        let b = BackgroundInsulinActivity.compute(doses: [rapid], at: now)
+        XCTAssertFalse(b.isActive)
+        XCTAssertNil(b.latest)
+        XCTAssertEqual(b.onBoard, 0)
+    }
+
+    func testLongActingFallsLinearlyOverItsDuration() {
+        let dose = InsulinDose(timestamp: now.addingTimeInterval(-6 * 3600), units: 20, kind: .long, name: "Optisulin")
+        let b = BackgroundInsulinActivity.compute(doses: [dose], at: now)
+        XCTAssertTrue(b.isActive)
+        XCTAssertEqual(b.onBoard, 15, accuracy: 1e-9)   // a quarter of 24 h gone
+        XCTAssertEqual(b.latestCoverEndsAt, dose.timestamp.addingTimeInterval(24 * 3600))
+        XCTAssertEqual(b.latestElapsedFraction!, 0.25, accuracy: 1e-9)
+    }
+
+    func testLongActingDurationFollowsTheBrand() {
+        XCTAssertEqual(BackgroundInsulinActivity.longActingDuration(name: "Tresiba"), 42 * 3600)
+        XCTAssertEqual(BackgroundInsulinActivity.longActingDuration(name: "toujeo"), 36 * 3600)
+        XCTAssertEqual(BackgroundInsulinActivity.longActingDuration(name: "Levemir"), 20 * 3600)
+        XCTAssertEqual(BackgroundInsulinActivity.longActingDuration(name: ""), 24 * 3600)
+        let tresiba = InsulinDose(timestamp: now.addingTimeInterval(-30 * 3600), units: 10, kind: .long, name: "Tresiba")
+        XCTAssertTrue(BackgroundInsulinActivity.compute(doses: [tresiba], at: now).isActive)
+        let lantus = InsulinDose(timestamp: now.addingTimeInterval(-30 * 3600), units: 10, kind: .long, name: "Lantus")
+        XCTAssertFalse(BackgroundInsulinActivity.compute(doses: [lantus], at: now).isActive)
+    }
+
+    func testLatestBackgroundDoseIsTheNewest() {
+        let older = InsulinDose(timestamp: now.addingTimeInterval(-20 * 3600), units: 10, kind: .long)
+        let newer = InsulinDose(timestamp: now.addingTimeInterval(-2 * 3600), units: 12, kind: .long)
+        let future = InsulinDose(timestamp: now.addingTimeInterval(3600), units: 12, kind: .long)
+        let b = BackgroundInsulinActivity.compute(doses: [newer, older, future], at: now)
+        XCTAssertEqual(b.latest?.id, newer.id)
+        XCTAssertEqual(b.doseCount, 2)
+        XCTAssertEqual(b.onBoard, 10 * (4.0 / 24) + 12 * (22.0 / 24), accuracy: 1e-9)
+    }
+
+    func testPremixedCountsOnlyItsSlowPartAsBackground() {
+        let dose = InsulinDose(timestamp: now.addingTimeInterval(-60), units: 10, kind: .premixed)
+        let b = BackgroundInsulinActivity.compute(doses: [dose], at: now)
+        XCTAssertEqual(b.onBoard, 7, accuracy: 1e-6)
+        // Fast part plus slow part account for the whole dose.
+        XCTAssertEqual(b.onBoard + InsulinActivity.compute(doses: [dose], at: now).onBoard, 10, accuracy: 1e-6)
+    }
+
+    func testNPHUsesItsCurve() {
+        let dose = InsulinDose(timestamp: now.addingTimeInterval(-6 * 3600), units: 10, kind: .intermediate)
+        let b = BackgroundInsulinActivity.compute(doses: [dose], at: now)
+        XCTAssertEqual(b.onBoard, 10 * InsulinActionCurve.nph.fractionRemaining(after: 6 * 3600), accuracy: 1e-9)
+    }
 }

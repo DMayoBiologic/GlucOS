@@ -161,7 +161,7 @@ private struct InsulinActivityCard: View {
             if insulin.doseCount == 0 && insulin.curve.allSatisfy({ $0.remaining < 0.01 }) {
                 EmptyStateView(systemImage: "syringe", title: "Nothing Acting",
                                message: insulin.backgroundInsulinLogged
-                                   ? "No fast-acting insulin in the last 6 hours. Long-acting insulin isn't shown here."
+                                   ? "No fast-acting insulin in the last 6 hours. Long-acting insulin is on the Overview, under Basal on board."
                                    : "Log fast-acting insulin to see how much is still working and when it winds down.",
                                actionTitle: "Log…", action: onLog)
             } else {
