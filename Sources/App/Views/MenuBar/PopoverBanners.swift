@@ -33,7 +33,7 @@ extension PopoverNotice {
             out.append(PopoverNotice(
                 kind: .stale, severity: .warning, systemImage: "clock.badge.exclamationmark.fill",
                 title: "No new reading for \(PopoverFormat.age(cur.age(at: now)))",
-                message: "Don't treat from this value. Check your sensor and phone, or scan with your reader.",
+                message: "Don't treat based on this value. Check your sensor and phone, or scan with your reader.",
                 action: BannerAction(title: "Check Now", isBusy: store.isRefreshing, perform: onRefresh)))
         }
         if let sensor = s.sensor {
@@ -71,15 +71,16 @@ extension PopoverNotice {
 
 /// The popover's notices. Only the most urgent is shown in full; the rest sit behind a
 /// "2 more" row, so a bad moment doesn't push the reading's context off the screen.
+///
+/// `MenuBarView` builds the list and speaks new notices, since this view isn't in the tree while
+/// there's nothing to show.
 struct PopoverNotices: View {
-    @EnvironmentObject var store: GlucoseStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var onRefresh: () -> Void
+    let notices: [PopoverNotice]
 
     @State private var showsAll = false
 
     var body: some View {
-        let notices = PopoverNotice.current(store: store, onRefresh: onRefresh)
         // Nothing at all when all is well, so no gap is added to the popover's spacing.
         if let first = notices.first {
             let rest = notices.dropFirst()
@@ -96,13 +97,8 @@ struct PopoverNotices: View {
             .animation(PopoverMotion.standard(reduceMotion), value: notices.map(\.kind))
             .animation(PopoverMotion.standard(reduceMotion), value: showsAll)
             .onDisappear { showsAll = false }
-            .onChange(of: notices.map(\.kind)) { old, new in
+            .onChange(of: notices.map(\.kind)) { _, new in
                 if new.count <= 1 { showsAll = false }
-                // Speak notices that appear while the popover is open; the popover's own
-                // contents are read when it opens.
-                for n in notices where !old.contains(n.kind) && n.severity <= .warning {
-                    VoiceOver.announce(n.severity.accessibilityPrefix + n.title)
-                }
             }
         }
     }

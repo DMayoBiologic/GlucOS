@@ -37,6 +37,7 @@ struct PopoverChartCard: View {
                 }
             }
             .frame(height: 24)
+            .animation(PopoverMotion.quick(reduceMotion), value: pinned)
             GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                          hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned)
                 .frame(height: 136)
@@ -67,7 +68,6 @@ struct PopoverChartCard: View {
                 .accessibilityValue(chartSummary(window))
                 .accessibilityHint("Use the left and right arrow keys to step through readings")
         }
-        .animation(PopoverMotion.quick(reduceMotion), value: pinned)
         .glassCard(padding: PopoverLayout.cardPadding, radius: PopoverLayout.cardRadius)
     }
 

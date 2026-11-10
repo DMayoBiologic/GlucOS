@@ -24,6 +24,7 @@ struct MenuBarView: View {
 
     @StateObject private var commandKey = CommandKeyMonitor()
     @AppStorage("popoverDetailsExpanded") private var detailsExpanded = false
+    @AppStorage("popoverGlanceWindow") private var glanceWindowRaw = GlanceWindow.day.rawValue
     @State private var toast: String?
     @State private var toastTask: Task<Void, Never>?
     @State private var contentHeight: CGFloat = 0
@@ -67,19 +68,20 @@ struct MenuBarView: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: PopoverLayout.stackSpacing) {
+        let notices = PopoverNotice.current(store: store, onRefresh: refresh)
+        return VStack(alignment: .leading, spacing: PopoverLayout.stackSpacing) {
             if s.current != nil {
                 PopoverHero(onCopy: copyReading, onRefresh: refresh, onOpenDashboard: showDashboard)
                     .accessibilitySortPriority(4)
             } else {
                 emptyState
             }
-            PopoverNotices(onRefresh: refresh)
+            PopoverNotices(notices: notices)
                 .accessibilitySortPriority(3)
             if s.current != nil {
                 PopoverChartCard(showsShortcuts: commandKey.isHeld)
-                PopoverSummaryCard(expanded: $detailsExpanded, showsShortcuts: commandKey.isHeld,
-                                   onOpenDashboard: showDashboard)
+                PopoverSummaryCard(expanded: detailsExpanded, showsShortcuts: commandKey.isHeld,
+                                   onToggleDetails: toggleDetails, onOpenDashboard: showDashboard)
             }
             PopoverToolbar(showsShortcuts: commandKey.isHeld,
                            onLog: showLogSheet, onRefresh: refresh, onDashboard: showDashboard,
@@ -88,11 +90,20 @@ struct MenuBarView: View {
             PopoverFooter()
         }
         .padding(PopoverLayout.outerPadding)
+        // Observed here, on a view that's always present, so the first notice to appear while
+        // the popover is open is spoken too. Contents already showing are read when it opens.
+        .onChange(of: notices.map(\.kind)) { old, _ in
+            for n in notices where !old.contains(n.kind) && n.severity <= .warning {
+                VoiceOver.announce(n.severity.accessibilityPrefix + n.title)
+            }
+        }
     }
 
-    /// Leaves room for the menu bar and a margin above the Dock.
+    /// Leaves room for the menu bar and a margin above the Dock, on the display the popover is
+    /// on (it's the key window while open).
     private var maxHeight: CGFloat {
-        let visible = NSScreen.main?.visibleFrame.height ?? 800
+        let screen = NSApp.keyWindow?.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame.height ?? 800
         return max(320, visible - 24)
     }
 
@@ -138,8 +149,11 @@ struct MenuBarView: View {
         VoiceOver.announce("Reading copied")
     }
 
+    /// Shared by the Details button and ⌘I, so both animate and announce the same way. Does
+    /// nothing while there are no stats to show.
     private func toggleDetails() {
-        guard s.current != nil else { return }
+        let window = GlanceWindow(rawValue: glanceWindowRaw) ?? .day
+        guard s.current != nil, store.glanceStats(window) != nil else { return }
         withAnimation(PopoverMotion.standard(reduceMotion)) { detailsExpanded.toggle() }
         VoiceOver.announce(detailsExpanded ? "Details shown" : "Details hidden")
     }

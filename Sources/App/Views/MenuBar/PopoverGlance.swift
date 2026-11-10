@@ -10,8 +10,10 @@ struct PopoverSummaryCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("popoverGlanceWindow") private var windowRaw = GlanceWindow.day.rawValue
 
-    @Binding var expanded: Bool
+    /// The remembered preference. What's drawn is `expanded && there are stats to show`.
+    var expanded: Bool
     var showsShortcuts: Bool
+    var onToggleDetails: () -> Void
     var onOpenDashboard: () -> Void
 
     private var s: GlucoseSnapshot { store.snapshot }
@@ -19,8 +21,9 @@ struct PopoverSummaryCard: View {
 
     var body: some View {
         let st = store.glanceStats(window)
+        let isExpanded = expanded && st != nil
         VStack(alignment: .leading, spacing: 10) {
-            header(canExpand: st != nil)
+            header(canExpand: st != nil, isExpanded: isExpanded)
 
             if let st {
                 VStack(alignment: .leading, spacing: 8) {
@@ -33,7 +36,7 @@ struct PopoverSummaryCard: View {
                 .accessibilityValue("\(Format.percent(st.timeInRange)) in range, \(Format.percent(st.timeBelowRange)) below, \(Format.percent(st.timeAboveRange)) above")
                 .help("Targets: over 70% in range, under 4% below, under 25% above")
 
-                if expanded {
+                if isExpanded {
                     details(st)
                         .transition(PopoverMotion.reveal(reduceMotion))
                 }
@@ -53,13 +56,11 @@ struct PopoverSummaryCard: View {
 
     // MARK: Header
 
-    private func header(canExpand: Bool) -> some View {
+    private func header(canExpand: Bool, isExpanded expanded: Bool) -> some View {
         HStack(spacing: 6) {
             periodMenu
             Spacer(minLength: 4)
-            Button {
-                expanded.toggle()
-            } label: {
+            Button(action: onToggleDetails) {
                 HStack(spacing: 3) {
                     Text("Details")
                     Image(systemName: "chevron.down")
