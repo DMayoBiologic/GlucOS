@@ -28,7 +28,15 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 
 - **Click the widget** (or a GlucOS notification, or launch GlucOS again from Finder/Spotlight) to open
   the menu bar popover.
-- **Hover the chart** to read any individual reading and its time; the 3h / 6h / 12h control sets the range.
+- **The popover** leads with the current reading, how long it's been in that range, and how fresh it
+  is (a slim meter fills toward the 6-minute stale mark). Stale readings are greyed, crossed through
+  and flagged with a "don't treat from this value" banner. Below that: the chart, your last logged
+  dose and meal, and an "At a glance" card (time in range, average, CV, GMI and sensor life over
+  24 h, 7 or 14 days).
+- **Hover the chart** to read any individual reading and its time, or click it and step through
+  readings with ← → (Home/End jump to the ends). The 3h / 6h / 12h control sets the range.
+- **Keyboard** in the popover: ⌘L log, ⌘R refresh, ⌘D dashboard, ⌘, settings, ⌘C copy the reading,
+  ⌘1 / ⌘2 / ⌘3 chart range, ⌘Q quit. Hold ⌘ to see them. Right-click the reading for the same actions.
 - **Dashboard** (⌘D in the popover, or the expand button on the chart): a resizable window with
   - an interactive chart from 3 hours to 30 days: hover for any reading, pinch or ⌘+ / ⌘− to zoom,
     scroll sideways to pan;
@@ -59,7 +67,8 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   These are observations, not advice. GlucOS never suggests or calculates a dose, and the
   "drop per unit" is not a correction factor. Talk to your care team before changing anything.
 - **Colour-coded menu bar icon** (Settings → Display, off by default): tints the drop green/orange/red by
-  range. Stale data always shows the plain warning sign instead.
+  range. An urgent low is always shown in colour, whatever the setting. Stale data always shows the
+  plain warning sign, with the reading's age in place of the trend arrow.
 - **Settings → Alerts** shows whether macOS is allowing GlucOS notifications and can send a test alert.
   If notifications are turned off while alerts are enabled, the popover says so.
 
