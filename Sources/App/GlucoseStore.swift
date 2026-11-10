@@ -189,12 +189,5 @@ final class GlucoseStore: ObservableObject {
 
     // MARK: Derived for the menu bar
 
-    var menuBarText: String {
-        guard snapshot.current != nil else { return "––" }
-        var t = snapshot.compactText
-        if settings.showDeltaInMenuBar, let d = snapshot.deltaMgdl {
-            t += " " + snapshot.unit.formatDelta(mgdl: d)
-        }
-        return t
-    }
+    var menuBarText: String { statusItemText() }
 }
