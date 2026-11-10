@@ -49,22 +49,26 @@ struct GlucoseChart: View {
         let window = self.window
         let floor = yDomain.lowerBound
         let hovered = interactive ? nearest(to: hoverDate, in: window) : nil
+        let lineStyle = ThresholdGradient.style(minMgdl: window.map(\.mgdl).min() ?? lowMgdl,
+                                                maxMgdl: window.map(\.mgdl).max() ?? highMgdl,
+                                                low: lowMgdl, high: highMgdl)
+        let currentTint = window.last.map { color(for: $0.mgdl) } ?? GlucoseRange.inRange.tint
         Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
                 yStart: .value("Low", unit.value(fromMgdl: lowMgdl)),
                 yEnd: .value("High", unit.value(fromMgdl: highMgdl))
             )
-            .foregroundStyle(Color.green.opacity(0.10))
+            .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.09))
 
             RuleMark(y: .value("Low", unit.value(fromMgdl: lowMgdl)))
                 .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
-                .foregroundStyle(Color.green.opacity(0.5))
+                .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.45))
             RuleMark(y: .value("High", unit.value(fromMgdl: highMgdl)))
                 .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
-                .foregroundStyle(Color.green.opacity(0.5))
+                .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.45))
 
-            // Soft fill under the trace, like Health and Stocks.
+            // Soft glow under the trace, tinted with the current range.
             ForEach(window) { r in
                 AreaMark(
                     x: .value("Time", r.timestamp),
@@ -73,28 +77,20 @@ struct GlucoseChart: View {
                 )
                 .interpolationMethod(.monotone)
                 .foregroundStyle(
-                    LinearGradient(colors: [Color.accentColor.opacity(0.22), Color.accentColor.opacity(0.0)],
+                    LinearGradient(colors: [currentTint.opacity(0.28), currentTint.opacity(0.0)],
                                    startPoint: .top, endPoint: .bottom)
                 )
             }
 
+            // The trace changes colour as it crosses the thresholds.
             ForEach(window) { r in
                 LineMark(
                     x: .value("Time", r.timestamp),
                     y: .value("Glucose", unit.value(fromMgdl: r.mgdl))
                 )
                 .interpolationMethod(.monotone)
-                .foregroundStyle(Color.accentColor)
-                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-            }
-
-            ForEach(window.filter { $0.mgdl < lowMgdl || $0.mgdl > highMgdl }) { r in
-                PointMark(
-                    x: .value("Time", r.timestamp),
-                    y: .value("Glucose", unit.value(fromMgdl: r.mgdl))
-                )
-                .symbolSize(12)
-                .foregroundStyle(color(for: r.mgdl))
+                .foregroundStyle(lineStyle)
+                .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
             }
 
             // Current reading: solid dot with a soft halo.
@@ -103,8 +99,14 @@ struct GlucoseChart: View {
                     x: .value("Time", last.timestamp),
                     y: .value("Glucose", unit.value(fromMgdl: last.mgdl))
                 )
-                .symbolSize(160)
-                .foregroundStyle(color(for: last.mgdl).opacity(0.22))
+                .symbolSize(220)
+                .foregroundStyle(color(for: last.mgdl).opacity(0.2))
+                PointMark(
+                    x: .value("Time", last.timestamp),
+                    y: .value("Glucose", unit.value(fromMgdl: last.mgdl))
+                )
+                .symbolSize(70)
+                .foregroundStyle(.white)
                 PointMark(
                     x: .value("Time", last.timestamp),
                     y: .value("Glucose", unit.value(fromMgdl: last.mgdl))
@@ -143,21 +145,23 @@ struct GlucoseChart: View {
         .chartXAxis {
             if showAxes {
                 AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                    AxisGridLine().foregroundStyle(.quaternary)
+                    AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                     AxisValueLabel(format: .dateTime.hour())
                         .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
         .chartYAxis {
             if showAxes {
                 AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { v in
-                    AxisGridLine().foregroundStyle(.quaternary)
+                    AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                     AxisValueLabel {
                         if let d = v.as(Double.self) {
                             Text(String(format: "%.0f", d))
                                 .font(.caption2)
                                 .monospacedDigit()
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }

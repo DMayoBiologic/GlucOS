@@ -142,6 +142,12 @@ struct TrendChart: View {
         let insulin = events.filter { $0.kind == .bolus || $0.kind == .basal }
         let food = events.filter { $0.kind == .food || $0.kind == .context }
         let siteChanges = events.filter { $0.kind == .siteChange }
+        // One threshold gradient per continuous run, since each run is its own series.
+        let segmentStyles: [Int: LinearGradient] = Dictionary(grouping: points, by: \.segment).mapValues { run in
+            ThresholdGradient.style(minMgdl: run.map(\.mgdl).min() ?? lowMgdl, maxMgdl: run.map(\.mgdl).max() ?? highMgdl,
+                                    low: lowMgdl, high: highMgdl)
+        }
+        let fallbackStyle = ThresholdGradient.style(minMgdl: lowMgdl, maxMgdl: lowMgdl, low: lowMgdl, high: highMgdl)
         let hoveredEvents: [ChartEvent] = hoverDate.map { d in
             let tolerance = max(10 * 60, visible / 150)
             return events.filter { abs($0.date.timeIntervalSince(d)) <= tolerance }
@@ -152,13 +158,13 @@ struct TrendChart: View {
                 yStart: .value("Low", unit.value(fromMgdl: lowMgdl)),
                 yEnd: .value("High", unit.value(fromMgdl: highMgdl))
             )
-            .foregroundStyle(Color.green.opacity(0.10))
+            .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.09))
             RuleMark(y: .value("Low", unit.value(fromMgdl: lowMgdl)))
                 .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
-                .foregroundStyle(Color.green.opacity(0.5))
+                .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.45))
             RuleMark(y: .value("High", unit.value(fromMgdl: highMgdl)))
                 .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
-                .foregroundStyle(Color.green.opacity(0.5))
+                .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.45))
 
             ForEach(siteChanges) { e in
                 RuleMark(x: .value("Time", e.date))
@@ -173,8 +179,8 @@ struct TrendChart: View {
                     series: .value("Segment", p.segment)
                 )
                 .interpolationMethod(.monotone)
-                .foregroundStyle(Color.accentColor)
-                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .foregroundStyle(segmentStyles[p.segment] ?? fallbackStyle)
+                .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
             }
 
             if showOutliers {
@@ -216,6 +222,9 @@ struct TrendChart: View {
                     .symbolSize(160)
                     .foregroundStyle(color(last.mgdl).opacity(0.22))
                 PointMark(x: .value("Time", last.timestamp), y: .value("Glucose", unit.value(fromMgdl: last.mgdl)))
+                    .symbolSize(80)
+                    .foregroundStyle(.white)
+                PointMark(x: .value("Time", last.timestamp), y: .value("Glucose", unit.value(fromMgdl: last.mgdl)))
                     .symbolSize(40)
                     .foregroundStyle(color(last.mgdl))
             }
@@ -242,7 +251,7 @@ struct TrendChart: View {
         .chartXSelection(value: $hoverDate)
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 6)) { _ in
-                AxisGridLine().foregroundStyle(.quaternary)
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                 AxisTick()
                 if visible > 36 * 3600 {
                     AxisValueLabel(format: .dateTime.weekday(.abbreviated).day())
@@ -253,7 +262,7 @@ struct TrendChart: View {
         }
         .chartYAxis {
             AxisMarks(position: .trailing, values: .automatic(desiredCount: 6)) { v in
-                AxisGridLine().foregroundStyle(.quaternary)
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                 AxisValueLabel {
                     if let d = v.as(Double.self) {
                         Text(String(format: "%.0f", d)).monospacedDigit()
@@ -299,10 +308,11 @@ struct ReadingCallout: View {
                 .font(.caption2)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(range.color.opacity(0.35), lineWidth: 0.75))
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
     }
 }
 
@@ -414,7 +424,7 @@ struct PatternChart: View {
         }
         Chart {
             RectangleMark(yStart: .value("Low", y(lowMgdl)), yEnd: .value("High", y(highMgdl)))
-                .foregroundStyle(Color.green.opacity(0.10))
+                .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.09))
 
             ForEach(plotted.indices, id: \.self) { i in
                 AreaMark(x: .value("Time", plotted[i].x),
@@ -457,23 +467,23 @@ struct PatternChart: View {
             }
         }
         .chartForegroundStyleScale([
-            "5–95%": Color.accentColor.opacity(0.14),
-            "25–75%": Color.accentColor.opacity(0.32),
-            "Median": Color.accentColor,
+            "5–95%": Palette.brand.opacity(0.14),
+            "25–75%": Palette.brand.opacity(0.32),
+            "Median": Palette.brand,
         ])
         .chartXScale(domain: reference...reference.addingTimeInterval(86_400))
         .chartYScale(domain: yDomain)
         .chartXSelection(value: $hoverDate)
         .chartXAxis {
             AxisMarks(values: .stride(by: .hour, count: 3)) { _ in
-                AxisGridLine().foregroundStyle(.quaternary)
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                 AxisTick()
                 AxisValueLabel(format: .dateTime.hour())
             }
         }
         .chartYAxis {
             AxisMarks(position: .trailing, values: .automatic(desiredCount: 6)) { _ in
-                AxisGridLine().foregroundStyle(.quaternary)
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                 AxisValueLabel()
             }
         }
@@ -507,7 +517,7 @@ struct OverlayChart: View {
         let yDomain = y(min(values.min() ?? 60, 60) - 10)...y(max(values.max() ?? 200, 200) + 10)
         Chart {
             RectangleMark(yStart: .value("Low", y(lowMgdl)), yEnd: .value("High", y(highMgdl)))
-                .foregroundStyle(Color.green.opacity(0.10))
+                .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.09))
             ForEach(points) { p in
                 LineMark(x: .value("Time", p.x), y: .value("Glucose", y(p.mgdl)), series: .value("Series", p.series))
                     .interpolationMethod(.monotone)
@@ -520,14 +530,14 @@ struct OverlayChart: View {
         .chartYScale(domain: yDomain)
         .chartXAxis {
             AxisMarks(values: .stride(by: .hour, count: 3)) { _ in
-                AxisGridLine().foregroundStyle(.quaternary)
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                 AxisTick()
                 AxisValueLabel(format: .dateTime.hour())
             }
         }
         .chartYAxis {
             AxisMarks(position: .trailing, values: .automatic(desiredCount: 6)) { _ in
-                AxisGridLine().foregroundStyle(.quaternary)
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                 AxisValueLabel()
             }
         }
@@ -572,7 +582,7 @@ struct DailyRangeChart: View {
         .chartYScale(domain: 0...1)
         .chartYAxis {
             AxisMarks(position: .trailing, values: [0, 0.25, 0.5, 0.75, 1]) { v in
-                AxisGridLine().foregroundStyle(.quaternary)
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                 AxisValueLabel {
                     if let d = v.as(Double.self) { Text(Format.percent(d)) }
                 }

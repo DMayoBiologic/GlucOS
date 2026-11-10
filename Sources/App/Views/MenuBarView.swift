@@ -13,9 +13,9 @@ struct MenuBarView: View {
     private var s: GlucoseSnapshot { store.snapshot }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             if s.current != nil {
-                header
+                hero
                 chartCard
                 statsCard
                 if let sensor = s.sensor { sensorCard(sensor) }
@@ -24,72 +24,110 @@ struct MenuBarView: View {
             }
             if let err = s.lastError { errorBanner(err) }
             if store.notificationsBlocked { notificationsBanner }
+            toolbar
             footer
         }
-        .padding(16)
-        .frame(width: 360)
+        .padding(12)
+        .frame(width: 368)
+        .background(alignment: .top) {
+            // A wash of the current range colour at the top of the popover.
+            AmbientGlow(tint: s.displayTint(), intensity: 0.45)
+                .frame(height: 260)
+                .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: s.current)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: s.lastError)
         .task { await store.checkNotificationPermission() }
     }
 
-    // MARK: Header
+    // MARK: Hero
 
-    private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
+    private var hero: some View {
+        let stale = s.isStale()
+        let tint = s.displayTint()
+        return HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    if let range = s.range { RangeBadge(range: range, stale: stale) }
+                    if store.isRefreshing {
+                        ProgressView().controlSize(.mini)
+                            .transition(.opacity)
+                    }
+                }
                 if let cur = s.current {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Text(s.unit.format(mgdl: cur.mgdl))
-                            .font(.system(size: 52, weight: .semibold, design: .rounded))
+                            .font(.system(size: 60, weight: .bold, design: .rounded))
                             .monospacedDigit()
-                            .foregroundStyle(s.isStale() ? Color.secondary : (s.range?.valueColor ?? .primary))
+                            .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(heroNumberStyle(tint)))
                             .contentTransition(.numericText(value: cur.mgdl))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                         Text(s.unit.label)
-                            .font(.callout.weight(.medium))
+                            .font(.callout.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
                     HStack(spacing: 6) {
-                        TrendSymbol(trend: cur.trend)
-                            .font(.title3)
-                            .foregroundStyle(cur.trend.isRapid ? (s.range?.color ?? .primary) : .primary)
                         Text(cur.trend.description)
-                            .font(.callout.weight(.medium))
+                            .font(.callout.weight(.semibold))
                         if let d = s.deltaMgdl {
                             Text(s.unit.formatDelta(mgdl: d))
-                                .font(.callout)
+                                .font(.callout.weight(.medium))
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
                                 .contentTransition(.numericText(value: d))
                         }
                     }
-                    Text("\(Format.age(cur.age())) · \(cur.timestamp.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption)
-                        .foregroundStyle(s.isStale() ? Color.orange : Color.secondary)
+                    HStack(spacing: 4) {
+                        if stale { Image(systemName: "exclamationmark.triangle.fill") }
+                        Text("\(Format.age(cur.age())) · \(cur.timestamp.formatted(date: .omitted, time: .shortened))")
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(stale ? Color.orange : Color.secondary)
                 }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(s.accessibilitySummary())
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
 
-            VStack(alignment: .trailing, spacing: 8) {
-                if let range = s.range { RangeBadge(range: range, stale: s.isStale()) }
-                if store.isRefreshing {
-                    ProgressView().controlSize(.small)
-                        .transition(.opacity)
-                }
+            if let cur = s.current {
+                TrendDial(trend: cur.trend, tint: tint, size: 72)
+                    .accessibilityHidden(true)
             }
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial)
+                AmbientGlow(tint: tint)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(LinearGradient(colors: [tint.opacity(0.55), tint.opacity(0.1)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing),
+                              lineWidth: 1)
+        }
+        .shadow(color: tint.opacity(0.18), radius: 14, y: 6)
+    }
+
+    private func heroNumberStyle(_ tint: Color) -> LinearGradient {
+        // In range reads as calm text; out of range takes the range colour.
+        let base: Color = s.range == .inRange ? .primary : tint
+        return LinearGradient(colors: [base, base.opacity(0.78)], startPoint: .top, endPoint: .bottom)
     }
 
     // MARK: Chart
 
     private var chartCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Last \(settings.chartHours) hours").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                Spacer()
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Eyebrow(title: "Last \(settings.chartHours) hours", systemImage: "waveform.path.ecg")
                 Picker("Chart range", selection: $settings.chartHours) {
                     Text("3h").tag(3)
                     Text("6h").tag(6)
@@ -99,14 +137,20 @@ struct MenuBarView: View {
                 .labelsHidden()
                 .controlSize(.mini)
                 .fixedSize()
-                iconButton("Open in Dashboard", systemImage: "arrow.up.left.and.arrow.down.right") { showDashboard() }
+                Button { showDashboard() } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                }
+                .buttonStyle(PillIconButtonStyle())
+                .controlSize(.small)
+                .help("Open in Dashboard")
+                .accessibilityLabel("Open in Dashboard")
             }
             GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                          hours: Double(settings.chartHours), interactive: true)
-                .frame(height: 140)
+                .frame(height: 150)
                 .help("Hover to see individual readings")
         }
-        .card()
+        .glassCard(padding: 12)
     }
 
     // MARK: Stats
@@ -115,49 +159,61 @@ struct MenuBarView: View {
         let st = s.stats(hours: 12)
         let st24 = s.stats()
         return VStack(alignment: .leading, spacing: 10) {
-            if let st {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Time in range").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    Spacer()
-                    Text("12 h").font(.caption2).foregroundStyle(.tertiary)
+            Eyebrow(title: "Time in range", systemImage: "target", trailing: "12 h")
+            HStack(alignment: .center, spacing: 14) {
+                if let st {
+                    TimeInRangeRing(stats: st, lineWidth: 9)
+                        .frame(width: 86, height: 86)
                 }
-                TimeInRangeBar(stats: st)
+                VStack(alignment: .leading, spacing: 7) {
+                    legendRow("In range", st.map { Format.percent($0.timeInRange) } ?? "–", GlucoseRange.inRange.tint)
+                    legendRow("Below", st.map { Format.percent($0.timeBelowRange) } ?? "–", GlucoseRange.low.tint)
+                    legendRow("Above", st.map { Format.percent($0.timeAboveRange) } ?? "–", GlucoseRange.high.tint)
+                }
+                .frame(maxWidth: .infinity)
             }
-            HStack(alignment: .top, spacing: 12) {
-                stat("In range", st.map { Format.percent($0.timeInRange) } ?? "–", dot: .green)
-                stat("Below", st.map { Format.percent($0.timeBelowRange) } ?? "–", dot: .red)
-                stat("Above", st.map { Format.percent($0.timeAboveRange) } ?? "–", dot: .orange)
-            }
-            Divider()
-            HStack(alignment: .top, spacing: 12) {
-                stat("Average", st24.map { s.unit.format(mgdl: $0.meanMgdl) } ?? "–",
-                     sub: st24.map { String(format: "%.0f h span", $0.spanHours) })
-                stat("Range", st24.map { "\(s.unit.format(mgdl: $0.minMgdl))–\(s.unit.format(mgdl: $0.maxMgdl))" } ?? "–",
-                     sub: "min–max")
-                stat("CV", st24.map { Format.percent($0.coefficientOfVariation) } ?? "–", sub: "variability")
+            HStack(spacing: 8) {
+                tile("Average", st24.map { s.unit.format(mgdl: $0.meanMgdl) } ?? "–", systemImage: "chart.bar.fill")
+                tile("Range", st24.map { "\(s.unit.format(mgdl: $0.minMgdl))–\(s.unit.format(mgdl: $0.maxMgdl))" } ?? "–",
+                     systemImage: "arrow.up.and.down")
+                tile("CV", st24.map { Format.percent($0.coefficientOfVariation) } ?? "–", systemImage: "waveform",
+                     warn: (st24?.coefficientOfVariation ?? 0) > 0.36)
             }
         }
-        .card()
+        .glassCard(padding: 12)
     }
 
-    private func stat(_ title: String, _ value: String, sub: String? = nil, dot: Color? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
-                Text(title)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+    private func legendRow(_ title: String, _ value: String, _ color: Color) -> some View {
+        HStack(spacing: 7) {
+            Capsule().fill(color.gradient).frame(width: 4, height: 14)
+            Text(title).font(.callout).foregroundStyle(.secondary)
+            Spacer(minLength: 4)
             Text(value)
-                .font(.system(.title3, design: .rounded).weight(.semibold))
+                .font(.system(.callout, design: .rounded).weight(.bold))
                 .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            if let sub {
-                Text(sub).font(.caption2).foregroundStyle(.tertiary)
-            }
         }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func tile(_ title: String, _ value: String, systemImage: String, warn: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.titleAndIcon)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .imageScale(.small)
+            Text(value)
+                .font(.system(.body, design: .rounded).weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(warn ? Color.orange : Color.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .help(title == "CV" ? "Variability over 24 h. 36% or less is considered stable." : "\(title) over 24 h")
         .accessibilityElement(children: .combine)
     }
 
@@ -167,26 +223,36 @@ struct MenuBarView: View {
         let remaining = sensor.daysRemaining()
         let fraction = sensor.lifetimeDays > 0 ? min(1, max(0, remaining / Double(sensor.lifetimeDays))) : 0
         let expiringSoon = remaining < 1
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Label("Sensor", systemImage: "sensor.tag.radiowaves.forward")
+        let tint: Color = expiringSoon ? .orange : Palette.brand
+        return HStack(spacing: 12) {
+            ZStack {
+                ProgressRing(fraction: fraction, tint: tint, lineWidth: 4)
+                Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+            .frame(width: 40, height: 40)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Sensor")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
-                Spacer()
                 Text("\(Format.days(remaining)) left")
-                    .font(.callout.weight(.semibold))
+                    .font(.system(.callout, design: .rounded).weight(.bold))
                     .monospacedDigit()
                     .foregroundStyle(expiringSoon ? Color.orange : Color.primary)
             }
-            ProgressView(value: fraction)
-                .progressViewStyle(.linear)
-                .tint(expiringSoon ? .orange : .accentColor)
-            Text("\(sensor.serial) · expires \(sensor.expires.formatted(date: .abbreviated, time: .shortened))")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .textSelection(.enabled)
+            Spacer(minLength: 4)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text("Expires")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text(sensor.expires.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            .help(sensor.serial)
         }
-        .card()
+        .glassCard(padding: 12)
         .accessibilityElement(children: .combine)
     }
 
@@ -215,7 +281,14 @@ struct MenuBarView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 4)
+        .padding(.vertical, 12)
+        .glassCard()
+    }
+
+    private func banner(tint: Color) -> some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(tint.opacity(0.12))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(tint.opacity(0.3), lineWidth: 0.5))
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -226,8 +299,8 @@ struct MenuBarView: View {
         }
         .font(.caption)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(11)
+        .background(banner(tint: .orange))
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
@@ -245,52 +318,64 @@ struct MenuBarView: View {
                 .controlSize(.small)
         }
         .font(.caption)
-        .padding(10)
-        .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(11)
+        .background(banner(tint: .red))
+    }
+
+    /// Floating pill toolbar.
+    private var toolbar: some View {
+        HStack(spacing: 6) {
+            Button { showLogSheet() } label: {
+                Label("Log", systemImage: "plus")
+                    .labelStyle(.titleAndIcon)
+            }
+            .buttonStyle(PillIconButtonStyle(prominent: true))
+            .keyboardShortcut("l")
+            .help("Log insulin or food (⌘L)")
+
+            pill("Refresh (⌘R)", systemImage: "arrow.clockwise") { Task { await store.refresh() } }
+                .disabled(store.isRefreshing)
+                .keyboardShortcut("r")
+            pill("Open Dashboard (⌘D)", systemImage: "macwindow") { showDashboard() }
+                .keyboardShortcut("d")
+            pill("Settings… (⌘,)", systemImage: "gearshape") { showSettings() }
+                .keyboardShortcut(",")
+            pill("Check for Updates (v\(updater.version))", systemImage: "arrow.down.circle") { updater.checkForUpdates() }
+                .disabled(!updater.canCheck)
+
+            Spacer(minLength: 4)
+
+            pill("Quit GlucOS (⌘Q)", systemImage: "power") { NSApplication.shared.terminate(nil) }
+                .keyboardShortcut("q")
+        }
+        .padding(6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 2) {
-                iconButton("Refresh", systemImage: "arrow.clockwise") { Task { await store.refresh() } }
-                    .disabled(store.isRefreshing)
-                    .keyboardShortcut("r")
-                iconButton("Log Insulin or Food (⌘L)", systemImage: "plus.circle") { showLogSheet() }
-                    .keyboardShortcut("l")
-                iconButton("Open Dashboard (⌘D)", systemImage: "macwindow") { showDashboard() }
-                    .keyboardShortcut("d")
-                iconButton("Settings…", systemImage: "gearshape") { showSettings() }
-                    .keyboardShortcut(",")
-                iconButton("Check for Updates (v\(updater.version))", systemImage: "arrow.down.circle") { updater.checkForUpdates() }
-                    .disabled(!updater.canCheck)
-                if s.lastError == nil {
-                    Text(store.statusLine)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .padding(.leading, 4)
-                        .help(store.statusLine)
-                }
-                Spacer(minLength: 4)
-                Button("Quit") { NSApplication.shared.terminate(nil) }
-                    .keyboardShortcut("q")
-                    .controlSize(.small)
+        HStack(spacing: 6) {
+            if s.lastError == nil {
+                Text(store.statusLine)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(store.statusLine)
+                Text("·")
             }
             Text("Not a medical device. Confirm on your phone before treating.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
+        .font(.caption2)
+        .foregroundStyle(.tertiary)
+        .padding(.horizontal, 6)
     }
 
-    private func iconButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+    private func pill(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 26, height: 22)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(PillIconButtonStyle())
         .help(title)
         .accessibilityLabel(title)
     }
@@ -312,26 +397,4 @@ struct MenuBarView: View {
         logbook.logSheetRequested = true
         showDashboard()
     }
-}
-
-// MARK: - Card style
-
-private struct CardModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.primary.opacity(0.045))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-            )
-    }
-}
-
-private extension View {
-    func card() -> some View { modifier(CardModifier()) }
 }

@@ -89,10 +89,6 @@ extension MenuBarLabel {
 
 private extension GlucoseRange {
     var nsColor: NSColor {
-        switch self {
-        case .urgentLow, .low, .veryHigh: return .systemRed
-        case .inRange: return .systemGreen
-        case .high: return .systemOrange
-        }
+        nsTint
     }
 }
