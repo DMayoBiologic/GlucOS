@@ -79,6 +79,18 @@ private struct BasalOnBoardCard: View {
     let background: BackgroundInsulinActivity
     let therapy: TherapyType
 
+    /// More than one dose still acting: the total isn't one dose's story.
+    private var overlapping: Bool { background.doseCount > 1 }
+
+    /// Share of a single dose still to act, on the same curve as the amount shown. Hidden when
+    /// doses overlap, since no one dose's meter matches the total.
+    private func meterFraction(_ latest: InsulinDose) -> Double? {
+        guard !overlapping else { return nil }
+        let initial = BackgroundInsulinActivity.remaining(of: latest, at: latest.timestamp)
+        guard initial > 0 else { return nil }
+        return BackgroundInsulinActivity.remaining(of: latest, at: background.at) / initial
+    }
+
     var body: some View {
         let help = "Background insulin isn't part of the forecast: it's assumed to be holding glucose level. The amount left is a rough estimate from the insulin's usual duration."
         if therapy == .pump && !background.isActive {
@@ -90,9 +102,10 @@ private struct BasalOnBoardCard: View {
         } else if let latest = background.latest, let end = background.latestCoverEndsAt {
             OnBoardCard(title: "Basal on board", systemImage: "syringe.fill", tint: Palette.brand,
                         value: "≈ \(OnBoardFormat.number(background.onBoard))", unit: "u",
-                        fraction: background.latestElapsedFraction.map { 1 - $0 },
-                        caption: "\(latest.displayName) \(OutlookFormat.units(latest.units)), \(OnBoardFormat.ago(latest.timestamp, from: background.at))",
-                        detail: "Usual action ends around \(OnBoardFormat.dayTime(end, from: background.at))",
+                        fraction: meterFraction(latest),
+                        caption: "\(overlapping ? "Latest: " : "")\(latest.displayName) \(OutlookFormat.units(latest.units)), \(OnBoardFormat.ago(latest.timestamp, from: background.at))",
+                        detail: overlapping ? "Total from \(background.doseCount) doses still acting"
+                                            : "Usual action ends around \(OnBoardFormat.dayTime(end, from: background.at))",
                         help: help)
         } else {
             OnBoardCard(title: "Basal on board", systemImage: "syringe.fill", tint: Palette.brand,
