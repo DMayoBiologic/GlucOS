@@ -59,8 +59,10 @@ enum Palette {
     /// Brand accent, for chrome that isn't a glucose value.
     static let brand = dynamic(light: rgb(0x2563EB), dark: rgb(0x60A5FA), highContrastLight: rgb(0x1D4ED8))
     static let brandText = dynamic(light: rgb(0x1D4ED8), dark: rgb(0x60A5FA), highContrastDark: rgb(0x93C5FD))
-    static let brandGradient = LinearGradient(colors: [dynamic(light: rgb(0x0EA5E9), dark: rgb(0x38BDF8)),
-                                                       dynamic(light: rgb(0x6366F1), dark: rgb(0x818CF8))],
+    /// Fill for primary buttons. Deep enough that white labels reach 5.9:1 or better at every
+    /// point of the gradient, in both appearances.
+    static let brandGradient = LinearGradient(colors: [dynamic(light: rgb(0x0369A1), dark: rgb(0x1D4ED8)),
+                                                       dynamic(light: rgb(0x4F46E5), dark: rgb(0x4338CA))],
                                               startPoint: .topLeading, endPoint: .bottomTrailing)
     /// Text and icons on the brand gradient.
     static let onBrand = Color.white
