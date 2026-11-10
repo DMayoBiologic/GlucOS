@@ -45,13 +45,21 @@ struct DashboardView: View {
                     }
                 } else {
                     switch section {
-                    case .overview: OverviewSection(data: data, events: logbook.chartEvents(in: data.domain))
+                    case .overview: OverviewSection(data: data, snapshot: store.snapshot,
+                                                    events: logbook.chartEvents(in: data.domain))
                     case .patterns: PatternsSection(data: data)
                     case .days: DaysSection(data: data)
                     case .readings: ReadingsSection(data: data)
                     case .logbook, .insights: EmptyView()
                     }
                 }
+            }
+            .background(alignment: .top) {
+                AmbientGlow(tint: store.snapshot.displayTint(), intensity: 0.35)
+                    .frame(height: 320)
+                    .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
             }
             .navigationTitle(section.title)
             .navigationSubtitle(section == .insights ? "All stored history" : range.title)
@@ -202,11 +210,13 @@ struct DashboardData {
 
 private struct OverviewSection: View {
     let data: DashboardData
+    let snapshot: GlucoseSnapshot
     let events: [ChartEvent]
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                HeroBanner(snapshot: snapshot, data: data)
                 if data.readings.isEmpty {
                     ContentUnavailableView("No Readings in This Range", systemImage: "chart.xyaxis.line",
                                            description: Text("Pick a longer range in the toolbar."))
@@ -233,6 +243,99 @@ private struct OverviewSection: View {
     }
 }
 
+/// The live reading, front and centre, with the range's headline numbers beside it.
+private struct HeroBanner: View {
+    let snapshot: GlucoseSnapshot
+    let data: DashboardData
+
+    var body: some View {
+        let tint = snapshot.displayTint()
+        let stale = snapshot.isStale()
+        HStack(alignment: .center, spacing: 24) {
+            if let cur = snapshot.current {
+                HStack(alignment: .center, spacing: 18) {
+                    TrendDial(trend: cur.trend, tint: tint, size: 84)
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let range = snapshot.range { RangeBadge(range: range, stale: stale) }
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(snapshot.unit.format(mgdl: cur.mgdl))
+                                .font(.system(size: 64, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(stale ? Color.secondary : (snapshot.range?.valueColor ?? .primary))
+                                .contentTransition(.numericText(value: cur.mgdl))
+                            Text(snapshot.unit.label)
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack(spacing: 6) {
+                            Text(cur.trend.description).fontWeight(.semibold)
+                            if let d = snapshot.deltaMgdl {
+                                Text(snapshot.unit.formatDelta(mgdl: d)).monospacedDigit().foregroundStyle(.secondary)
+                            }
+                            Text("·").foregroundStyle(.tertiary)
+                            Text(Format.age(cur.age()))
+                                .foregroundStyle(stale ? Color.orange : Color.secondary)
+                        }
+                        .font(.callout)
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(snapshot.accessibilitySummary())
+            } else {
+                Label("No current reading", systemImage: "drop")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            if let st = data.stats {
+                HStack(spacing: 10) {
+                    chip("In range", Format.percent(st.timeInRange), tint: GlucoseRange.inRange.tint)
+                    chip("Average", data.unit.format(mgdl: st.meanMgdl), tint: Palette.brand)
+                    chip("CV", Format.percent(st.coefficientOfVariation),
+                         tint: st.coefficientOfVariation <= 0.36 ? Palette.brand : .orange)
+                }
+                .fixedSize()
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.ultraThinMaterial)
+                AmbientGlow(tint: tint)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(LinearGradient(colors: [tint.opacity(0.5), tint.opacity(0.08)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing),
+                              lineWidth: 1)
+        }
+        .shadow(color: tint.opacity(0.15), radius: 18, y: 8)
+    }
+
+    private func chip(_ title: String, _ value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(.caption2.weight(.semibold))
+                .tracking(0.5)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.title2, design: .rounded).weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(tint)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(minWidth: 92, alignment: .leading)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct TimeInRangeCard: View {
     let breakdown: RangeBreakdown
     let data: DashboardData
@@ -241,13 +344,15 @@ private struct TimeInRangeCard: View {
         VStack(alignment: .leading, spacing: 12) {
             CardTitle("Time in Range", trailing: "target \(data.unit.format(mgdl: data.lowMgdl))–\(data.unit.format(mgdl: data.highMgdl))")
             HStack(alignment: .center, spacing: 16) {
-                RangeStack(breakdown: breakdown)
-                    .frame(width: 26, height: 150)
+                TimeInRangeRing(
+                    segments: breakdown.rows.reversed().map { (fraction: $0.fraction, color: $0.range.reportColor) },
+                    inRange: breakdown.inRange, lineWidth: 14)
+                    .frame(width: 150, height: 150)
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(breakdown.rows) { row in
                         HStack(spacing: 6) {
-                            Circle().fill(row.range.reportColor)
-                                .frame(width: 8, height: 8)
+                            Capsule().fill(row.range.reportColor.gradient)
+                                .frame(width: 4, height: 14)
                             Text(row.range.label)
                                 .font(.callout)
                             Spacer(minLength: 8)
@@ -270,27 +375,6 @@ private struct TimeInRangeCard: View {
                 .foregroundStyle(.tertiary)
         }
         .dashboardCard()
-    }
-}
-
-/// Vertical stacked bar, very high on top, urgent low at the bottom.
-private struct RangeStack: View {
-    let breakdown: RangeBreakdown
-
-    var body: some View {
-        GeometryReader { geo in
-            let rows = breakdown.rows.filter { $0.fraction > 0.001 }
-            let gaps = CGFloat(max(0, rows.count - 1)) * 2
-            VStack(spacing: 2) {
-                ForEach(rows) { row in
-                    Rectangle()
-                        .fill(row.range.reportColor.gradient)
-                        .frame(height: max(2, (geo.size.height - gaps) * row.fraction))
-                }
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .accessibilityHidden(true)
     }
 }
 
@@ -552,7 +636,7 @@ private struct CurrentReadingTile: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(snapshot.unit.format(mgdl: cur.mgdl))
-                        .font(.system(size: 30, weight: .semibold, design: .rounded))
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(stale ? Color.secondary : (snapshot.range?.valueColor ?? .primary))
                         .contentTransition(.numericText(value: cur.mgdl))
@@ -570,8 +654,16 @@ private struct CurrentReadingTile: View {
                 if let range = snapshot.range { RangeBadge(range: range, stale: stale) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(12)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.ultraThinMaterial)
+                    AmbientGlow(tint: snapshot.displayTint())
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(snapshot.displayTint().opacity(0.35), lineWidth: 0.75))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(snapshot.accessibilitySummary())
         }
@@ -589,7 +681,7 @@ struct CardTitle: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title).font(.headline)
+            Text(title).font(.system(.headline, design: .rounded).weight(.bold))
             Spacer()
             if let trailing {
                 Text(trailing).font(.caption).foregroundStyle(.secondary)
@@ -617,7 +709,7 @@ struct Metric: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             Text(value)
-                .font(.system(.title2, design: .rounded).weight(.semibold))
+                .font(.system(.title2, design: .rounded).weight(.bold))
                 .monospacedDigit()
                 .foregroundStyle(tint ?? .primary)
                 .lineLimit(1)
@@ -663,10 +755,6 @@ private struct WindowConfigurator: NSViewRepresentable {
 
 extension View {
     func dashboardCard() -> some View {
-        padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5))
+        glassCard(padding: 18, radius: 18)
     }
 }

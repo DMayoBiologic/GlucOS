@@ -96,11 +96,11 @@ extension GlucoseRange {
     /// Colours for range breakdowns in the dashboard: the further from target, the stronger.
     var reportColor: Color {
         switch self {
-        case .urgentLow: return .red
-        case .low: return .red.opacity(0.55)
-        case .inRange: return .green
-        case .high: return .orange.opacity(0.6)
-        case .veryHigh: return .orange
+        case .urgentLow: return GlucoseRange.urgentLow.tint
+        case .low: return GlucoseRange.low.tint.opacity(0.75)
+        case .inRange: return GlucoseRange.inRange.tint
+        case .high: return GlucoseRange.high.tint.opacity(0.8)
+        case .veryHigh: return GlucoseRange.veryHigh.tint
         }
     }
 }

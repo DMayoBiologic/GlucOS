@@ -4,16 +4,8 @@ import SwiftUI
 // everywhere: one colour per range, SF Symbols for trend, and the same time-in-range bar.
 
 extension GlucoseRange {
-    /// Semantic system colours, so they adapt to light/dark mode and Increase Contrast.
-    var color: Color {
-        switch self {
-        case .urgentLow: return .red
-        case .low: return .red
-        case .inRange: return .green
-        case .high: return .orange
-        case .veryHigh: return .red
-        }
-    }
+    /// The range's hue from the GlucOS palette (see Theme.swift). Adapts to light and dark mode.
+    var color: Color { tint }
 
     /// Colour for the big number. In range stays `.primary` so the value reads as calm text.
     var valueColor: Color { self == .inRange ? .primary : color }
@@ -82,15 +74,16 @@ struct RangeBadge: View {
     var stale: Bool = false
 
     var body: some View {
-        let tint = stale ? Color.orange : range.color
+        let tint = stale ? Palette.stale : range.color
         Label(stale ? "Stale" : range.label,
               systemImage: stale ? "exclamationmark.triangle.fill" : range.systemImage)
             .labelStyle(.titleAndIcon)
             .font(.caption.weight(.semibold))
             .foregroundStyle(tint)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(tint.opacity(0.15), in: Capsule())
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.16), in: Capsule())
+            .overlay(Capsule().strokeBorder(tint.opacity(0.28), lineWidth: 0.5))
             .fixedSize()
     }
 }
@@ -102,7 +95,8 @@ struct TimeInRangeBar: View {
 
     private var segments: [(fraction: Double, color: Color)] {
         let all: [(fraction: Double, color: Color)] = [
-            (stats.timeBelowRange, Color.red), (stats.timeInRange, Color.green), (stats.timeAboveRange, Color.orange),
+            (stats.timeBelowRange, GlucoseRange.low.tint), (stats.timeInRange, GlucoseRange.inRange.tint),
+            (stats.timeAboveRange, GlucoseRange.high.tint),
         ]
         return all.filter { $0.fraction > 0.001 }
     }
