@@ -153,11 +153,11 @@ struct GlucoseWidgetView: View {
     /// appears once, under the reading, instead of in both columns.
     private var extraLarge: some View {
         HStack(alignment: .top, spacing: 20) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 StatusPill(entry: entry)
-                HeroValue(entry: entry, size: 68)
+                HeroValue(entry: entry, size: 60)
                 HStack(spacing: 10) {
-                    WidgetTrend(entry: entry, size: 44)
+                    WidgetTrend(entry: entry, size: 38)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(trendHeadline)
                             .font(.callout.weight(.semibold))
