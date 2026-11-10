@@ -3,7 +3,7 @@ import SwiftUI
 /// The current reading: range, value, trend and how fresh it is. Everything else in the popover
 /// is secondary to this card.
 ///
-/// A stale reading is drawn grey, crossed through, with "Trend unavailable" and an orange age,
+/// A stale reading is drawn grey, crossed through, with "Trend unavailable" and an amber age,
 /// so an old number can never pass for a live one.
 struct PopoverHero: View {
     @EnvironmentObject var store: GlucoseStore
@@ -12,6 +12,9 @@ struct PopoverHero: View {
     var onCopy: () -> Void
     var onRefresh: () -> Void
     var onOpenDashboard: () -> Void
+
+    /// The hero number follows the Text Size setting at half rate, so it stays inside the card.
+    private let textScale = DSScaledValue()
 
     /// Bumped on each new reading to play a single soft ripple around the card.
     @State private var ripple = 0
@@ -23,7 +26,8 @@ struct PopoverHero: View {
 
     var body: some View {
         let stale = s.isStale()
-        let tint = s.displayTint()
+        let tone = s.displayTone()
+        let tint = tone.color
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -55,19 +59,10 @@ struct PopoverHero: View {
         .accessibilityAction(named: "Copy reading", onCopy)
         .accessibilityAction(named: "Refresh", onRefresh)
         .accessibilityAction(named: "Open Dashboard", onOpenDashboard)
-        .background {
-            ZStack {
-                shape.fill(.ultraThinMaterial)
-                AmbientGlow(tint: tint, intensity: stale ? 0.45 : 1).clipShape(shape)
-            }
-        }
-        .overlay {
-            shape.strokeBorder(LinearGradient(colors: [tint.opacity(0.5), tint.opacity(0.08)],
-                                              startPoint: .topLeading, endPoint: .bottomTrailing),
-                               lineWidth: 1)
-        }
+        // Stale is `Tone.stale`: a grey surface, so an old reading never sits on a reassuring colour.
+        .background { DSSurface(style: .hero(tone), radius: PopoverLayout.heroRadius) }
         .overlay { rippleRing(tint) }
-        .shadow(color: tint.opacity(stale ? 0.06 : 0.16), radius: 14, y: 6)
+        .dsShadow(.medium, tint: stale ? nil : tint)
         .contentShape(shape)
         .contextMenu {
             Button("Copy Reading", systemImage: "doc.on.doc", action: onCopy)
@@ -115,7 +110,7 @@ struct PopoverHero: View {
             if let range = s.range { RangeBadge(range: range, stale: stale) }
             if let streak = s.rangeStreak(), streak.duration >= 5 * 60 {
                 Text("for \(streak.isOpenEnded ? "over " : "")\(PopoverFormat.streak(streak.duration))")
-                    .font(.caption.weight(.medium))
+                    .dsFont(.label)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                     .contentTransition(.numericText())
@@ -132,7 +127,7 @@ struct PopoverHero: View {
     private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
             Text(s.unit.format(mgdl: cur.mgdl))
-                .font(.system(size: 54, weight: .bold, design: .rounded))
+                .font(.system(size: (54 * (1 + (textScale.scale - 1) * 0.5)).rounded(), weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(numberStyle(tint)))
                 // A stale value is crossed through lightly, so it can't be read as current even in
@@ -150,7 +145,7 @@ struct PopoverHero: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(s.unit.label)
-                .font(.callout.weight(.semibold))
+                .fontWeight(.semibold).dsFont(.callout)
                 .foregroundStyle(.secondary)
         }
     }
@@ -159,15 +154,15 @@ struct PopoverHero: View {
     private func trendRow(_ cur: GlucoseReading, stale: Bool) -> some View {
         if stale {
             Label("Trend unavailable", systemImage: "questionmark.circle")
-                .font(.callout.weight(.semibold))
+                .fontWeight(.semibold).dsFont(.callout)
                 .foregroundStyle(.secondary)
         } else {
             HStack(spacing: 6) {
                 Text(cur.trend.description)
-                    .font(.callout.weight(.semibold))
+                    .fontWeight(.semibold).dsFont(.callout)
                 if let d = s.deltaMgdl {
                     Text(s.unit.formatDelta(mgdl: d))
-                        .font(.callout.weight(.medium))
+                        .fontWeight(.medium).dsFont(.callout)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                         .contentTransition(.numericText(value: d))
@@ -203,7 +198,8 @@ private struct FreshnessRow: View {
             let progress = min(1, max(0.02, age / GlucoseSnapshot.staleAfter))
             let stale = age > GlucoseSnapshot.staleAfter
             let nearlyStale = !stale && age > GlucoseSnapshot.staleAfter * 0.66
-            let color: Color = stale ? .orange : (nearlyStale ? .orange.opacity(0.85) : .secondary)
+            let warning = Tone.warning
+            let color: Color = stale || nearlyStale ? warning.textColor : .secondary
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
                     if stale { Image(systemName: "exclamationmark.triangle.fill").imageScale(.small) }
@@ -213,7 +209,7 @@ private struct FreshnessRow: View {
                     Text(reading.timestamp.formatted(date: .omitted, time: .shortened))
                         .foregroundStyle(.tertiary)
                 }
-                .font(.caption.weight(.medium))
+                .dsFont(.label)
                 .foregroundStyle(color)
 
                 GeometryReader { geo in
@@ -221,7 +217,7 @@ private struct FreshnessRow: View {
                         .fill(Color.primary.opacity(0.08))
                         .overlay(alignment: .leading) {
                             Capsule()
-                                .fill(stale ? Color.orange : (nearlyStale ? Color.orange.opacity(0.85) : Color.secondary.opacity(0.55)))
+                                .fill(stale ? warning.color : (nearlyStale ? warning.color.opacity(0.8) : Color.secondary.opacity(0.55)))
                                 .frame(width: geo.size.width * progress)
                         }
                 }

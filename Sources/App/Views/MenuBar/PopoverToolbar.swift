@@ -124,7 +124,7 @@ struct PopoverFooter: View {
                 .help(Self.disclaimer)
                 .accessibilityLabel(Self.disclaimer)
         }
-        .font(.caption2)
+        .dsFont(.caption)
         .foregroundStyle(.tertiary)
         .padding(.horizontal, 6)
     }

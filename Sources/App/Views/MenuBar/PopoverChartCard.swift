@@ -68,7 +68,7 @@ struct PopoverChartCard: View {
                 .accessibilityValue(chartSummary(window))
                 .accessibilityHint("Use the left and right arrow keys to step through readings")
         }
-        .glassCard(padding: PopoverLayout.cardPadding, radius: PopoverLayout.cardRadius)
+        .dsCard(.standard)
     }
 
     private var header: some View {
@@ -99,23 +99,23 @@ struct PopoverChartCard: View {
         return HStack(spacing: 8) {
             Capsule().fill(range.tint.gradient).frame(width: 4, height: 16)
             Text(s.unit.format(mgdl: r.mgdl, withUnit: true))
-                .font(.system(.callout, design: .rounded).weight(.bold))
+                .dsFont(.sectionTitle)
                 .monospacedDigit()
             Text(range.label)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(range.tint)
+                .dsFont(.label)
+                .foregroundStyle(range.textTint)
             Spacer(minLength: 4)
             Text(r.timestamp.formatted(date: .omitted, time: .shortened))
-                .font(.caption.weight(.medium))
+                .dsFont(.label)
                 .foregroundStyle(.secondary)
             Text("\(index + 1)/\(window.count)")
-                .font(.caption2)
+                .dsFont(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 8)
         .frame(maxHeight: .infinity)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background { DSSurface(style: .inset, radius: DS.Radius.control) }
         .accessibilityElement(children: .combine)
     }
 

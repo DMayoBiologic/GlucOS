@@ -49,7 +49,7 @@ struct MenuBarView: View {
         .onPreferenceChange(PopoverHeightKey.self) { contentHeight = $0 }
         .background(alignment: .top) {
             // A wash of the current range colour at the top of the popover.
-            AmbientGlow(tint: s.displayTint(), intensity: 0.4)
+            AmbientGlow(tint: s.displayTone().color, intensity: 0.4)
                 .frame(height: 240)
                 .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
                 .ignoresSafeArea()
@@ -65,6 +65,7 @@ struct MenuBarView: View {
         .task { await store.checkNotificationPermission() }
         .onAppear { commandKey.start() }
         .onDisappear { commandKey.stop() }
+        .environment(\.dsDensity, .compact)
     }
 
     private var content: some View {
@@ -111,15 +112,15 @@ struct MenuBarView: View {
     private var toastView: some View {
         if let toast {
             Label(toast, systemImage: "checkmark.circle.fill")
-                .font(.callout.weight(.semibold))
+                .fontWeight(.semibold).dsFont(.callout)
                 .symbolRenderingMode(.hierarchical)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .padding(.horizontal, DS.Space.md + 2)
+                .padding(.vertical, DS.Space.sm)
                 .background(.regularMaterial, in: Capsule())
                 .overlay(Capsule().strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
+                .dsShadow(.high)
                 .padding(.bottom, 60)
-                .transition(PopoverMotion.pop(reduceMotion))
+                .transition(DS.Transition.toast(reduceMotion: reduceMotion))
                 .accessibilityHidden(true)   // announced separately
         }
     }
@@ -202,8 +203,8 @@ struct MenuBarView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .glassCard(radius: PopoverLayout.cardRadius)
+        .padding(.vertical, DS.Space.sm)
+        .dsCard(.standard)
     }
 
     /// `LSUIElement` apps don't come forward on their own, so the Settings window would open
@@ -232,21 +233,24 @@ private struct PopoverHeightKey: PreferenceKey {
 
 // MARK: - Layout and motion
 
-/// Popover measurements, in one place so every card lines up.
+/// Popover measurements, from the design system's compact density, so every card lines up.
 enum PopoverLayout {
     static let width: CGFloat = 360
-    static let outerPadding: CGFloat = 12
-    static let stackSpacing: CGFloat = 10
-    static let cardPadding: CGFloat = 12
-    static let cardRadius: CGFloat = 16
-    static let heroRadius: CGFloat = 20
-    static let tileRadius: CGFloat = 10
+    static let outerPadding: CGFloat = DS.Space.md
+    /// Between cards.
+    static let stackSpacing: CGFloat = DSDensity.compact.gutter
+    static let cardPadding: CGFloat = DSDensity.compact.cardPadding
+    static let cardRadius: CGFloat = DSDensity.compact.cardRadius
+    static let heroRadius: CGFloat = DS.Radius.panel
+    /// One step inside a card.
+    static let tileRadius: CGFloat = DS.Radius.tile
 }
 
-/// Popover animations. Every one is nil under Reduce Motion, so state still changes, instantly.
+/// Popover animations, on the design system's curves. Every one is nil under Reduce Motion, so
+/// state still changes, instantly.
 enum PopoverMotion {
-    static func quick(_ reduce: Bool) -> Animation? { reduce ? nil : .snappy(duration: 0.18) }
-    static func standard(_ reduce: Bool) -> Animation? { reduce ? nil : .smooth(duration: 0.3) }
+    static func quick(_ reduce: Bool) -> Animation? { DSMotion.quick.animation(reduceMotion: reduce) }
+    static func standard(_ reduce: Bool) -> Animation? { DSMotion.standard.animation(reduceMotion: reduce) }
 
     /// Content revealed below a header: fades and drops in, fades out.
     static func reveal(_ reduce: Bool) -> AnyTransition {

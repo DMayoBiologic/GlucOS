@@ -130,7 +130,7 @@ struct PopoverNotices: View {
                     .imageScale(.small)
                     .rotationEffect(.degrees(showsAll ? 180 : 0))
             }
-            .font(.caption.weight(.semibold))
+            .fontWeight(.semibold).dsFont(.label)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)

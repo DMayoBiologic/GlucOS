@@ -42,14 +42,14 @@ struct PopoverSummaryCard: View {
                 }
             } else {
                 Text("No readings in the \(window.spokenLabel) yet.")
-                    .font(.callout)
+                    .dsFont(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             PopoverRecentActivity(onOpen: onOpenDashboard)
         }
-        .glassCard(padding: PopoverLayout.cardPadding, radius: PopoverLayout.cardRadius)
+        .dsCard(.standard)
         .animation(PopoverMotion.standard(reduceMotion), value: expanded)
         .animation(PopoverMotion.standard(reduceMotion), value: windowRaw)
     }
@@ -67,7 +67,7 @@ struct PopoverSummaryCard: View {
                         .imageScale(.small)
                         .rotationEffect(.degrees(expanded ? 180 : 0))
                 }
-                .font(.caption.weight(.semibold))
+                .fontWeight(.semibold).dsFont(.label)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -98,11 +98,11 @@ struct PopoverSummaryCard: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "target").imageScale(.small)
-                Text(window.spokenLabel.uppercased()).tracking(0.6)
+                Text(window.spokenLabel)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 7, weight: .bold))
             }
-            .font(.caption2.weight(.semibold))
+            .dsFont(.eyebrow)
             .foregroundStyle(.secondary)
             .contentShape(Rectangle())
         }
@@ -129,11 +129,12 @@ struct PopoverSummaryCard: View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(Format.percent(value))
-                .font(.system(emphasised ? .callout : .caption, design: .rounded).weight(.bold))
+                .fontWeight(.bold)
+                .dsFont(emphasised ? .headline : .callout)
                 .monospacedDigit()
                 .contentTransition(.numericText(value: value))
             Text(title)
-                .font(.caption)
+                .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
@@ -163,7 +164,7 @@ struct PopoverSummaryCard: View {
 
             if st.spanHours < window.hours * 0.85 {
                 Label("Based on \(coverage(st.spanHours)) of readings so far", systemImage: "info.circle")
-                    .font(.caption2)
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -182,25 +183,24 @@ struct PopoverSummaryCard: View {
     private func tile(_ title: String, _ value: String, unit: String, warn: Bool = false, help: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.caption2.weight(.medium))
+                .fontWeight(.medium).dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Text(value)
-                .font(.system(.body, design: .rounded).weight(.bold))
-                .monospacedDigit()
-                .foregroundStyle(warn ? Palette.amber : Color.primary)
+                .dsFont(.sectionTitle)
+                .foregroundStyle(warn ? Tone.warning.textColor : Color.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .contentTransition(.numericText())
             Text(unit)
-                .font(.caption2)
+                .dsFont(.caption)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, DS.Space.sm + 2)
+        .padding(.vertical, DS.Space.sm - 1)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: PopoverLayout.tileRadius, style: .continuous))
+        .background { DSSurface(style: .inset, radius: PopoverLayout.tileRadius) }
         .help(help)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
@@ -216,7 +216,7 @@ private struct SensorRow: View {
         let remaining = sensor.daysRemaining()
         let fraction = sensor.lifetimeDays > 0 ? min(1, max(0, remaining / Double(sensor.lifetimeDays))) : 0
         let expiringSoon = remaining < 1
-        let tint: Color = expiringSoon ? Palette.amber : Palette.brand
+        let tint: Color = expiringSoon ? Tone.warning.color : Palette.brand
         HStack(spacing: 10) {
             ZStack {
                 ProgressRing(fraction: fraction, tint: tint, lineWidth: 3)
@@ -227,18 +227,18 @@ private struct SensorRow: View {
             .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 0) {
                 Text(remaining <= 0 ? "Sensor ended" : "Sensor · \(Format.days(remaining)) left")
-                    .font(.system(.callout, design: .rounded).weight(.semibold))
+                    .fontWeight(.semibold).dsFont(.headline)
                     .monospacedDigit()
-                    .foregroundStyle(expiringSoon ? Palette.amber : Color.primary)
+                    .foregroundStyle(expiringSoon ? Tone.warning.textColor : Color.primary)
                 Text("Expires \(sensor.expires.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))")
-                    .font(.caption)
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: PopoverLayout.tileRadius, style: .continuous))
+        .padding(.horizontal, DS.Space.sm + 2)
+        .padding(.vertical, DS.Space.sm - 1)
+        .background { DSSurface(style: .inset, radius: PopoverLayout.tileRadius) }
         .help("Serial \(sensor.serial)")
         .accessibilityElement(children: .combine)
     }
@@ -254,7 +254,7 @@ struct PopoverRecentActivity: View {
         let recent = logbook.recentActivity()
         if recent.dose != nil || recent.meal != nil {
             VStack(spacing: 8) {
-                Divider().opacity(0.5)
+                DSDivider()
                 Button(action: onOpen) {
                     TimelineView(.periodic(from: .now, by: 30)) { context in
                         HStack(spacing: 12) {
@@ -262,17 +262,17 @@ struct PopoverRecentActivity: View {
                                 chip(systemImage: "syringe.fill",
                                      title: "\(LogFormat.units(d.units)) \(d.displayName)",
                                      age: context.date.timeIntervalSince(d.timestamp),
-                                     tint: Palette.brand)
+                                     tint: Palette.insulin)
                             }
                             if let m = recent.meal {
                                 chip(systemImage: "fork.knife",
                                      title: mealTitle(m),
                                      age: context.date.timeIntervalSince(m.timestamp),
-                                     tint: GlucoseRange.high.tint)
+                                     tint: Palette.food)
                             }
                             Spacer(minLength: 0)
                             Image(systemName: "chevron.right")
-                                .font(.caption2.weight(.semibold))
+                                .fontWeight(.semibold).dsFont(.caption)
                                 .foregroundStyle(.tertiary)
                         }
                     }
@@ -294,17 +294,17 @@ struct PopoverRecentActivity: View {
     private func chip(systemImage: String, title: String, age: TimeInterval, tint: Color) -> some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
-                .font(.caption.weight(.semibold))
+                .fontWeight(.semibold).dsFont(.label)
                 .foregroundStyle(tint)
                 .frame(width: 22, height: 22)
                 .background(tint.opacity(0.14), in: Circle())
             VStack(alignment: .leading, spacing: 0) {
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .fontWeight(.semibold).dsFont(.label)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(PopoverFormat.ageAgo(age))
-                    .font(.caption2)
+                    .dsFont(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
