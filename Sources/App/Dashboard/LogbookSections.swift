@@ -126,27 +126,21 @@ struct LogbookSection: View {
 
     private var undoBanner: some View {
         let n = logbook.lastDeleted.count
-        return HStack(spacing: 10) {
-            Image(systemName: "trash").foregroundStyle(.secondary)
-            Text(n == 1 ? "Entry deleted" : "\(n) entries deleted")
-                .font(.callout.weight(.medium))
-            Spacer()
-            Button("Undo") { logbook.undoDelete() }
-                .keyboardShortcut("z", modifiers: .command)
-            Button {
-                logbook.clearUndo()
-            } label: {
-                Image(systemName: "xmark")
+        return StatusBanner(severity: .info, systemImage: "trash",
+                            title: n == 1 ? "Entry deleted" : "\(n) entries deleted",
+                            message: "Undo puts \(n == 1 ? "it" : "them") back exactly as \(n == 1 ? "it was" : "they were").",
+                            action: BannerAction(title: "Undo", systemImage: "arrow.uturn.backward") { logbook.undoDelete() },
+                            onDismiss: { logbook.clearUndo() },
+                            density: .compact)
+            .frame(maxWidth: 520)
+            .padding(12)
+            // ⌘Z, which the banner's own button can't carry.
+            .background {
+                Button("Undo Delete") { logbook.undoDelete() }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .hidden()
             }
-            .buttonStyle(.borderless)
-            .help("Dismiss")
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
-        .padding(12)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private func totals(_ entries: [LogEntry]) -> some View {
@@ -338,15 +332,22 @@ struct InsightsSection: View {
     }
 }
 
+/// Styled like a status banner, but never truncated: every word of this one matters.
 private struct SafetyNote: View {
+    private let tint = BannerSeverity.info.tint
+
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: "stethoscope")
-                .font(.title3)
-                .foregroundStyle(.orange)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(tint.opacity(0.18)))
+                .overlay(Circle().strokeBorder(tint.opacity(0.35), lineWidth: 0.75))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Observations, not advice")
-                    .font(.headline)
+                    .font(.system(.body, design: .rounded).weight(.semibold))
                 Text("These are patterns GlucOS has seen in your own logs and readings. They're rough estimates from limited data and are easily thrown off by missed logs, exercise, illness, stress, alcohol, hormones and what you ate. GlucOS never suggests a dose. Don't change your insulin, ratios or pump settings based on these. Talk to your diabetes care team first.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -355,7 +356,15 @@ private struct SafetyNote: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(LinearGradient(colors: [tint.opacity(0.16), tint.opacity(0.05)], startPoint: .leading, endPoint: .trailing))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(tint.opacity(0.35), lineWidth: 0.75)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

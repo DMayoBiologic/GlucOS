@@ -6,6 +6,8 @@ import AppKit
 /// Settings → General → Run Setup Again.
 struct OnboardingView: View {
     static let windowID = "onboarding"
+    /// Text stays at a readable measure however wide the window is.
+    private static let contentWidth: CGFloat = 600
 
     enum Step: Int, CaseIterable {
         case welcome, account, range, alerts, therapy, done
@@ -44,24 +46,36 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 0) {
             progress
+                .frame(maxWidth: Self.contentWidth)
                 .padding(.top, 18)
                 .padding(.horizontal, 28)
-            ZStack {
-                content
-                    .id(step)
-                    .transition(reduceMotion ? .opacity : .asymmetric(
-                        insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
-                        removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity)))
+            // Each step scrolls on its own, so a long step (sign-in with an error and the help
+            // open) never pushes the buttons off a small window.
+            ScrollView {
+                // ZStack so the outgoing and incoming steps overlap during the slide rather than
+                // stacking in the scroll view.
+                ZStack(alignment: .topLeading) {
+                    content
+                        .frame(maxWidth: Self.contentWidth, alignment: .topLeading)
+                        .id(step)
+                        .transition(reduceMotion ? .opacity : .asymmetric(
+                            insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
+                            removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity)))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 20)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 20)
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .clipped()
             Divider()
             navigation
+                .frame(maxWidth: Self.contentWidth + 32)
+                .frame(maxWidth: .infinity)
                 .padding(16)
         }
-        .frame(width: 600, height: 580)
+        .frame(minWidth: 520, idealWidth: 640, maxWidth: .infinity, minHeight: 480, idealHeight: 620, maxHeight: .infinity)
         .background(alignment: .top) {
             AmbientGlow(tint: Palette.brand, intensity: 0.35)
                 .frame(height: 240)
@@ -324,14 +338,17 @@ struct OnboardingView: View {
                     switch notificationsAllowed {
                     case .some(true):
                         Label("Notifications are allowed", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(Palette.mint)
+                            .foregroundStyle(BannerSeverity.success.tint)
                         Spacer()
                         Button("Send Test Alert") { store.alerts.sendTest() }
                     case .some(false):
-                        Label("Notifications are off for GlucOS", systemImage: "bell.slash.fill")
-                            .foregroundStyle(.red)
-                        Spacer()
-                        Button("Open Notification Settings…") { NSWorkspace.shared.open(AlertManager.notificationSettingsURL) }
+                        StatusBanner(severity: .critical, systemImage: "bell.slash.fill",
+                                     title: "Notifications are off for GlucOS",
+                                     message: "Alerts can't appear on this Mac until you allow them in System Settings.",
+                                     action: BannerAction(title: "Open Settings…", systemImage: "gearshape") {
+                                         NSWorkspace.shared.open(AlertManager.notificationSettingsURL)
+                                     },
+                                     density: .compact)
                     case .none:
                         Label("macOS will ask to allow notifications", systemImage: "bell")
                             .foregroundStyle(.secondary)
@@ -381,11 +398,11 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 14) {
                 feature("cursorarrow.click", Palette.brand, "Click the reading in the menu bar",
                         "For the chart, time in range and sensor life. ⌘D opens the full dashboard.")
-                feature("plus.circle.fill", .blue, "Log with ⌘L",
+                feature("plus.circle.fill", Palette.brand, "Log with ⌘L",
                         "From the menu bar or dashboard. Tick “Save as preset” for things you log often.")
-                feature("square.grid.2x2.fill", .purple, "Add the widget",
+                feature("square.grid.2x2.fill", Palette.brand, "Add the widget",
                         "Right-click the desktop → Edit Widgets → search “GlucOS”.")
-                feature("gearshape.fill", .gray, "Change anything later",
+                feature("gearshape.fill", Palette.stale, "Change anything later",
                         "Settings (⌘,) has your account, target range, alerts and logging options.")
             }
         }

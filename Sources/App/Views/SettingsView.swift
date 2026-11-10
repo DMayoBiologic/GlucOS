@@ -35,7 +35,9 @@ struct SettingsView: View {
                 .tabItem { Label("Advanced", systemImage: "gearshape.2") }
                 .tag(Tab.advanced)
         }
-        .frame(width: 540)
+        // Resizable: the window opens at a comfortable size, can grow for long lists (presets,
+        // alerts) and shrink to a laptop-friendly minimum without clipping a Form.
+        .frame(minWidth: 500, idealWidth: 580, maxWidth: 860, minHeight: 420, idealHeight: 600, maxHeight: .infinity)
         .onAppear {
             // Send someone with a broken connection straight to where they can fix it.
             if !settings.hasCredentials || store.connectionProblem != nil { tab = .account }
@@ -80,7 +82,11 @@ private struct GeneralSettingsTab: View {
                             launchAtLogin = SMAppService.mainApp.status == .enabled
                         }
                     }
-                if let loginError { Text(loginError).font(.callout).foregroundStyle(.red) }
+                if let loginError {
+                    StatusBanner(severity: .warning, title: "Couldn't change the login item", message: loginError,
+                                 onDismiss: { self.loginError = nil }, density: .compact)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                }
             } header: {
                 Text("Startup")
             } footer: {
@@ -159,23 +165,25 @@ private struct AccountSettingsTab: View {
                     }
                 }
                 RegionPicker(region: $region)
+                HStack(spacing: 8) {
+                    if settings.hasCredentials {
+                        Button("Sign Out…", role: .destructive) { confirmingSignOut = true }
+                    }
+                    Spacer()
+                    if signingIn {
+                        ProgressView().controlSize(.small)
+                        Text("Signing in…").font(.callout).foregroundStyle(.secondary)
+                    }
+                    Button(settings.hasCredentials && !edited ? "Reconnect" : "Sign In") { signIn() }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(email.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty || signingIn)
+                }
             } header: {
                 Text("LibreLinkUp Follower Account")
             } footer: {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Use the *follower* account that accepted the invitation from LibreLink, not your LibreLink login. Credentials are stored in the macOS Keychain and only ever sent to Abbott.")
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        if settings.hasCredentials {
-                            Button("Sign Out…", role: .destructive) { confirmingSignOut = true }
-                        }
-                        Spacer()
-                        if signingIn { ProgressView().controlSize(.small) }
-                        Button(settings.hasCredentials && !edited ? "Reconnect" : "Sign In") { signIn() }
-                            .keyboardShortcut(.defaultAction)
-                            .disabled(email.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty || signingIn)
-                    }
-                }
+                Text("Use the *follower* account that accepted the invitation from LibreLink, not your LibreLink login. Credentials are stored in the macOS Keychain and only ever sent to Abbott.")
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -235,15 +243,17 @@ struct ConnectionStatusRow: View {
         }
     }
 
+    /// Green only for a connection that is actually delivering fresh readings. Signed out is
+    /// neutral; old or missing readings are a warning, never a reassuring colour.
     private var color: Color {
-        if !settings.hasCredentials { return .secondary }
-        if store.connectionProblem != nil { return .orange }
-        return store.snapshot.current == nil || store.snapshot.isStale() ? .yellow : .green
+        if !settings.hasCredentials { return Palette.stale }
+        if let p = store.connectionProblem { return p.severity.tint }
+        return store.snapshot.current == nil || store.snapshot.isStale() ? BannerSeverity.warning.tint : BannerSeverity.success.tint
     }
 
     private var symbol: String {
         if !settings.hasCredentials { return "person.crop.circle.badge.questionmark" }
-        if store.connectionProblem != nil { return "exclamationmark.triangle.fill" }
+        if let p = store.connectionProblem { return p.systemImage }
         return store.snapshot.current == nil || store.snapshot.isStale() ? "clock.badge.exclamationmark" : "checkmark"
     }
 
@@ -366,13 +376,10 @@ private struct AlertSettingsTab: View {
                         switch notificationsAllowed {
                         case .some(true):
                             Label("Allowed", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(BannerSeverity.success.tint)
                         case .some(false):
                             Label("Off", systemImage: "bell.slash.fill")
-                                .foregroundStyle(.red)
-                            Button("Turn On…") {
-                                NSWorkspace.shared.open(AlertManager.notificationSettingsURL)
-                            }
+                                .foregroundStyle(BannerSeverity.critical.tint)
                         case .none where permissionChecked:
                             Button("Allow Notifications…") {
                                 store.alerts.requestAuthorization()
@@ -385,6 +392,16 @@ private struct AlertSettingsTab: View {
                             ProgressView().controlSize(.mini)
                         }
                     }
+                }
+                if notificationsAllowed == false && settings.alertsEnabled {
+                    StatusBanner(severity: .critical, systemImage: "bell.slash.fill",
+                                 title: "Alerts can't reach you",
+                                 message: "Notifications for GlucOS are turned off in System Settings, so lows and highs won't show on this Mac.",
+                                 action: BannerAction(title: "Turn On…", systemImage: "gearshape") {
+                                     NSWorkspace.shared.open(AlertManager.notificationSettingsURL)
+                                 },
+                                 density: .compact)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                 }
                 LabeledContent("Check it works") {
                     Button("Send Test Alert") { store.alerts.sendTest() }
@@ -421,9 +438,9 @@ private struct AlertSettingsTab: View {
                 AlertRow(title: "Rising or falling quickly", detail: "When the trend arrow points steeply up or down",
                          tint: Palette.brand, systemImage: "arrow.up.right", isOn: $settings.alertOnRapidChange)
                 AlertRow(title: "No recent data", detail: "No reading for more than 6 minutes",
-                         tint: .gray, systemImage: "antenna.radiowaves.left.and.right.slash", isOn: $settings.alertOnStale)
+                         tint: Palette.stale, systemImage: "antenna.radiowaves.left.and.right.slash", isOn: $settings.alertOnStale)
                 AlertRow(title: "Sensor expiring", detail: "Less than 24 hours left on the sensor",
-                         tint: .purple, systemImage: "sensor.tag.radiowaves.forward", isOn: $settings.alertOnSensorExpiry)
+                         tint: BannerSeverity.warning.tint, systemImage: "sensor.tag.radiowaves.forward", isOn: $settings.alertOnSensorExpiry)
                 Picker("Repeat an ongoing alert every", selection: $settings.alertCooldownMinutes) {
                     ForEach(Self.cooldownChoices, id: \.self) { m in Text(m < 60 ? "\(m) minutes" : m == 60 ? "1 hour" : "\(LogFormat.number(Double(m) / 60)) hours").tag(m) }
                     if !Self.cooldownChoices.contains(settings.alertCooldownMinutes) {
@@ -642,7 +659,7 @@ private struct AdvancedSettingsTab: View {
                 } label: {
                     if !updater.isConfigured {
                         Label("Not configured in this build (no Sparkle public key).", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(BannerSeverity.warning.tint)
                     } else {
                         Text("Checks hourly; installs and relaunches automatically.")
                     }

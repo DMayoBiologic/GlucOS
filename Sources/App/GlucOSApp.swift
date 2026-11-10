@@ -38,7 +38,10 @@ struct GlucOSApp: App {
                 .environmentObject(store)
                 .environmentObject(store.settings)
         }
-        .windowResizability(.contentSize)
+        // Opens at its ideal size; resizable down to a minimum that fits a 13" display, and up
+        // for people who want more room (content stays at a readable width).
+        .defaultSize(width: 640, height: 620)
+        .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
         .defaultPosition(.center)
 
@@ -48,7 +51,8 @@ struct GlucOSApp: App {
                 .environmentObject(logbook)
                 .environmentObject(store.settings)
         }
-        .windowResizability(.contentSize)
+        .defaultSize(width: 540, height: 680)
+        .windowResizability(.contentMinSize)
         .defaultPosition(.center)
 
         Settings {
@@ -58,6 +62,7 @@ struct GlucOSApp: App {
                 .environmentObject(updater)
                 .environmentObject(logbook)
         }
+        .windowResizability(.contentMinSize)
     }
 }
 

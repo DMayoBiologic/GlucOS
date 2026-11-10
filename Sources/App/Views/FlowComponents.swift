@@ -107,16 +107,27 @@ private struct PanelTitleLabelStyle: LabelStyle {
     }
 }
 
-/// Inline warning under a field.
+/// Inline warning under a field: the design system's warning tint, an icon, and words that say
+/// what to change. Never colour alone.
 struct FieldProblem: View {
     let text: String
 
     var body: some View {
-        Label(text, systemImage: "exclamationmark.triangle.fill")
-            .font(.callout)
-            .foregroundStyle(.orange)
-            .fixedSize(horizontal: false, vertical: true)
-            .transition(.opacity)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: BannerSeverity.warning.defaultSymbol)
+                .imageScale(.small)
+                .foregroundStyle(BannerSeverity.warning.tint)
+            Text(text)
+                .foregroundStyle(.primary.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.callout)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(BannerSeverity.warning.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Warning: \(text)")
     }
 }
 
@@ -351,12 +362,22 @@ struct ConnectionProblem: Equatable {
     let advice: String
     let fix: Fix
     let systemImage: String
+    /// How the problem is shown. Anything that stops readings until the user acts is critical;
+    /// a blip GlucOS recovers from by itself is a warning; "not signed in yet" is just info.
+    let severity: BannerSeverity
 
-    init(title: String, advice: String, fix: Fix, systemImage: String = "exclamationmark.triangle.fill") {
+    init(title: String, advice: String, fix: Fix, systemImage: String = "exclamationmark.triangle.fill",
+         severity: BannerSeverity? = nil) {
         self.title = title
         self.advice = advice
         self.fix = fix
         self.systemImage = systemImage
+        self.severity = severity ?? {
+            switch fix {
+            case .checkCredentials, .useLibreLinkUpApp, .updateClientVersion: return .critical
+            case .checkNetwork, .waitAndRetry, .retry: return .warning
+            }
+        }()
     }
 
     init(_ error: Error) {
@@ -364,7 +385,7 @@ struct ConnectionProblem: Equatable {
             switch e {
             case .notConfigured:
                 self.init(title: "Not signed in", advice: "Enter your LibreLinkUp follower email and password.",
-                          fix: .checkCredentials, systemImage: "person.crop.circle.badge.questionmark")
+                          fix: .checkCredentials, systemImage: "person.crop.circle.badge.questionmark", severity: .info)
             case .badCredentials:
                 self.init(title: "Email or password not accepted",
                           advice: "Use the LibreLinkUp follower account (the one that accepted the invitation), not your LibreLink login. Check for typos and Caps Lock.",
@@ -425,7 +446,8 @@ struct ConnectionProblem: Equatable {
     }
 }
 
-/// A connection problem with its advice and, where GlucOS can help, a one-click fix.
+/// A connection problem as a themed status banner: what's wrong, what to do, and where GlucOS
+/// can fix it, a one-click button.
 struct ConnectionProblemView: View {
     let problem: ConnectionProblem
     var compact = false
@@ -433,35 +455,31 @@ struct ConnectionProblemView: View {
     var onFix: ((ConnectionProblem.Fix) -> Void)?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: problem.systemImage)
-                .font(compact ? .callout : .title3)
-                .foregroundStyle(.orange)
-                .frame(width: compact ? 18 : 24)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(problem.title).font(compact ? .callout.weight(.semibold) : .headline)
-                Text(problem.advice)
-                    .font(compact ? .caption : .callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let onFix, let label = fixLabel {
-                    Button(label) { onFix(problem.fix) }
-                        .controlSize(compact ? .small : .regular)
-                        .padding(.top, 3)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(compact ? 10 : 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.orange.opacity(0.28), lineWidth: 0.5))
+        StatusBanner(severity: problem.severity,
+                     systemImage: problem.systemImage,
+                     title: problem.title,
+                     message: problem.advice,
+                     action: action,
+                     density: compact ? .compact : .regular)
+    }
+
+    private var action: BannerAction? {
+        guard let onFix, let label = fixLabel else { return nil }
+        return BannerAction(title: label, systemImage: fixSymbol) { onFix(problem.fix) }
     }
 
     private var fixLabel: String? {
         switch problem.fix {
-        case .updateClientVersion(let v): return "Use Version \(v) and Reconnect"
+        case .updateClientVersion: return "Update & Reconnect"
         case .retry, .waitAndRetry, .checkNetwork: return "Try Again"
+        case .checkCredentials, .useLibreLinkUpApp: return nil
+        }
+    }
+
+    private var fixSymbol: String? {
+        switch problem.fix {
+        case .updateClientVersion: return "arrow.up.circle"
+        case .retry, .waitAndRetry, .checkNetwork: return "arrow.clockwise"
         case .checkCredentials, .useLibreLinkUpApp: return nil
         }
     }

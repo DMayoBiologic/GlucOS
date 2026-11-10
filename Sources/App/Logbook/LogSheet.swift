@@ -165,6 +165,10 @@ struct LogSheet: View {
                         TextField("Note", text: $note, prompt: Text("Add a note (optional)"), axis: .vertical)
                             .lineLimit(1...3)
                             .textFieldStyle(.roundedBorder)
+                        Label("GlucOS records what you enter. It never suggests a dose.", systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 2)
                     }
                     .padding(16)
                     .animation(.smooth(duration: 0.2), value: includeInsulin)
@@ -172,12 +176,14 @@ struct LogSheet: View {
                     .animation(.smooth(duration: 0.2), value: includeSiteChange)
                     .animation(.smooth(duration: 0.2), value: showsTagPicker)
                 }
-                .frame(height: editing == nil ? 560 : 400)
+                // Grows and shrinks with the window (or sheet), scrolling when there's more form than
+                // room, instead of a fixed height that clips on small displays.
+                .frame(minHeight: 220, idealHeight: editing == nil ? 520 : 360, maxHeight: .infinity)
                 Divider()
                 footer
             }
         }
-        .frame(width: 520)
+        .frame(minWidth: 460, idealWidth: 540, maxWidth: 780)
         .onAppear { focusFirstField() }
         .onChange(of: settings.therapy) { _, therapy in
             // Picked in the setup step above: start from that therapy's defaults.
@@ -219,13 +225,8 @@ struct LogSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(.title2, design: .rounded).weight(.bold))
-                    Text("GlucOS records what you enter. It never suggests a dose.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(title)
+                    .font(.system(.title2, design: .rounded).weight(.bold))
                 Spacer()
                 DatePicker("Time", selection: $time, in: ...Date().addingTimeInterval(15 * 60),
                            displayedComponents: [.date, .hourAndMinute])

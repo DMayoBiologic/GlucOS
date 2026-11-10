@@ -159,7 +159,7 @@ struct DetailLine: View {
                         Image(systemName: "clock.badge.exclamationmark")
                         Text("Last \(s.unit.format(mgdl: cur.mgdl)) at \(cur.timestamp.formatted(date: .omitted, time: .shortened))")
                     }
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(BannerSeverity.warning.tint)
                 }
             } else {
                 Text(s.lastError == nil ? "Waiting for GlucOS" : "Open GlucOS to reconnect")
@@ -183,7 +183,7 @@ struct AgeLabel: View {
                 if stale { Image(systemName: "exclamationmark.triangle.fill").imageScale(.small) }
                 Text(Format.age(cur.age(at: entry.date)))
             }
-            .foregroundStyle(stale ? AnyShapeStyle(Color.orange) : AnyShapeStyle(HierarchicalShapeStyle.secondary))
+            .foregroundStyle(stale ? AnyShapeStyle(BannerSeverity.warning.tint) : AnyShapeStyle(HierarchicalShapeStyle.secondary))
             .monospacedDigit()
         }
     }
@@ -376,7 +376,7 @@ struct WidgetChart: View {
             if gapToNow > GlucoseSnapshot.staleAfter {
                 RuleMark(x: .value("Now", now))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
-                    .foregroundStyle(Color.orange.opacity(0.7))
+                    .foregroundStyle(BannerSeverity.warning.tint.opacity(0.7))
             }
 
             if let last {
