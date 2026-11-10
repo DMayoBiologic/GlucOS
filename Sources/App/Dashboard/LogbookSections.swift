@@ -100,12 +100,12 @@ struct LogbookSection: View {
             }
         }
         .controlSize(.small)
-        .onChange(of: settings.therapy) { _, _ in
-            if !showsFilter(filter) { filter = .all }
-        }
     }
 
     private func showsFilter(_ f: Filter) -> Bool {
+        // The selected option always stays, so the picker never loses its selection (e.g. after
+        // deleting the last site change, or a therapy change).
+        if f == filter { return true }
         switch f {
         case .site: return settings.therapy == .pump || !logbook.siteChanges.isEmpty
         case .insulin: return settings.therapy.logsInsulin || !logbook.doses.isEmpty
