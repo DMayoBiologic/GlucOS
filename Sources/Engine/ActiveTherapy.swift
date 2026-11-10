@@ -122,10 +122,8 @@ struct InsulinActivity: Hashable {
 
     static func compute(doses: [InsulinDose], at now: Date, step: TimeInterval = 5 * 60) -> InsulinActivity {
         let timed = doses.compactMap(TimedDose.init(fastPartOf:)).filter { $0.date <= now && $0.end > now }
-        let background = doses.contains { d in
-            d.timestamp <= now && (d.kind == .long ? now.timeIntervalSince(d.timestamp) < 36 * 3600
-                                   : d.kind == .intermediate && now.timeIntervalSince(d.timestamp) < 18 * 3600)
-        }
+        // Same rule as the Basal card, so the two never disagree.
+        let background = BackgroundInsulinActivity.compute(doses: doses, at: now).isActive
         func remaining(_ t: Date) -> Double { timed.reduce(0) { $0 + $1.remaining(at: t) } }
         func rate(_ t: Date) -> Double { timed.reduce(0) { $0 + $1.activityPerHour(at: t) } }
 

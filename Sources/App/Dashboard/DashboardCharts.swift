@@ -336,7 +336,7 @@ struct TrendChart: View {
         // Past the newest reading the pointer reads the forecast instead, never a reading.
         let hoveredForecast: ForecastSample? = {
             guard let d = hoverDate, let last = readings.last, !projection.isEmpty,
-                  d > last.timestamp.addingTimeInterval(2.5 * 60) else { return nil }
+                  d > last.timestamp.addingTimeInterval(max(2.5 * 60, visible / 600)) else { return nil }
             guard let best = projection.min(by: { abs($0.date.timeIntervalSince(d)) < abs($1.date.timeIntervalSince(d)) }),
                   abs(best.date.timeIntervalSince(d)) <= max(5 * 60, visible / 150) else { return nil }
             return best
