@@ -122,7 +122,7 @@ struct DashboardLayout {
 
     /// Compact: half a laptop screen. Wide: a full-screen window on a big display.
     var widthClass: WidthClass {
-        contentWidth < 640 ? .compact : (contentWidth < 1060 ? .regular : .wide)
+        contentWidth < 700 ? .compact : (contentWidth < 1060 ? .regular : .wide)
     }
 
     /// Height for a page's main chart: grows with the window, but leaves room to see the next
