@@ -55,7 +55,6 @@ final class AlertManager {
         guard settings.alertsEnabled else { return }
         let unit = s.unit
         let cooldown = TimeInterval(settings.alertCooldownMinutes * 60)
-        let highCooldown = max(cooldown, 30 * 60)
 
         if let r = s.current, !s.isStale(at: now) {
             let v = unit.format(mgdl: r.mgdl, withUnit: true)
