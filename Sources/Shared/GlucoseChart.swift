@@ -11,6 +11,9 @@ struct GlucoseChart: View {
     var showAxes: Bool = true
     /// Hover to inspect a reading (app only; widgets aren't interactive).
     var interactive: Bool = false
+    /// A reading to highlight as if hovered, e.g. while stepping through readings with the arrow
+    /// keys. The pointer wins while it's over the chart.
+    var pinnedDate: Date? = nil
 
     @State private var hoverDate: Date?
 
@@ -48,7 +51,7 @@ struct GlucoseChart: View {
     var body: some View {
         let window = self.window
         let floor = yDomain.lowerBound
-        let hovered = interactive ? nearest(to: hoverDate, in: window) : nil
+        let hovered = interactive ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
         let lineStyle = ThresholdGradient.style(minMgdl: window.map(\.mgdl).min() ?? lowMgdl,
                                                 maxMgdl: window.map(\.mgdl).max() ?? highMgdl,
                                                 low: lowMgdl, high: highMgdl)

@@ -52,7 +52,7 @@ struct MenuBarLabel: View {
         let stale = store.snapshot.current != nil && store.snapshot.isStale()
         HStack(spacing: 3) {
             icon(stale: stale)
-            Text(store.menuBarText)
+            Text(store.statusItemText())
                 .monospacedDigit()
         }
         .accessibilityElement(children: .ignore)
@@ -69,13 +69,20 @@ struct MenuBarLabel: View {
 
 extension MenuBarLabel {
     /// Monochrome by default, like every other menu bar item. With "Colour-code the menu bar icon"
-    /// on, the drop takes the range colour. Stale data always shows the monochrome warning glyph,
-    /// so an old reading never looks like a reassuring green one.
+    /// on, the drop takes the range colour. An urgent low is always coloured, whatever the setting,
+    /// so it stands out from across the room. Stale data always shows the monochrome warning glyph
+    /// (and its age instead of a trend arrow), so an old reading never looks like a reassuring one.
+    /// With no reading at all, the drop is hollow.
     @ViewBuilder
     func icon(stale: Bool) -> some View {
-        if !stale, settings.colorMenuBarIcon, let range = store.snapshot.range,
-           let image = Self.tintedSymbol("drop.fill", color: range.nsColor) {
+        let range = store.snapshot.range
+        if !stale, let range, settings.colorMenuBarIcon || range == .urgentLow,
+           let image = Self.tintedSymbol(range == .urgentLow ? "exclamationmark.octagon.fill" : "drop.fill",
+                                         color: range.nsColor) {
             Image(nsImage: image)
+        } else if store.snapshot.current == nil {
+            Image(systemName: "drop")
+                .imageScale(.small)
         } else {
             Image(systemName: stale ? "exclamationmark.triangle.fill" : "drop.fill")
                 .imageScale(.small)
