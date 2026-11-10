@@ -212,7 +212,9 @@ struct OnboardingView: View {
                         .autocorrectionDisabled()
                     SecureField("Password", text: $password, prompt: Text("Password"))
                         .textContentType(.password)
-                        .onSubmit { if !email.isEmpty && !password.isEmpty { signIn() } }
+                        .onSubmit {
+                            if !email.trimmingCharacters(in: .whitespaces).isEmpty && !password.isEmpty { signIn() }
+                        }
                     HStack {
                         RegionPicker(region: $region)
                             .fixedSize()

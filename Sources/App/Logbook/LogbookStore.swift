@@ -84,7 +84,10 @@ final class LogbookStore: ObservableObject {
 
     func delete(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
-        lastDeleted = ids.compactMap { self.entry(id: $0) }
+        let removed = ids.compactMap { self.entry(id: $0) }
+        guard !removed.isEmpty else { return }
+        // Accumulate while the undo banner is up, so Undo restores every delete since.
+        lastDeleted += removed
         doses.removeAll { ids.contains($0.id) }
         meals.removeAll { ids.contains($0.id) }
         siteChanges.removeAll { ids.contains($0.id) }

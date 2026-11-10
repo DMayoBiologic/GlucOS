@@ -100,6 +100,9 @@ struct LogbookSection: View {
             }
         }
         .controlSize(.small)
+        .onChange(of: settings.therapy) { _, _ in
+            if !showsFilter(filter) { filter = .all }
+        }
     }
 
     private func showsFilter(_ f: Filter) -> Bool {

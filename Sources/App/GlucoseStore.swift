@@ -98,8 +98,13 @@ final class GlucoseStore: ObservableObject {
         defer { isRefreshing = false }
 
         let creds = LibreLinkUpClient.Credentials(email: settings.email, password: settings.password)
+        /// The account was signed out or switched while this fetch was in flight.
+        func accountChanged() -> Bool {
+            !settings.hasCredentials || settings.email != creds.email || settings.password != creds.password
+        }
         do {
             let r = try await client.fetch(credentials: creds)
+            guard !accountChanged() else { return }
             var s = snapshot
             s.current = r.current
             s.history = r.history
@@ -113,6 +118,7 @@ final class GlucoseStore: ObservableObject {
             let host = await client.currentRegionHost
             statusLine = "Connected to \(host)"
         } catch {
+            guard !accountChanged() else { return }
             snapshot.lastError = error.localizedDescription
             connectionProblem = ConnectionProblem(error)
             statusLine = "Error: \(error.localizedDescription)"
