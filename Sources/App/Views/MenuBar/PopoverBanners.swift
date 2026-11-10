@@ -59,9 +59,10 @@ extension PopoverNotice {
         }
         if let err = s.lastError {
             out.append(PopoverNotice(
-                kind: .connection, severity: .warning, systemImage: "exclamationmark.triangle.fill",
-                title: "Couldn't reach LibreLinkUp",
-                message: err,
+                kind: .connection, severity: store.connectionProblem?.severity ?? .warning,
+                systemImage: store.connectionProblem?.systemImage ?? "exclamationmark.triangle.fill",
+                title: store.connectionProblem?.title ?? "Couldn't reach LibreLinkUp",
+                message: store.connectionProblem?.advice ?? err,
                 action: BannerAction(title: "Retry", isBusy: store.isRefreshing, perform: onRefresh),
                 copyText: err))
         }

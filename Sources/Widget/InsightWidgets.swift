@@ -52,7 +52,7 @@ struct TimeInRangeWidgetView: View {
         if sum.coverage < 0.7 {
             Label("\(Format.percent(sum.coverage)) of period has data", systemImage: "exclamationmark.circle")
                 .font(.system(size: 9.5, weight: .medium))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Tone.warning.textColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
@@ -87,12 +87,20 @@ struct TimeInRangeWidgetView: View {
                 band("Low", sum.low, .low)
                 band("Urgent low", sum.urgentLow, .urgentLow)
                 Spacer(minLength: 0)
-                HStack(spacing: 10) {
-                    miniFact("Avg", unit.format(mgdl: sum.meanMgdl))
-                    miniFact("GMI", String(format: "%.1f%%", sum.gmiPercent))
-                    miniFact("CV", Format.percent(sum.cv))
+                // One footer line: the coverage warning when it applies, otherwise two figures.
+                // GMI needs about two weeks of data to mean anything, so shorter periods show CV.
+                if sum.coverage < 0.7 {
+                    coverageNote(sum)
+                } else {
+                    HStack(spacing: 10) {
+                        miniFact("Avg", unit.format(mgdl: sum.meanMgdl))
+                        if entry.period == .last14Days {
+                            miniFact("GMI", String(format: "%.1f%%", sum.gmiPercent))
+                        } else {
+                            miniFact("CV", Format.percent(sum.cv))
+                        }
+                    }
                 }
-                coverageNote(sum)
             }
         }
     }

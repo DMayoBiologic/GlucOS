@@ -32,6 +32,29 @@ struct GlucOSApp: App {
         .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unified)
 
+        // First-run setup. Opened by MenuBarLabel at launch until it's finished or skipped.
+        Window("Welcome to GlucOS", id: OnboardingView.windowID) {
+            OnboardingView()
+                .environmentObject(store)
+                .environmentObject(store.settings)
+        }
+        // Opens at its ideal size; resizable down to a minimum that fits a 13" display, and up
+        // for people who want more room (content stays at a readable width).
+        .defaultSize(width: 640, height: 620)
+        .windowResizability(.contentMinSize)
+        .windowStyle(.hiddenTitleBar)
+        .defaultPosition(.center)
+
+        // Quick log from the menu bar, without opening the dashboard.
+        Window("Log Insulin or Food", id: LogWindow.id) {
+            LogWindow()
+                .environmentObject(logbook)
+                .environmentObject(store.settings)
+        }
+        .defaultSize(width: 540, height: 680)
+        .windowResizability(.contentMinSize)
+        .defaultPosition(.center)
+
         Settings {
             SettingsView()
                 .environmentObject(store)
@@ -39,6 +62,7 @@ struct GlucOSApp: App {
                 .environmentObject(updater)
                 .environmentObject(logbook)
         }
+        .windowResizability(.contentMinSize)
     }
 }
 
@@ -57,7 +81,13 @@ struct MenuBarLabel: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
-        .task { store.start() }   // ensure polling starts even if the popover is never opened
+        .task {
+            store.start()   // ensure polling starts even if the popover is never opened
+            if settings.needsOnboarding {
+                openWindow(id: OnboardingView.windowID)
+                NSApp.activate()
+            }
+        }
         // The label lives as long as the app, so it's the one place that can always open the
         // dashboard window for a glucos://dashboard link.
         .onReceive(NotificationCenter.default.publisher(for: .glucosOpenDashboard)) { _ in

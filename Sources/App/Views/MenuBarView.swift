@@ -196,9 +196,12 @@ struct MenuBarView: View {
                 } description: {
                     Text("Sign in with the LibreLinkUp follower account that shares your sensor.")
                 } actions: {
-                    Button("Open Settings…") { showSettings() }
-                        .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(.defaultAction)
+                    Button("Set Up GlucOS…") {
+                        openWindow(id: OnboardingView.windowID)
+                        NSApp.activate()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
                 }
             }
         }
@@ -219,10 +222,10 @@ struct MenuBarView: View {
         NSApp.activate()
     }
 
-    /// The log sheet lives in the dashboard window, since a sheet can't hang off the popover.
+    /// Logging opens its own small window, since a sheet can't hang off the popover.
     private func showLogSheet() {
-        logbook.logSheetRequested = true
-        showDashboard()
+        openWindow(id: LogWindow.id)
+        NSApp.activate()
     }
 }
 
