@@ -68,23 +68,16 @@ struct TrendSymbol: View {
     }
 }
 
-/// Small capsule naming the range ("In range", "Low"…), tinted with the range colour.
+/// Small capsule naming the range ("In range", "Low"…), tinted with the range colour. Grey and
+/// labelled "Stale" when the reading is old, so it can never reassure.
 struct RangeBadge: View {
     let range: GlucoseRange
     var stale: Bool = false
 
     var body: some View {
-        let tint = stale ? Palette.stale : range.color
-        Label(stale ? "Stale" : range.label,
-              systemImage: stale ? "exclamationmark.triangle.fill" : range.systemImage)
-            .labelStyle(.titleAndIcon)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(tint.opacity(0.16), in: Capsule())
-            .overlay(Capsule().strokeBorder(tint.opacity(0.28), lineWidth: 0.5))
-            .fixedSize()
+        TonePill(text: stale ? "Stale" : range.label,
+                   systemImage: stale ? "exclamationmark.triangle.fill" : range.systemImage,
+                   tone: range.tone(stale: stale))
     }
 }
 
