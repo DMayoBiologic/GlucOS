@@ -1,8 +1,9 @@
 import SwiftUI
 import AppKit
 
-// GlucOS design system. One palette and a handful of components shared by the menu bar popover,
-// the dashboard and the widgets, so a reading looks identical everywhere.
+// GlucOS design system: palette and the glucose-specific pieces (trend dial, time-in-range ring,
+// ambient glow). Tokens live in DesignSystem/Tokens.swift, the type scale in Typography.swift,
+// semantic colour in Tone.swift and generic components in Components.swift.
 //
 // Colour is status: every range has one hue, used for the number, the chart line, the ambient
 // glow behind the reading and the time-in-range ring. Stale data is always neutral grey, so an
@@ -11,10 +12,18 @@ import AppKit
 // MARK: - Palette
 
 enum Palette {
-    /// A colour with separate light and dark appearances.
-    static func dynamic(light: NSColor, dark: NSColor) -> Color {
+    /// A colour with separate light and dark appearances, and optionally its own values when
+    /// Increase Contrast is on.
+    static func dynamic(light: NSColor, dark: NSColor,
+                        highContrastLight: NSColor? = nil, highContrastDark: NSColor? = nil) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+            switch appearance.bestMatch(from: [.aqua, .darkAqua,
+                                               .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua]) {
+            case NSAppearance.Name.darkAqua?: return dark
+            case NSAppearance.Name.accessibilityHighContrastAqua?: return highContrastLight ?? light
+            case NSAppearance.Name.accessibilityHighContrastDarkAqua?: return highContrastDark ?? dark
+            default: return light
+            }
         })
     }
 
@@ -25,18 +34,44 @@ enum Palette {
                 alpha: 1)
     }
 
-    static let mint = dynamic(light: rgb(0x0E9F6E), dark: rgb(0x34D399))
-    static let amber = dynamic(light: rgb(0xD97706), dark: rgb(0xFBBF24))
-    static let coral = dynamic(light: rgb(0xE5484D), dark: rgb(0xFF6B6B))
-    static let crimson = dynamic(light: rgb(0xC81E4B), dark: rgb(0xFF4D79))
-    static let magenta = dynamic(light: rgb(0xC2257A), dark: rgb(0xF472B6))
-    static let stale = Color.gray
+    // Range hues, for lines, fills, icons and big numbers (3:1 or better). With Increase
+    // Contrast, light mode uses the darker text values everywhere.
+    static let mint = dynamic(light: rgb(0x0E9F6E), dark: rgb(0x34D399), highContrastLight: rgb(0x047857))
+    static let amber = dynamic(light: rgb(0xD97706), dark: rgb(0xFBBF24), highContrastLight: rgb(0xB45309))
+    static let coral = dynamic(light: rgb(0xE5484D), dark: rgb(0xFF6B6B), highContrastLight: rgb(0xC62A2F))
+    static let crimson = dynamic(light: rgb(0xC81E4B), dark: rgb(0xFF4D79), highContrastLight: rgb(0xBE123C))
+    static let magenta = dynamic(light: rgb(0xC2257A), dark: rgb(0xF472B6), highContrastLight: rgb(0xA21C64))
 
-    /// Brand accent: the GlucOS teal-to-indigo used for chrome that isn't a glucose value.
-    static let brand = dynamic(light: rgb(0x2563EB), dark: rgb(0x60A5FA))
-    static let brandGradient = LinearGradient(colors: [dynamic(light: rgb(0x0EA5E9), dark: rgb(0x38BDF8)),
-                                                       dynamic(light: rgb(0x6366F1), dark: rgb(0x818CF8))],
+    // Text-safe versions: 4.5:1 or better on window and card backgrounds in both appearances.
+    static let mintText = dynamic(light: rgb(0x047857), dark: rgb(0x34D399), highContrastDark: rgb(0x6EE7B7))
+    static let amberText = dynamic(light: rgb(0xB45309), dark: rgb(0xFBBF24), highContrastDark: rgb(0xFCD34D))
+    static let coralText = dynamic(light: rgb(0xC62A2F), dark: rgb(0xFF6B6B), highContrastDark: rgb(0xFCA5A5))
+    static let crimsonText = dynamic(light: rgb(0xBE123C), dark: rgb(0xFF4D79), highContrastDark: rgb(0xFDA4AF))
+    static let magentaText = dynamic(light: rgb(0xA21C64), dark: rgb(0xF472B6), highContrastDark: rgb(0xF9A8D4))
+
+    /// Old data. Deliberately colourless so it can never read as "fine".
+    static let stale = dynamic(light: rgb(0x8E8E93), dark: rgb(0x8E8E93), highContrastLight: rgb(0x6E6E73))
+    static let staleText = dynamic(light: rgb(0x6E6E73), dark: rgb(0x98989D),
+                                   highContrastLight: rgb(0x48484A), highContrastDark: rgb(0xC7C7CC))
+    /// Status-free chrome.
+    static let neutral = dynamic(light: rgb(0x6E6E73), dark: rgb(0x98989D))
+
+    /// Brand accent, for chrome that isn't a glucose value.
+    static let brand = dynamic(light: rgb(0x2563EB), dark: rgb(0x60A5FA), highContrastLight: rgb(0x1D4ED8))
+    static let brandText = dynamic(light: rgb(0x1D4ED8), dark: rgb(0x60A5FA), highContrastDark: rgb(0x93C5FD))
+    /// Fill for primary buttons. Deep enough that white labels reach 5.9:1 or better at every
+    /// point of the gradient, in both appearances.
+    static let brandGradient = LinearGradient(colors: [dynamic(light: rgb(0x0369A1), dark: rgb(0x1D4ED8)),
+                                                       dynamic(light: rgb(0x4F46E5), dark: rgb(0x4338CA))],
                                               startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// Text and icons on the brand gradient.
+    static let onBrand = Color.white
+
+    // Logbook categories. Kept clear of the range hues so an overlay never reads as a reading.
+    static let insulin = dynamic(light: rgb(0x4F46E5), dark: rgb(0x818CF8))
+    static let food = dynamic(light: rgb(0xC2410C), dark: rgb(0xFB923C))
+    static let site = dynamic(light: rgb(0x7C3AED), dark: rgb(0xA78BFA))
+    static let context = dynamic(light: rgb(0x0F766E), dark: rgb(0x2DD4BF))
 }
 
 extension GlucoseRange {
@@ -51,6 +86,7 @@ extension GlucoseRange {
         }
     }
 
+    /// The dark-appearance hue as an NSColor, for AppKit drawing on the menu bar.
     var nsTint: NSColor {
         switch self {
         case .urgentLow: return Palette.rgb(0xFF4D79)
@@ -64,10 +100,7 @@ extension GlucoseRange {
 
 extension GlucoseSnapshot {
     /// The colour the current reading should be shown in: neutral when stale or missing.
-    func displayTint(at now: Date = Date()) -> Color {
-        guard current != nil, let range, !isStale(at: now) else { return Palette.stale }
-        return range.tint
-    }
+    func displayTint(at now: Date = Date()) -> Color { displayTone(at: now).color }
 }
 
 // MARK: - Threshold gradient
@@ -109,55 +142,41 @@ enum ThresholdGradient {
 // MARK: - Ambient glow
 
 /// Soft, range-tinted light behind the current reading. Reads as "how am I doing" before the
-/// number does.
+/// number does. Flattens to a plain wash under Reduce Transparency.
 struct AmbientGlow: View {
     var tint: Color
     var intensity: Double = 1
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         ZStack {
             LinearGradient(colors: [tint.opacity(0.26 * intensity), tint.opacity(0.06 * intensity)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
-            RadialGradient(colors: [tint.opacity(0.38 * intensity), .clear],
-                           center: UnitPoint(x: 0.15, y: 0.1), startRadius: 0, endRadius: 220)
-            RadialGradient(colors: [tint.opacity(0.18 * intensity), .clear],
-                           center: UnitPoint(x: 0.95, y: 1.0), startRadius: 0, endRadius: 180)
+            if !reduceTransparency {
+                RadialGradient(colors: [tint.opacity(0.38 * intensity), .clear],
+                               center: UnitPoint(x: 0.15, y: 0.1), startRadius: 0, endRadius: 220)
+                RadialGradient(colors: [tint.opacity(0.18 * intensity), .clear],
+                               center: UnitPoint(x: 0.95, y: 1.0), startRadius: 0, endRadius: 180)
+            }
         }
-        .animation(.smooth(duration: 0.6), value: tint)
+        .dsAnimation(.ambient, value: tint)
     }
 }
 
 // MARK: - Glass card
 
+/// The original card modifier, now a standard `dsCard`. Kept so existing call sites don't move.
 struct GlassCard: ViewModifier {
     var padding: CGFloat = 14
-    var radius: CGFloat = 16
+    var radius: CGFloat = DS.Radius.card
 
     func body(content: Content) -> some View {
-        content
-            .padding(padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(Color.primary.opacity(0.035))
-                }
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(colors: [Color.white.opacity(0.22), Color.primary.opacity(0.06)],
-                                       startPoint: .top, endPoint: .bottom),
-                        lineWidth: 0.75)
-            }
-            .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+        content.dsCard(.standard, padding: padding, radius: radius)
     }
 }
 
 extension View {
-    func glassCard(padding: CGFloat = 14, radius: CGFloat = 16) -> some View {
+    func glassCard(padding: CGFloat = 14, radius: CGFloat = DS.Radius.card) -> some View {
         modifier(GlassCard(padding: padding, radius: radius))
     }
 }
@@ -171,19 +190,25 @@ struct Eyebrow: View {
     var trailing: String?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs + 1) {
             if let systemImage {
                 Image(systemName: systemImage).imageScale(.small)
             }
-            Text(title.uppercased())
-                .tracking(0.6)
-            Spacer(minLength: 4)
+            Text(title)
+                .lineLimit(1)
+            Spacer(minLength: DS.Space.xs)
             if let trailing {
-                Text(trailing).textCase(nil).foregroundStyle(.tertiary)
+                Text(trailing)
+                    .textCase(nil)
+                    .tracking(0)
+                    .lineLimit(1)
+                    .foregroundStyle(.tertiary)
             }
         }
-        .font(.caption2.weight(.semibold))
+        .dsFont(.eyebrow)
         .foregroundStyle(.secondary)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -223,7 +248,7 @@ struct TrendDial: View {
                     .font(.system(size: size * 0.42, weight: .heavy))
                     .foregroundStyle(tint)
                     .rotationEffect(.degrees(angle))
-                    .animation(.spring(response: 0.6, dampingFraction: 0.7), value: angle)
+                    .dsAnimation(.emphasized, value: angle)
             }
             if trend.isRapid {
                 Circle()
@@ -298,8 +323,9 @@ struct TimeInRangeRing: View {
                         .minimumScaleFactor(0.6)
                         .lineLimit(1)
                     Text(caption)
-                        .font(.system(size: 9, weight: .medium))
+                        .dsFont(.caption)
                         .foregroundStyle(.secondary)
+                        .minimumScaleFactor(0.7)
                         .lineLimit(1)
                 }
                 .padding(lineWidth)
@@ -346,14 +372,15 @@ struct PillIconButtonStyle: ButtonStyle {
         let configuration: ButtonStyleConfiguration
         let prominent: Bool
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.colorSchemeContrast) private var contrast
         @State private var hovering = false
 
         var body: some View {
             configuration.label
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(prominent ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.primary))
+                .foregroundStyle(prominent ? AnyShapeStyle(Palette.onBrand) : AnyShapeStyle(Color.primary))
                 .frame(minWidth: 32, minHeight: 30)
-                .padding(.horizontal, prominent ? 10 : 0)
+                .padding(.horizontal, prominent ? DS.Space.sm + 2 : 0)
                 .background {
                     if prominent {
                         Capsule().fill(Palette.brandGradient)
@@ -361,11 +388,16 @@ struct PillIconButtonStyle: ButtonStyle {
                         Capsule().fill(Color.primary.opacity(hovering ? 0.12 : 0.06))
                     }
                 }
+                .overlay {
+                    if contrast == .increased && !prominent {
+                        Capsule().strokeBorder(Color.primary.opacity(0.4), lineWidth: DS.Stroke.hairline)
+                    }
+                }
                 .contentShape(Capsule())
                 .opacity(isEnabled ? 1 : 0.4)
                 .scaleEffect(configuration.isPressed ? 0.94 : 1)
-                .animation(.snappy(duration: 0.15), value: configuration.isPressed)
-                .animation(.easeOut(duration: 0.12), value: hovering)
+                .dsAnimation(.quick, value: configuration.isPressed)
+                .dsAnimation(.quick, value: hovering)
                 .onHover { hovering = $0 }
         }
     }
