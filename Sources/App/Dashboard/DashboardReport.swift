@@ -128,15 +128,11 @@ enum ReportExporter {
 /// the PDF always has the room.
 private struct ReportPair<Leading: View, Trailing: View>: View {
     let printing: Bool
-    /// Fixed width for the trailing card when side by side. Nil shares the width equally.
-    var trailingWidth: CGFloat?
     let leading: Leading
     let trailing: Trailing
 
-    init(printing: Bool, trailingWidth: CGFloat? = nil,
-         @ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) {
+    init(printing: Bool, @ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) {
         self.printing = printing
-        self.trailingWidth = trailingWidth
         self.leading = leading()
         self.trailing = trailing()
     }
@@ -158,7 +154,7 @@ private struct ReportPair<Leading: View, Trailing: View>: View {
     private var sideBySide: some View {
         HStack(alignment: .top, spacing: 16) {
             leading
-            trailing.frame(width: trailingWidth)
+            trailing
         }
     }
 }
@@ -175,11 +171,13 @@ struct ReportView: View {
         VStack(alignment: .leading, spacing: 16) {
             header
             if let st = data.stats, let b = data.breakdown {
-                ReportPair(printing: printing, trailingWidth: 250) {
+                ReportPair(printing: printing) {
                     metrics(st, b)
                         .reportCard(printing)
                 } trailing: {
+                    // The width is for the column's content, inside the card's padding.
                     rangeColumn(b)
+                        .frame(width: 250)
                         .reportCard(printing)
                 }
             }

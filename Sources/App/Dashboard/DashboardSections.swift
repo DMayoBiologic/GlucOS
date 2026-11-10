@@ -7,7 +7,13 @@ struct PatternsSection: View {
     @AppStorage("dashboardPatternStyle") private var style = 0   // 0 percentiles, 1 overlay
 
     var body: some View {
+        // Worked out here rather than inside the page, which re-runs its content when the window
+        // changes size.
         let o = overlay
+        let bins = style == 0 ? GlucoseAnalytics.dailyPattern(data.readings, binMinutes: PatternChart.binMinutes) : []
+        let byTime = GlucoseAnalytics.timeOfDay(data.readings, low: data.lowMgdl, high: data.highMgdl)
+        let byWeekday = data.range.duration >= 7 * 86_400
+            ? GlucoseAnalytics.weekdays(data.readings, low: data.lowMgdl, high: data.highMgdl) : []
         DashboardPage { layout in
             let chartHeight = layout.chartHeight(reserving: 220, minimum: 260, maximum: 520)
             VStack(alignment: .leading, spacing: DS.Space.lg) {
@@ -24,7 +30,6 @@ struct PatternsSection: View {
                 }
                 Group {
                     if style == 0 {
-                        let bins = GlucoseAnalytics.dailyPattern(data.readings, binMinutes: PatternChart.binMinutes)
                         if bins.isEmpty {
                             notEnough
                         } else {
@@ -39,8 +44,10 @@ struct PatternsSection: View {
                         }
                     }
                 }
-                .frame(height: chartHeight)
+                // A new identity per style, so switching crossfades instead of swapping.
+                .id(style)
                 .transition(.opacity)
+                .frame(height: chartHeight)
 
                 Text(style == 0
                      ? "The line is the median reading at each time of day; the darker band holds the middle 50% of readings and the lighter band 90%. A wide band means that time of day varies a lot. Patterns are most useful over 7 days or more."
@@ -53,13 +60,9 @@ struct PatternsSection: View {
             .dsAnimation(.standard, value: style)
 
             CardGrid(minColumnWidth: 360, maxColumns: 2, spacing: layout.gutter) {
-                BreakdownTable(title: "By Time of Day", subtitle: "Local time",
-                               rows: GlucoseAnalytics.timeOfDay(data.readings, low: data.lowMgdl, high: data.highMgdl),
-                               unit: data.unit)
-                if data.range.duration >= 7 * 86_400 {
-                    BreakdownTable(title: "By Weekday", subtitle: "Monday to Sunday",
-                                   rows: GlucoseAnalytics.weekdays(data.readings, low: data.lowMgdl, high: data.highMgdl),
-                                   unit: data.unit)
+                BreakdownTable(title: "By Time of Day", subtitle: "Local time", rows: byTime, unit: data.unit)
+                if !byWeekday.isEmpty {
+                    BreakdownTable(title: "By Weekday", subtitle: nil, rows: byWeekday, unit: data.unit)
                 }
             }
 
@@ -339,13 +342,14 @@ struct ReadingsSection: View {
 
     var body: some View {
         let all = Array(data.readings.reversed())
-        let rows = all.filter { matches($0, filter) }
+        let rows = filter == .all ? all : all.filter { matches($0, filter) }
+        let counts = bucketCounts(all)
         let u = data.unit
         VStack(spacing: 0) {
             TableHeaderBar {
                 Picker("Show", selection: $filter) {
                     ForEach(Filter.allCases) { f in
-                        Text(f == .all ? f.title : "\(f.title) \(all.filter { matches($0, f) }.count)").tag(f)
+                        Text(f == .all ? f.title : "\(f.title) \(counts[f] ?? 0)").tag(f)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -409,6 +413,19 @@ struct ReadingsSection: View {
                 }
             }
         }
+    }
+
+    /// How many readings fall in each filter, in one pass, for the labels on the filter buttons.
+    private func bucketCounts(_ readings: [GlucoseReading]) -> [Filter: Int] {
+        var counts: [Filter: Int] = [:]
+        for r in readings {
+            switch GlucoseRange.classify(mgdl: r.mgdl, low: data.lowMgdl, high: data.highMgdl) {
+            case .urgentLow, .low: counts[.below, default: 0] += 1
+            case .inRange: counts[.inRange, default: 0] += 1
+            case .high, .veryHigh: counts[.above, default: 0] += 1
+            }
+        }
+        return counts
     }
 
     private func matches(_ r: GlucoseReading, _ filter: Filter) -> Bool {

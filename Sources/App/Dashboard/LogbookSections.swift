@@ -183,14 +183,15 @@ struct InsightsSection: View {
     @EnvironmentObject var settings: AppSettings
 
     var body: some View {
+        // Worked out here rather than inside the page, which re-runs its content when the window
+        // changes size.
+        let insights: LogInsights? = settings.therapy == .notSet ? nil
+            : LogInsights.compute(readings: readings, doses: logbook.doses, meals: logbook.meals,
+                                  siteChanges: logbook.siteChanges, contexts: logbook.contexts,
+                                  low: lowMgdl, high: highMgdl,
+                                  siteOf: { logbook.site(of: $0) })
         DashboardPage(maxContentWidth: DashboardMetrics.readableWidth) { _ in
-            if settings.therapy == .notSet {
-                TherapySetupView().dashboardCard()
-            } else {
-                let insights = LogInsights.compute(readings: readings, doses: logbook.doses, meals: logbook.meals,
-                                                   siteChanges: logbook.siteChanges, contexts: logbook.contexts,
-                                                   low: lowMgdl, high: highMgdl,
-                                                   siteOf: { logbook.site(of: $0) })
+            if let insights {
                 SafetyNote()
                 if logbook.isEmpty {
                     // The sentence wraps; the button keeps its size.
@@ -215,6 +216,8 @@ struct InsightsSection: View {
                     .dsFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            } else {
+                TherapySetupView().dashboardCard()
             }
             Disclaimer()
         }

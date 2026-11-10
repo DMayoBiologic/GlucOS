@@ -181,7 +181,8 @@ private struct CurrentReadingPanel: View {
             }
             if let cur = snapshot.current {
                 HStack(alignment: .center, spacing: DS.Space.lg) {
-                    TrendDial(trend: cur.trend, tint: tint, size: 64)
+                    // An old trend arrow could be read as what's happening now.
+                    TrendDial(trend: stale ? .unknown : cur.trend, tint: tint, size: 64)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm - 2) {
                             Text(snapshot.unit.format(mgdl: cur.mgdl))

@@ -21,9 +21,10 @@ struct DashboardView: View {
     /// Notices closed this session. Keyed by content, so a new problem shows again.
     @State private var dismissedNotices: Set<String> = []
     @State private var toast: DashboardToast?
-    /// Width of the detail column, so the notices and the table pages use the same padding as
-    /// the scrolling pages.
-    @State private var detailWidth: CGFloat = 900
+    /// Page padding for the detail column's width, so the notices and the table pages line up
+    /// with the scrolling pages. Stored as the padding, not the width, so resizing the window
+    /// only redraws when the padding actually changes.
+    @State private var detailPadding: CGFloat = DashboardMetrics.padding(for: 900)
 
     @AppStorage("dashboardRange") private var range: DashboardRange = .h24
     @AppStorage("dashboardSection") private var section: DashboardSection = .overview
@@ -43,14 +44,15 @@ struct DashboardView: View {
                 detail(data)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .environment(\.dashboardPadding, DashboardMetrics.padding(for: detailWidth))
+            .environment(\.dashboardPadding, detailPadding)
             // Roomier cards and gutters when the window has the whole screen.
             .environment(\.dsDensity, windowState.isFullScreen ? .comfortable : .regular)
             .background(GeometryReader { geo in
                 Color.clear.preference(key: WidthPreferenceKey.self, value: geo.size.width)
             })
             .onPreferenceChange(WidthPreferenceKey.self) { width in
-                if width > 0 { detailWidth = width }
+                let padding = DashboardMetrics.padding(for: width)
+                if width > 0 && padding != detailPadding { detailPadding = padding }
             }
             .overlay(alignment: .bottom) { toastView }
             .sheet(isPresented: $showShortcuts) { ShortcutsHelp() }
@@ -357,7 +359,7 @@ struct DashboardView: View {
                 Toggle("Keep on Top", isOn: $keepOnTop)
                     .disabled(windowState.isFullScreen)
                 Divider()
-                Button("Keyboard Shortcuts…") { showShortcuts = true }
+                Button("Keyboard Shortcuts…") { if logSheet == nil { showShortcuts = true } }
             } label: {
                 Label("More", systemImage: keepOnTop ? "pin.circle.fill" : "ellipsis.circle")
             }
@@ -383,7 +385,7 @@ struct DashboardView: View {
                 Button(r.title) { rangeBinding.wrappedValue = r }
                     .keyboardShortcut(KeyEquivalent(Character(String(i + 1))), modifiers: .control)
             }
-            Button("Keyboard Shortcuts") { showShortcuts = true }
+            Button("Keyboard Shortcuts") { if logSheet == nil { showShortcuts = true } }
                 .keyboardShortcut("/", modifiers: .command)
         }
         .buttonStyle(.plain)
@@ -631,7 +633,8 @@ private struct CurrentReadingTile: View {
                         .contentTransition(.numericText(value: cur.mgdl))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                    TrendSymbol(trend: cur.trend)
+                    // An old trend arrow could be read as what's happening now.
+                    TrendSymbol(trend: stale ? .unknown : cur.trend)
                         .font(.title3)
                         .foregroundStyle(stale ? Palette.stale : tint)
                     Spacer(minLength: 0)

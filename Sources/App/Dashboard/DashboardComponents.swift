@@ -140,10 +140,14 @@ struct DashboardLayout {
 
 /// A scrolling dashboard page: consistent padding and spacing, content centred and capped in
 /// width so it stays readable on a big full-screen window.
+///
+/// The page measures itself in coarse steps and only re-runs its content when a step changes,
+/// so dragging the window edge doesn't recompute every card on every frame.
 struct DashboardPage<Content: View>: View {
     var maxContentWidth: CGFloat
     let content: (DashboardLayout) -> Content
     @Environment(\.dsDensity) private var density
+    @State private var size = CGSize(width: 900, height: 700)
 
     init(maxContentWidth: CGFloat = DashboardMetrics.maxContentWidth,
          @ViewBuilder content: @escaping (DashboardLayout) -> Content) {
@@ -152,18 +156,34 @@ struct DashboardPage<Content: View>: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            let layout = DashboardLayout(size: geo.size, maxContentWidth: maxContentWidth, density: density)
-            ScrollView {
-                VStack(alignment: .leading, spacing: layout.gutter) {
-                    content(layout)
-                }
-                .frame(width: layout.contentWidth, alignment: .leading)
-                .padding(layout.padding)
-                .frame(maxWidth: .infinity)
+        let layout = DashboardLayout(size: size, maxContentWidth: maxContentWidth, density: density)
+        ScrollView {
+            VStack(alignment: .leading, spacing: layout.gutter) {
+                content(layout)
             }
+            .frame(maxWidth: maxContentWidth, alignment: .leading)
+            .padding(layout.padding)
+            .frame(maxWidth: .infinity)
+        }
+        .background(GeometryReader { geo in
+            Color.clear.preference(key: PageSizePreferenceKey.self, value: geo.size)
+        })
+        .onPreferenceChange(PageSizePreferenceKey.self) { measured in
+            let stepped = Self.stepped(measured)
+            if stepped != size && stepped.width > 0 { size = stepped }
         }
     }
+
+    /// Rounds down to 16pt steps: fine enough for every layout decision, coarse enough that a
+    /// resize only redraws the page a few times a second.
+    private static func stepped(_ s: CGSize) -> CGSize {
+        CGSize(width: (s.width / 16).rounded(.down) * 16, height: (s.height / 16).rounded(.down) * 16)
+    }
+}
+
+private struct PageSizePreferenceKey: PreferenceKey {
+    static let defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
 }
 
 /// Padding used by the full-height pages (tables) and the notice stack, so their edges line up
@@ -258,7 +278,11 @@ struct CardGrid: Layout {
             cols = max(1, min(count, maxColumns))
         }
         if evenRows {
+            // Fall back to what fits when nothing divides the count (5 or 7 cards), rather than
+            // collapsing to a single column.
+            let fit = cols
             while cols > 1 && count % cols != 0 { cols -= 1 }
+            if cols == 1 { cols = fit }
         }
         return cols
     }

@@ -40,6 +40,7 @@ struct TrendChart: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let minimumVisible: TimeInterval = 30 * 60
+    static let howTo = "Hover to read a reading. Drag across the chart to select a stretch and see its numbers. Pinch or use the zoom buttons to zoom, and scroll sideways to pan."
 
     init(readings: [GlucoseReading], domain: ClosedRange<Date>, unit: GlucoseUnit, lowMgdl: Double, highMgdl: Double,
          events: [ChartEvent] = [], comparison: [GlucoseReading] = [], comparisonShift: TimeInterval = 0,
@@ -128,6 +129,11 @@ struct TrendChart: View {
                     Button("Latest") { scrollStart = domain.upperBound.addingTimeInterval(-visible) }
                         .help("Jump to the most recent readings in this period")
                 }
+                Image(systemName: "info.circle")
+                    .foregroundStyle(.secondary)
+                    .help(Self.howTo)
+                    .accessibilityLabel("How to use the chart")
+                    .accessibilityValue(Self.howTo)
                 overlaysMenu
                 ControlGroup {
                     Button { pan(-0.5) } label: { Image(systemName: "chevron.left") }
@@ -209,20 +215,19 @@ struct TrendChart: View {
     /// The stretch on screen. Names the day whenever it crosses midnight, so a 24-hour view
     /// doesn't read "6:30 pm – 6:30 pm".
     private var visibleCaption: String {
-        let crossesDay = !Calendar.current.isDate(viewStart, inSameDayAs: viewEnd.addingTimeInterval(-1))
-        let style: Date.FormatStyle
-        if visible > 2 * 86_400 {
-            style = .dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()
-        } else if crossesDay {
-            style = .dateTime.weekday(.abbreviated).hour().minute()
-        } else {
-            style = .dateTime.hour().minute()
+        let cal = Calendar.current
+        let lastMoment = viewEnd.addingTimeInterval(-1)
+        let crossesDay = !cal.isDate(viewStart, inSameDayAs: lastMoment)
+        // Yesterday into today reads fine by weekday; anything older needs the date.
+        let recent = cal.isDateInToday(lastMoment) && (cal.isDateInToday(viewStart) || cal.isDateInYesterday(viewStart))
+        let dated: Date.FormatStyle = .dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()
+        if crossesDay {
+            let style: Date.FormatStyle = recent && visible <= 2 * 86_400 ? .dateTime.weekday(.abbreviated).hour().minute() : dated
+            return "\(viewStart.formatted(style)) – \(viewEnd.formatted(style))"
         }
-        let text = "\(viewStart.formatted(style)) – \(viewEnd.formatted(style))"
-        if !crossesDay && !Calendar.current.isDateInToday(viewStart) {
-            return "\(viewStart.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))), \(text)"
-        }
-        return text
+        let times = "\(viewStart.formatted(date: .omitted, time: .shortened)) – \(viewEnd.formatted(date: .omitted, time: .shortened))"
+        return cal.isDateInToday(viewStart) ? times
+            : "\(viewStart.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))), \(times)"
     }
 
     // MARK: Zoom and pan
@@ -366,7 +371,8 @@ struct TrendChart: View {
                 }
             }
         }
-        .accessibilityLabel("Glucose chart")
+        .accessibilityLabel("Glucose chart, \(visibleCaption)")
+        .accessibilityHint(Self.howTo)
         .accessibilityChartDescriptor(GlucoseChartDescriptor(points: points, domain: domain, yDomain: yd, unit: unit,
                                                              lowMgdl: lowMgdl, highMgdl: highMgdl))
     }
