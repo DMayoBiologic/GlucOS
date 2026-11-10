@@ -22,15 +22,12 @@ struct OverviewSection: View {
             Group {
                 if data.readings.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        DashboardCardHeader("Glucose", subtitle: data.periodTitle)
-                        ContentUnavailableView {
-                            Label("No Readings in This Period", systemImage: "chart.xyaxis.line")
-                        } description: {
-                            Text(data.isLive
-                                 ? "Nothing has come in for this stretch yet. Pick a longer range in the toolbar."
-                                 : "GlucOS has nothing stored for this stretch. Use the arrows in the toolbar to try another period.")
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        SectionHeader("Glucose", subtitle: data.periodTitle)
+                        EmptyStateView(systemImage: "chart.xyaxis.line", title: "No Readings in This Period",
+                                       message: data.isLive
+                                           ? "Nothing has come in for this stretch yet. Pick a longer range in the toolbar."
+                                           : "GlucOS has nothing stored for this stretch. Use the arrows in the toolbar to try another period.")
+                            .frame(maxHeight: .infinity)
                     }
                 } else {
                     TrendChart(readings: data.readings, domain: data.domain, unit: data.unit,
@@ -99,87 +96,65 @@ private struct OverviewHeader: View {
             let cv = st.coefficientOfVariation
             let noun = data.range.periodNoun
             CardGrid(minColumnWidth: 150, maxColumns: 4, spacing: layout.gutter, evenRows: true, fillsHeight: true) {
-                HeadlineTile(title: "Time in range", value: Format.percent(st.timeInRange),
-                             tint: GlucoseRange.inRange.tint,
+                HeadlineTile(title: "Time in range", value: Format.percent(st.timeInRange), tone: .glucose(.inRange),
                              change: previous.map { StatChange(value: st.timeInRange - $0.timeInRange,
                                                                text: DeltaFormat.points(st.timeInRange - $0.timeInRange),
                                                                goodWhenUp: true) },
-                             caption: "goal over 70%", periodNoun: noun,
+                             goal: "goal over 70%", periodNoun: noun,
                              help: "Share of readings between \(data.unit.format(mgdl: data.lowMgdl)) and \(data.unit.format(mgdl: data.highMgdl)) \(data.unit.label).")
-                HeadlineTile(title: "Average", value: data.unit.format(mgdl: st.meanMgdl), unit: data.unit.label,
-                             tint: Palette.brand,
+                HeadlineTile(title: "Average", value: data.unit.format(mgdl: st.meanMgdl), unit: data.unit.label, tone: .brand,
                              change: previous.map { StatChange(value: st.meanMgdl - $0.meanMgdl,
                                                                text: DeltaFormat.glucose(st.meanMgdl - $0.meanMgdl, unit: data.unit),
                                                                goodWhenUp: nil) },
-                             caption: "\(st.count) readings", periodNoun: noun)
-                HeadlineTile(title: "Variability", value: Format.percent(cv),
-                             tint: cv <= 0.36 ? Palette.brand : Palette.amber,
+                             goal: "\(st.count) readings", periodNoun: noun)
+                HeadlineTile(title: "Variability", value: Format.percent(cv), tone: cv <= 0.36 ? .brand : .warning,
                              change: previous.map { StatChange(value: cv - $0.coefficientOfVariation,
                                                                text: DeltaFormat.points(cv - $0.coefficientOfVariation),
                                                                goodWhenUp: false) },
-                             caption: "goal 36% or less", periodNoun: noun,
+                             goal: "goal 36% or less", periodNoun: noun,
                              help: "Coefficient of variation: standard deviation ÷ average. 36% or less is considered stable.")
                 HeadlineTile(title: "Time below", value: Format.percent(st.timeBelowRange),
-                             tint: st.timeBelowRange > 0.04 ? GlucoseRange.low.tint : .primary,
+                             tone: st.timeBelowRange > 0.04 ? .glucose(.low) : .neutral,
                              change: previous.map { StatChange(value: st.timeBelowRange - $0.timeBelowRange,
                                                                text: DeltaFormat.points(st.timeBelowRange - $0.timeBelowRange),
                                                                goodWhenUp: false) },
-                             caption: "goal under 4%", periodNoun: noun,
+                             goal: "goal under 4%", periodNoun: noun,
                              help: "Share of readings below \(data.unit.format(mgdl: data.lowMgdl, withUnit: true)).")
             }
         }
     }
 }
 
-/// One headline number for the period: what it is, the value, how it moved since the previous
-/// period and the goal to compare it with.
+/// One headline number for the period on its own card: what it is, the value, how it moved
+/// since the previous period and the goal to compare it with.
 private struct HeadlineTile: View {
     let title: String
     let value: String
     var unit: String?
-    var tint: Color = .primary
+    var tone: Tone = .neutral
     var change: StatChange?
-    var caption: String?
+    var goal: String?
     let periodNoun: String
     var help: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Eyebrow(title: title)
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(value)
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(tint)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .contentTransition(.numericText())
-                if let unit {
-                    Text(unit)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-            }
-            Spacer(minLength: 0)
-            HStack(spacing: 6) {
+        StatTile(title, value: value, unit: unit, tone: tone, large: true, help: help) {
+            HStack(spacing: DS.Space.sm - 2) {
                 if let change {
                     DeltaLabel(text: change.text, delta: change.value, goodWhenUp: change.goodWhenUp)
                         .help("Change from the previous \(periodNoun)")
                 }
-                if let caption {
-                    Text(caption)
-                        .font(.caption2)
+                if let goal {
+                    Text(goal)
+                        .dsFont(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
+            .padding(.top, DS.Space.xxs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glassCard(padding: 14, radius: 16)
-        .help(help ?? "")
-        .accessibilityElement(children: .combine)
+        .dsCard(.standard, padding: DS.Space.md + 2)
     }
 }
 
@@ -199,70 +174,56 @@ private struct CurrentReadingPanel: View {
     private func panel(now: Date) -> some View {
         let stale = snapshot.isStale(at: now)
         let tint = snapshot.displayTint(at: now)
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
+        return VStack(alignment: .leading, spacing: DS.Space.md) {
+            HStack(spacing: DS.Space.sm - 2) {
                 Eyebrow(title: isLive ? "Current reading" : "Now", systemImage: isLive ? nil : "clock")
                 if let range = snapshot.range, snapshot.current != nil { RangeBadge(range: range, stale: stale) }
             }
             if let cur = snapshot.current {
-                HStack(alignment: .center, spacing: 16) {
+                HStack(alignment: .center, spacing: DS.Space.lg) {
                     TrendDial(trend: cur.trend, tint: tint, size: 64)
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                        HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm - 2) {
                             Text(snapshot.unit.format(mgdl: cur.mgdl))
-                                .font(.system(size: 54, weight: .bold, design: .rounded))
-                                .monospacedDigit()
-                                .foregroundStyle(stale ? Color.secondary : (snapshot.range?.valueColor ?? .primary))
+                                .dsFont(.heroValue)
+                                .foregroundStyle(stale ? Palette.stale : (snapshot.range?.valueColor ?? .primary))
                                 .contentTransition(.numericText(value: cur.mgdl))
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.6)
+                                .minimumScaleFactor(0.55)
                             Text(snapshot.unit.label)
-                                .font(.callout.weight(.semibold))
+                                .dsFont(.unit)
                                 .foregroundStyle(.secondary)
                                 .fixedSize()
                         }
-                        HStack(spacing: 6) {
+                        HStack(spacing: DS.Space.sm - 2) {
                             Text(stale ? "Trend unknown" : cur.trend.description).fontWeight(.semibold)
                             if let d = snapshot.deltaMgdl, !stale {
                                 Text(snapshot.unit.formatDelta(mgdl: d)).monospacedDigit().foregroundStyle(.secondary)
                             }
                             Text("·").foregroundStyle(.tertiary)
                             Text(Format.age(cur.age(at: now)))
-                                .foregroundStyle(stale ? Palette.amber : Color.secondary)
+                                .foregroundStyle(stale ? Tone.warning.textColor : Color.secondary)
                         }
-                        .font(.callout)
+                        .dsFont(.callout)
                         .lineLimit(1)
                     }
                 }
                 if stale {
                     Label("No new reading for \(PopoverFormat.age(cur.age(at: now))). Check your sensor before relying on this number.",
                           systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Palette.amber)
+                        .fontWeight(.semibold)
+                        .dsFont(.caption)
+                        .foregroundStyle(Tone.warning.textColor)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
                 Label("No current reading", systemImage: "drop")
-                    .font(.title3.weight(.semibold))
+                    .dsFont(.title)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background {
-            ZStack {
-                RoundedRectangle(cornerRadius: 20, style: .continuous).fill(.ultraThinMaterial)
-                AmbientGlow(tint: tint)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [tint.opacity(0.5), tint.opacity(0.08)],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing),
-                              lineWidth: 1)
-        }
-        .shadow(color: tint.opacity(0.12), radius: 14, y: 6)
+        .dsCard(.hero(snapshot.displayTone(at: now)), radius: DS.Radius.panel)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(snapshot.accessibilitySummary(at: now))
     }
@@ -274,14 +235,14 @@ private struct TimeInRangeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            DashboardCardHeader("Time in Range",
-                                subtitle: "Target \(data.unit.format(mgdl: data.lowMgdl))–\(data.unit.format(mgdl: data.highMgdl)) \(data.unit.label)")
+            SectionHeader("Time in Range",
+                          subtitle: "Target \(data.unit.format(mgdl: data.lowMgdl))–\(data.unit.format(mgdl: data.highMgdl)) \(data.unit.label)")
             // Ring beside the legend when there's room, above it when the card is narrow, so the
             // labels never wrap.
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 20) {
                     ring(size: 124)
-                    legend.frame(minWidth: 200)
+                    legend.frame(minWidth: 220)
                 }
                 VStack(alignment: .center, spacing: 14) {
                     ring(size: 116)
@@ -290,7 +251,7 @@ private struct TimeInRangeCard: View {
             }
             Spacer(minLength: 0)
             Text("Goals for most adults: over 70% in range, under 4% below, under 1% urgent low.")
-                .font(.caption2)
+                .dsFont(.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -305,31 +266,13 @@ private struct TimeInRangeCard: View {
     }
 
     private var legend: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
             ForEach(breakdown.rows) { row in
-                HStack(spacing: 8) {
-                    Capsule().fill(row.range.reportColor.gradient)
-                        .frame(width: 4, height: 16)
-                    Text(row.range.label)
-                        .font(.callout)
-                        .lineLimit(1)
-                        .fixedSize()
-                    Spacer(minLength: 10)
-                    Text(GlucoseAnalytics.perDay(row.fraction))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .fixedSize()
-                        .help("Average time per day")
-                    Text(Format.percent(row.fraction))
-                        .font(.callout.weight(row.range == .inRange ? .bold : .semibold))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .fixedSize()
-                        .frame(minWidth: 40, alignment: .trailing)
-                }
-                .accessibilityElement(children: .combine)
+                LegendItem(color: row.range.reportColor, label: row.range.label,
+                           value: Format.percent(row.fraction),
+                           detail: GlucoseAnalytics.perDay(row.fraction),
+                           emphasised: row.range == .inRange)
+                    .help("\(row.range.label): \(Format.percent(row.fraction)) of readings, about \(GlucoseAnalytics.perDay(row.fraction)) a day")
             }
         }
         .frame(maxWidth: .infinity)
@@ -346,7 +289,7 @@ private struct StatisticsCard: View {
         let u = data.unit
         let fullGMI = stats.spanHours >= 14 * 24 - 1
         VStack(alignment: .leading, spacing: 14) {
-            DashboardCardHeader("Statistics", subtitle: "\(stats.count) readings over \(spanText(stats.spanHours))")
+            SectionHeader("Statistics", subtitle: "\(stats.count) readings over \(spanText(stats.spanHours))")
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 14) {
                 GridRow {
                     Metric("Std deviation", u.format(mgdl: stats.sdMgdl), sub: u.label)
@@ -358,11 +301,11 @@ private struct StatisticsCard: View {
                 GridRow {
                     Metric("Time above", Format.percent(stats.timeAboveRange),
                            sub: "goal under 25%",
-                           tint: stats.timeAboveRange > 0.25 ? GlucoseRange.high.tint : nil,
+                           tint: stats.timeAboveRange > 0.25 ? GlucoseRange.high.textTint : nil,
                            help: "Share of readings above \(u.format(mgdl: data.highMgdl, withUnit: true)).")
                     Metric("Data captured", Format.percent(data.coverage),
                            sub: data.coverage < 0.7 ? "under 70%: less reliable" : "of 15-min periods",
-                           tint: data.coverage < 0.7 ? Palette.amber : nil,
+                           tint: data.coverage < 0.7 ? Tone.warning.textColor : nil,
                            help: "Share of 15-minute periods in this range that have a reading. Under 70% makes the numbers less reliable.")
                 }
             }
@@ -384,7 +327,7 @@ private struct HighlightsCard: View {
         let u = data.unit
         let multiDay = data.range.duration > 86_400
         VStack(alignment: .leading, spacing: 14) {
-            DashboardCardHeader("Highlights", subtitle: "Moments worth knowing about")
+            SectionHeader("Highlights", subtitle: "Moments worth knowing about")
             VStack(alignment: .leading, spacing: 11) {
                 if let lo = h.lowest {
                     row("arrow.down.to.line", tint: GlucoseRange.classify(mgdl: lo.mgdl, low: data.lowMgdl, high: data.highMgdl).tint,
@@ -419,8 +362,8 @@ private struct HighlightsCard: View {
                 .foregroundStyle(tint)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.callout.weight(.semibold)).monospacedDigit()
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+                Text(title).fontWeight(.semibold).dsFont(.body).monospacedDigit()
+                Text(detail).dsFont(.caption).foregroundStyle(.secondary)
             }
         }
         .accessibilityElement(children: .combine)

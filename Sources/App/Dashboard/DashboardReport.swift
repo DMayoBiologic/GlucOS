@@ -72,27 +72,23 @@ struct ReportSection: View {
             HStack(alignment: .center, spacing: 16) {
                 Label("A summary of this period to keep or share with your diabetes team. Pick the period with the range control and the arrows in the toolbar.",
                       systemImage: "doc.richtext")
-                    .font(.callout)
+                    .dsFont(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 12)
                 Button(action: onExport) {
                     Label("Export PDF…", systemImage: "square.and.arrow.up")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.ds(.primary))
                 .fixedSize()
                 .disabled(model.data.readings.isEmpty)
                 .help("Save this report as a PDF (⇧⌘P)")
             }
             if model.data.readings.isEmpty {
-                ContentUnavailableView {
-                    Label("No Readings in This Period", systemImage: "doc.richtext")
-                } description: {
-                    Text("Pick a period with stored readings to build a report.")
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 320)
-                .dashboardCard()
+                EmptyStateView(systemImage: "doc.richtext", title: "No Readings in This Period",
+                               message: "Pick a period with stored readings to build a report.")
+                    .frame(height: 320)
+                    .dashboardCard()
             } else {
                 ReportView(model: model, printing: false)
             }

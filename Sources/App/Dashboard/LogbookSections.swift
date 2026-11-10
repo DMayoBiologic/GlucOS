@@ -20,25 +20,20 @@ struct LogbookSection: View {
             if settings.therapy == .notSet {
                 TherapySetupView()
                     .frame(maxWidth: 560, alignment: .leading)
-                    .glassCard(padding: 18, radius: 18)
+                    .dsCard(.standard)
                     .padding(padding)
-                Divider()
+                DSDivider()
             }
             if entries.isEmpty {
-                ContentUnavailableView {
-                    Label("Nothing Logged in This Period", systemImage: "book")
-                } description: {
-                    Text("Log insulin and food with the + button (⌘L). Entries show up here and on the Overview chart.")
-                } actions: {
-                    Button("Log Insulin or Food…") { open(.new) }
-                        .buttonStyle(.borderedProminent)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                EmptyStateView(systemImage: "book", title: "Nothing Logged in This Period",
+                               message: "Log insulin and food with the + button (⌘L). Entries show up here and on the Overview chart.",
+                               actionTitle: "Log Insulin or Food…", action: { open(.new) })
+                    .frame(maxHeight: .infinity)
             } else {
                 totals(entries)
                     .padding(.horizontal, padding)
-                    .padding(.vertical, 14)
-                Divider()
+                    .padding(.vertical, DS.Space.md + 2)
+                DSDivider()
                 table(entries)
             }
         }
@@ -217,7 +212,7 @@ struct InsightsSection: View {
                     SiteRotationCard()
                 }
                 Text(periodText)
-                    .font(.caption)
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -228,13 +223,13 @@ struct InsightsSection: View {
     private var startLogging: some View {
         Label("Start by logging your insulin and food. Patterns appear here once GlucOS has a few clean examples.",
               systemImage: "book")
-            .font(.callout)
+            .dsFont(.callout)
             .fixedSize(horizontal: false, vertical: true)
     }
 
     private var logButton: some View {
         Button("Log Insulin or Food…", action: onLog)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.ds(.primary))
             .fixedSize()
     }
 
@@ -253,23 +248,22 @@ struct InsightsSection: View {
 
 private struct SafetyNote: View {
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: DS.Space.md) {
             Image(systemName: "stethoscope")
                 .font(.title3)
-                .foregroundStyle(Palette.amber)
-            VStack(alignment: .leading, spacing: 4) {
+                .foregroundStyle(Tone.warning.color)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
                 Text("Observations, not advice")
-                    .font(.headline)
+                    .dsFont(.headline)
+                    .accessibilityAddTraits(.isHeader)
                 Text("These are patterns GlucOS has seen in your own logs and readings. They're rough estimates from limited data and are easily thrown off by missed logs, exercise, illness, stress, alcohol, hormones and what you ate. GlucOS never suggests a dose. Don't change your insulin, ratios or pump settings based on these. Talk to your diabetes care team first.")
-                    .font(.callout)
+                    .dsFont(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.amber.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Palette.amber.opacity(0.3), lineWidth: 0.75))
+        .dsCard(.tinted(.warning))
     }
 }
 
@@ -285,11 +279,11 @@ private struct NeedsMore: View {
                 ProgressView(value: Double(min(have, need)), total: Double(need))
                     .frame(width: 120)
                 Text("\(have) of \(need) examples so far")
-                    .font(.callout.weight(.medium))
+                    .fontWeight(.medium).dsFont(.callout)
                     .monospacedDigit()
             }
             Text(explanation)
-                .font(.callout)
+                .dsFont(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -322,8 +316,8 @@ private struct InsulinActionCard: View {
     var body: some View {
         let overall = insights.overall
         VStack(alignment: .leading, spacing: 14) {
-            DashboardCardHeader("How Long Insulin Seems to Work",
-                                subtitle: "\(overall.examples) usable of \(insights.bolusCount) boluses")
+            SectionHeader("How Long Insulin Seems to Work",
+                          subtitle: "\(overall.examples) usable of \(insights.bolusCount) boluses")
             if overall.examples < need {
                 NeedsMore(have: overall.examples, need: need,
                           explanation: "GlucOS reads this from boluses taken without food: nothing eaten from 90 minutes before to 3 hours after, no other bolus in the 3 hours before, and steady sensor data. Logging every dose and meal, including snacks and hypo treatments, lets GlucOS tell which doses had nothing else going on.")
@@ -344,7 +338,7 @@ private struct InsulinActionCard: View {
                             Text("Stops falling after")
                             Text("Drop per unit")
                         }
-                        .font(.caption.weight(.medium))
+                        .fontWeight(.medium).dsFont(.caption)
                         .foregroundStyle(.secondary)
                         Divider().gridCellUnsizedAxes(.horizontal)
                         ForEach([overall] + insights.byArea + insights.byTag) { s in
@@ -355,7 +349,7 @@ private struct InsulinActionCard: View {
                                 Text(durationSpread(s.timeToLowest, need: need, have: s.measurable))
                                 Text(glucoseSpread(s.dropPerUnit, need: need, have: s.examples, unit: unit))
                             }
-                            .font(.callout)
+                            .dsFont(.callout)
                             .monospacedDigit()
                         }
                     }
@@ -366,7 +360,7 @@ private struct InsulinActionCard: View {
                              hasRows: !insights.byTag.isEmpty && overall.examples >= need)
             }
             Text("“Starts working” is when glucose was 0.5 mmol/L below where it started. “Stops falling after” is when it reached its lowest point: a rough guide to how long the insulin kept acting. “Drop per unit” is how far glucose fell per unit in those doses. It is an observation, not your correction factor (ISF), which your care team sets.")
-                .font(.caption)
+                .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -378,7 +372,7 @@ private struct InsulinActionCard: View {
 private func setAsideNote(_ count: Int, noun: String, plural: String, hasRows: Bool) -> some View {
     Label("\(count) \(count == 1 ? noun : plural) logged around exercise, illness, alcohol, stress, a period or a site problem \(count == 1 ? "is" : "are") kept out of the typical figures\(hasRows ? " and shown in the “With …” rows" : "").",
           systemImage: "tag")
-        .font(.caption)
+        .dsFont(.caption)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
 }
@@ -405,7 +399,7 @@ private struct MealResponseCard: View {
             : [MealRow(name: "Meals", summary: insights.mealsWithoutInsulin)]
         let usable = insights.mealResponses.count
         VStack(alignment: .leading, spacing: 14) {
-            DashboardCardHeader("After Meals", subtitle: "\(usable) usable of \(insights.mealCount) logged")
+            SectionHeader("After Meals", subtitle: "\(usable) usable of \(insights.mealCount) logged")
             if rows.allSatisfy({ $0.summary.examples < need }) {
                 NeedsMore(have: rows.map(\.summary.examples).max() ?? 0, need: need,
                           explanation: "GlucOS reads this from meals with carbs logged, no other food in the 2 hours before, and steady sensor data for at least 2 hours after.")
@@ -425,7 +419,7 @@ private struct MealResponseCard: View {
                             Text("Peak after")
                             Text("Rise per 10 g carbs")
                         }
-                        .font(.caption.weight(.medium))
+                        .fontWeight(.medium).dsFont(.caption)
                         .foregroundStyle(.secondary)
                         Divider().gridCellUnsizedAxes(.horizontal)
                         ForEach(rows) { row in
@@ -437,7 +431,7 @@ private struct MealResponseCard: View {
                                 Text(durationSpread(s.timeToPeak, need: need, have: s.examples))
                                 Text(glucoseSpread(s.risePer10g, need: need, have: s.examples, unit: unit))
                             }
-                            .font(.callout)
+                            .dsFont(.callout)
                             .monospacedDigit()
                         }
                     }
@@ -449,7 +443,7 @@ private struct MealResponseCard: View {
             Text(showsInsulin
                  ? "Rise is from your glucose when you logged the meal to the highest point in the next 3 hours. “With insulin” means a bolus was logged within 30 minutes of eating, so the rise reflects both the food and the insulin."
                  : "Rise is from your glucose when you logged the meal to the highest point in the next 3 hours.")
-                .font(.caption)
+                .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -466,7 +460,7 @@ private struct SiteAgeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            DashboardCardHeader("Glucose by Day of Site Wear")
+            SectionHeader("Glucose by Day of Site Wear")
             if buckets.isEmpty {
                 NeedsMore(have: 0, need: 2,
                           explanation: hasSiteChanges
@@ -478,15 +472,15 @@ private struct SiteAgeCard: View {
                         .foregroundStyle(Color.purple.gradient)
                         .annotation(position: .top, spacing: 4) {
                             VStack(spacing: 0) {
-                                Text(unit.format(mgdl: b.meanMgdl)).font(.caption.weight(.semibold))
-                                Text("\(Format.percent(b.timeInRange)) in range").font(.caption2).foregroundStyle(.secondary)
+                                Text(unit.format(mgdl: b.meanMgdl)).fontWeight(.semibold).dsFont(.caption)
+                                Text("\(Format.percent(b.timeInRange)) in range").dsFont(.caption).foregroundStyle(.secondary)
                             }
                         }
                 }
                 .chartYAxisLabel { Text("Average (\(unit.label))") }
                 .frame(height: 200)
                 Text("Average glucose on each day a site was worn, across \(buckets.map(\.sites).max() ?? 0) sites.")
-                    .font(.caption)
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -504,10 +498,10 @@ private struct SiteRotationCard: View {
         let since = Date().addingTimeInterval(-14 * 86_400)
         let recent = Dictionary(grouping: logbook.doses.filter { !$0.viaPump && $0.timestamp >= since && $0.site != nil }) { $0.site! }
         VStack(alignment: .leading, spacing: 14) {
-            DashboardCardHeader("Injection Sites", subtitle: "Last 14 days")
+            SectionHeader("Injection Sites", subtitle: "Last 14 days")
             if last.isEmpty {
                 Text("Choose an injection site when you log a dose to see how you've been rotating.")
-                    .font(.callout)
+                    .dsFont(.callout)
                     .foregroundStyle(.secondary)
             } else {
                 Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
@@ -516,7 +510,7 @@ private struct SiteRotationCard: View {
                         Text("Left")
                         Text("Right")
                     }
-                    .font(.caption.weight(.medium))
+                    .fontWeight(.medium).dsFont(.caption)
                     .foregroundStyle(.secondary)
                     ForEach([BodyArea.abdomen, .arm, .thigh, .hip]) { area in
                         let sites = InjectionSite.allCases.filter { $0.area == area }
@@ -526,11 +520,11 @@ private struct SiteRotationCard: View {
                                 cell(last: last[s], count: recent[s]?.count ?? 0)
                             }
                         }
-                        .font(.callout)
+                        .dsFont(.callout)
                     }
                 }
                 Text("Rotating injection sites helps avoid lumpy areas under the skin, which can make insulin absorb unpredictably.")
-                    .font(.caption)
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -543,7 +537,7 @@ private struct SiteRotationCard: View {
             Text(count == 0 ? "–" : "\(count) dose\(count == 1 ? "" : "s")").monospacedDigit()
             if let last {
                 Text(last.formatted(.relative(presentation: .named)))
-                    .font(.caption2)
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
             }
         }

@@ -5,16 +5,15 @@ import SwiftUI
 struct PatternsSection: View {
     let data: DashboardData
     @AppStorage("dashboardPatternStyle") private var style = 0   // 0 percentiles, 1 overlay
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let o = overlay
         DashboardPage { layout in
             let chartHeight = layout.chartHeight(reserving: 220, minimum: 260, maximum: 520)
             VStack(alignment: .leading, spacing: 14) {
-                DashboardCardHeader(style == 0 ? "Glucose by Time of Day" : "Days Overlaid",
-                                    subtitle: style == 0 ? "Median and spread across \(dayCount) \(dayCount == 1 ? "day" : "days")"
-                                                         : "The last \(o.labels.count) \(o.labels.count == 1 ? "day" : "days"), by time of day") {
+                SectionHeader(style == 0 ? "Glucose by Time of Day" : "Days Overlaid",
+                              subtitle: style == 0 ? "Median and spread across \(dayCount) \(dayCount == 1 ? "day" : "days")"
+                                                   : "The last \(o.labels.count) \(o.labels.count == 1 ? "day" : "days"), by time of day") {
                     Picker("Style", selection: $style) {
                         Text("Percentiles").tag(0)
                         Text("Overlay").tag(1)
@@ -46,12 +45,12 @@ struct PatternsSection: View {
                 Text(style == 0
                      ? "The line is the median reading at each time of day; the darker band holds the middle 50% of readings and the lighter band 90%. A wide band means that time of day varies a lot. Patterns are most useful over 7 days or more."
                      : "Each line is one day, plotted by time of day. The most recent day is drawn thicker.")
-                    .font(.caption)
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .dashboardCard()
-            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: style)
+            .dsAnimation(.standard, value: style)
 
             CardGrid(minColumnWidth: 360, maxColumns: 2, spacing: layout.gutter) {
                 BreakdownTable(title: "By Time of Day", subtitle: "Local time",
@@ -77,9 +76,9 @@ struct PatternsSection: View {
     }
 
     private var notEnough: some View {
-        ContentUnavailableView("Not Enough Data", systemImage: "clock",
-                               description: Text("Pick a longer range, or check back once GlucOS has collected more readings."))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        EmptyStateView(systemImage: "clock", title: "Not Enough Data",
+                       message: "Pick a longer range, or check back once GlucOS has collected more readings.")
+            .frame(maxHeight: .infinity)
     }
 
     /// The most recent 7 days, each on the same 24-hour axis.
@@ -125,7 +124,7 @@ private struct BreakdownTable: View {
     var body: some View {
         let worst = rows.compactMap { r in r.breakdown.map { (r.id, $0.below) } }.max { $0.1 < $1.1 }
         VStack(alignment: .leading, spacing: 14) {
-            DashboardCardHeader(title, subtitle: subtitle)
+            SectionHeader(title, subtitle: subtitle)
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 GridRow {
                     Text("").gridColumnAlignment(.leading)
@@ -134,27 +133,28 @@ private struct BreakdownTable: View {
                     Text("Below").gridColumnAlignment(.trailing)
                     Text("Avg").gridColumnAlignment(.trailing)
                 }
-                .font(.caption2.weight(.semibold))
+                .fontWeight(.semibold).dsFont(.caption)
                 .foregroundStyle(.secondary)
                 ForEach(rows) { row in
                     GridRow {
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(row.label).font(.callout.weight(.semibold))
+                            Text(row.label).fontWeight(.semibold).dsFont(.callout)
                             if let detail = row.detail {
-                                Text(detail).font(.caption2).foregroundStyle(.tertiary)
+                                Text(detail).dsFont(.caption).foregroundStyle(.tertiary)
                             }
                         }
                         if let b = row.breakdown, let mean = row.meanMgdl {
                             MiniRangeBar(breakdown: b)
                                 .frame(minWidth: 80, maxWidth: .infinity)
                                 .frame(height: 8)
-                            Text(Format.percent(b.inRange)).monospacedDigit().font(.callout.weight(.semibold))
-                            Text(Format.percent(b.below)).monospacedDigit().font(.callout)
-                                .foregroundStyle(b.below > 0.04 ? GlucoseRange.low.tint : Color.primary)
+                            Text(Format.percent(b.inRange)).monospacedDigit().fontWeight(.semibold).dsFont(.callout)
+                            Text(Format.percent(b.below)).monospacedDigit()
                                 .fontWeight(worst?.0 == row.id && b.below > 0.04 ? .bold : .regular)
-                            Text(unit.format(mgdl: mean)).monospacedDigit().font(.callout).foregroundStyle(.secondary)
+                                .dsFont(.callout)
+                                .foregroundStyle(b.below > 0.04 ? GlucoseRange.low.textTint : Color.primary)
+                            Text(unit.format(mgdl: mean)).monospacedDigit().dsFont(.callout).foregroundStyle(.secondary)
                         } else {
-                            Text("Not enough data").font(.caption).foregroundStyle(.tertiary)
+                            Text("Not enough data").dsFont(.caption).foregroundStyle(.tertiary)
                                 .gridCellColumns(4)
                         }
                     }
@@ -225,11 +225,9 @@ struct DaysSection: View {
     var body: some View {
         let days = GlucoseAnalytics.days(data.readings, low: data.lowMgdl, high: data.highMgdl)
         if days.isEmpty {
-            ContentUnavailableView {
-                Label("No Days in This Period", systemImage: "calendar")
-            } description: {
-                Text("GlucOS has no readings stored for this stretch. Use the arrows in the toolbar to try another period.")
-            }
+            EmptyStateView(systemImage: "calendar", title: "No Days in This Period",
+                           message: "GlucOS has no readings stored for this stretch. Use the arrows in the toolbar to try another period.")
+                .frame(maxHeight: .infinity)
         } else {
             content(days)
         }
@@ -242,16 +240,15 @@ struct DaysSection: View {
         return VStack(alignment: .leading, spacing: 0) {
             if days.count > 1 {
                 VStack(alignment: .leading, spacing: 12) {
-                    DashboardCardHeader("Time in Range by Day",
-                                        subtitle: "\(days.count) days, \(Format.percent(average)) in range on an average day")
+                    SectionHeader("Time in Range by Day",
+                                  subtitle: "\(days.count) days, \(Format.percent(average)) in range on an average day")
                     DailyRangeChart(days: days)
                         .frame(height: 150)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassCard(padding: 18, radius: 18)
+                .dsCard(.standard)
                 .padding(.horizontal, padding)
-                .padding(.vertical, 14)
-                Divider()
+                .padding(.vertical, DS.Space.md + 2)
+                DSDivider()
             }
             Table(days, selection: $selection) {
                 TableColumn("Day") { (d: DaySummary) in
@@ -273,7 +270,7 @@ struct DaysSection: View {
                 .width(min: 120, ideal: 160)
                 TableColumn("Below") { (d: DaySummary) in
                     Text(Format.percent(d.breakdown.below)).monospacedDigit()
-                        .foregroundStyle(d.breakdown.below > 0.04 ? GlucoseRange.low.tint : Color.primary)
+                        .foregroundStyle(d.breakdown.below > 0.04 ? GlucoseRange.low.textTint : Color.primary)
                 }
                 TableColumn("Above") { (d: DaySummary) in
                     Text(Format.percent(d.breakdown.above)).monospacedDigit()
@@ -286,11 +283,11 @@ struct DaysSection: View {
                 }
                 TableColumn("CV") { (d: DaySummary) in
                     Text(Format.percent(d.stats.coefficientOfVariation)).monospacedDigit()
-                        .foregroundStyle(d.stats.coefficientOfVariation > 0.36 ? Palette.amber : Color.primary)
+                        .foregroundStyle(d.stats.coefficientOfVariation > 0.36 ? Tone.warning.textColor : Color.primary)
                 }
                 TableColumn("Lows") { (d: DaySummary) in
                     Text("\(d.lowEpisodes)").monospacedDigit()
-                        .foregroundStyle(d.lowEpisodes > 0 ? GlucoseRange.low.tint : Color.secondary)
+                        .foregroundStyle(d.lowEpisodes > 0 ? GlucoseRange.low.textTint : Color.secondary)
                         .help("Episodes below \(u.format(mgdl: data.lowMgdl, withUnit: true)) lasting 15 minutes or more")
                 }
                 TableColumn("Readings") { (d: DaySummary) in
@@ -356,7 +353,7 @@ struct ReadingsSection: View {
                 .fixedSize()
             } trailing: {
                 Text(rows.count == all.count ? "\(all.count) readings" : "\(rows.count) of \(all.count) readings")
-                    .font(.caption)
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                     .lineLimit(1)
@@ -401,15 +398,14 @@ struct ReadingsSection: View {
             .help("Double-click a reading to see it on the chart")
             .overlay {
                 if rows.isEmpty {
-                    ContentUnavailableView {
-                        Label(all.isEmpty ? "No Readings in This Period" : "No \(filter.title) Readings", systemImage: "list.bullet")
-                    } description: {
-                        Text(all.isEmpty
-                             ? "Use the arrows in the toolbar to try another period."
-                             : "No reading in this period was \(filter.phrase).")
-                    } actions: {
-                        if !all.isEmpty { Button("Show All") { filter = .all } }
-                    }
+                    EmptyStateView(systemImage: "list.bullet",
+                                   title: all.isEmpty ? "No Readings in This Period" : "No \(filter.title) Readings",
+                                   message: all.isEmpty
+                                       ? "Use the arrows in the toolbar to try another period."
+                                       : "No reading in this period was \(filter.phrase).",
+                                   actionTitle: all.isEmpty ? nil : "Show All",
+                                   action: all.isEmpty ? nil : { filter = .all })
+                        .frame(maxHeight: .infinity)
                 }
             }
         }

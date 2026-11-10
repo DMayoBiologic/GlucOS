@@ -122,7 +122,7 @@ struct TrendChart: View {
     /// Title and the visible stretch on the left, chart controls on the right. The controls
     /// move under the title on a narrow card instead of squeezing it.
     private var controls: some View {
-        DashboardCardHeader("Glucose", subtitle: visibleCaption) {
+        SectionHeader("Glucose", subtitle: visibleCaption) {
             HStack(spacing: 8) {
                 if isZoomed && !atLatest {
                     Button("Latest") { scrollStart = domain.upperBound.addingTimeInterval(-visible) }
@@ -199,7 +199,7 @@ struct TrendChart: View {
                             .frame(width: 18, height: 3)
                         Text("Previous period")
                     }
-                    .font(.caption)
+                    .dsFont(.caption)
                     .foregroundStyle(.secondary)
                 }
             }
@@ -235,7 +235,7 @@ struct TrendChart: View {
     private func zoom(to length: TimeInterval) {
         let newLength = min(max(length, Self.minimumVisible), fullLength)
         let center = viewStart.addingTimeInterval(visible / 2)
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
+        DS.animate(.standard, reduceMotion: reduceMotion) {
             visibleLength = newLength
             scrollStart = clampStart(center.addingTimeInterval(-newLength / 2), length: newLength)
         }
@@ -243,7 +243,7 @@ struct TrendChart: View {
 
     private func pan(_ fraction: Double) {
         guard isZoomed else { return }
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
+        DS.animate(.standard, reduceMotion: reduceMotion) {
             scrollStart = clampStart(viewStart.addingTimeInterval(visible * fraction), length: visible)
         }
     }
@@ -251,7 +251,7 @@ struct TrendChart: View {
     private func zoomToSelection(_ sel: ClosedRange<Date>) {
         let length = min(max(sel.upperBound.timeIntervalSince(sel.lowerBound), Self.minimumVisible), fullLength)
         let center = sel.lowerBound.addingTimeInterval(sel.upperBound.timeIntervalSince(sel.lowerBound) / 2)
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) {
+        DS.animate(.standard, reduceMotion: reduceMotion) {
             visibleLength = length
             scrollStart = clampStart(center.addingTimeInterval(-length / 2), length: length)
             selection = nil
@@ -417,7 +417,7 @@ private struct GapMarks: ChartContent {
                 .foregroundStyle(Palette.stale.opacity(0.16))
                 .annotation(position: .overlay, alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption.weight(.semibold))
+                        .fontWeight(.semibold).dsFont(.caption)
                         .foregroundStyle(Palette.amber)
                         .help("No new readings since \(t.start.formatted(date: .omitted, time: .shortened))")
                         .accessibilityLabel("No new readings since \(t.start.formatted(date: .omitted, time: .shortened))")
@@ -514,7 +514,7 @@ private struct EventMarks: ChartContent {
                 .foregroundStyle(e.kind.color)
                 .annotation(position: .top, spacing: 2) {
                     if showLabels {
-                        Text(e.label).font(.caption2.weight(.semibold)).foregroundStyle(e.kind.color)
+                        Text(e.label).fontWeight(.semibold).dsFont(.caption).foregroundStyle(e.kind.color)
                     }
                 }
         }
@@ -525,7 +525,7 @@ private struct EventMarks: ChartContent {
                 .foregroundStyle(e.kind.color)
                 .annotation(position: .bottom, spacing: 2) {
                     if showLabels {
-                        Text(e.label).font(.caption2.weight(.semibold)).foregroundStyle(e.kind.color)
+                        Text(e.label).fontWeight(.semibold).dsFont(.caption).foregroundStyle(e.kind.color)
                     }
                 }
         }
@@ -607,29 +607,32 @@ private struct SelectionSummary: View {
                                 : range.lowerBound.formatted(.dateTime.weekday(.abbreviated).day().hour().minute())
         let endText = sameDay ? range.upperBound.formatted(date: .omitted, time: .shortened)
                               : range.upperBound.formatted(.dateTime.weekday(.abbreviated).day().hour().minute())
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(startText) – \(endText)")
-                    .font(.callout.weight(.semibold))
-                    .monospacedDigit()
-                Text(LogFormat.duration(range.upperBound.timeIntervalSince(range.lowerBound)))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        let when = VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Text("\(startText) – \(endText)")
+                .fontWeight(.semibold).dsFont(.callout)
+                .monospacedDigit()
+                .lineLimit(1)
+            Text(LogFormat.duration(range.upperBound.timeIntervalSince(range.lowerBound)))
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize()
+        let numbers = HStack(alignment: .center, spacing: DS.Space.lg) {
             if let stats, let first = rs.first, let last = rs.last {
-                Divider().frame(height: 28)
                 item("Average", unit.format(mgdl: stats.meanMgdl))
-                item("In range", Format.percent(stats.timeInRange), tint: GlucoseRange.inRange.tint)
+                item("In range", Format.percent(stats.timeInRange), tint: GlucoseRange.inRange.textTint)
                 item("Low – High", "\(unit.format(mgdl: stats.minMgdl))–\(unit.format(mgdl: stats.maxMgdl))")
                 item("Change", unit.formatDelta(mgdl: last.mgdl - first.mgdl))
                 if !inSel.isEmpty {
                     item("Logged", inSel.count == 1 ? "1 entry" : "\(inSel.count) entries")
                 }
             } else {
-                Text("No readings in this stretch").font(.callout).foregroundStyle(.secondary)
+                Text("No readings in this stretch").dsFont(.callout).foregroundStyle(.secondary)
             }
-            Spacer(minLength: 8)
+        }
+        let actions = HStack(spacing: DS.Space.sm) {
             Button("Zoom to Selection", action: onZoom)
+                .buttonStyle(.ds(.tinted(.brand), size: .small))
             Button(action: onClear) { Image(systemName: "xmark.circle.fill") }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
@@ -637,22 +640,40 @@ private struct SelectionSummary: View {
                 .help("Clear the selection (Esc)")
                 .accessibilityLabel("Clear selection")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Palette.brand.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.brand.opacity(0.25), lineWidth: 0.75))
+        .fixedSize()
+        // One line when the card is wide enough; otherwise the numbers move to a second line
+        // rather than squeezing together.
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: DS.Space.lg) {
+                when
+                Divider().frame(height: 28)
+                numbers
+                Spacer(minLength: DS.Space.sm)
+                actions
+            }
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                HStack(alignment: .center, spacing: DS.Space.md) {
+                    when
+                    Spacer(minLength: DS.Space.sm)
+                    actions
+                }
+                numbers
+            }
+        }
+        .dsCard(.tinted(.brand), padding: DS.Space.md, radius: DS.Radius.tile)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Selected stretch")
     }
 
     private func item(_ title: String, _ value: String, tint: Color? = nil) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(title.uppercased())
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.4)
+            Text(title)
+                .dsFont(.eyebrow)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
             Text(value)
-                .font(.system(.callout, design: .rounded).weight(.bold))
+                .fontWeight(.bold)
+                .dsFont(.headline)
                 .monospacedDigit()
                 .foregroundStyle(tint ?? .primary)
         }
@@ -735,20 +756,20 @@ struct ReadingCallout: View {
             HStack(spacing: 4) {
                 Circle().fill(range.color).frame(width: 7, height: 7)
                 Text(unit.format(mgdl: reading.mgdl, withUnit: true))
-                    .font(.callout.weight(.semibold))
+                    .fontWeight(.semibold).dsFont(.callout)
                     .monospacedDigit()
                 if reading.trend != .unknown {
-                    TrendSymbol(trend: reading.trend).font(.caption)
+                    TrendSymbol(trend: reading.trend).dsFont(.caption)
                 }
             }
             Text(showDate
                  ? reading.timestamp.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute())
                  : reading.timestamp.formatted(date: .omitted, time: .shortened))
-                .font(.caption2)
+                .dsFont(.caption)
                 .foregroundStyle(.secondary)
             if let change15 {
                 Text("\(unit.formatDelta(mgdl: change15)) in 15 min")
-                    .font(.caption2)
+                    .dsFont(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
@@ -758,14 +779,14 @@ struct ReadingCallout: View {
                     Text(e.detail)
                     Text(e.date.formatted(date: .omitted, time: .shortened)).foregroundStyle(.secondary)
                 }
-                .font(.caption2)
+                .dsFont(.caption)
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(range.color.opacity(0.35), lineWidth: 0.75))
-        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .dsShadow(.medium)
         .accessibilityElement(children: .combine)
     }
 }
@@ -837,11 +858,11 @@ struct ChartEvent: Identifiable, Hashable {
 
         var color: Color {
             switch self {
-            case .bolus: return .blue
-            case .basal: return .indigo
-            case .food: return .orange
-            case .siteChange: return .purple
-            case .context: return .teal
+            case .bolus: return Palette.insulin
+            case .basal: return Palette.brand
+            case .food: return Palette.food
+            case .siteChange: return Palette.site
+            case .context: return Palette.context
             }
         }
 
@@ -884,7 +905,7 @@ struct ChartEventLegend: View {
                     .foregroundStyle(k.color)
             }
         }
-        .font(.caption)
+        .dsFont(.caption)
         .labelStyle(.titleAndIcon)
     }
 }
@@ -966,12 +987,12 @@ struct PatternChart: View {
                                 overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(x(h.minute).formatted(date: .omitted, time: .shortened))–\(x(h.minute + Self.binMinutes).formatted(date: .omitted, time: .shortened))")
-                                .font(.caption2).foregroundStyle(.secondary)
+                                .dsFont(.caption).foregroundStyle(.secondary)
                             Text("Median \(unit.format(mgdl: h.p50, withUnit: true))")
-                                .font(.callout.weight(.semibold)).monospacedDigit()
+                                .fontWeight(.semibold).dsFont(.callout).monospacedDigit()
                             Text("Middle 50%: \(unit.format(mgdl: h.p25))–\(unit.format(mgdl: h.p75))")
-                                .font(.caption).monospacedDigit()
-                            Text("\(h.count) readings").font(.caption2).foregroundStyle(.tertiary)
+                                .dsFont(.caption).monospacedDigit()
+                            Text("\(h.count) readings").dsFont(.caption).foregroundStyle(.tertiary)
                         }
                         .padding(.horizontal, 8).padding(.vertical, 5)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))

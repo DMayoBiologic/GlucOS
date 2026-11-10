@@ -15,11 +15,12 @@ struct CardTitle: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
-                .font(.system(.headline, design: .rounded).weight(.bold))
+                .dsFont(.sectionTitle)
+                .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)
-            Spacer()
+            Spacer(minLength: DS.Space.sm)
             if let trailing {
-                Text(trailing).font(.caption).foregroundStyle(.secondary)
+                Text(trailing).dsFont(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
     }
@@ -41,16 +42,17 @@ struct Metric: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Text(title).dsFont(.label).foregroundStyle(.secondary).lineLimit(1)
             Text(value)
-                .font(.system(.title2, design: .rounded).weight(.bold))
-                .monospacedDigit()
+                .dsFont(.metricValue)
                 .foregroundStyle(tint ?? .primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .contentTransition(.numericText())
-            if let sub { Text(sub).font(.caption2).foregroundStyle(tint ?? Color.secondary) }
+            if let sub {
+                Text(sub).dsFont(.caption).foregroundStyle(tint ?? Color.secondary).lineLimit(2)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .help(helpText ?? "")
@@ -63,7 +65,7 @@ struct HistoryNote: View {
 
     var body: some View {
         Label(text, systemImage: "info.circle")
-            .font(.caption)
+            .dsFont(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -72,17 +74,17 @@ struct HistoryNote: View {
 struct Disclaimer: View {
     var body: some View {
         Text("Not a medical device. Confirm on your phone before treating.")
-            .font(.caption2)
+            .dsFont(.caption)
             .foregroundStyle(.tertiary)
     }
 }
 
 extension View {
-    /// The dashboard's glass card. Fills the height it's offered, so cards side by side in a
-    /// `CardGrid` row line up top and bottom.
+    /// The dashboard's card, padded for the window's density (roomier in full screen). Fills the
+    /// height it's offered, so cards side by side in a `CardGrid` row line up top and bottom.
     func dashboardCard() -> some View {
         frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .glassCard(padding: 18, radius: 18)
+            .dsCard(.standard)
     }
 }
 
@@ -97,12 +99,12 @@ enum DashboardMetrics {
 
     /// Space between the window edge and the content.
     static func padding(for width: CGFloat) -> CGFloat {
-        width < 700 ? 16 : (width < 1240 ? 20 : 28)
+        width < 700 ? DS.Space.lg : (width < 1240 ? DS.Space.xl : DS.Space.xxl)
     }
 
-    /// Space between cards.
-    static func gutter(for width: CGFloat) -> CGFloat {
-        width < 700 ? 12 : (width < 1240 ? 16 : 20)
+    /// Space between cards: the density's gutter, tightened on a narrow window.
+    static func gutter(for width: CGFloat, density: DSDensity = .regular) -> CGFloat {
+        width < 700 ? DS.Space.md : density.gutter
     }
 }
 
@@ -112,9 +114,10 @@ struct DashboardLayout {
     /// The page's whole visible area.
     let size: CGSize
     var maxContentWidth: CGFloat = DashboardMetrics.maxContentWidth
+    var density: DSDensity = .regular
 
     var padding: CGFloat { DashboardMetrics.padding(for: size.width) }
-    var gutter: CGFloat { DashboardMetrics.gutter(for: size.width) }
+    var gutter: CGFloat { DashboardMetrics.gutter(for: size.width, density: density) }
     /// Width left for content once the page padding is taken off.
     var contentWidth: CGFloat { max(0, min(size.width - padding * 2, maxContentWidth)) }
 
@@ -140,6 +143,7 @@ struct DashboardLayout {
 struct DashboardPage<Content: View>: View {
     var maxContentWidth: CGFloat
     let content: (DashboardLayout) -> Content
+    @Environment(\.dsDensity) private var density
 
     init(maxContentWidth: CGFloat = DashboardMetrics.maxContentWidth,
          @ViewBuilder content: @escaping (DashboardLayout) -> Content) {
@@ -149,7 +153,7 @@ struct DashboardPage<Content: View>: View {
 
     var body: some View {
         GeometryReader { geo in
-            let layout = DashboardLayout(size: geo.size, maxContentWidth: maxContentWidth)
+            let layout = DashboardLayout(size: geo.size, maxContentWidth: maxContentWidth, density: density)
             ScrollView {
                 VStack(alignment: .leading, spacing: layout.gutter) {
                     content(layout)
@@ -165,7 +169,7 @@ struct DashboardPage<Content: View>: View {
 /// Padding used by the full-height pages (tables) and the notice stack, so their edges line up
 /// with the scrolling pages'.
 private struct DashboardPaddingKey: EnvironmentKey {
-    static let defaultValue: CGFloat = 20
+    static let defaultValue: CGFloat = DS.Space.xl
 }
 
 extension EnvironmentValues {
@@ -181,59 +185,7 @@ struct WidthPreferenceKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
-// MARK: - Card header
-
-/// A card's title, an optional line under it, and controls on the right. The controls drop
-/// under the title when the card is too narrow for both, so nothing gets squeezed.
-struct DashboardCardHeader<Accessory: View>: View {
-    let title: String
-    var subtitle: String?
-    let accessory: Accessory
-
-    init(_ title: String, subtitle: String? = nil, @ViewBuilder accessory: () -> Accessory) {
-        self.title = title
-        self.subtitle = subtitle
-        self.accessory = accessory()
-    }
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 12) {
-                titles
-                Spacer(minLength: 12)
-                accessory
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                titles
-                accessory
-            }
-        }
-    }
-
-    private var titles: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(.headline, design: .rounded).weight(.bold))
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-            if let subtitle {
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .layoutPriority(1)
-    }
-}
-
-extension DashboardCardHeader where Accessory == EmptyView {
-    init(_ title: String, subtitle: String? = nil) {
-        self.init(title, subtitle: subtitle) { EmptyView() }
-    }
-}
+// MARK: - Wide content
 
 /// Wide tables of numbers: shown as they are when they fit, scrolled sideways when the card is
 /// too narrow, rather than squashing every column.
@@ -248,7 +200,7 @@ struct HorizontalOverflow<Content: View>: View {
         ViewThatFits(in: .horizontal) {
             content
             ScrollView(.horizontal) {
-                content.padding(.bottom, 8)
+                content.padding(.bottom, DS.Space.sm)
             }
         }
     }
@@ -268,14 +220,14 @@ struct TableHeaderBar<Leading: View, Trailing: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: DS.Space.md) {
                 leading
-                Spacer(minLength: 8)
+                Spacer(minLength: DS.Space.sm)
                 trailing
             }
             .padding(.horizontal, padding)
-            .padding(.vertical, 10)
-            Divider()
+            .padding(.vertical, DS.Space.sm + 2)
+            DSDivider()
         }
     }
 }
@@ -384,21 +336,21 @@ struct DashboardNoticeStack: View {
 
     var body: some View {
         let shown = notices.filter { !dismissed.contains($0.id) }.sorted { $0.severity < $1.severity }
-        VStack(spacing: 8) {
+        VStack(spacing: DS.Space.sm) {
             ForEach(shown) { n in
                 StatusBanner(severity: n.severity, systemImage: n.systemImage, title: n.title, message: n.message,
                              action: n.action, secondaryAction: n.secondaryAction,
                              onDismiss: n.dismissible ? { dismiss(n.id) } : nil)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(DS.Transition.banner(reduceMotion: reduceMotion))
             }
         }
         .padding(.horizontal, shown.isEmpty ? 0 : padding)
-        .padding(.top, shown.isEmpty ? 0 : 12)
-        .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: shown.map(\.id))
+        .padding(.top, shown.isEmpty ? 0 : DS.Space.md)
+        .dsAnimation(.standard, value: shown.map(\.id))
     }
 
     private func dismiss(_ id: String) {
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { _ = dismissed.insert(id) }
+        DS.animate(.standard, reduceMotion: reduceMotion) { _ = dismissed.insert(id) }
     }
 }
 
@@ -426,14 +378,17 @@ struct DeltaLabel: View {
         let flat = abs(delta) < 0.0001
         let tint: Color = {
             guard let goodWhenUp, !flat else { return .secondary }
-            return up == goodWhenUp ? GlucoseRange.inRange.tint : .orange
+            return up == goodWhenUp ? Tone.success.textColor : Tone.warning.textColor
         }()
-        HStack(spacing: 2) {
+        HStack(spacing: DS.Space.xxs) {
             Image(systemName: flat ? "equal" : (up ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill"))
                 .imageScale(.small)
             Text(text).monospacedDigit()
         }
-        .font(.caption2.weight(.semibold))
+        .fontWeight(.semibold)
+        .dsFont(.caption)
+        .lineLimit(1)
+        .fixedSize()
         .foregroundStyle(tint)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(flat ? "no change from the previous period"
