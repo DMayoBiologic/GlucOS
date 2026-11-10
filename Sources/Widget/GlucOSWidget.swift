@@ -109,7 +109,7 @@ struct GlucoseWidgetView: View {
     private var rangeLabel: some View {
         HStack(spacing: 4) {
             Circle().fill(tint).frame(width: 7, height: 7).widgetAccentable()
-            Text(stale ? "Stale" : (s.range?.label ?? "No data"))
+            Text(s.current == nil ? "No data" : (stale ? "Stale" : (s.range?.label ?? "No data")))
                 .font(.caption2.weight(.bold))
                 .textCase(.uppercase)
                 .tracking(0.4)
