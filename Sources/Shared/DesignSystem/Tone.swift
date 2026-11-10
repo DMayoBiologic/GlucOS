@@ -73,16 +73,6 @@ enum Tone: Equatable {
         default: return false
         }
     }
-
-    static func == (a: Tone, b: Tone) -> Bool {
-        switch (a, b) {
-        case (.neutral, .neutral), (.brand, .brand), (.success, .success), (.warning, .warning),
-             (.critical, .critical), (.info, .info), (.stale, .stale): return true
-        case let (.glucose(x), .glucose(y)): return x == y
-        case let (.custom(x), .custom(y)): return x == y
-        default: return false
-        }
-    }
 }
 
 extension GlucoseRange {

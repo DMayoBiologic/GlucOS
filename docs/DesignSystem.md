@@ -5,7 +5,7 @@ Everything visual comes from `Sources/Shared/DesignSystem/` (compiled into the a
 ## Rules
 
 1. **Colour is status.** Components take a `Tone`, not a raw colour. Each range has one hue, used everywhere that reading appears.
-2. **Stale is never reassuring.** Old data is `Tone.stale` (neutral grey). Use `snapshot.displayTone()`, `range.tone(stale:)`, `RangeBadge(range:stale:)` and `GlucoseChart(latestIsStale:)`. Never show a stale value in green.
+2. **Stale is never reassuring.** Old data is `Tone.stale` (neutral grey). Use `snapshot.displayTone()`, `range.tone(stale:)`, `RangeBadge(range:stale:)` and `GlucoseChart` (works out staleness itself unless told otherwise). Never show a stale value in green.
 3. **Small text uses `tone.textColor`**, which reaches 4.5:1 in light mode. `tone.color` is for fills, lines, icons and large numbers.
 4. **Spacing is in steps of 4** (`DS.Space`). Radii nest: a tile inside a card is one step smaller.
 5. **Nothing wraps letter by letter.** Single-line labels get `lineLimit(1)`, numbers get `minimumScaleFactor`, and rows that can run out of width use `DSAdaptiveRow`, which moves the accessory underneath.
@@ -24,7 +24,7 @@ Everything visual comes from `Sources/Shared/DesignSystem/` (compiled into the a
 
 ## Type
 
-`.dsFont(_:)` with one of `heroValue` 64, `display` 40, `title` 22, `sectionTitle` 15, `headline` 13, `body` 13, `callout` 12, `label` 11, `caption` 10.5, `eyebrow` 10 (uppercase), `metricValue` 20, `metricValueLarge` 28, `unit` 12. Numbers are SF Rounded with tabular digits.
+`.dsFont(_:)` with one of `heroValue` 64, `display` 40, `title` 22, `sectionTitle` 15, `headline` 13, `body` 13, `callout` 12, `label` 11, `caption` 10.5, `eyebrow` 10 (uppercase; sizes scale in half-point steps), `metricValue` 20, `metricValueLarge` 28, `unit` 12. Numbers are SF Rounded with tabular digits.
 
 macOS has no Dynamic Type for third-party apps, so GlucOS has its own Text Size setting (`TextSizePicker`, stored under the `dsTextScale` UserDefaults key). Every `.dsFont` follows it; big numbers grow at half rate so they stay inside their cards. Override a subtree with `.environment(\.dsTextScale, 1.0)`. To change weight, put `.fontWeight(_:)` **before** `.dsFont`.
 

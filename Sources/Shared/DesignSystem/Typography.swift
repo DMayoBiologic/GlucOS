@@ -102,7 +102,8 @@ enum DSTextStyle: CaseIterable, Sendable {
 
     func size(scale: CGFloat) -> CGFloat {
         let s = DSTextScale.clamp(scale)
-        return (baseSize * (1 + (s - 1) * scaleDamping)).rounded(.toNearestOrAwayFromZero)
+        // Half-point steps keep neighbouring styles (caption 10.5, label 11) distinct.
+        return ((baseSize * (1 + (s - 1) * scaleDamping)) * 2).rounded() / 2
     }
 
     func font(scale: CGFloat = 1) -> Font {
@@ -146,13 +147,31 @@ extension EnvironmentValues {
     }
 }
 
+/// The Text Size setting, read once and shared, so the hundreds of `.dsFont` views on a screen
+/// subscribe to one object rather than each observing UserDefaults.
+final class DSTextScaleStore: ObservableObject {
+    static let shared = DSTextScaleStore()
+
+    @Published var scale: Double {
+        didSet {
+            guard scale != oldValue else { return }
+            UserDefaults.standard.set(scale, forKey: DSTextScale.defaultsKey)
+        }
+    }
+
+    private init() {
+        let stored = UserDefaults.standard.object(forKey: DSTextScale.defaultsKey) as? Double
+        scale = stored ?? DSTextScale.standard.rawValue
+    }
+}
+
 private struct DSFontModifier: ViewModifier {
     let style: DSTextStyle
-    @AppStorage(DSTextScale.defaultsKey) private var storedScale: Double = 1
+    @ObservedObject private var store = DSTextScaleStore.shared
     @Environment(\.dsTextScale) private var override
 
     func body(content: Content) -> some View {
-        let scale = override ?? CGFloat(storedScale)
+        let scale = override ?? CGFloat(store.scale)
         content
             .font(style.font(scale: scale))
             .tracking(style.tracking)
@@ -175,20 +194,22 @@ extension Font {
 
 /// The current text scale, for sizing non-text elements (icons, rings) in step with text.
 struct DSScaledValue: DynamicProperty {
-    @AppStorage(DSTextScale.defaultsKey) private var storedScale: Double = 1
+    // Not private: a private stored property would make the implicit initialiser private too.
+    @ObservedObject var store = DSTextScaleStore.shared
     @Environment(\.dsTextScale) private var override
 
-    var scale: CGFloat { DSTextScale.clamp(override ?? CGFloat(storedScale)) }
+    var scale: CGFloat { DSTextScale.clamp(override ?? CGFloat(store.scale)) }
 }
 
 /// The Text Size control, for Settings.
 struct TextSizePicker: View {
-    @AppStorage(DSTextScale.defaultsKey) private var storedScale: Double = 1
+    // Not private, so `TextSizePicker()` stays callable from other files.
+    @ObservedObject var store = DSTextScaleStore.shared
 
     var body: some View {
         Picker("Text size", selection: Binding(
-            get: { DSTextScale(rawValue: storedScale) ?? .standard },
-            set: { storedScale = $0.rawValue })) {
+            get: { DSTextScale(rawValue: store.scale) ?? .standard },
+            set: { store.scale = $0.rawValue })) {
             ForEach(DSTextScale.allCases) { Text($0.title).tag($0) }
         }
         .help("Makes text across GlucOS larger or smaller. Widgets follow macOS.")

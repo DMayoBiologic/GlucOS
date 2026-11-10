@@ -24,10 +24,8 @@ struct DSAdaptiveRow: Layout {
     /// Vertical alignment of the accessory when side by side.
     var alignment: VerticalAlignment = .center
 
-    private func isSideBySide(width: CGFloat, subviews: Subviews) -> Bool {
-        guard subviews.count > 1 else { return true }
-        let accessory = subviews[1].sizeThatFits(.unspecified)
-        return width - accessory.width - spacing >= minMainWidth
+    private func isSideBySide(width: CGFloat, accessoryWidth: CGFloat) -> Bool {
+        width - accessoryWidth - spacing >= minMainWidth
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -38,7 +36,7 @@ struct DSAdaptiveRow: Layout {
             let ideal = main.sizeThatFits(.unspecified)
             return CGSize(width: ideal.width + spacing + accessory.width, height: max(ideal.height, accessory.height))
         }
-        if isSideBySide(width: width, subviews: subviews) {
+        if isSideBySide(width: width, accessoryWidth: accessory.width) {
             let m = main.sizeThatFits(ProposedViewSize(width: width - accessory.width - spacing, height: nil))
             return CGSize(width: width, height: max(m.height, accessory.height))
         }
@@ -55,7 +53,7 @@ struct DSAdaptiveRow: Layout {
         }
         let accessory = subviews[1]
         let aSize = accessory.sizeThatFits(.unspecified)
-        if isSideBySide(width: bounds.width, subviews: subviews) {
+        if isSideBySide(width: bounds.width, accessoryWidth: aSize.width) {
             let mainWidth = bounds.width - aSize.width - spacing
             let m = main.sizeThatFits(ProposedViewSize(width: mainWidth, height: nil))
             main.place(at: CGPoint(x: bounds.minX, y: y(for: m.height, in: bounds)),

@@ -64,6 +64,9 @@ struct StatusBanner: View {
     var onDismiss: (() -> Void)?
     var density: Density = .regular
 
+    /// Follows the Text Size setting. Not private, which would make the memberwise init private.
+    var textScale = DSScaledValue()
+
     private var tone: Tone { severity.tone }
     private var compact: Bool { density == .compact }
     private var radius: CGFloat { compact ? DS.Radius.card - 2 : DS.Radius.card }
@@ -78,8 +81,8 @@ struct StatusBanner: View {
                 if hasActions { actions }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            // Lines the first text line up with the middle of the icon.
-            .padding(.top, compact ? 4 : 8)
+            // Lines the first text line up with the middle of the icon, at any text size.
+            .padding(.top, max(0, (iconSize - DSTextStyle.headline.size(scale: textScale.scale) * 1.25) / 2))
             if let onDismiss {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
@@ -129,8 +132,10 @@ struct StatusBanner: View {
         .fixedSize()
     }
 
+    private var iconSize: CGFloat { compact ? 26 : 34 }
+
     private var icon: some View {
-        let size: CGFloat = compact ? 26 : 34
+        let size = iconSize
         return ZStack {
             Circle().fill(tone.color.opacity(0.18))
             Circle().strokeBorder(tone.color.opacity(0.35), lineWidth: DS.Stroke.hairline)
@@ -156,18 +161,5 @@ struct StatusBanner: View {
         }
         .buttonStyle(DSButtonStyle(kind: prominent ? .tinted(tone) : .secondary, size: compact ? .small : .regular))
         .disabled(a.isDisabled || a.isBusy)
-    }
-}
-
-/// Capsule button tinted to its banner. Prominent is the fix; the other is a quieter alternative.
-/// Now a thin wrapper over `DSButtonStyle`.
-struct BannerButtonStyle: ButtonStyle {
-    var tint: Color
-    var prominent = true
-    var compact = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        DSButtonStyle(kind: prominent ? .tinted(.custom(tint)) : .secondary, size: compact ? .small : .regular)
-            .makeBody(configuration: configuration)
     }
 }

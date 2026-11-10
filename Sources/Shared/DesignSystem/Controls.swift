@@ -217,15 +217,20 @@ struct DSChipPicker<Value: Hashable>: View {
     var tone: Tone = .brand
     var size: DSButtonStyle.Size = .small
     let title: (Value) -> String
-    var accessibilityTitle: String = ""
+    /// What the group chooses ("Time range"), read by VoiceOver.
+    var accessibilityTitle: String?
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
+        let chips = ViewThatFits(in: .horizontal) {
             row
             ScrollView(.horizontal, showsIndicators: false) { row }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(accessibilityTitle)
+        if let accessibilityTitle, !accessibilityTitle.isEmpty {
+            chips.accessibilityLabel(accessibilityTitle)
+        } else {
+            chips
+        }
     }
 
     private var row: some View {

@@ -14,9 +14,11 @@ struct GlucoseChart: View {
     /// A reading to highlight as if hovered, e.g. while stepping through readings with the arrow
     /// keys. The pointer wins while it's over the chart.
     var pinnedDate: Date? = nil
-    /// The newest reading is old. Its dot and the glow under the trace go neutral grey, so a stale
-    /// value is never drawn in a reassuring colour.
-    var latestIsStale: Bool = false
+    /// Whether the newest reading is old. Its dot and the glow under the trace go neutral grey, so
+    /// a stale value is never drawn in a reassuring colour. `nil` (the default) works it out from
+    /// the newest reading's age, with the same threshold as `GlucoseSnapshot.isStale`. Pass `false`
+    /// only when showing a past period on purpose.
+    var latestIsStale: Bool? = nil
 
     @State private var hoverDate: Date?
 
@@ -58,8 +60,9 @@ struct GlucoseChart: View {
         let lineStyle = ThresholdGradient.style(minMgdl: window.map(\.mgdl).min() ?? lowMgdl,
                                                 maxMgdl: window.map(\.mgdl).max() ?? highMgdl,
                                                 low: lowMgdl, high: highMgdl)
-        let currentTint = latestIsStale ? Palette.stale
-            : (window.last.map { color(for: $0.mgdl) } ?? Palette.stale)
+        let stale = latestIsStale
+            ?? (window.last.map { Date().timeIntervalSince($0.timestamp) > GlucoseSnapshot.staleAfter } ?? true)
+        let currentTint = stale ? Palette.stale : (window.last.map { color(for: $0.mgdl) } ?? Palette.stale)
         Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
