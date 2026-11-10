@@ -47,10 +47,12 @@ struct PopoverToolbar: View {
 
             overflowMenu
         }
-        .padding(6)
+        .padding(5)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
         .animation(.easeOut(duration: 0.15), value: showsShortcuts)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Actions")
     }
 
     private var overflowMenu: some View {
@@ -101,6 +103,8 @@ struct PopoverToolbar: View {
 struct PopoverFooter: View {
     @EnvironmentObject var store: GlucoseStore
 
+    private static let disclaimer = "GlucOS is not a medical device. Confirm readings on your phone or reader before treating."
+
     var body: some View {
         HStack(spacing: 6) {
             if store.snapshot.lastError == nil, let attempt = store.lastAttempt {
@@ -109,16 +113,18 @@ struct PopoverFooter: View {
                         .monospacedDigit()
                 }
                 .help(store.statusLine)
-                Text("·")
             } else if store.snapshot.lastError == nil {
                 Text(store.statusLine).lineLimit(1).truncationMode(.middle)
-                Text("·")
             }
-            Text("Not a medical device. Confirm on your phone before treating.")
+            Spacer(minLength: 8)
+            Label("Not a medical device", systemImage: "info.circle")
+                .labelStyle(.titleAndIcon)
+                .imageScale(.small)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .help(Self.disclaimer)
+                .accessibilityLabel(Self.disclaimer)
         }
-        .font(.caption2)
+        .dsFont(.caption)
         .foregroundStyle(.tertiary)
         .padding(.horizontal, 6)
     }
