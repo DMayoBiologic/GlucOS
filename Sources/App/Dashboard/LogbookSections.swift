@@ -66,7 +66,14 @@ struct LogbookSection: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
                 if entries.isEmpty {
-                    ContentUnavailableView.search(text: search)
+                    if search.trimmingCharacters(in: .whitespaces).isEmpty {
+                        // The filter, not a search, emptied the list: say so.
+                        ContentUnavailableView("No \(filter.title) in This Range",
+                                               systemImage: "line.3.horizontal.decrease.circle",
+                                               description: Text("Choose another filter, or a longer range in the toolbar."))
+                    } else {
+                        ContentUnavailableView.search(text: search)
+                    }
                 } else {
                     table(entries)
                 }
@@ -74,6 +81,11 @@ struct LogbookSection: View {
             if !logbook.lastDeleted.isEmpty { undoBanner }
         }
         .animation(.smooth(duration: 0.2), value: logbook.lastDeleted.isEmpty)
+        // Rows hidden by the filter, search or range must not stay selected, or Delete would
+        // remove entries the user can't see.
+        .onChange(of: Set(entries.map(\.id))) { _, visible in
+            selection.formIntersection(visible)
+        }
     }
 
     private var filterBar: some View {

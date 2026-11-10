@@ -172,7 +172,7 @@ client version. Per-type cooldown is configurable.
 
 | Symptom | Fix |
 |---|---|
-| "requires client version X" | Click **Use Version X and Reconnect** in Settings → Account (or set it in Advanced) |
+| "requires client version X" | Click **Update & Reconnect** in Settings → Account (or set it in Advanced) |
 | "terms acceptance required" | Open LibreLinkUp on your phone, accept the new T&Cs |
 | "not following anyone" | Accept the invitation in the LibreLinkUp app (not LibreLink) |
 | Stale data, phone fine | LibreLink must be running in the background with internet |

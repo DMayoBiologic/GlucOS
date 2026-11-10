@@ -74,6 +74,11 @@ private struct GeneralSettingsTab: View {
             Section {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, on in
+                        // Ignore the reset to the real state in the catch block below, so it
+                        // doesn't run the opposite operation and replace the original error.
+                        // (.requiresApproval counts as registered, so turning it off still unregisters.)
+                        let status = SMAppService.mainApp.status
+                        if on ? status == .enabled : status == .notRegistered { return }
                         do {
                             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
                             loginError = nil
