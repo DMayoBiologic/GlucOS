@@ -20,8 +20,10 @@ unzip, drag to `/Applications`, right-click → Open the first time (it's self-s
 make install-release
 ```
 
-First launch: drop icon in the menu bar → **Settings…** → LibreLinkUp *follower* email/password,
-region **Australia** → **Save & Connect**. Then **Display → Launch at login**, and add a widget via
+First launch opens a short setup assistant: sign in with your LibreLinkUp *follower* account
+(region **Australia**), pick your target range, allow notifications and say how you take insulin.
+Sign-in problems are explained in plain words with what to do next. You can run it again from
+**Settings → General**. Then turn on **Settings → General → Launch at login**, and add a widget via
 right-click desktop → **Edit Widgets** → "GlucOS".
 
 ### Using it
@@ -58,7 +60,12 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   glucose by day of infusion-site wear (pump); and injection-site rotation (injections).
   These are observations, not advice. GlucOS never suggests or calculates a dose, and the
   "drop per unit" is not a correction factor. Talk to your care team before changing anything.
-- **Colour-coded menu bar icon** (Settings → Display, off by default): tints the drop green/orange/red by
+- **Logging** (⌘L, from the popover or dashboard) opens a quick-log window: tap Insulin / Food /
+  New site, use the time chips (Now, 15 min ago…) and the ± steppers or carb chips. **Quick add**
+  offers your presets, "same as last" bolus and recent foods. Tick **Save as preset** to keep a
+  combination; manage presets in **Settings → Logging**. In **Dashboard → Logbook** you can filter,
+  search, edit, "Log Again Now", and undo a delete (⌘Z).
+- **Colour-coded menu bar icon** (Settings → General, off by default): tints the drop green/orange/red by
   range. Stale data always shows the plain warning sign instead.
 - **Settings → Alerts** shows whether macOS is allowing GlucOS notifications and can send a test alert.
   If notifications are turned off while alerts are enabled, the popover says so.
@@ -124,7 +131,8 @@ The app polls every 60 s, writes `~/Library/Application Support/GlucOS/snapshot.
 
 ## Alerts
 
-Low / high (thresholds in Settings), urgent-low (< 3.0 mmol/L, repeats every 5 min), rising/falling
+Low / high (target range in Settings → Glucose, with presets and a live range bar; high alerts can be
+turned off, lows and very highs can't), urgent-low (< 3.0 mmol/L, repeats every 5 min), rising/falling
 quickly, no data > 6 min, sensor expiring within 24 h, and "API changed" if Abbott bumps the minimum
 client version. Per-type cooldown is configurable.
 
@@ -132,11 +140,11 @@ client version. Per-type cooldown is configurable.
 
 | Symptom | Fix |
 |---|---|
-| "requires client version X" | Settings → Advanced → set the version header to X → Reconnect |
+| "requires client version X" | Click **Use Version X and Reconnect** in Settings → Account (or set it in Advanced) |
 | "terms acceptance required" | Open LibreLinkUp on your phone, accept the new T&Cs |
 | "not following anyone" | Accept the invitation in the LibreLinkUp app (not LibreLink) |
 | Stale data, phone fine | LibreLink must be running in the background with internet |
-| Widget shows "no data" | App must have run once; Advanced tab shows the snapshot path |
+| Widget shows "no data" | App must have run once; Advanced tab shows the data folder |
 | "Updates not configured" | Build has no Sparkle public key — run `make sparkle-keys`, re-release |
 | Release job fails on key | `SPARKLE_PRIVATE_KEY` secret missing — `make sparkle-keys` |
 

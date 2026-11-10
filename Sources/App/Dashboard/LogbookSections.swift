@@ -3,18 +3,42 @@ import Charts
 
 // MARK: - Logbook
 
-/// Every logged dose, meal and site change in the selected range.
+/// Every logged dose, meal and site change in the selected range, with filtering, search, quick
+/// re-logging and undoable deletes.
 struct LogbookSection: View {
     let data: DashboardData
     let open: (LogSheetTarget) -> Void
 
+    enum Filter: String, CaseIterable, Identifiable {
+        case all, insulin, food, site, context
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .all: return "All"
+            case .insulin: return "Insulin"
+            case .food: return "Food"
+            case .site: return "Sites"
+            case .context: return "Context"
+            }
+        }
+
+        func includes(_ e: LogEntry) -> Bool {
+            switch (self, e) {
+            case (.all, _), (.insulin, .dose), (.food, .meal), (.site, .siteChange), (.context, .context): return true
+            default: return false
+            }
+        }
+    }
+
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
     @State private var selection = Set<UUID>()
-    @State private var pendingDelete: Set<UUID> = []
+    @State private var filter: Filter = .all
+    @State private var search = ""
 
     var body: some View {
-        let entries = logbook.entries.filter { data.domain.contains($0.timestamp) }
+        let inRange = logbook.entries.filter { data.domain.contains($0.timestamp) }
+        let entries = inRange.filter { filter.includes($0) && matches($0) }
         VStack(alignment: .leading, spacing: 0) {
             if settings.therapy == .notSet {
                 TherapySetupView()
@@ -22,21 +46,104 @@ struct LogbookSection: View {
                     .padding(20)
                 Divider()
             }
-            if entries.isEmpty {
+            if inRange.isEmpty {
                 ContentUnavailableView {
                     Label("Nothing Logged in This Range", systemImage: "book")
                 } description: {
-                    Text("Log insulin and food with the + button (⌘L). Entries show up here and on the Overview chart.")
+                    Text(logbook.isEmpty
+                         ? "Log insulin, food and site changes with the + button or ⌘L. Save the things you log often as presets for one-tap entry next time."
+                         : "Pick a longer range in the toolbar to see older entries, or log something new.")
                 } actions: {
                     Button("Log Insulin or Food…") { open(.new) }
+                        .buttonStyle(.borderedProminent)
                 }
             } else {
-                totals(entries)
+                totals(inRange)
                     .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                table(entries)
+                    .padding(.top, 14)
+                    .padding(.bottom, 10)
+                filterBar
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+                if entries.isEmpty {
+                    ContentUnavailableView.search(text: search)
+                } else {
+                    table(entries)
+                }
+            }
+            if !logbook.lastDeleted.isEmpty { undoBanner }
+        }
+        .animation(.smooth(duration: 0.2), value: logbook.lastDeleted.isEmpty)
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 10) {
+            Picker("Show", selection: $filter) {
+                ForEach(Filter.allCases.filter(showsFilter)) { f in Text(f.title).tag(f) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            TextField("Search", text: $search, prompt: Text("Search food, insulin or notes"))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 260)
+            Spacer()
+            if selection.count == 1, let id = selection.first, let entry = logbook.entry(id: id) {
+                Button("Edit…") { open(.edit(entry)) }
+                Button("Log Again Now") { logbook.duplicate(entry) }
+                    .help("Log a copy of this entry at the current time")
+            }
+            if !selection.isEmpty {
+                Button(role: .destructive) { deleteSelection() } label: {
+                    Label(selection.count == 1 ? "Delete" : "Delete \(selection.count)", systemImage: "trash")
+                }
             }
         }
+        .controlSize(.small)
+    }
+
+    private func showsFilter(_ f: Filter) -> Bool {
+        switch f {
+        case .site: return settings.therapy == .pump || !logbook.siteChanges.isEmpty
+        case .insulin: return settings.therapy.logsInsulin || !logbook.doses.isEmpty
+        default: return true
+        }
+    }
+
+    private func matches(_ e: LogEntry) -> Bool {
+        let q = search.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return true }
+        return [title(e), details(e), amount(e), site(e) ?? ""].contains { $0.localizedCaseInsensitiveContains(q) }
+    }
+
+    private func deleteSelection() {
+        logbook.delete(ids: selection)
+        selection = []
+    }
+
+    private var undoBanner: some View {
+        let n = logbook.lastDeleted.count
+        return HStack(spacing: 10) {
+            Image(systemName: "trash").foregroundStyle(.secondary)
+            Text(n == 1 ? "Entry deleted" : "\(n) entries deleted")
+                .font(.callout.weight(.medium))
+            Spacer()
+            Button("Undo") { logbook.undoDelete() }
+                .keyboardShortcut("z", modifiers: .command)
+            Button {
+                logbook.clearUndo()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help("Dismiss")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
+        .padding(12)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private func totals(_ entries: [LogEntry]) -> some View {
@@ -98,27 +205,19 @@ struct LogbookSection: View {
         .contextMenu(forSelectionType: UUID.self) { ids in
             if ids.count == 1, let id = ids.first, let entry = logbook.entry(id: id) {
                 Button("Edit…") { open(.edit(entry)) }
+                Button("Log Again Now") { logbook.duplicate(entry) }
+                Divider()
             }
             if !ids.isEmpty {
-                Button(ids.count == 1 ? "Delete…" : "Delete \(ids.count) Entries…", role: .destructive) {
-                    pendingDelete = ids
+                Button(ids.count == 1 ? "Delete" : "Delete \(ids.count) Entries", role: .destructive) {
+                    logbook.delete(ids: ids)
+                    selection.subtract(ids)
                 }
             }
         } primaryAction: { ids in
             if ids.count == 1, let id = ids.first, let entry = logbook.entry(id: id) { open(.edit(entry)) }
         }
-        .onDeleteCommand { pendingDelete = selection }
-        .confirmationDialog(pendingDelete.count == 1 ? "Delete this entry?" : "Delete \(pendingDelete.count) entries?",
-                            isPresented: Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } })) {
-            Button("Delete", role: .destructive) {
-                logbook.delete(ids: pendingDelete)
-                selection.subtract(pendingDelete)
-                pendingDelete = []
-            }
-            Button("Cancel", role: .cancel) { pendingDelete = [] }
-        } message: {
-            Text("This can't be undone.")
-        }
+        .onDeleteCommand { deleteSelection() }
     }
 
     private func kind(_ e: LogEntry) -> ChartEvent.Kind {

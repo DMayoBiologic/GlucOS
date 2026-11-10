@@ -32,6 +32,25 @@ struct GlucOSApp: App {
         .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unified)
 
+        // First-run setup. Opened by MenuBarLabel at launch until it's finished or skipped.
+        Window("Welcome to GlucOS", id: OnboardingView.windowID) {
+            OnboardingView()
+                .environmentObject(store)
+                .environmentObject(store.settings)
+        }
+        .windowResizability(.contentSize)
+        .windowStyle(.hiddenTitleBar)
+        .defaultPosition(.center)
+
+        // Quick log from the menu bar, without opening the dashboard.
+        Window("Log Insulin or Food", id: LogWindow.id) {
+            LogWindow()
+                .environmentObject(logbook)
+                .environmentObject(store.settings)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
         Settings {
             SettingsView()
                 .environmentObject(store)
@@ -46,6 +65,7 @@ struct GlucOSApp: App {
 struct MenuBarLabel: View {
     @ObservedObject var store: GlucoseStore
     @ObservedObject private var settings = AppSettings.shared
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let stale = store.snapshot.current != nil && store.snapshot.isStale()
@@ -56,7 +76,13 @@ struct MenuBarLabel: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(store.snapshot.accessibilitySummary())
-        .task { store.start() }   // ensure polling starts even if the popover is never opened
+        .task {
+            store.start()   // ensure polling starts even if the popover is never opened
+            if settings.needsOnboarding {
+                openWindow(id: OnboardingView.windowID)
+                NSApp.activate()
+            }
+        }
     }
 }
 

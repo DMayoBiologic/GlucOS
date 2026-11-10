@@ -15,6 +15,8 @@ final class AppSettings: ObservableObject {
     @Published var highMgdl: Double { didSet { d.set(highMgdl, forKey: "highMgdl") } }
     @Published var pollIntervalSeconds: Int { didSet { d.set(pollIntervalSeconds, forKey: "pollInterval") } }
     @Published var alertsEnabled: Bool { didSet { d.set(alertsEnabled, forKey: "alertsEnabled") } }
+    /// High (above target) alerts. Very high and every low alert stay on whenever alerts are on.
+    @Published var alertOnHigh: Bool { didSet { d.set(alertOnHigh, forKey: "alertHigh") } }
     @Published var alertOnRapidChange: Bool { didSet { d.set(alertOnRapidChange, forKey: "alertRapid") } }
     @Published var alertOnStale: Bool { didSet { d.set(alertOnStale, forKey: "alertStale") } }
     @Published var alertOnSensorExpiry: Bool { didSet { d.set(alertOnSensorExpiry, forKey: "alertSensor") } }
@@ -39,6 +41,9 @@ final class AppSettings: ObservableObject {
     /// Long-acting insulin (injections only).
     @Published var basalInsulinName: String { didSet { d.set(basalInsulinName, forKey: "basalInsulinName") } }
 
+    /// First-run setup finished (or skipped). Existing installs with an account count as done.
+    @Published var onboardingCompleted: Bool { didSet { d.set(onboardingCompleted, forKey: "onboardingCompleted") } }
+
     var password: String {
         get { Keychain.get("password") ?? "" }
         set {
@@ -58,6 +63,7 @@ final class AppSettings: ObservableObject {
         highMgdl = d.object(forKey: "highMgdl") as? Double ?? 180
         pollIntervalSeconds = d.object(forKey: "pollInterval") as? Int ?? 60
         alertsEnabled = d.object(forKey: "alertsEnabled") as? Bool ?? true
+        alertOnHigh = d.object(forKey: "alertHigh") as? Bool ?? true
         alertOnRapidChange = d.object(forKey: "alertRapid") as? Bool ?? true
         alertOnStale = d.object(forKey: "alertStale") as? Bool ?? true
         alertOnSensorExpiry = d.object(forKey: "alertSensor") as? Bool ?? true
@@ -71,7 +77,12 @@ final class AppSettings: ObservableObject {
         bolusInsulinKind = InsulinKind(rawValue: d.string(forKey: "bolusInsulinKind") ?? "") ?? .rapid
         bolusInsulinName = d.string(forKey: "bolusInsulinName") ?? ""
         basalInsulinName = d.string(forKey: "basalInsulinName") ?? ""
+        let savedEmail = d.string(forKey: "email") ?? ""
+        onboardingCompleted = d.object(forKey: "onboardingCompleted") as? Bool ?? !savedEmail.isEmpty
     }
+
+    /// Show the setup window at launch: never finished it and no account yet.
+    var needsOnboarding: Bool { !onboardingCompleted && !hasCredentials }
 
     /// The name to pre-fill when logging a dose of `kind`.
     func defaultInsulinName(for kind: InsulinKind) -> String {

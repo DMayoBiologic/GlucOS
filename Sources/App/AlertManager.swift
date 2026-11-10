@@ -55,8 +55,10 @@ final class AlertManager {
                 fire(.low, title: "Low glucose — \(v)", body: r.trend.description, cooldown: cooldown, now: now)
             case .veryHigh:
                 fire(.veryHigh, title: "Very high glucose — \(v)", body: r.trend.description, cooldown: cooldown, now: now)
-            case .high:
+            case .high where settings.alertOnHigh:
                 fire(.high, title: "High glucose — \(v)", body: r.trend.description, cooldown: cooldown, now: now)
+            case .high:
+                break
             case .inRange:
                 // Reset low/high so the next excursion alerts immediately.
                 lastFired[.low] = nil; lastFired[.high] = nil; lastFired[.urgentLow] = nil; lastFired[.veryHigh] = nil
