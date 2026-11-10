@@ -26,6 +26,7 @@ struct TrendChart: View {
     @State private var visibleLength: TimeInterval
     @State private var scrollStart: Date
     @State private var hoverDate: Date?
+    @State private var showHowTo = false
     @State private var pinchBase: TimeInterval?
     @State private var selection: ClosedRange<Date>?
 
@@ -129,11 +130,20 @@ struct TrendChart: View {
                     Button("Latest") { scrollStart = domain.upperBound.addingTimeInterval(-visible) }
                         .help("Jump to the most recent readings in this period")
                 }
-                Image(systemName: "info.circle")
-                    .foregroundStyle(.secondary)
-                    .help(Self.howTo)
-                    .accessibilityLabel("How to use the chart")
-                    .accessibilityValue(Self.howTo)
+                // A button, not a bare icon, so keyboard users can open the instructions too.
+                Button { showHowTo.toggle() } label: {
+                    Image(systemName: "info.circle").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(Self.howTo)
+                .accessibilityLabel("How to use the chart")
+                .popover(isPresented: $showHowTo, arrowEdge: .bottom) {
+                    Text(Self.howTo)
+                        .dsFont(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: 280, alignment: .leading)
+                        .padding(DS.Space.md)
+                }
                 overlaysMenu
                 ControlGroup {
                     Button { pan(-0.5) } label: { Image(systemName: "chevron.left") }

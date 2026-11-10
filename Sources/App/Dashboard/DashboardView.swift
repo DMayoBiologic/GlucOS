@@ -51,7 +51,7 @@ struct DashboardView: View {
                 Color.clear.preference(key: WidthPreferenceKey.self, value: geo.size.width)
             })
             .onPreferenceChange(WidthPreferenceKey.self) { width in
-                let padding = DashboardMetrics.padding(for: width)
+                let padding = DashboardMetrics.padding(for: DashboardMetrics.stepped(width))
                 if width > 0 && padding != detailPadding { detailPadding = padding }
             }
             .overlay(alignment: .bottom) { toastView }
@@ -359,12 +359,17 @@ struct DashboardView: View {
                 Toggle("Keep on Top", isOn: $keepOnTop)
                     .disabled(windowState.isFullScreen)
                 Divider()
-                Button("Keyboard Shortcuts…") { if logSheet == nil { showShortcuts = true } }
+                Button("Keyboard Shortcuts…", action: showShortcutsHelp)
             } label: {
                 Label("More", systemImage: keepOnTop ? "pin.circle.fill" : "ellipsis.circle")
             }
             .help(keepOnTop ? "Window options. Keep on Top is on." : "Window options and keyboard shortcuts (⌘/)")
         }
+    }
+
+    /// Not over the log sheet: two sheets at once would stack.
+    private func showShortcutsHelp() {
+        if logSheet == nil { showShortcuts = true }
     }
 
     private var rangeBinding: Binding<DashboardRange> {
@@ -385,7 +390,7 @@ struct DashboardView: View {
                 Button(r.title) { rangeBinding.wrappedValue = r }
                     .keyboardShortcut(KeyEquivalent(Character(String(i + 1))), modifiers: .control)
             }
-            Button("Keyboard Shortcuts") { if logSheet == nil { showShortcuts = true } }
+            Button("Keyboard Shortcuts", action: showShortcutsHelp)
                 .keyboardShortcut("/", modifiers: .command)
         }
         .buttonStyle(.plain)

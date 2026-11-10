@@ -30,12 +30,16 @@ struct OverviewSection: View {
                             .frame(maxHeight: .infinity)
                     }
                 } else {
-                    TrendChart(readings: data.readings, domain: data.domain, unit: data.unit,
-                               lowMgdl: data.lowMgdl, highMgdl: data.highMgdl, events: events,
-                               comparison: comparison, comparisonShift: data.range.duration,
-                               latestIsStale: data.isLive && snapshot.isStale(),
-                               now: data.isLive ? Date() : nil)
-                        .id("\(data.range.rawValue)-\(data.isLive ? "live" : String(data.domain.upperBound.timeIntervalSince1970))")
+                    // On the reading panel's 30 s clock, so the chart's latest point greys out
+                    // at the same moment the panel does.
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        TrendChart(readings: data.readings, domain: data.domain, unit: data.unit,
+                                   lowMgdl: data.lowMgdl, highMgdl: data.highMgdl, events: events,
+                                   comparison: comparison, comparisonShift: data.range.duration,
+                                   latestIsStale: data.isLive && snapshot.isStale(at: context.date),
+                                   now: data.isLive ? context.date : nil)
+                    }
+                    .id("\(data.range.rawValue)-\(data.isLive ? "live" : String(data.domain.upperBound.timeIntervalSince1970))")
                 }
             }
             // Room above for the header, and below for the top of the next row of cards.

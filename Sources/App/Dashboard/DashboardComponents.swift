@@ -97,6 +97,11 @@ enum DashboardMetrics {
     /// Long-form pages (Insights, Report) read better narrower.
     static let readableWidth: CGFloat = 1080
 
+    /// Rounds down to 16pt steps: fine enough for every layout decision, coarse enough that a
+    /// resize only redraws the page a few times a second. Everything that picks a padding goes
+    /// through this, so pages, table headers and notices agree at the thresholds.
+    static func stepped(_ value: CGFloat) -> CGFloat { (value / 16).rounded(.down) * 16 }
+
     /// Space between the window edge and the content.
     static func padding(for width: CGFloat) -> CGFloat {
         width < 700 ? DS.Space.lg : (width < 1240 ? DS.Space.xl : DS.Space.xxl)
@@ -174,10 +179,8 @@ struct DashboardPage<Content: View>: View {
         }
     }
 
-    /// Rounds down to 16pt steps: fine enough for every layout decision, coarse enough that a
-    /// resize only redraws the page a few times a second.
     private static func stepped(_ s: CGSize) -> CGSize {
-        CGSize(width: (s.width / 16).rounded(.down) * 16, height: (s.height / 16).rounded(.down) * 16)
+        CGSize(width: DashboardMetrics.stepped(s.width), height: DashboardMetrics.stepped(s.height))
     }
 }
 
