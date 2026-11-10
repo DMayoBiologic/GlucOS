@@ -23,7 +23,7 @@ struct ReportModel {
         let carbs: Double
         let doseCount: Int
         let mealCount: Int
-        /// Days the period covers, for per-day averages.
+        /// Days the period covers, for per-day averages. Under 1 for ranges shorter than a day.
         let days: Double
     }
 
@@ -55,7 +55,7 @@ struct ReportModel {
                 basal: inDoses.filter { !$0.kind.isBolus }.reduce(0) { $0 + $1.units },
                 carbs: inMeals.reduce(0) { $0 + $1.carbs },
                 doseCount: inDoses.count, mealCount: inMeals.count,
-                days: max(1, data.range.duration / 86_400))
+                days: data.range.duration / 86_400)
         }
     }
 }
@@ -97,15 +97,18 @@ struct ReportSection: View {
 }
 
 enum ReportExporter {
-    /// Renders the report as a single-page PDF at a printable width.
+    /// Renders the report as a single-page PDF at a printable width. False when the file
+    /// couldn't be created.
     @MainActor
-    static func writePDF(model: ReportModel, to url: URL) {
+    @discardableResult
+    static func writePDF(model: ReportModel, to url: URL) -> Bool {
         let content = ReportView(model: model, printing: true)
             .padding(32)
             .frame(width: 820)
             .background(Color.white)
             .environment(\.colorScheme, .light)
         let renderer = ImageRenderer(content: content)
+        var written = false
         renderer.render { size, draw in
             var box = CGRect(origin: .zero, size: size)
             guard let ctx = CGContext(url as CFURL, mediaBox: &box, nil) else { return }
@@ -113,7 +116,9 @@ enum ReportExporter {
             draw(ctx)
             ctx.endPDFPage()
             ctx.closePDF()
+            written = true
         }
+        return written
     }
 }
 
@@ -421,25 +426,27 @@ struct ReportView: View {
     }
 
     private func logged(_ t: ReportModel.LoggedTotals) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            CardTitle("Logged", trailing: "per day on average")
+        // Under a day, show the totals as they are rather than as a misleading daily figure.
+        let divisor = max(1, t.days)
+        return VStack(alignment: .leading, spacing: 8) {
+            CardTitle("Logged", trailing: t.days >= 1 ? "per day on average" : "in this period")
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
                 if t.bolus > 0 {
                     GridRow {
                         Text("Mealtime / bolus insulin").foregroundStyle(.secondary)
-                        Text(LogFormat.units(t.bolus / t.days)).monospacedDigit()
+                        Text(LogFormat.units(t.bolus / divisor)).monospacedDigit()
                     }
                 }
                 if t.basal > 0 {
                     GridRow {
                         Text("Long-acting insulin").foregroundStyle(.secondary)
-                        Text(LogFormat.units(t.basal / t.days)).monospacedDigit()
+                        Text(LogFormat.units(t.basal / divisor)).monospacedDigit()
                     }
                 }
                 if t.carbs > 0 {
                     GridRow {
                         Text("Carbohydrate").foregroundStyle(.secondary)
-                        Text(LogFormat.grams((t.carbs / t.days).rounded())).monospacedDigit()
+                        Text(LogFormat.grams((t.carbs / divisor).rounded())).monospacedDigit()
                     }
                 }
                 GridRow {

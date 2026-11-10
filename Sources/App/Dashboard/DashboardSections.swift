@@ -371,11 +371,13 @@ struct ReadingsSection: View {
     }
 
     private func matches(_ r: GlucoseReading) -> Bool {
+        // Same classification as the Range column and the time-in-range breakdowns.
+        let range = GlucoseRange.classify(mgdl: r.mgdl, low: data.lowMgdl, high: data.highMgdl)
         switch filter {
         case .all: return true
-        case .below: return r.mgdl < data.lowMgdl
-        case .inRange: return r.mgdl >= data.lowMgdl && r.mgdl <= data.highMgdl
-        case .above: return r.mgdl > data.highMgdl
+        case .below: return range == .urgentLow || range == .low
+        case .inRange: return range == .inRange
+        case .above: return range == .high || range == .veryHigh
         }
     }
 }

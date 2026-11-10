@@ -138,19 +138,21 @@ struct DeltaLabel: View {
 
     var body: some View {
         let up = delta > 0
+        let flat = abs(delta) < 0.0001
         let tint: Color = {
-            guard let goodWhenUp, abs(delta) > 0.0001 else { return .secondary }
+            guard let goodWhenUp, !flat else { return .secondary }
             return up == goodWhenUp ? GlucoseRange.inRange.tint : .orange
         }()
         HStack(spacing: 2) {
-            Image(systemName: abs(delta) < 0.0001 ? "equal" : (up ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill"))
+            Image(systemName: flat ? "equal" : (up ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill"))
                 .imageScale(.small)
             Text(text).monospacedDigit()
         }
         .font(.caption2.weight(.semibold))
         .foregroundStyle(tint)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(up ? "up" : "down") \(text) on the previous period")
+        .accessibilityLabel(flat ? "no change from the previous period"
+                                 : "\(up ? "up" : "down") \(text) from the previous period")
     }
 }
 

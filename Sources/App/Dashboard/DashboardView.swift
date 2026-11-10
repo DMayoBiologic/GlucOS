@@ -341,7 +341,11 @@ struct DashboardView: View {
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.nameFieldStringValue = "GlucOS \(range.shortLabel) \(Date().formatted(.iso8601.year().month().day())).csv"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? GlucoseAnalytics.csv(readings).write(to: url, atomically: true, encoding: .utf8)
+        do {
+            try GlucoseAnalytics.csv(readings).write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            showExportFailure(url)
+        }
     }
 
     private func exportPDF(_ data: DashboardData) {
@@ -349,7 +353,17 @@ struct DashboardView: View {
         panel.allowedContentTypes = [.pdf]
         panel.nameFieldStringValue = "GlucOS Report \(data.domain.upperBound.formatted(.iso8601.year().month().day())).pdf"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        ReportExporter.writePDF(model: reportModel(data), to: url)
+        if !ReportExporter.writePDF(model: reportModel(data), to: url) {
+            showExportFailure(url)
+        }
+    }
+
+    private func showExportFailure(_ url: URL) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Couldn't Save the Report"
+        alert.informativeText = "GlucOS couldn't write \(url.lastPathComponent). Check that the folder exists and you can save there, then try again."
+        alert.runModal()
     }
 }
 
