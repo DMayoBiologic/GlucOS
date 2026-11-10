@@ -67,31 +67,35 @@ struct ReportSection: View {
     let onExport: () -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .center) {
-                    Label("A summary of this period to keep or share with your diabetes team. Pick the period with the range control and the arrows in the toolbar.",
-                          systemImage: "doc.richtext")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 12)
-                    Button(action: onExport) {
-                        Label("Export PDF…", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.data.readings.isEmpty)
-                    .help("Save this report as a PDF (⇧⌘P)")
+        DashboardPage(maxContentWidth: DashboardMetrics.readableWidth) { _ in
+            // The sentence wraps; the button keeps its size.
+            HStack(alignment: .center, spacing: 16) {
+                Label("A summary of this period to keep or share with your diabetes team. Pick the period with the range control and the arrows in the toolbar.",
+                      systemImage: "doc.richtext")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                Button(action: onExport) {
+                    Label("Export PDF…", systemImage: "square.and.arrow.up")
                 }
-                if model.data.readings.isEmpty {
-                    ContentUnavailableView("No Readings in This Period", systemImage: "doc.richtext",
-                                           description: Text("Pick a period with stored readings to build a report."))
-                        .frame(height: 320)
-                } else {
-                    ReportView(model: model, printing: false)
-                }
+                .buttonStyle(.borderedProminent)
+                .fixedSize()
+                .disabled(model.data.readings.isEmpty)
+                .help("Save this report as a PDF (⇧⌘P)")
             }
-            .padding(20)
+            if model.data.readings.isEmpty {
+                ContentUnavailableView {
+                    Label("No Readings in This Period", systemImage: "doc.richtext")
+                } description: {
+                    Text("Pick a period with stored readings to build a report.")
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 320)
+                .dashboardCard()
+            } else {
+                ReportView(model: model, printing: false)
+            }
         }
     }
 }
@@ -124,6 +128,45 @@ enum ReportExporter {
 
 // MARK: - The report
 
+/// Two report cards side by side. On screen they stack when the window is too narrow for both;
+/// the PDF always has the room.
+private struct ReportPair<Leading: View, Trailing: View>: View {
+    let printing: Bool
+    /// Fixed width for the trailing card when side by side. Nil shares the width equally.
+    var trailingWidth: CGFloat?
+    let leading: Leading
+    let trailing: Trailing
+
+    init(printing: Bool, trailingWidth: CGFloat? = nil,
+         @ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) {
+        self.printing = printing
+        self.trailingWidth = trailingWidth
+        self.leading = leading()
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        if printing {
+            sideBySide
+        } else {
+            ViewThatFits(in: .horizontal) {
+                sideBySide
+                VStack(alignment: .leading, spacing: 16) {
+                    leading
+                    trailing
+                }
+            }
+        }
+    }
+
+    private var sideBySide: some View {
+        HStack(alignment: .top, spacing: 16) {
+            leading
+            trailing.frame(width: trailingWidth)
+        }
+    }
+}
+
 struct ReportView: View {
     let model: ReportModel
     /// Flat, light styling for the PDF (materials don't render off screen).
@@ -136,11 +179,11 @@ struct ReportView: View {
         VStack(alignment: .leading, spacing: 16) {
             header
             if let st = data.stats, let b = data.breakdown {
-                HStack(alignment: .top, spacing: 16) {
+                ReportPair(printing: printing, trailingWidth: 250) {
                     metrics(st, b)
                         .reportCard(printing)
+                } trailing: {
                     rangeColumn(b)
-                        .frame(width: 250)
                         .reportCard(printing)
                 }
             }
@@ -156,13 +199,17 @@ struct ReportView: View {
                 dailyTraces
                     .reportCard(printing)
             }
-            HStack(alignment: .top, spacing: 16) {
-                highlights
-                    .reportCard(printing)
-                if let t = model.totals {
+            if let t = model.totals {
+                ReportPair(printing: printing) {
+                    highlights
+                        .reportCard(printing)
+                } trailing: {
                     logged(t)
                         .reportCard(printing)
                 }
+            } else {
+                highlights
+                    .reportCard(printing)
             }
             footer
         }

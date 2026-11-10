@@ -12,6 +12,7 @@ struct LogbookSection: View {
     @EnvironmentObject var settings: AppSettings
     @State private var selection = Set<UUID>()
     @State private var pendingDelete: Set<UUID> = []
+    @Environment(\.dashboardPadding) private var padding
 
     var body: some View {
         let entries = logbook.entries.filter { data.domain.contains($0.timestamp) }
@@ -19,21 +20,25 @@ struct LogbookSection: View {
             if settings.therapy == .notSet {
                 TherapySetupView()
                     .frame(maxWidth: 560, alignment: .leading)
-                    .padding(20)
+                    .glassCard(padding: 18, radius: 18)
+                    .padding(padding)
                 Divider()
             }
             if entries.isEmpty {
                 ContentUnavailableView {
-                    Label("Nothing Logged in This Range", systemImage: "book")
+                    Label("Nothing Logged in This Period", systemImage: "book")
                 } description: {
                     Text("Log insulin and food with the + button (⌘L). Entries show up here and on the Overview chart.")
                 } actions: {
                     Button("Log Insulin or Food…") { open(.new) }
+                        .buttonStyle(.borderedProminent)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 totals(entries)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, padding)
                     .padding(.vertical, 14)
+                Divider()
                 table(entries)
             }
         }
@@ -48,7 +53,7 @@ struct LogbookSection: View {
             case .siteChange, .context: break
             }
         }
-        return HStack(alignment: .top, spacing: 16) {
+        return HStack(alignment: .top, spacing: 20) {
             if settings.therapy.logsInsulin || bolus + basal > 0 {
                 Metric(settings.therapy == .pump ? "Boluses logged" : "Mealtime insulin logged", LogFormat.number(bolus), sub: "units")
                 if settings.therapy == .injections || basal > 0 {
@@ -56,7 +61,7 @@ struct LogbookSection: View {
                 }
             }
             Metric("Carbs logged", LogFormat.number(carbs), sub: "grams")
-            Metric("Entries", "\(entries.count)", sub: data.range.title.lowercased())
+            Metric("Entries", "\(entries.count)", sub: data.isLive ? data.range.title.lowercased() : "in this period")
         }
     }
 
@@ -95,6 +100,7 @@ struct LogbookSection: View {
             }
             .width(min: 60, ideal: 70)
         }
+        .tableStyle(.inset(alternatesRowBackgrounds: true))
         .contextMenu(forSelectionType: UUID.self) { ids in
             if ids.count == 1, let id = ids.first, let entry = logbook.entry(id: id) {
                 Button("Edit…") { open(.edit(entry)) }
@@ -182,45 +188,54 @@ struct InsightsSection: View {
     @EnvironmentObject var settings: AppSettings
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if settings.therapy == .notSet {
-                    TherapySetupView().dashboardCard()
-                } else {
-                    let insights = LogInsights.compute(readings: readings, doses: logbook.doses, meals: logbook.meals,
-                                                       siteChanges: logbook.siteChanges, contexts: logbook.contexts,
-                                                       low: lowMgdl, high: highMgdl,
-                                                       siteOf: { logbook.site(of: $0) })
-                    SafetyNote()
-                    if logbook.isEmpty {
-                        HStack {
-                            Label("Start by logging your insulin and food. Patterns appear here once GlucOS has a few clean examples.",
-                                  systemImage: "book")
-                                .font(.callout)
-                            Spacer()
-                            Button("Log Insulin or Food…", action: onLog)
-                        }
-                        .dashboardCard()
+        DashboardPage(maxContentWidth: DashboardMetrics.readableWidth) { _ in
+            if settings.therapy == .notSet {
+                TherapySetupView().dashboardCard()
+            } else {
+                let insights = LogInsights.compute(readings: readings, doses: logbook.doses, meals: logbook.meals,
+                                                   siteChanges: logbook.siteChanges, contexts: logbook.contexts,
+                                                   low: lowMgdl, high: highMgdl,
+                                                   siteOf: { logbook.site(of: $0) })
+                SafetyNote()
+                if logbook.isEmpty {
+                    // The sentence wraps; the button keeps its size.
+                    HStack(alignment: .center, spacing: 16) {
+                        startLogging
+                        Spacer(minLength: 12)
+                        logButton
                     }
-                    if settings.therapy.logsInsulin {
-                        InsulinActionCard(insights: insights, unit: unit)
-                    }
-                    MealResponseCard(insights: insights, unit: unit, showsInsulin: settings.therapy.logsInsulin)
-                    if settings.therapy == .pump {
-                        SiteAgeCard(buckets: insights.siteAge, unit: unit, hasSiteChanges: !logbook.siteChanges.isEmpty)
-                    }
-                    if settings.therapy == .injections {
-                        SiteRotationCard()
-                    }
-                    Text(periodText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    .dashboardCard()
                 }
-                Disclaimer()
+                if settings.therapy.logsInsulin {
+                    InsulinActionCard(insights: insights, unit: unit)
+                }
+                MealResponseCard(insights: insights, unit: unit, showsInsulin: settings.therapy.logsInsulin)
+                if settings.therapy == .pump {
+                    SiteAgeCard(buckets: insights.siteAge, unit: unit, hasSiteChanges: !logbook.siteChanges.isEmpty)
+                }
+                if settings.therapy == .injections {
+                    SiteRotationCard()
+                }
+                Text(periodText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(20)
+            Disclaimer()
         }
+    }
+
+    private var startLogging: some View {
+        Label("Start by logging your insulin and food. Patterns appear here once GlucOS has a few clean examples.",
+              systemImage: "book")
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var logButton: some View {
+        Button("Log Insulin or Food…", action: onLog)
+            .buttonStyle(.borderedProminent)
+            .fixedSize()
     }
 
     private var periodText: String {
@@ -241,7 +256,7 @@ private struct SafetyNote: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "stethoscope")
                 .font(.title3)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Palette.amber)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Observations, not advice")
                     .font(.headline)
@@ -251,9 +266,10 @@ private struct SafetyNote: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Palette.amber.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Palette.amber.opacity(0.3), lineWidth: 0.75))
     }
 }
 
@@ -306,8 +322,8 @@ private struct InsulinActionCard: View {
     var body: some View {
         let overall = insights.overall
         VStack(alignment: .leading, spacing: 14) {
-            CardTitle("How Long Insulin Seems to Work",
-                      trailing: "\(overall.examples) usable of \(insights.bolusCount) boluses")
+            DashboardCardHeader("How Long Insulin Seems to Work",
+                                subtitle: "\(overall.examples) usable of \(insights.bolusCount) boluses")
             if overall.examples < need {
                 NeedsMore(have: overall.examples, need: need,
                           explanation: "GlucOS reads this from boluses taken without food: nothing eaten from 90 minutes before to 3 hours after, no other bolus in the 3 hours before, and steady sensor data. Logging every dose and meal, including snacks and hypo treatments, lets GlucOS tell which doses had nothing else going on.")
@@ -319,27 +335,29 @@ private struct InsulinActionCard: View {
                     ResponseCurveChart(series: series, unit: unit, xLabel: "Hours after the bolus")
                         .frame(height: 220)
                 }
-                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
-                    GridRow {
-                        Text("Site")
-                        Text("Examples")
-                        Text("Starts working")
-                        Text("Stops falling after")
-                        Text("Drop per unit")
-                    }
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    Divider().gridCellUnsizedAxes(.horizontal)
-                    ForEach([overall] + insights.byArea + insights.byTag) { s in
+                HorizontalOverflow {
+                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
                         GridRow {
-                            Text(s.title).fontWeight(s.area == nil ? .semibold : .regular)
-                            Text("\(s.examples)").monospacedDigit()
-                            Text(durationSpread(s.onset, need: need, have: s.measurable))
-                            Text(durationSpread(s.timeToLowest, need: need, have: s.measurable))
-                            Text(glucoseSpread(s.dropPerUnit, need: need, have: s.examples, unit: unit))
+                            Text("Site")
+                            Text("Examples")
+                            Text("Starts working")
+                            Text("Stops falling after")
+                            Text("Drop per unit")
                         }
-                        .font(.callout)
-                        .monospacedDigit()
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        Divider().gridCellUnsizedAxes(.horizontal)
+                        ForEach([overall] + insights.byArea + insights.byTag) { s in
+                            GridRow {
+                                Text(s.title).fontWeight(s.area == nil ? .semibold : .regular)
+                                Text("\(s.examples)").monospacedDigit()
+                                Text(durationSpread(s.onset, need: need, have: s.measurable))
+                                Text(durationSpread(s.timeToLowest, need: need, have: s.measurable))
+                                Text(glucoseSpread(s.dropPerUnit, need: need, have: s.examples, unit: unit))
+                            }
+                            .font(.callout)
+                            .monospacedDigit()
+                        }
                     }
                 }
             }
@@ -387,7 +405,7 @@ private struct MealResponseCard: View {
             : [MealRow(name: "Meals", summary: insights.mealsWithoutInsulin)]
         let usable = insights.mealResponses.count
         VStack(alignment: .leading, spacing: 14) {
-            CardTitle("After Meals", trailing: "\(usable) usable of \(insights.mealCount) logged")
+            DashboardCardHeader("After Meals", subtitle: "\(usable) usable of \(insights.mealCount) logged")
             if rows.allSatisfy({ $0.summary.examples < need }) {
                 NeedsMore(have: rows.map(\.summary.examples).max() ?? 0, need: need,
                           explanation: "GlucOS reads this from meals with carbs logged, no other food in the 2 hours before, and steady sensor data for at least 2 hours after.")
@@ -398,28 +416,30 @@ private struct MealResponseCard: View {
                     ResponseCurveChart(series: series, unit: unit, xLabel: "Hours after eating")
                         .frame(height: 200)
                 }
-                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
-                    GridRow {
-                        Text("")
-                        Text("Examples")
-                        Text("Typical rise")
-                        Text("Peak after")
-                        Text("Rise per 10 g carbs")
-                    }
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    Divider().gridCellUnsizedAxes(.horizontal)
-                    ForEach(rows) { row in
-                        let s = row.summary
+                HorizontalOverflow {
+                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
                         GridRow {
-                            Text(row.name).fontWeight(.semibold)
-                            Text("\(s.examples)").monospacedDigit()
-                            Text(glucoseSpread(s.rise, need: need, have: s.examples, unit: unit))
-                            Text(durationSpread(s.timeToPeak, need: need, have: s.examples))
-                            Text(glucoseSpread(s.risePer10g, need: need, have: s.examples, unit: unit))
+                            Text("")
+                            Text("Examples")
+                            Text("Typical rise")
+                            Text("Peak after")
+                            Text("Rise per 10 g carbs")
                         }
-                        .font(.callout)
-                        .monospacedDigit()
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        Divider().gridCellUnsizedAxes(.horizontal)
+                        ForEach(rows) { row in
+                            let s = row.summary
+                            GridRow {
+                                Text(row.name).fontWeight(.semibold)
+                                Text("\(s.examples)").monospacedDigit()
+                                Text(glucoseSpread(s.rise, need: need, have: s.examples, unit: unit))
+                                Text(durationSpread(s.timeToPeak, need: need, have: s.examples))
+                                Text(glucoseSpread(s.risePer10g, need: need, have: s.examples, unit: unit))
+                            }
+                            .font(.callout)
+                            .monospacedDigit()
+                        }
                     }
                 }
             }
@@ -446,7 +466,7 @@ private struct SiteAgeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            CardTitle("Glucose by Day of Site Wear")
+            DashboardCardHeader("Glucose by Day of Site Wear")
             if buckets.isEmpty {
                 NeedsMore(have: 0, need: 2,
                           explanation: hasSiteChanges
@@ -484,7 +504,7 @@ private struct SiteRotationCard: View {
         let since = Date().addingTimeInterval(-14 * 86_400)
         let recent = Dictionary(grouping: logbook.doses.filter { !$0.viaPump && $0.timestamp >= since && $0.site != nil }) { $0.site! }
         VStack(alignment: .leading, spacing: 14) {
-            CardTitle("Injection Sites", trailing: "last 14 days")
+            DashboardCardHeader("Injection Sites", subtitle: "Last 14 days")
             if last.isEmpty {
                 Text("Choose an injection site when you log a dose to see how you've been rotating.")
                     .font(.callout)

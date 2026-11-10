@@ -86,6 +86,200 @@ extension View {
     }
 }
 
+// MARK: - Page layout
+
+/// Spacing and widths shared by the dashboard sections, so every page breathes the same way.
+enum DashboardMetrics {
+    /// Past this the cards get too wide to scan; the content centres instead.
+    static let maxContentWidth: CGFloat = 1560
+    /// Long-form pages (Insights, Report) read better narrower.
+    static let readableWidth: CGFloat = 1080
+
+    /// Space between the window edge and the content.
+    static func padding(for width: CGFloat) -> CGFloat {
+        width < 700 ? 16 : (width < 1240 ? 20 : 28)
+    }
+
+    /// Space between cards.
+    static func gutter(for width: CGFloat) -> CGFloat {
+        width < 700 ? 12 : (width < 1240 ? 16 : 20)
+    }
+}
+
+/// The space a dashboard page has to work with, so sections pick a layout from real numbers
+/// rather than guessing.
+struct DashboardLayout {
+    /// The page's whole visible area.
+    let size: CGSize
+    var maxContentWidth: CGFloat = DashboardMetrics.maxContentWidth
+
+    var padding: CGFloat { DashboardMetrics.padding(for: size.width) }
+    var gutter: CGFloat { DashboardMetrics.gutter(for: size.width) }
+    /// Width left for content once the page padding is taken off.
+    var contentWidth: CGFloat { max(0, min(size.width - padding * 2, maxContentWidth)) }
+
+    enum WidthClass { case compact, regular, wide }
+
+    /// Compact: half a laptop screen. Wide: a full-screen window on a big display.
+    var widthClass: WidthClass {
+        contentWidth < 640 ? .compact : (contentWidth < 1060 ? .regular : .wide)
+    }
+
+    /// Height for a page's main chart: grows with the window, but leaves room to see the next
+    /// card start so the page never looks like it ends at the chart, and never gets taller than
+    /// it is wide.
+    func chartHeight(reserving reserved: CGFloat, minimum: CGFloat = 260, maximum: CGFloat = 560) -> CGFloat {
+        let byHeight = size.height - reserved
+        let byWidth = contentWidth * 0.5
+        return min(maximum, max(minimum, min(byHeight, byWidth)))
+    }
+}
+
+/// A scrolling dashboard page: consistent padding and spacing, content centred and capped in
+/// width so it stays readable on a big full-screen window.
+struct DashboardPage<Content: View>: View {
+    var maxContentWidth: CGFloat
+    let content: (DashboardLayout) -> Content
+
+    init(maxContentWidth: CGFloat = DashboardMetrics.maxContentWidth,
+         @ViewBuilder content: @escaping (DashboardLayout) -> Content) {
+        self.maxContentWidth = maxContentWidth
+        self.content = content
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let layout = DashboardLayout(size: geo.size, maxContentWidth: maxContentWidth)
+            ScrollView {
+                VStack(alignment: .leading, spacing: layout.gutter) {
+                    content(layout)
+                }
+                .frame(width: layout.contentWidth, alignment: .leading)
+                .padding(layout.padding)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+/// Padding used by the full-height pages (tables) and the notice stack, so their edges line up
+/// with the scrolling pages'.
+private struct DashboardPaddingKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 20
+}
+
+extension EnvironmentValues {
+    var dashboardPadding: CGFloat {
+        get { self[DashboardPaddingKey.self] }
+        set { self[DashboardPaddingKey.self] = newValue }
+    }
+}
+
+/// Measures a view's width without taking part in layout.
+struct WidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+// MARK: - Card header
+
+/// A card's title, an optional line under it, and controls on the right. The controls drop
+/// under the title when the card is too narrow for both, so nothing gets squeezed.
+struct DashboardCardHeader<Accessory: View>: View {
+    let title: String
+    var subtitle: String?
+    let accessory: Accessory
+
+    init(_ title: String, subtitle: String? = nil, @ViewBuilder accessory: () -> Accessory) {
+        self.title = title
+        self.subtitle = subtitle
+        self.accessory = accessory()
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 12) {
+                titles
+                Spacer(minLength: 12)
+                accessory
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                titles
+                accessory
+            }
+        }
+    }
+
+    private var titles: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(.headline, design: .rounded).weight(.bold))
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .layoutPriority(1)
+    }
+}
+
+extension DashboardCardHeader where Accessory == EmptyView {
+    init(_ title: String, subtitle: String? = nil) {
+        self.init(title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
+/// Wide tables of numbers: shown as they are when they fit, scrolled sideways when the card is
+/// too narrow, rather than squashing every column.
+struct HorizontalOverflow<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            content
+            ScrollView(.horizontal) {
+                content.padding(.bottom, 8)
+            }
+        }
+    }
+}
+
+/// The bar above a full-height table: filters on the left, a count on the right, with the
+/// page's padding so it lines up with the cards on other sections.
+struct TableHeaderBar<Leading: View, Trailing: View>: View {
+    @Environment(\.dashboardPadding) private var padding
+    let leading: Leading
+    let trailing: Trailing
+
+    init(@ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) {
+        self.leading = leading()
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                leading
+                Spacer(minLength: 8)
+                trailing
+            }
+            .padding(.horizontal, padding)
+            .padding(.vertical, 10)
+            Divider()
+        }
+    }
+}
+
 // MARK: - Card grid
 
 /// Lays cards out in as many equal columns as fit, at least `minColumnWidth` each, and always
@@ -95,13 +289,26 @@ struct CardGrid: Layout {
     var minColumnWidth: CGFloat = 300
     var maxColumns = 3
     var spacing: CGFloat = 16
+    /// Only use column counts that divide the cards evenly (4 cards: 4, 2 or 1 across), so a
+    /// set of tiles never ends with one stretched across a row on its own.
+    var evenRows = false
+    /// Stretch the rows to fill a taller proposal, so the grid lines up with a neighbour.
+    var fillsHeight = false
 
     private func columns(for width: CGFloat, count: Int) -> Int {
         guard count > 0 else { return 1 }
         // SwiftUI can probe a layout with an infinite width; Int(.infinity) would trap.
-        guard width.isFinite else { return max(1, min(count, maxColumns)) }
-        let fit = Int(((width + spacing) / (minColumnWidth + spacing)).rounded(.down))
-        return max(1, min(count, maxColumns, fit))
+        var cols: Int
+        if width.isFinite {
+            let fit = Int(((width + spacing) / (minColumnWidth + spacing)).rounded(.down))
+            cols = max(1, min(count, maxColumns, fit))
+        } else {
+            cols = max(1, min(count, maxColumns))
+        }
+        if evenRows {
+            while cols > 1 && count % cols != 0 { cols -= 1 }
+        }
+        return cols
     }
 
     /// Indices of the subviews in each row.
@@ -127,12 +334,19 @@ struct CardGrid: Layout {
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? ideal
         let heights = rowHeights(subviews, width: width).map { $0.1 }
         let total = heights.reduce(0, +) + spacing * CGFloat(max(0, heights.count - 1))
+        if fillsHeight, let h = proposal.height, h.isFinite, h > total {
+            return CGSize(width: width, height: h)
+        }
         return CGSize(width: width, height: total)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = rowHeights(subviews, width: bounds.width)
+        let natural = rows.reduce(0) { $0 + $1.1 } + spacing * CGFloat(max(0, rows.count - 1))
+        let extra = fillsHeight && !rows.isEmpty ? max(0, bounds.height - natural) / CGFloat(rows.count) : 0
         var y = bounds.minY
-        for (row, height) in rowHeights(subviews, width: bounds.width) {
+        for (row, naturalHeight) in rows {
+            let height = naturalHeight + extra
             let w = itemWidth(bounds.width, inRowOf: row.count)
             var x = bounds.minX
             for i in row {
@@ -166,6 +380,7 @@ struct DashboardNoticeStack: View {
     let notices: [DashboardNotice]
     @Binding var dismissed: Set<String>
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dashboardPadding) private var padding
 
     var body: some View {
         let shown = notices.filter { !dismissed.contains($0.id) }.sorted { $0.severity < $1.severity }
@@ -177,8 +392,8 @@ struct DashboardNoticeStack: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .padding(.horizontal, shown.isEmpty ? 0 : 20)
-        .padding(.top, shown.isEmpty ? 0 : 14)
+        .padding(.horizontal, shown.isEmpty ? 0 : padding)
+        .padding(.top, shown.isEmpty ? 0 : 12)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: shown.map(\.id))
     }
 

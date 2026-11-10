@@ -21,6 +21,9 @@ struct DashboardView: View {
     /// Notices closed this session. Keyed by content, so a new problem shows again.
     @State private var dismissedNotices: Set<String> = []
     @State private var toast: DashboardToast?
+    /// Width of the detail column, so the notices and the table pages use the same padding as
+    /// the scrolling pages.
+    @State private var detailWidth: CGFloat = 900
 
     @AppStorage("dashboardRange") private var range: DashboardRange = .h24
     @AppStorage("dashboardSection") private var section: DashboardSection = .overview
@@ -40,7 +43,15 @@ struct DashboardView: View {
                 detail(data)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .environment(\.dashboardPadding, DashboardMetrics.padding(for: detailWidth))
+            .background(GeometryReader { geo in
+                Color.clear.preference(key: WidthPreferenceKey.self, value: geo.size.width)
+            })
+            .onPreferenceChange(WidthPreferenceKey.self) { width in
+                if width > 0 { detailWidth = width }
+            }
             .overlay(alignment: .bottom) { toastView }
+            .sheet(isPresented: $showShortcuts) { ShortcutsHelp() }
             .background(alignment: .top) {
                 AmbientGlow(tint: store.snapshot.displayTint(), intensity: 0.35)
                     .frame(height: 320)
@@ -130,12 +141,30 @@ struct DashboardView: View {
             }
         default:
             if store.archive.isEmpty {
-                ContentUnavailableView {
-                    Label("No Readings Yet", systemImage: "drop")
-                } description: {
-                    Text(settings.hasCredentials
-                         ? "Readings appear here as soon as GlucOS fetches them from LibreLinkUp."
-                         : "Sign in with your LibreLinkUp follower account in Settings to start.")
+                if store.isRefreshing && settings.hasCredentials {
+                    VStack(spacing: 14) {
+                        ProgressView().controlSize(.large)
+                        Text("Fetching your readings…").font(.headline)
+                        Text("This usually takes a few seconds.").font(.callout).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityElement(children: .combine)
+                } else {
+                    ContentUnavailableView {
+                        Label(settings.hasCredentials ? "No Readings Yet" : "Connect LibreLinkUp", systemImage: "drop")
+                    } description: {
+                        Text(settings.hasCredentials
+                             ? "Readings appear here as soon as GlucOS fetches them from LibreLinkUp."
+                             : "Sign in with your LibreLinkUp follower account in Settings to start.")
+                    } actions: {
+                        if settings.hasCredentials {
+                            Button("Refresh Now") { Task { await store.refresh() } }
+                                .buttonStyle(.borderedProminent)
+                        } else {
+                            Button("Open Settings…") { openSettings() }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    }
                 }
             } else {
                 switch section {
@@ -318,12 +347,6 @@ struct DashboardView: View {
             }
             .help("Export the readings or a report for this period")
 
-            Toggle(isOn: $keepOnTop) {
-                Label("Keep on Top", systemImage: keepOnTop ? "pin.fill" : "pin")
-            }
-            .disabled(windowState.isFullScreen)
-            .help("Keep this window above other windows")
-
             Button { windowState.toggleFullScreen() } label: {
                 Label(windowState.isFullScreen ? "Exit Full Screen" : "Enter Full Screen",
                       systemImage: windowState.isFullScreen
@@ -333,11 +356,16 @@ struct DashboardView: View {
             .keyboardShortcut("f", modifiers: [.command, .control])
             .help(windowState.isFullScreen ? "Exit full screen (⌃⌘F)" : "Enter full screen (⌃⌘F)")
 
-            Button { showShortcuts.toggle() } label: {
-                Label("Keyboard Shortcuts", systemImage: "keyboard")
+            // Less-used window options, out of the way so the toolbar doesn't crowd.
+            Menu {
+                Toggle("Keep on Top", isOn: $keepOnTop)
+                    .disabled(windowState.isFullScreen)
+                Divider()
+                Button("Keyboard Shortcuts…") { showShortcuts = true }
+            } label: {
+                Label("More", systemImage: keepOnTop ? "pin.circle.fill" : "ellipsis.circle")
             }
-            .help("Keyboard shortcuts")
-            .popover(isPresented: $showShortcuts, arrowEdge: .bottom) { ShortcutsHelp() }
+            .help(keepOnTop ? "Window options. Keep on Top is on." : "Window options and keyboard shortcuts (⌘/)")
         }
     }
 
@@ -347,8 +375,8 @@ struct DashboardView: View {
         })
     }
 
-    /// ⌘1–⌘7 pick a section, ⌃1–⌃8 a range. Invisible buttons, so the shortcuts work from anywhere
-    /// in the window.
+    /// ⌘1–⌘7 pick a section, ⌃1–⌃8 a range, ⌘/ lists the shortcuts. Invisible buttons, so the
+    /// shortcuts work from anywhere in the window.
     private var shortcutButtons: some View {
         ZStack {
             ForEach(DashboardSection.allCases) { s in
@@ -359,6 +387,8 @@ struct DashboardView: View {
                 Button(r.title) { rangeBinding.wrappedValue = r }
                     .keyboardShortcut(KeyEquivalent(Character(String(i + 1))), modifiers: .control)
             }
+            Button("Keyboard Shortcuts") { showShortcuts = true }
+                .keyboardShortcut("/", modifiers: .command)
         }
         .buttonStyle(.plain)
         .opacity(0)
@@ -553,21 +583,34 @@ private struct ShortcutsHelp: View {
         ("⌘R", "Refresh"),
         ("⌃⌘F", "Enter or exit full screen"),
         ("⇧⌘P", "Export report as PDF"),
+        ("⌘/", "Show this list"),
     ]
 
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Keyboard Shortcuts").font(.headline)
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Keyboard Shortcuts")
+                .font(.system(.title3, design: .rounded).weight(.bold))
+            Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
                 ForEach(rows.indices, id: \.self) { i in
                     GridRow {
-                        Text(rows[i].0).font(.callout.monospaced()).foregroundStyle(.secondary)
+                        Text(rows[i].0)
+                            .font(.callout.monospaced())
+                            .foregroundStyle(.secondary)
+                            .gridColumnAlignment(.trailing)
                         Text(rows[i].1).font(.callout)
                     }
                 }
             }
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
         }
-        .padding(16)
+        .padding(24)
+        .frame(minWidth: 380)
     }
 }
 
@@ -601,7 +644,7 @@ private struct CurrentReadingTile: View {
                     if let d = snapshot.deltaMgdl, !stale { Text("· \(snapshot.unit.formatDelta(mgdl: d))").monospacedDigit() }
                     Spacer(minLength: 0)
                     Text(Format.age(cur.age(at: now)))
-                        .foregroundStyle(stale ? Color.orange : Color.secondary)
+                        .foregroundStyle(stale ? Palette.amber : Color.secondary)
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -613,7 +656,7 @@ private struct CurrentReadingTile: View {
                 if stale {
                     Label("No new reading. Check your sensor.", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Palette.amber)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

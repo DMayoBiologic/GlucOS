@@ -119,51 +119,49 @@ struct TrendChart: View {
 
     // MARK: Controls
 
+    /// Title and the visible stretch on the left, chart controls on the right. The controls
+    /// move under the title on a narrow card instead of squeezing it.
     private var controls: some View {
-        HStack(spacing: 8) {
-            Text(visibleCaption)
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .lineLimit(1)
-                .accessibilityLabel("Showing \(visibleCaption)")
-            Spacer(minLength: 8)
-            if isZoomed && !atLatest {
-                Button("Latest") { scrollStart = domain.upperBound.addingTimeInterval(-visible) }
-                    .help("Jump to the most recent readings in this period")
-            }
-            overlaysMenu
-            ControlGroup {
-                Button { pan(-0.5) } label: { Image(systemName: "chevron.left") }
-                    .help("Pan earlier (⌥←)")
-                    .keyboardShortcut(.leftArrow, modifiers: .option)
-                    .disabled(!isZoomed || atEarliest)
-                    .accessibilityLabel("Pan earlier")
-                Button { zoom(to: visible * 2) } label: { Image(systemName: "minus.magnifyingglass") }
-                    .help("Zoom out (⌘−)")
-                    .keyboardShortcut("-", modifiers: .command)
-                    .disabled(!isZoomed)
-                    .accessibilityLabel("Zoom out")
-                Button { zoom(to: visible / 2) } label: { Image(systemName: "plus.magnifyingglass") }
-                    .help("Zoom in (⌘+)")
-                    .keyboardShortcut("=", modifiers: .command)
-                    .disabled(visible <= Self.minimumVisible)
-                    .accessibilityLabel("Zoom in")
-                Button { zoom(to: fullLength) } label: { Image(systemName: "arrow.left.and.right") }
-                    .help("Show the whole period (⌘0)")
-                    .keyboardShortcut("0", modifiers: .command)
-                    .disabled(!isZoomed)
-                    .accessibilityLabel("Show the whole period")
-                Button { pan(0.5) } label: { Image(systemName: "chevron.right") }
-                    .help("Pan later (⌥→)")
-                    .keyboardShortcut(.rightArrow, modifiers: .option)
-                    .disabled(!isZoomed || atLatest)
-                    .accessibilityLabel("Pan later")
+        DashboardCardHeader("Glucose", subtitle: visibleCaption) {
+            HStack(spacing: 8) {
+                if isZoomed && !atLatest {
+                    Button("Latest") { scrollStart = domain.upperBound.addingTimeInterval(-visible) }
+                        .help("Jump to the most recent readings in this period")
+                }
+                overlaysMenu
+                ControlGroup {
+                    Button { pan(-0.5) } label: { Image(systemName: "chevron.left") }
+                        .help("Pan earlier (⌥←)")
+                        .keyboardShortcut(.leftArrow, modifiers: .option)
+                        .disabled(!isZoomed || atEarliest)
+                        .accessibilityLabel("Pan earlier")
+                    Button { zoom(to: visible * 2) } label: { Image(systemName: "minus.magnifyingglass") }
+                        .help("Zoom out (⌘−)")
+                        .keyboardShortcut("-", modifiers: .command)
+                        .disabled(!isZoomed)
+                        .accessibilityLabel("Zoom out")
+                    Button { zoom(to: visible / 2) } label: { Image(systemName: "plus.magnifyingglass") }
+                        .help("Zoom in (⌘+)")
+                        .keyboardShortcut("=", modifiers: .command)
+                        .disabled(visible <= Self.minimumVisible)
+                        .accessibilityLabel("Zoom in")
+                    Button { zoom(to: fullLength) } label: { Image(systemName: "arrow.left.and.right") }
+                        .help("Show the whole period (⌘0)")
+                        .keyboardShortcut("0", modifiers: .command)
+                        .disabled(!isZoomed)
+                        .accessibilityLabel("Show the whole period")
+                    Button { pan(0.5) } label: { Image(systemName: "chevron.right") }
+                        .help("Pan later (⌥→)")
+                        .keyboardShortcut(.rightArrow, modifiers: .option)
+                        .disabled(!isZoomed || atLatest)
+                        .accessibilityLabel("Pan later")
+                }
             }
             .fixedSize()
+            // Full-size controls: these are the main way to move around the chart.
+            .controlSize(.regular)
         }
-        // Full-size controls: these are the main way to move around the chart.
-        .controlSize(.regular)
+        .accessibilityElement(children: .contain)
     }
 
     private var overlaysMenu: some View {
@@ -208,11 +206,23 @@ struct TrendChart: View {
         }
     }
 
+    /// The stretch on screen. Names the day whenever it crosses midnight, so a 24-hour view
+    /// doesn't read "6:30 pm – 6:30 pm".
     private var visibleCaption: String {
-        let style: Date.FormatStyle = fullLength > 86_400
-            ? .dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()
-            : .dateTime.hour().minute()
-        return "\(viewStart.formatted(style)) – \(viewEnd.formatted(style))"
+        let crossesDay = !Calendar.current.isDate(viewStart, inSameDayAs: viewEnd.addingTimeInterval(-1))
+        let style: Date.FormatStyle
+        if visible > 2 * 86_400 {
+            style = .dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()
+        } else if crossesDay {
+            style = .dateTime.weekday(.abbreviated).hour().minute()
+        } else {
+            style = .dateTime.hour().minute()
+        }
+        let text = "\(viewStart.formatted(style)) – \(viewEnd.formatted(style))"
+        if !crossesDay && !Calendar.current.isDateInToday(viewStart) {
+            return "\(viewStart.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))), \(text)"
+        }
+        return text
     }
 
     // MARK: Zoom and pan
@@ -328,13 +338,21 @@ struct TrendChart: View {
         .chartXSelection(value: $hoverDate)
         .chartXSelection(range: $selection)
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 6)) { _ in
+            AxisMarks(values: .automatic(desiredCount: 6)) { value in
+                // A label right at either edge is pulled inside the plot so it isn't cut off.
+                let edge = visible * 0.05
+                let anchor: UnitPoint = {
+                    guard let d = value.as(Date.self) else { return .top }
+                    if d > viewEnd.addingTimeInterval(-edge) { return .topTrailing }
+                    if d < viewStart.addingTimeInterval(edge) { return .topLeading }
+                    return .top
+                }()
                 AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                 AxisTick()
                 if visible > 36 * 3600 {
-                    AxisValueLabel(format: .dateTime.weekday(.abbreviated).day())
+                    AxisValueLabel(format: .dateTime.weekday(.abbreviated).day(), anchor: anchor)
                 } else {
-                    AxisValueLabel(format: .dateTime.hour().minute())
+                    AxisValueLabel(format: .dateTime.hour().minute(), anchor: anchor)
                 }
             }
         }
@@ -351,7 +369,6 @@ struct TrendChart: View {
         .accessibilityLabel("Glucose chart")
         .accessibilityChartDescriptor(GlucoseChartDescriptor(points: points, domain: domain, yDomain: yd, unit: unit,
                                                              lowMgdl: lowMgdl, highMgdl: highMgdl))
-        .help("Hover to read a reading. Drag across the chart to select a stretch. Pinch or use the zoom buttons to zoom, scroll sideways to pan.")
     }
 }
 
@@ -401,7 +418,7 @@ private struct GapMarks: ChartContent {
                 .annotation(position: .overlay, alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Palette.amber)
                         .help("No new readings since \(t.start.formatted(date: .omitted, time: .shortened))")
                         .accessibilityLabel("No new readings since \(t.start.formatted(date: .omitted, time: .shortened))")
                 }
