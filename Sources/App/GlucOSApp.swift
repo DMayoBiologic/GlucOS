@@ -83,6 +83,12 @@ struct MenuBarLabel: View {
                 NSApp.activate()
             }
         }
+        // The label lives as long as the app, so it's the one place that can always open the
+        // dashboard window for a glucos://dashboard link.
+        .onReceive(NotificationCenter.default.publisher(for: .glucosOpenDashboard)) { _ in
+            openWindow(id: DashboardView.windowID)
+            NSApp.activate()
+        }
     }
 }
 

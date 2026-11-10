@@ -51,6 +51,11 @@ final class GlucoseStore: ObservableObject {
         tick.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
+        // The widget's refresh button.
+        WidgetBridge.observeRefreshRequests { [weak self] in
+            Task { @MainActor in await self?.refresh() }
+        }
+
         record(snapshot)
     }
 
