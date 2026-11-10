@@ -28,6 +28,18 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 
 - **Click the widget** (or a GlucOS notification, or launch GlucOS again from Finder/Spotlight) to open
   the menu bar popover.
+- **Widgets** (right-click the desktop → **Edit Widgets** → "GlucOS"):
+  - **Glucose** in small, medium, large and extra large. Right-click → **Edit "Glucose"** to pick the
+    chart window (automatic, 3h, 6h or 12h) and whether the refresh button and statistics show.
+    The refresh button asks GlucOS for a new reading without opening anything.
+  - **Time in Range** (small, medium): five-range breakdown, average, GMI and CV over the last 12h,
+    24h, 7 or 14 days, from the locally kept history. Warns when the period has gaps in the data.
+  - **Sensor** (small): time left on the current sensor and when it ends.
+
+  A reading older than 6 minutes is greyed and marked **Stale**, with no trend arrow; after 30 minutes
+  the number is replaced by dashes and "Last 7.2 at 2:05 pm". The chart always runs to *now*, so missing
+  data shows as an empty stretch, never a flat line. On a tinted or unfocused desktop, where colour is
+  removed, every state is still spelled out in words.
 - **The popover** leads with the current reading, how long it's been in that range, and how fresh it
   is (a slim meter fills toward the 6-minute stale mark). Stale readings are greyed, crossed through
   and flagged with a "don't treat from this value" banner. Below that: the chart, your last logged
@@ -123,13 +135,14 @@ project.yml              XcodeGen spec — app + widget targets, Sparkle package
 Sources/Shared/          models, stats, shared snapshot store, chart (compiled into both targets)
 Sources/App/             menu bar app: LibreLinkUp client, Keychain, poll loop, alerts, Sparkle, views,
                          app delegate (glucos:// URLs, notification presentation), Assets.xcassets (app icon)
-Sources/Widget/          WidgetKit extension: timeline provider + small/medium/large views
+Sources/Widget/          WidgetKit extension: Glucose, Time in Range and Sensor widgets, configuration + refresh intents
 scripts/make_app_icon.py regenerates the app icon PNGs (Pillow)
 .github/workflows/       ci.yml (compile check), release.yml (merge to main → release + appcast)
 ```
 
 The app polls every 60 s, writes `~/Library/Application Support/GlucOS/snapshot.json`, then calls
-`WidgetCenter.reloadAllTimelines()`. The widget only reads that file — no network, no credentials.
+`WidgetCenter.reloadAllTimelines()`. The widget only reads that file (and `history.json` for Time in
+Range) — no network, no credentials. Its refresh button posts a Darwin notification the app listens for.
 
 ## Alerts
 

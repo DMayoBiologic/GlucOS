@@ -3,7 +3,7 @@ import os
 import UserNotifications
 
 /// App-level plumbing SwiftUI's `App` doesn't cover for a menu bar app:
-/// - `glucos://open` (widget taps) and re-opening the app from Finder/Spotlight show the popover.
+/// - `glucos://open` (widget taps) and re-opening the app from Finder/Spotlight show the popover; `glucos://dashboard` opens the dashboard.
 /// - Notifications still appear while GlucOS is the active app, and clicking one shows the popover.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -25,8 +25,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
         guard let string = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
               let url = URL(string: string), url.scheme == "glucos" else { return }
-        // Every glucos:// URL currently means "show me the reading".
-        StatusItemPopover.show()
+        switch url.host {
+        case "dashboard":
+            // Opened by whoever can reach SwiftUI's openWindow (see MenuBarLabel).
+            NotificationCenter.default.post(name: .glucosOpenDashboard, object: nil)
+        default:
+            // glucos://open and anything unrecognised: show the reading.
+            StatusItemPopover.show()
+        }
     }
 
     /// Launching GlucOS again (Finder, Spotlight, Launchpad, clicking the widget) while it's running.
@@ -51,6 +57,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in StatusItemPopover.show() }
         completionHandler()
     }
+}
+
+extension Notification.Name {
+    /// Posted for `glucos://dashboard` (the widgets' dashboard button).
+    static let glucosOpenDashboard = Notification.Name("au.com.declanmayo.glucos.open-dashboard")
 }
 
 /// Opens the `MenuBarExtra` popover programmatically. SwiftUI has no API for this, so it clicks
