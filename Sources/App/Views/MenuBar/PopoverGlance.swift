@@ -1,10 +1,18 @@
 import SwiftUI
 
-/// Time in range and summary stats over a chosen period, plus sensor life. Second in the
-/// hierarchy: the hero says "now", this says "lately".
-struct PopoverGlanceCard: View {
+/// Time in range over a chosen period, plus the last dose and meal. Second in the hierarchy:
+/// the hero says "now", this says "lately".
+///
+/// Collapsed it's one bar and one legend line. "Details" (⌘I) adds average, variability,
+/// GMI or range, and sensor life, so the popover stays short until you ask for more.
+struct PopoverSummaryCard: View {
     @EnvironmentObject var store: GlucoseStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("popoverGlanceWindow") private var windowRaw = GlanceWindow.day.rawValue
+
+    @Binding var expanded: Bool
+    var showsShortcuts: Bool
+    var onOpenDashboard: () -> Void
 
     private var s: GlucoseSnapshot { store.snapshot }
     private var window: GlanceWindow { GlanceWindow(rawValue: windowRaw) ?? .day }
@@ -12,58 +20,22 @@ struct PopoverGlanceCard: View {
     var body: some View {
         let st = store.glanceStats(window)
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Eyebrow(title: "At a glance", systemImage: "target")
-                Picker("Summary period", selection: $windowRaw) {
-                    ForEach(GlanceWindow.allCases) { w in
-                        Text(w.shortLabel).tag(w.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.mini)
-                .fixedSize()
-                .help("Summary period")
-            }
+            header(canExpand: st != nil)
 
             if let st {
-                HStack(alignment: .center, spacing: 14) {
-                    TimeInRangeRing(stats: st, lineWidth: 9)
-                        .frame(width: 82, height: 82)
-                    VStack(alignment: .leading, spacing: 7) {
-                        legendRow("In range", Format.percent(st.timeInRange), GlucoseRange.inRange.tint,
-                                  help: "Target is over 70%")
-                        legendRow("Below", Format.percent(st.timeBelowRange), GlucoseRange.low.tint,
-                                  help: "Target is under 4%")
-                        legendRow("Above", Format.percent(st.timeAboveRange), GlucoseRange.high.tint,
-                                  help: "Target is under 25%")
-                    }
-                    .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 8) {
+                    TimeInRangeBar(stats: st, height: 8)
+                        .accessibilityHidden(true)   // the legend below says the same in words
+                    legend(st)
                 }
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Time in range, \(window.spokenLabel)")
                 .accessibilityValue("\(Format.percent(st.timeInRange)) in range, \(Format.percent(st.timeBelowRange)) below, \(Format.percent(st.timeAboveRange)) above")
+                .help("Targets: over 70% in range, under 4% below, under 25% above")
 
-                HStack(spacing: 8) {
-                    tile("Average", s.unit.format(mgdl: st.meanMgdl), systemImage: "chart.bar.fill",
-                         help: "Mean glucose over the \(window.spokenLabel)")
-                    tile("CV", Format.percent(st.coefficientOfVariation), systemImage: "waveform",
-                         warn: st.coefficientOfVariation > 0.36,
-                         help: "Variability over the \(window.spokenLabel). 36% or less is considered stable.")
-                    if window == .fortnight {
-                        tile("GMI", String(format: "%.1f%%", st.gmiPercent), systemImage: "drop.halffull",
-                             help: "Glucose Management Indicator, an estimate of A1c from 14 days of readings")
-                    } else {
-                        tile("Range", "\(s.unit.format(mgdl: st.minMgdl))–\(s.unit.format(mgdl: st.maxMgdl))",
-                             systemImage: "arrow.up.and.down",
-                             help: "Lowest and highest reading over the \(window.spokenLabel)")
-                    }
-                }
-
-                if st.spanHours < window.hours * 0.85 {
-                    Label("Based on \(coverage(st.spanHours)) of readings so far", systemImage: "info.circle")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                if expanded {
+                    details(st)
+                        .transition(PopoverMotion.reveal(reduceMotion))
                 }
             } else {
                 Text("No readings in the \(window.spokenLabel) yet.")
@@ -72,12 +44,132 @@ struct PopoverGlanceCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            PopoverRecentActivity(onOpen: onOpenDashboard)
+        }
+        .glassCard(padding: PopoverLayout.cardPadding, radius: PopoverLayout.cardRadius)
+        .animation(PopoverMotion.standard(reduceMotion), value: expanded)
+        .animation(PopoverMotion.standard(reduceMotion), value: windowRaw)
+    }
+
+    // MARK: Header
+
+    private func header(canExpand: Bool) -> some View {
+        HStack(spacing: 6) {
+            periodMenu
+            Spacer(minLength: 4)
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 3) {
+                    Text("Details")
+                    Image(systemName: "chevron.down")
+                        .imageScale(.small)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.primary.opacity(expanded ? 0.09 : 0.05), in: Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canExpand)
+            .help(expanded ? "Hide details (⌘I)" : "Show average, variability and sensor life (⌘I)")
+            .accessibilityLabel("Details")
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            .overlay(alignment: .bottom) {
+                if showsShortcuts { ShortcutBadge(text: "⌘I").offset(y: 15) }
+            }
+        }
+    }
+
+    /// The period as a compact menu in the eyebrow, rather than a second segmented control.
+    private var periodMenu: some View {
+        Menu {
+            Picker("Summary period", selection: $windowRaw) {
+                ForEach(GlanceWindow.allCases) { w in
+                    Text(w.menuLabel).tag(w.rawValue)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "target").imageScale(.small)
+                Text(window.spokenLabel.uppercased()).tracking(0.6)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Summary period")
+        .accessibilityLabel("Summary period")
+        .accessibilityValue(window.spokenLabel)
+    }
+
+    // MARK: Collapsed
+
+    private func legend(_ st: GlucoseStats) -> some View {
+        HStack(spacing: 0) {
+            legendItem("In range", st.timeInRange, GlucoseRange.inRange.tint, emphasised: true)
+            legendItem("Below", st.timeBelowRange, GlucoseRange.low.tint)
+            legendItem("Above", st.timeAboveRange, GlucoseRange.high.tint)
+        }
+    }
+
+    private func legendItem(_ title: String, _ value: Double, _ color: Color, emphasised: Bool = false) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(Format.percent(value))
+                .font(.system(emphasised ? .callout : .caption, design: .rounded).weight(.bold))
+                .monospacedDigit()
+                .contentTransition(.numericText(value: value))
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .fixedSize()
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: Expanded
+
+    private func details(_ st: GlucoseStats) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                tile("Average", s.unit.format(mgdl: st.meanMgdl), unit: s.unit.label,
+                     help: "Mean glucose over the \(window.spokenLabel)")
+                tile("Variability", Format.percent(st.coefficientOfVariation), unit: "CV",
+                     warn: st.coefficientOfVariation > 0.36,
+                     help: "Coefficient of variation over the \(window.spokenLabel). 36% or less is considered stable.")
+                if window == .fortnight {
+                    tile("GMI", String(format: "%.1f%%", st.gmiPercent), unit: "est. A1c",
+                         help: "Glucose Management Indicator, an estimate of A1c from 14 days of readings")
+                } else {
+                    tile("Range", "\(s.unit.format(mgdl: st.minMgdl))–\(s.unit.format(mgdl: st.maxMgdl))",
+                         unit: s.unit.label,
+                         help: "Lowest and highest reading over the \(window.spokenLabel)")
+                }
+            }
+
+            if st.spanHours < window.hours * 0.85 {
+                Label("Based on \(coverage(st.spanHours)) of readings so far", systemImage: "info.circle")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
             if let sensor = s.sensor {
-                Divider().opacity(0.5)
                 SensorRow(sensor: sensor)
             }
         }
-        .glassCard(padding: 12)
     }
 
     private func coverage(_ hours: Double) -> String {
@@ -86,40 +178,32 @@ struct PopoverGlanceCard: View {
         return days < 1.95 ? "1 day" : "\(Int(days.rounded(.down))) days"
     }
 
-    private func legendRow(_ title: String, _ value: String, _ color: Color, help: String) -> some View {
-        HStack(spacing: 7) {
-            Capsule().fill(color.gradient).frame(width: 4, height: 14)
-            Text(title).font(.callout).foregroundStyle(.secondary)
-            Spacer(minLength: 4)
-            Text(value)
-                .font(.system(.callout, design: .rounded).weight(.bold))
-                .monospacedDigit()
-                .contentTransition(.numericText())
-        }
-        .help(help)
-    }
-
-    private func tile(_ title: String, _ value: String, systemImage: String, warn: Bool = false, help: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Label(title, systemImage: systemImage)
-                .labelStyle(.titleAndIcon)
+    private func tile(_ title: String, _ value: String, unit: String, warn: Bool = false, help: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
-                .imageScale(.small)
+                .lineLimit(1)
             Text(value)
                 .font(.system(.body, design: .rounded).weight(.bold))
                 .monospacedDigit()
-                .foregroundStyle(warn ? Color.orange : Color.primary)
+                .foregroundStyle(warn ? Palette.amber : Color.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .contentTransition(.numericText())
+            Text(unit)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: PopoverLayout.tileRadius, style: .continuous))
         .help(help)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(unit == "CV" ? value + (warn ? ", above the 36% target" : "") : "\(value) \(unit)")
     }
 }
 
@@ -131,7 +215,7 @@ private struct SensorRow: View {
         let remaining = sensor.daysRemaining()
         let fraction = sensor.lifetimeDays > 0 ? min(1, max(0, remaining / Double(sensor.lifetimeDays))) : 0
         let expiringSoon = remaining < 1
-        let tint: Color = expiringSoon ? .orange : Palette.brand
+        let tint: Color = expiringSoon ? Palette.amber : Palette.brand
         HStack(spacing: 10) {
             ZStack {
                 ProgressRing(fraction: fraction, tint: tint, lineWidth: 3)
@@ -139,18 +223,21 @@ private struct SensorRow: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(tint)
             }
-            .frame(width: 30, height: 30)
+            .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 0) {
                 Text(remaining <= 0 ? "Sensor ended" : "Sensor · \(Format.days(remaining)) left")
                     .font(.system(.callout, design: .rounded).weight(.semibold))
                     .monospacedDigit()
-                    .foregroundStyle(expiringSoon ? Color.orange : Color.primary)
+                    .foregroundStyle(expiringSoon ? Palette.amber : Color.primary)
                 Text("Expires \(sensor.expires.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: PopoverLayout.tileRadius, style: .continuous))
         .help("Serial \(sensor.serial)")
         .accessibilityElement(children: .combine)
     }
@@ -165,34 +252,36 @@ struct PopoverRecentActivity: View {
     var body: some View {
         let recent = logbook.recentActivity()
         if recent.dose != nil || recent.meal != nil {
-            Button(action: onOpen) {
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    HStack(spacing: 8) {
-                        if let d = recent.dose {
-                            chip(systemImage: "syringe.fill",
-                                 title: "\(LogFormat.units(d.units)) \(d.displayName)",
-                                 age: context.date.timeIntervalSince(d.timestamp),
-                                 tint: Palette.brand)
+            VStack(spacing: 8) {
+                Divider().opacity(0.5)
+                Button(action: onOpen) {
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        HStack(spacing: 12) {
+                            if let d = recent.dose {
+                                chip(systemImage: "syringe.fill",
+                                     title: "\(LogFormat.units(d.units)) \(d.displayName)",
+                                     age: context.date.timeIntervalSince(d.timestamp),
+                                     tint: Palette.brand)
+                            }
+                            if let m = recent.meal {
+                                chip(systemImage: "fork.knife",
+                                     title: mealTitle(m),
+                                     age: context.date.timeIntervalSince(m.timestamp),
+                                     tint: GlucoseRange.high.tint)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.tertiary)
                         }
-                        if let m = recent.meal {
-                            chip(systemImage: "fork.knife",
-                                 title: mealTitle(m),
-                                 age: context.date.timeIntervalSince(m.timestamp),
-                                 tint: GlucoseRange.high.tint)
-                        }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.tertiary)
                     }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .help("Open the logbook in the Dashboard")
+                .accessibilityLabel(accessibilityLabel(recent))
+                .accessibilityHint("Opens the Dashboard")
             }
-            .buttonStyle(.plain)
-            .glassCard(padding: 10)
-            .help("Open the logbook in the Dashboard")
-            .accessibilityLabel(accessibilityLabel(recent))
-            .accessibilityHint("Opens the Dashboard")
         }
     }
 
@@ -202,10 +291,12 @@ struct PopoverRecentActivity: View {
     }
 
     private func chip(systemImage: String, title: String, age: TimeInterval, tint: Color) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             Image(systemName: systemImage)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(tint)
+                .frame(width: 22, height: 22)
+                .background(tint.opacity(0.14), in: Circle())
             VStack(alignment: .leading, spacing: 0) {
                 Text(title)
                     .font(.caption.weight(.semibold))
@@ -217,7 +308,7 @@ struct PopoverRecentActivity: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: 150, alignment: .leading)
+        .frame(maxWidth: 140, alignment: .leading)
     }
 
     private func accessibilityLabel(_ recent: (dose: InsulinDose?, meal: MealEntry?)) -> String {

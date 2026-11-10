@@ -113,6 +113,14 @@ enum GlanceWindow: Int, CaseIterable, Identifiable {
         case .fortnight: return "last 14 days"
         }
     }
+
+    var menuLabel: String {
+        switch self {
+        case .day: return "Last 24 Hours"
+        case .week: return "Last 7 Days"
+        case .fortnight: return "Last 14 Days"
+        }
+    }
 }
 
 extension GlucoseStore {

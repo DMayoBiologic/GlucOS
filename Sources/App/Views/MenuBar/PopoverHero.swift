@@ -2,6 +2,9 @@ import SwiftUI
 
 /// The current reading: range, value, trend and how fresh it is. Everything else in the popover
 /// is secondary to this card.
+///
+/// A stale reading is drawn grey, crossed through, with "Trend unavailable" and an orange age,
+/// so an old number can never pass for a live one.
 struct PopoverHero: View {
     @EnvironmentObject var store: GlucoseStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -14,70 +17,58 @@ struct PopoverHero: View {
     @State private var ripple = 0
 
     private var s: GlucoseSnapshot { store.snapshot }
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: PopoverLayout.heroRadius, style: .continuous)
+    }
 
     var body: some View {
         let stale = s.isStale()
         let tint = s.displayTint()
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                statusRow(stale: stale)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    statusRow(stale: stale)
+                    if let cur = s.current {
+                        valueRow(cur, stale: stale, tint: tint)
+                        trendRow(cur, stale: stale)
+                    }
+                }
+                Spacer(minLength: 4)
                 if let cur = s.current {
-                    valueRow(cur, stale: stale, tint: tint)
-                    trendRow(cur, stale: stale)
-                    FreshnessRow(reading: cur)
+                    TrendDial(trend: stale ? .unknown : cur.trend, tint: tint, size: 62)
+                        .opacity(stale ? 0.6 : 1)
+                        .accessibilityHidden(true)
                 }
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(accessibilityLabel)
-            .accessibilityAddTraits(.updatesFrequently)
-            .accessibilityAction(named: "Copy reading", onCopy)
-            .accessibilityAction(named: "Refresh", onRefresh)
-            .accessibilityAction(named: "Open Dashboard", onOpenDashboard)
-
-            Spacer(minLength: 4)
-
             if let cur = s.current {
-                TrendDial(trend: stale ? .unknown : cur.trend, tint: tint, size: 72)
-                    .opacity(stale ? 0.55 : 1)
-                    .accessibilityHidden(true)
+                FreshnessRow(reading: cur)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // One element for VoiceOver: the whole reading in a sentence, with the card's actions.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits([.isHeader, .updatesFrequently])
+        .accessibilityAction(named: "Copy reading", onCopy)
+        .accessibilityAction(named: "Refresh", onRefresh)
+        .accessibilityAction(named: "Open Dashboard", onOpenDashboard)
         .background {
             ZStack {
-                RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial)
-                AmbientGlow(tint: tint, intensity: stale ? 0.5 : 1)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                shape.fill(.ultraThinMaterial)
+                AmbientGlow(tint: tint, intensity: stale ? 0.45 : 1).clipShape(shape)
             }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [tint.opacity(0.55), tint.opacity(0.1)],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing),
-                              lineWidth: 1)
+            shape.strokeBorder(LinearGradient(colors: [tint.opacity(0.5), tint.opacity(0.08)],
+                                              startPoint: .topLeading, endPoint: .bottomTrailing),
+                               lineWidth: 1)
         }
-        .overlay {
-            // New-reading ripple: one expanding, fading outline.
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(tint, lineWidth: 2)
-                .keyframeAnimator(initialValue: Ripple(), trigger: ripple) { content, value in
-                    content.scaleEffect(value.scale).opacity(value.opacity)
-                } keyframes: { _ in
-                    KeyframeTrack(\.scale) {
-                        LinearKeyframe(1, duration: 0.01)
-                        CubicKeyframe(1.04, duration: 0.9)
-                    }
-                    KeyframeTrack(\.opacity) {
-                        LinearKeyframe(0.7, duration: 0.01)
-                        CubicKeyframe(0, duration: 0.9)
-                    }
-                }
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
-        .shadow(color: tint.opacity(0.18), radius: 14, y: 6)
-        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay { rippleRing(tint) }
+        .shadow(color: tint.opacity(stale ? 0.06 : 0.16), radius: 14, y: 6)
+        .contentShape(shape)
         .contextMenu {
             Button("Copy Reading", systemImage: "doc.on.doc", action: onCopy)
                 .disabled(s.current == nil)
@@ -92,6 +83,26 @@ struct PopoverHero: View {
         }
     }
 
+    /// New-reading ripple: one expanding, fading outline.
+    private func rippleRing(_ tint: Color) -> some View {
+        shape
+            .strokeBorder(tint, lineWidth: 2)
+            .keyframeAnimator(initialValue: Ripple(), trigger: ripple) { content, value in
+                content.scaleEffect(value.scale).opacity(value.opacity)
+            } keyframes: { _ in
+                KeyframeTrack(\.scale) {
+                    LinearKeyframe(1, duration: 0.01)
+                    CubicKeyframe(1.035, duration: 0.9)
+                }
+                KeyframeTrack(\.opacity) {
+                    LinearKeyframe(0.6, duration: 0.01)
+                    CubicKeyframe(0, duration: 0.9)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
     private struct Ripple {
         var scale: CGFloat = 1
         var opacity: Double = 0
@@ -99,7 +110,6 @@ struct PopoverHero: View {
 
     // MARK: Rows
 
-    @ViewBuilder
     private func statusRow(stale: Bool) -> some View {
         HStack(spacing: 6) {
             if let range = s.range { RangeBadge(range: range, stale: stale) }
@@ -116,12 +126,13 @@ struct PopoverHero: View {
                     .transition(.opacity)
             }
         }
+        .frame(height: 22)
     }
 
     private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
             Text(s.unit.format(mgdl: cur.mgdl))
-                .font(.system(size: 60, weight: .bold, design: .rounded))
+                .font(.system(size: 54, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(numberStyle(tint)))
                 // A stale value is crossed through lightly, so it can't be read as current even in
@@ -133,7 +144,6 @@ struct PopoverHero: View {
                             .frame(height: 3)
                             .rotationEffect(.degrees(-8))
                             .padding(.horizontal, -2)
-                            .accessibilityHidden(true)
                     }
                 }
                 .contentTransition(.numericText(value: cur.mgdl))
@@ -170,7 +180,7 @@ struct PopoverHero: View {
     private func numberStyle(_ tint: Color) -> LinearGradient {
         // In range reads as calm text; out of range takes the range colour.
         let base: Color = s.range == .inRange ? .primary : tint
-        return LinearGradient(colors: [base, base.opacity(0.78)], startPoint: .top, endPoint: .bottom)
+        return LinearGradient(colors: [base, base.opacity(0.8)], startPoint: .top, endPoint: .bottom)
     }
 
     private var accessibilityLabel: String {
@@ -182,7 +192,7 @@ struct PopoverHero: View {
     }
 }
 
-/// "Updated 32s ago · 3:41 pm" with a slim meter that fills as the reading ages toward stale.
+/// "Updated 32s ago · 3:41 pm" over a hairline meter that fills as the reading ages toward stale.
 /// Ticks every second on its own, so the rest of the popover doesn't re-render with it.
 private struct FreshnessRow: View {
     let reading: GlucoseReading
@@ -190,30 +200,33 @@ private struct FreshnessRow: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let age = reading.age(at: context.date)
+            let progress = min(1, max(0.02, age / GlucoseSnapshot.staleAfter))
             let stale = age > GlucoseSnapshot.staleAfter
             let nearlyStale = !stale && age > GlucoseSnapshot.staleAfter * 0.66
-            let color: Color = stale ? .orange : (nearlyStale ? .orange.opacity(0.8) : .secondary)
-            VStack(alignment: .leading, spacing: 4) {
+            let color: Color = stale ? .orange : (nearlyStale ? .orange.opacity(0.85) : .secondary)
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
-                    if stale { Image(systemName: "exclamationmark.triangle.fill") }
+                    if stale { Image(systemName: "exclamationmark.triangle.fill").imageScale(.small) }
                     Text(stale ? "Last reading \(PopoverFormat.ageAgo(age))" : "Updated \(PopoverFormat.ageAgo(age))")
                         .monospacedDigit()
-                    Text("·").foregroundStyle(.tertiary)
+                    Spacer(minLength: 4)
                     Text(reading.timestamp.formatted(date: .omitted, time: .shortened))
+                        .foregroundStyle(.tertiary)
                 }
                 .font(.caption.weight(.medium))
                 .foregroundStyle(color)
 
-                Capsule()
-                    .fill(Color.primary.opacity(0.08))
-                    .frame(width: 120, height: 3)
-                    .overlay(alignment: .leading) {
-                        Capsule()
-                            .fill(stale ? Color.orange : (nearlyStale ? Color.orange.opacity(0.8) : Color.secondary.opacity(0.6)))
-                            .frame(width: 120 * min(1, max(0.03, age / GlucoseSnapshot.staleAfter)), height: 3)
-                    }
-                    .help("Readings older than \(Int(GlucoseSnapshot.staleAfter / 60)) minutes are treated as stale")
-                    .accessibilityHidden(true)
+                GeometryReader { geo in
+                    Capsule()
+                        .fill(Color.primary.opacity(0.08))
+                        .overlay(alignment: .leading) {
+                            Capsule()
+                                .fill(stale ? Color.orange : (nearlyStale ? Color.orange.opacity(0.85) : Color.secondary.opacity(0.55)))
+                                .frame(width: geo.size.width * progress)
+                        }
+                }
+                .frame(height: 3)
+                .help("Readings older than \(Int(GlucoseSnapshot.staleAfter / 60)) minutes are treated as stale")
             }
         }
     }
