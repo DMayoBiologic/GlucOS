@@ -16,14 +16,7 @@ enum BannerSeverity: Int, Comparable {
 
     static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
 
-    var tint: Color {
-        switch self {
-        case .critical: return Palette.crimson
-        case .warning: return Palette.amber
-        case .info: return Palette.brand
-        case .success: return Palette.mint
-        }
-    }
+    var tint: Color { tone.color }
 
     var defaultSymbol: String {
         switch self {
@@ -55,6 +48,9 @@ struct BannerAction {
 
 /// A notice: icon, a title that says what's wrong, a line on what it means, and the one action
 /// that fixes it. Tinted by severity, on glass, like the rest of GlucOS.
+///
+/// Responsive: the buttons sit to the right while the text keeps a comfortable measure, and move
+/// under the text when the banner is narrow. The message is never truncated.
 struct StatusBanner: View {
     enum Density { case regular, compact }
 
@@ -68,82 +64,79 @@ struct StatusBanner: View {
     var onDismiss: (() -> Void)?
     var density: Density = .regular
 
-    private var tint: Color { severity.tint }
+    private var tone: Tone { severity.tone }
     private var compact: Bool { density == .compact }
-    private var radius: CGFloat { compact ? 14 : 16 }
+    private var radius: CGFloat { compact ? DS.Radius.card - 2 : DS.Radius.card }
+    private var hasActions: Bool { action != nil || secondaryAction != nil }
 
     var body: some View {
-        HStack(alignment: compact ? .top : .center, spacing: compact ? 10 : 14) {
+        HStack(alignment: .top, spacing: compact ? DS.Space.sm + 2 : DS.Space.md + 2) {
             icon
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(compact ? .callout.weight(.semibold) : .system(.body, design: .rounded).weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let message, !message.isEmpty {
-                    Text(message)
-                        .font(compact ? .caption : .callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(compact ? 4 : 3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                }
+            DSAdaptiveRow(minMainWidth: compact ? 180 : 260, spacing: DS.Space.md,
+                          verticalSpacing: compact ? DS.Space.sm : DS.Space.sm + 2) {
+                text
+                if hasActions { actions }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(severity.accessibilityPrefix + title + (message.map { ". \($0)" } ?? ""))
-
-            if action != nil || secondaryAction != nil {
-                HStack(spacing: 6) {
-                    if let secondaryAction { button(secondaryAction, prominent: false) }
-                    if let action { button(action, prominent: true) }
-                }
-                .fixedSize()
-            }
+            // Lines the first text line up with the middle of the icon.
+            .padding(.top, compact ? 4 : 8)
             if let onDismiss {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .bold))
-                        .frame(width: 20, height: 20)
+                        .frame(width: 22, height: 22)
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help("Dismiss")
-                .accessibilityLabel("Dismiss")
+                .accessibilityLabel("Dismiss \(title)")
             }
         }
-        .padding(.leading, compact ? 11 : 14)
-        .padding(.trailing, compact ? 10 : 12)
-        .padding(.vertical, compact ? 10 : 12)
+        .padding(.leading, compact ? DS.Space.sm + 3 : DS.Space.md + 2)
+        .padding(.trailing, compact ? DS.Space.sm + 2 : DS.Space.md)
+        .padding(.vertical, compact ? DS.Space.sm + 2 : DS.Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            ZStack {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(.regularMaterial)
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(LinearGradient(colors: [tint.opacity(0.22), tint.opacity(0.07)],
-                                         startPoint: .leading, endPoint: .trailing))
+        .background { DSSurface(style: .tinted(tone), radius: radius) }
+        .dsShadow(compact ? .low : .medium, tint: tone.color)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var text: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Text(title)
+                .dsFont(.headline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let message, !message.isEmpty {
+                Text(message)
+                    .dsFont(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [tint.opacity(0.55), tint.opacity(0.15)],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing),
-                              lineWidth: 0.75)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(severity.accessibilityPrefix + title + (message.map { ". \($0)" } ?? ""))
+    }
+
+    private var actions: some View {
+        HStack(spacing: DS.Space.xs + 2) {
+            if let secondaryAction { button(secondaryAction, prominent: false) }
+            if let action { button(action, prominent: true) }
         }
-        .shadow(color: tint.opacity(compact ? 0.08 : 0.14), radius: compact ? 6 : 12, y: compact ? 2 : 4)
-        .accessibilityElement(children: .contain)
+        .fixedSize()
     }
 
     private var icon: some View {
         let size: CGFloat = compact ? 26 : 34
         return ZStack {
-            Circle().fill(tint.opacity(0.18))
-            Circle().strokeBorder(tint.opacity(0.35), lineWidth: 0.75)
+            Circle().fill(tone.color.opacity(0.18))
+            Circle().strokeBorder(tone.color.opacity(0.35), lineWidth: DS.Stroke.hairline)
             Image(systemName: systemImage ?? severity.defaultSymbol)
                 .font(.system(size: size * 0.46, weight: .semibold))
-                .foregroundStyle(tint)
+                .foregroundStyle(tone.color)
                 .symbolRenderingMode(.hierarchical)
         }
         .frame(width: size, height: size)
@@ -152,7 +145,7 @@ struct StatusBanner: View {
 
     private func button(_ a: BannerAction, prominent: Bool) -> some View {
         Button(action: a.perform) {
-            HStack(spacing: 5) {
+            HStack(spacing: DS.Space.xs + 1) {
                 if a.isBusy {
                     ProgressView().controlSize(.mini)
                 } else if let img = a.systemImage {
@@ -161,49 +154,20 @@ struct StatusBanner: View {
                 Text(a.title)
             }
         }
-        .buttonStyle(BannerButtonStyle(tint: tint, prominent: prominent, compact: compact))
+        .buttonStyle(DSButtonStyle(kind: prominent ? .tinted(tone) : .secondary, size: compact ? .small : .regular))
         .disabled(a.isDisabled || a.isBusy)
     }
 }
 
 /// Capsule button tinted to its banner. Prominent is the fix; the other is a quieter alternative.
+/// Now a thin wrapper over `DSButtonStyle`.
 struct BannerButtonStyle: ButtonStyle {
     var tint: Color
     var prominent = true
     var compact = false
 
     func makeBody(configuration: Configuration) -> some View {
-        BannerButtonBody(configuration: configuration, tint: tint, prominent: prominent, compact: compact)
-    }
-
-    private struct BannerButtonBody: View {
-        let configuration: Configuration
-        let tint: Color
-        let prominent: Bool
-        let compact: Bool
-        @Environment(\.isEnabled) private var isEnabled
-        @State private var hovering = false
-
-        var body: some View {
-            configuration.label
-                .font((compact ? Font.caption : Font.callout).weight(.semibold))
-                .lineLimit(1)
-                .foregroundStyle(prominent ? AnyShapeStyle(tint) : AnyShapeStyle(Color.primary.opacity(0.8)))
-                .padding(.horizontal, compact ? 10 : 13)
-                .padding(.vertical, compact ? 4 : 6)
-                .background {
-                    Capsule().fill(prominent ? tint.opacity(hovering ? 0.30 : 0.20)
-                                             : Color.primary.opacity(hovering ? 0.12 : 0.07))
-                }
-                .overlay {
-                    Capsule().strokeBorder(prominent ? tint.opacity(0.45) : Color.primary.opacity(0.10), lineWidth: 0.75)
-                }
-                .contentShape(Capsule())
-                .opacity(isEnabled ? 1 : 0.5)
-                .scaleEffect(configuration.isPressed ? 0.96 : 1)
-                .animation(.snappy(duration: 0.15), value: configuration.isPressed)
-                .animation(.easeOut(duration: 0.12), value: hovering)
-                .onHover { hovering = $0 }
-        }
+        DSButtonStyle(kind: prominent ? .tinted(.custom(tint)) : .secondary, size: compact ? .small : .regular)
+            .makeBody(configuration: configuration)
     }
 }

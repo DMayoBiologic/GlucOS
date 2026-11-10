@@ -14,6 +14,9 @@ struct GlucoseChart: View {
     /// A reading to highlight as if hovered, e.g. while stepping through readings with the arrow
     /// keys. The pointer wins while it's over the chart.
     var pinnedDate: Date? = nil
+    /// The newest reading is old. Its dot and the glow under the trace go neutral grey, so a stale
+    /// value is never drawn in a reassuring colour.
+    var latestIsStale: Bool = false
 
     @State private var hoverDate: Date?
 
@@ -55,7 +58,8 @@ struct GlucoseChart: View {
         let lineStyle = ThresholdGradient.style(minMgdl: window.map(\.mgdl).min() ?? lowMgdl,
                                                 maxMgdl: window.map(\.mgdl).max() ?? highMgdl,
                                                 low: lowMgdl, high: highMgdl)
-        let currentTint = window.last.map { color(for: $0.mgdl) } ?? GlucoseRange.inRange.tint
+        let currentTint = latestIsStale ? Palette.stale
+            : (window.last.map { color(for: $0.mgdl) } ?? Palette.stale)
         Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
@@ -103,7 +107,7 @@ struct GlucoseChart: View {
                     y: .value("Glucose", unit.value(fromMgdl: last.mgdl))
                 )
                 .symbolSize(220)
-                .foregroundStyle(color(for: last.mgdl).opacity(0.2))
+                .foregroundStyle(currentTint.opacity(0.2))
                 PointMark(
                     x: .value("Time", last.timestamp),
                     y: .value("Glucose", unit.value(fromMgdl: last.mgdl))
@@ -115,7 +119,7 @@ struct GlucoseChart: View {
                     y: .value("Glucose", unit.value(fromMgdl: last.mgdl))
                 )
                 .symbolSize(36)
-                .foregroundStyle(color(for: last.mgdl))
+                .foregroundStyle(currentTint)
             }
 
             if let h = hovered {
@@ -132,15 +136,17 @@ struct GlucoseChart: View {
                             overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                     VStack(spacing: 0) {
                         Text(unit.format(mgdl: h.mgdl, withUnit: true))
-                            .font(.caption.weight(.semibold))
+                            .fontWeight(.semibold)
+                            .dsFont(.callout)
                             .monospacedDigit()
                         Text(h.timestamp.formatted(date: .omitted, time: .shortened))
-                            .font(.caption2)
+                            .dsFont(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .padding(.horizontal, DS.Space.sm)
+                    .padding(.vertical, DS.Space.xs)
+                    .background { DSSurface(style: .standard, radius: DS.Radius.control) }
+                    .dsShadow(.medium)
                 }
             }
         }
