@@ -136,15 +136,24 @@ final class RecurringPatternTests: XCTestCase {
     func testHistoryIsEnoughOnlyWithACoveredHourOnSevenDays() {
         let end = utc.startOfDay(for: referenceNow)
         // One reading a day for ten days: plenty of days, but no hour is ever covered.
-        let sparse = (1...10).map { reading(end.addingTimeInterval(-Double($0) * 86_400 + 3 * 3600), 120) }
+        var sparse: [GlucoseReading] = []
+        for d in 1...10 {
+            let day: TimeInterval = -Double(d) * 86_400
+            sparse.append(reading(end.addingTimeInterval(day + 3 * 3600), 120))
+        }
         XCTAssertFalse(RecurringPatternFinder.hasEnoughHistory(readings: sparse, now: referenceNow, calendar: utc))
         // 3 am covered (every 15 minutes) on seven days.
-        let covered = (1...7).flatMap { d in
-            (0..<4).map { q in reading(end.addingTimeInterval(-Double(d) * 86_400 + 3 * 3600 + Double(q) * 900), 120) }
+        var covered: [GlucoseReading] = []
+        for d in 1...7 {
+            for q in 0..<4 {
+                let offset: TimeInterval = -Double(d) * 86_400 + 3 * 3600 + Double(q) * 900
+                covered.append(reading(end.addingTimeInterval(offset), 120))
+            }
         }
         XCTAssertTrue(RecurringPatternFinder.hasEnoughHistory(readings: covered, now: referenceNow, calendar: utc))
         // …but six days isn't enough.
-        let six = covered.filter { $0.timestamp > end.addingTimeInterval(-6.5 * 86_400) }
+        let sixDaysAgo = end.addingTimeInterval(-6.5 * 86_400)
+        let six = covered.filter { $0.timestamp > sixDaysAgo }
         XCTAssertFalse(RecurringPatternFinder.hasEnoughHistory(readings: six, now: referenceNow, calendar: utc))
         XCTAssertTrue(RecurringPatternFinder.hasEnoughHistory(readings: history(), now: referenceNow, calendar: utc))
     }
