@@ -52,11 +52,21 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 - **Keyboard** in the popover: ⌘L log, ⌘R refresh, ⌘D dashboard, ⌘, settings, ⌘C copy the reading,
   ⌘1 / ⌘2 / ⌘3 chart range, ⌘Q quit. Hold ⌘ to see them. Right-click the reading for the same actions.
 - **Dashboard** (⌘D in the popover, or the expand button on the chart): a resizable window with
-  - an interactive chart from 3 hours to 30 days: hover for any reading, pinch or ⌘+ / ⌘− to zoom,
-    scroll sideways to pan;
-  - time in range across five ranges, average, GMI, standard deviation, CV, lowest/highest and data capture;
-  - daily patterns (median and percentile bands by time of day) or the last 7 days overlaid;
-  - a per-day table with time in range and low episodes, and every reading in a list, exportable as CSV;
+  - an interactive chart from 3 hours to 30 days: hover for any reading (with its 15-minute change),
+    drag across it to select a stretch and see its average, time in range and change, pinch or
+    ⌘+ / ⌘− to zoom, scroll sideways or ⌥← / ⌥→ to pan, and an overview strip to jump around while zoomed;
+  - overlays you can switch on and off: logged insulin, food, context and site changes, shaded data
+    gaps, and the previous period as a dashed line for comparison;
+  - ⌘[ / ⌘] to step back through stored history a period at a time, ⌘J to come back to now;
+  - time in range across five ranges, average, GMI, standard deviation, CV, lowest/highest, data capture
+    and highlights (longest stretch in range, low and high episodes), with changes vs the previous period;
+  - daily patterns (median and percentile bands by time of day) or the last 7 days overlaid, plus time in
+    range by time of day and by weekday;
+  - a per-day table with a trace, time in range and low episodes (double-click a day to open it on the
+    chart), and every reading in a filterable list, exportable as CSV;
+  - a **Report** with the consensus metrics and targets, time in ranges, the daily profile and each day's
+    trace, exportable as a PDF to share with your diabetes team (⇧⌘P);
+  - ⌘1–⌘7 for sections and ⌃1–⌃8 for ranges (the keyboard button in the toolbar lists them all);
   - Keep on Top, to leave it floating beside your work.
 
   LibreLinkUp only provides the last 12 hours, so GlucOS keeps every reading it sees (up to 90 days)

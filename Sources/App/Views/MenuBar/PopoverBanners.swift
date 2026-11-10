@@ -73,6 +73,7 @@ struct PopoverBanners: View {
     }
 }
 
+/// One popover notice, drawn with the design system's `StatusBanner`.
 struct PopoverBanner: View {
     let tint: Color
     let systemImage: String
@@ -82,38 +83,17 @@ struct PopoverBanner: View {
     var actionDisabled = false
     var action: (() -> Void)?
 
+    /// Red means alerts or readings have stopped; everything else here is a warning.
+    private var severity: BannerSeverity { tint == .red ? .critical : .warning }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 18)
-                .padding(.top, 1)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.callout.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(4)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 4)
-            if let actionTitle, let action {
-                Button(actionTitle, action: action)
-                    .controlSize(.small)
-                    .disabled(actionDisabled)
-            }
-        }
-        .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(tint.opacity(0.12))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(tint.opacity(0.3), lineWidth: 0.5))
-        }
-        .accessibilityElement(children: .contain)
+        StatusBanner(
+            severity: severity,
+            systemImage: systemImage,
+            title: title,
+            message: message,
+            action: actionTitle.flatMap { t in action.map { BannerAction(title: t, isDisabled: actionDisabled, perform: $0) } },
+            density: .compact
+        )
     }
 }
