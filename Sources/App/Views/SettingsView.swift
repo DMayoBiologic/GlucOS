@@ -109,6 +109,12 @@ private struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        // Approval for a login item happens in System Settings, so pick up the result on return.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            let enabled = SMAppService.mainApp.status == .enabled
+            launchAtLogin = enabled
+            if enabled { loginError = nil }
+        }
     }
 
     private func setLaunchAtLogin(_ on: Bool) {
