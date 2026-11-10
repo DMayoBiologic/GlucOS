@@ -55,6 +55,20 @@ final class PredictiveAlertTests: XCTestCase {
         XCTAssertEqual(d?.kind, .veryHigh)
     }
 
+    func testModelledFallWithoutAFallingTrendDoesNotAlert() {
+        // Flat at 90 with insulin acting and its effect learnt: the forecast's line crosses 70,
+        // but the trend isn't falling yet, so there's no heads-up (by design: the trend has to agree).
+        let r = readings(endingAt: now, minutes: 20) { _ in 90 }
+        let profile = EffectProfile(insulin: LearnedEffect(value: 80, standardError: 4, examples: 20), carbs: nil,
+                                    driftPerHour: [0, 0, 0, 0], days: 30, intervals: 1000, learnedAt: now)
+        let dose = InsulinDose(timestamp: now.addingTimeInterval(-45 * 60), units: 4, kind: .rapid)
+        let input = ForecastInputs(readings: GlucoseSeries(r), doses: [dose], meals: [], contexts: [], profile: profile, now: now)
+        guard case .success(let f) = GlucoseForecaster.forecast(input) else { return XCTFail("no forecast") }
+        XCTAssertEqual(f.basis, .trendInsulinCarbs)
+        XCTAssertNotNil(f.firstBelow(70))
+        XCTAssertNil(PredictiveAlertRules.evaluate(f, settings: settings, now: now))
+    }
+
     func testOldForecastNeverAlerts() {
         let f = forecast(endingAt: 90, slope: -2)
         XCTAssertNil(PredictiveAlertRules.evaluate(f, settings: settings, now: now.addingTimeInterval(10 * 60)))

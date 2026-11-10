@@ -119,17 +119,18 @@ final class AlertManager {
             return
         }
         quietSince = nil
-        // Another kind's heads-up isn't relevant any more.
-        for k in [Kind.predictedUrgentLow, .predictedLow, .predictedHigh, .predictedVeryHigh] where k != Self.kind(for: d.kind) {
-            lastFired[k] = nil
-        }
+        let cooldown = TimeInterval(settings.alertCooldownMinutes * 60)
+        // Each kind keeps its own repeat timer, so a forecast hovering between two thresholds
+        // can't alternate its way past them. A milder heads-up is held back while the more
+        // severe one in the same direction is still recent; escalation always gets through.
+        let severer: Kind? = d.kind == .low ? .predictedUrgentLow : d.kind == .high ? .predictedVeryHigh : nil
+        if let severer, let last = lastFired[severer], now.timeIntervalSince(last) < cooldown { return }
         let unit = s.unit
         let minutes = d.minutesAway(from: now)
         let when = minutes <= 1 ? "any minute" : "in about \(minutes) min"
         let current = "Now \(unit.format(mgdl: r.mgdl, withUnit: true)) \(r.trend.arrow)."
         let threshold = unit.format(mgdl: d.thresholdMgdl, withUnit: true)
         let note = "Forecast, not a reading: check before acting."
-        let cooldown = TimeInterval(settings.alertCooldownMinutes * 60)
         switch d.kind {
         case .urgentLow:
             fire(.predictedUrgentLow, title: "Urgent low predicted \(when)",

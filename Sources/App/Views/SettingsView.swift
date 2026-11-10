@@ -64,7 +64,7 @@ private struct GeneralSettingsTab: View {
                     Text("Last 6 hours").tag(6)
                     Text("Last 12 hours").tag(12)
                 }
-                Toggle("Show the forecast on charts", isOn: $settings.showForecast)
+                Toggle("Show the forecast on the popover chart", isOn: $settings.showForecast)
             } header: {
                 Text("Menu Bar")
             } footer: {

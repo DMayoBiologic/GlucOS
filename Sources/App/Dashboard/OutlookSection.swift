@@ -45,9 +45,10 @@ struct OutlookSection: View {
                         .frame(height: layout.chartHeight(reserving: 420, minimum: 220, maximum: 380))
                     legend(current)
                 }
-                if let current {
+                if let current, !current.forecast.isEmpty {
                     ForecastTiles(outlook: current, snapshot: snapshot, now: now)
-                } else if let reason = snapshot.outlook?.unavailableReason ?? (snapshot.isStale(at: now) ? ForecastUnavailable.stale(age: 0).message : nil) {
+                } else if let reason = snapshot.isStale(at: now) ? ForecastUnavailable.stale(age: 0).message
+                                                                 : snapshot.outlook?.unavailableReason {
                     StatusBanner(severity: .info, systemImage: "info.circle", title: "No forecast right now", message: reason,
                                  density: .compact)
                 }
@@ -66,12 +67,21 @@ struct OutlookSection: View {
 
             CardGrid(minColumnWidth: 360, maxColumns: 2, spacing: layout.gutter) {
                 LearntEffectsCard(profile: model.profile, unit: unit)
-                RecurringPatternsCard(patterns: model.patterns, hasHistory: store.archive.count > 200)
+                RecurringPatternsCard(patterns: model.patterns, hasHistory: hasPatternHistory(now: now))
             }
 
             HistoryNote(text: "Forecasts assume nothing new is eaten or dosed, and that background insulin (long-acting or a pump's basal) holds glucose level. Timing uses typical curves for each insulin type. GlucOS never suggests a dose.")
             Disclaimer()
         }
+    }
+
+    /// Enough recent history for the pattern finder to have judged: readings on at least as many
+    /// of the last 14 days as it needs for any hour.
+    private func hasPatternHistory(now: Date) -> Bool {
+        let cutoff = now.addingTimeInterval(-Double(RecurringPatternFinder.days) * 86_400)
+        let days = Set(GlucoseAnalytics.slice(store.archive, from: cutoff, to: now)
+            .map { Calendar.current.startOfDay(for: $0.timestamp) })
+        return days.count >= RecurringPatternFinder.minimumDaysWithData
     }
 
     private func subtitle(_ o: OutlookSnapshot?) -> String {

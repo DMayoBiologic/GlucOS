@@ -197,7 +197,8 @@ enum GlucoseForecaster {
         } else if basis == .trendInsulinCarbs {
             horizon = uncalibratedModelHorizon
         }
-        let calibrated = maxHorizon == nil && stats?.isEmpty == false
+        let calibrated = maxHorizon == nil
+            && stats?.contains { $0.samples >= ForecastCalibration.minimumSamples } == true
         if !calibrated && maxHorizon == nil { limitations.append(.uncalibrated) }
 
         // Integrate the rate minute by minute.

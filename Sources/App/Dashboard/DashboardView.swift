@@ -380,7 +380,7 @@ struct DashboardView: View {
         })
     }
 
-    /// ⌘1–⌘7 pick a section, ⌃1–⌃8 a range, ⌘/ lists the shortcuts. Invisible buttons, so the
+    /// ⌘1–⌘8 pick a section, ⌃1–⌃8 a range, ⌘/ lists the shortcuts. Invisible buttons, so the
     /// shortcuts work from anywhere in the window.
     private var shortcutButtons: some View {
         ZStack {
@@ -579,7 +579,7 @@ private struct RangePicker: View {
 
 private struct ShortcutsHelp: View {
     private let rows: [(String, String)] = [
-        ("⌘1 – ⌘7", "Switch section"),
+        ("⌘1 – ⌘8", "Switch section"),
         ("⌃1 – ⌃8", "Pick a time range"),
         ("⌘[  ⌘]", "Previous or next period"),
         ("⌘J", "Back to now"),
