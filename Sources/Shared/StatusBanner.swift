@@ -173,10 +173,10 @@ struct BannerButtonStyle: ButtonStyle {
     var compact = false
 
     func makeBody(configuration: Configuration) -> some View {
-        Body(configuration: configuration, tint: tint, prominent: prominent, compact: compact)
+        BannerButtonBody(configuration: configuration, tint: tint, prominent: prominent, compact: compact)
     }
 
-    private struct Body: View {
+    private struct BannerButtonBody: View {
         let configuration: Configuration
         let tint: Color
         let prominent: Bool
