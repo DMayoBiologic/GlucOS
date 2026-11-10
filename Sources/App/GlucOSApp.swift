@@ -80,7 +80,7 @@ struct MenuBarLabel: View {
                 .monospacedDigit()
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(store.snapshot.accessibilitySummary())
+        .accessibilityLabel(accessibilityLabel)
         .task {
             store.start()   // ensure polling starts even if the popover is never opened
             if settings.needsOnboarding {
@@ -98,6 +98,14 @@ struct MenuBarLabel: View {
 }
 
 extension MenuBarLabel {
+    /// Names the app first, so VoiceOver users moving through the menu bar know whose item it is.
+    var accessibilityLabel: String {
+        if store.snapshot.current == nil {
+            return settings.hasCredentials ? "GlucOS, waiting for a reading" : "GlucOS, not connected"
+        }
+        return "GlucOS, " + store.snapshot.accessibilitySummary()
+    }
+
     /// Monochrome by default, like every other menu bar item. With "Colour-code the menu bar icon"
     /// on, the drop takes the range colour. An urgent low is always coloured, whatever the setting,
     /// so it stands out from across the room. Stale data always shows the monochrome warning glyph

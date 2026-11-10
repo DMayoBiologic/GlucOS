@@ -9,7 +9,6 @@ struct PopoverChartCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var showsShortcuts: Bool
-    var onOpenDashboard: () -> Void
 
     @FocusState private var chartFocused: Bool
     @State private var pinned: Date?
@@ -26,10 +25,22 @@ struct PopoverChartCard: View {
     var body: some View {
         let window = self.window
         VStack(alignment: .leading, spacing: 10) {
-            header
+            // While a reading is pinned, it takes the header's place rather than pushing the
+            // chart down, so the popover doesn't change height under the pointer.
+            ZStack(alignment: .leading) {
+                if let date = pinned, let r = window.first(where: { $0.timestamp == date }) {
+                    readout(r, in: window)
+                        .transition(.opacity)
+                } else {
+                    header
+                        .transition(.opacity)
+                }
+            }
+            .frame(height: 24)
+            .animation(PopoverMotion.quick(reduceMotion), value: pinned)
             GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                          hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned)
-                .frame(height: 150)
+                .frame(height: 136)
                 .focusable()
                 .focused($chartFocused)
                 .focusEffectDisabled()
@@ -53,25 +64,21 @@ struct PopoverChartCard: View {
                 .onChange(of: chartFocused) { _, focused in if !focused { pinned = nil } }
                 .onChange(of: settings.chartHours) { _, _ in pinned = nil }
                 .help("Hover to see readings, or click and use ← →")
+                .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
                 .accessibilityValue(chartSummary(window))
                 .accessibilityHint("Use the left and right arrow keys to step through readings")
-
-            if let date = pinned, let r = window.first(where: { $0.timestamp == date }) {
-                readout(r, in: window)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
         }
-        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: pinned)
-        .glassCard(padding: 12)
+        .dsCard(.standard)
     }
 
     private var header: some View {
         HStack(spacing: 8) {
             Eyebrow(title: "Last \(settings.chartHours) hours", systemImage: "waveform.path.ecg")
+                .accessibilityAddTraits(.isHeader)
             Picker("Chart range", selection: $settings.chartHours) {
-                Text("3h").tag(3)
-                Text("6h").tag(6)
-                Text("12h").tag(12)
+                Text("3h").tag(3).accessibilityLabel("3 hours")
+                Text("6h").tag(6).accessibilityLabel("6 hours")
+                Text("12h").tag(12).accessibilityLabel("12 hours")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -83,13 +90,6 @@ struct PopoverChartCard: View {
                     ShortcutBadge(text: "⌘1 ⌘2 ⌘3").offset(y: 16)
                 }
             }
-            Button(action: onOpenDashboard) {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-            }
-            .buttonStyle(PillIconButtonStyle())
-            .controlSize(.small)
-            .help("Open in Dashboard")
-            .accessibilityLabel("Open in Dashboard")
         }
     }
 
@@ -99,23 +99,23 @@ struct PopoverChartCard: View {
         return HStack(spacing: 8) {
             Capsule().fill(range.tint.gradient).frame(width: 4, height: 16)
             Text(s.unit.format(mgdl: r.mgdl, withUnit: true))
-                .font(.system(.callout, design: .rounded).weight(.bold))
+                .dsFont(.sectionTitle)
                 .monospacedDigit()
             Text(range.label)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(range.tint)
+                .dsFont(.label)
+                .foregroundStyle(range.textTint)
             Spacer(minLength: 4)
             Text(r.timestamp.formatted(date: .omitted, time: .shortened))
-                .font(.caption.weight(.medium))
+                .dsFont(.label)
                 .foregroundStyle(.secondary)
             Text("\(index + 1)/\(window.count)")
-                .font(.caption2)
+                .dsFont(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.tertiary)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .padding(.horizontal, 8)
+        .frame(maxHeight: .infinity)
+        .background { DSSurface(style: .inset, radius: DS.Radius.control) }
         .accessibilityElement(children: .combine)
     }
 
