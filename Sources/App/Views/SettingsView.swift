@@ -78,23 +78,11 @@ private struct GeneralSettingsTab: View {
             }
 
             Section {
-                Toggle("Launch at login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, on in
-                        // Ignore the reset to the real state in the catch block below, so it
-                        // doesn't run the opposite operation and replace the original error.
-                        // (.requiresApproval counts as registered, so turning it off still unregisters.)
-                        let status = SMAppService.mainApp.status
-                        if on ? status == .enabled : status == .notRegistered { return }
-                        do {
-                            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-                            loginError = nil
-                        } catch {
-                            loginError = error.localizedDescription
-                            launchAtLogin = SMAppService.mainApp.status == .enabled
-                        }
-                    }
+                // A binding rather than onChange: the toggle only ever reflects the service's real
+                // state, and correcting it never re-runs register/unregister.
+                Toggle("Launch at login", isOn: Binding(get: { launchAtLogin }, set: { setLaunchAtLogin($0) }))
                 if let loginError {
-                    StatusBanner(severity: .warning, title: "Couldn't change the login item", message: loginError,
+                    StatusBanner(severity: .warning, title: "Launch at login needs attention", message: loginError,
                                  onDismiss: { self.loginError = nil }, density: .compact)
                         .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                 }
@@ -121,6 +109,28 @@ private struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func setLaunchAtLogin(_ on: Bool) {
+        let service = SMAppService.mainApp
+        do {
+            if on {
+                if service.status == .requiresApproval {
+                    // Already registered; macOS is waiting for the user to allow it.
+                    SMAppService.openSystemSettingsLoginItems()
+                    loginError = "Allow GlucOS in System Settings → General → Login Items to finish turning this on."
+                } else if service.status != .enabled {
+                    try service.register()
+                    loginError = nil
+                }
+            } else if service.status != .notRegistered {
+                try service.unregister()
+                loginError = nil
+            }
+        } catch {
+            loginError = error.localizedDescription
+        }
+        launchAtLogin = service.status == .enabled
     }
 }
 
