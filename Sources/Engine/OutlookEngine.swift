@@ -1,0 +1,75 @@
+import Foundation
+
+/// What the engine learns slowly from history. Worked out in the background when the logbook
+/// changes or a few hours have passed; cheap to keep and pass around.
+struct OutlookModel: Hashable {
+    var profile: EffectProfile
+    var calibration: ForecastCalibration?
+    var patterns: [RecurringPattern]
+    var learnedAt: Date
+
+    static let empty = OutlookModel(profile: .empty, calibration: nil, patterns: [], learnedAt: .distantPast)
+}
+
+/// Everything the outlook shows at one moment.
+struct Outlook {
+    let at: Date
+    let forecast: Result<GlucoseForecast, ForecastFailure>
+    let insulin: InsulinActivity
+    let carbs: CarbActivity
+    let model: OutlookModel
+
+    var glucoseForecast: GlucoseForecast? {
+        if case .success(let f) = forecast { return f }
+        return nil
+    }
+
+    var limitations: [ForecastLimitation] {
+        switch forecast {
+        case .success(let f): return f.limitations
+        case .failure(let e): return e.limitations
+        }
+    }
+
+    /// The compact form written into the shared snapshot for the widget and popover.
+    func snapshot(lowMgdl: Double) -> OutlookSnapshot {
+        let f = glucoseForecast
+        var s = OutlookSnapshot(issuedAt: f?.issuedAt ?? at, basis: f?.basis ?? .trend)
+        s.forecast = f?.samples ?? []
+        s.insulinOnBoard = insulin.doseCount > 0 ? insulin.onBoard : nil
+        s.insulinMostlyDoneAt = insulin.mostlyDoneAt
+        s.carbsOnBoard = carbs.mealCount > 0 ? carbs.onBoard : nil
+        s.lowExpectedAt = f?.firstBelow(lowMgdl)
+        s.lowPossibleAt = f?.firstRangeBelow(lowMgdl)
+        if case .failure(let e) = forecast { s.unavailableReason = e.reason.message }
+        return s
+    }
+}
+
+enum OutlookEngine {
+    /// The slow part: effect profile, forecast accuracy and recurring patterns.
+    static func learn(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
+                      low: Double, high: Double, now: Date = Date(), calendar: Calendar = .current) -> OutlookModel {
+        let profile = EffectProfileLearner.learn(readings: readings, doses: doses, meals: meals, contexts: contexts,
+                                                 low: low, now: now, calendar: calendar)
+        let calibration = ForecastBacktest.run(readings: readings, doses: doses, meals: meals, contexts: contexts,
+                                               profile: profile, now: now)
+        let patterns = RecurringPatternFinder.find(readings: readings, low: low, high: high, now: now, calendar: calendar)
+        return OutlookModel(profile: profile, calibration: calibration.origins > 0 ? calibration : nil,
+                            patterns: patterns, learnedAt: now)
+    }
+
+    /// The quick part, run on every new reading. `readings` only needs the last hour or so.
+    static func outlook(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
+                        model: OutlookModel, now: Date = Date()) -> Outlook {
+        let series = GlucoseSeries(readings)
+        let input = ForecastInputs(readings: series, doses: doses, meals: meals, contexts: contexts,
+                                   profile: model.profile, calibration: model.calibration, now: now)
+        let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
+        return Outlook(at: now,
+                       forecast: GlucoseForecaster.forecast(input),
+                       insulin: InsulinActivity.compute(doses: doses, at: now),
+                       carbs: CarbActivity.compute(meals: meals, hypoTreatments: hypo, at: now),
+                       model: model)
+    }
+}

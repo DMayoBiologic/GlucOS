@@ -1,0 +1,172 @@
+import XCTest
+@testable import GlucOSEngine
+
+final class PredictiveAlertTests: XCTestCase {
+    let now = referenceNow
+    let settings = PredictiveAlertSettings(lows: true, highs: true, leadTime: 30 * 60, lowMgdl: 70, highMgdl: 180, highAlertsOn: true)
+
+    func forecast(endingAt mgdl: Double, slope: Double) -> GlucoseForecast {
+        let r = readings(endingAt: now, minutes: 20) { m in mgdl - slope * m }
+        let input = ForecastInputs(readings: GlucoseSeries(r), doses: [], meals: [], contexts: [], profile: .empty, now: now)
+        guard case .success(let f) = GlucoseForecaster.forecast(input) else { fatalError("no forecast") }
+        return f
+    }
+
+    func testFallingTowardsLowAlerts() {
+        // 90 falling 2/min: reaches 70 at about 13 minutes.
+        let d = PredictiveAlertRules.evaluate(forecast(endingAt: 90, slope: -2), settings: settings, now: now)
+        XCTAssertEqual(d?.kind, .low)
+        XCTAssertEqual(d?.thresholdMgdl, 70)
+        XCTAssertLessThanOrEqual(d?.minutesAway(from: now) ?? 99, 20)
+    }
+
+    func testFallingFastTowardsUrgentLowAlertsUrgent() {
+        let d = PredictiveAlertRules.evaluate(forecast(endingAt: 80, slope: -3), settings: settings, now: now)
+        XCTAssertEqual(d?.kind, .urgentLow)
+    }
+
+    func testSteadyOrSlowDriftDoesNotAlert() {
+        XCTAssertNil(PredictiveAlertRules.evaluate(forecast(endingAt: 75, slope: 0), settings: settings, now: now))
+        XCTAssertNil(PredictiveAlertRules.evaluate(forecast(endingAt: 75, slope: -0.2), settings: settings, now: now))
+        // Falling but nowhere near low within the lead time.
+        XCTAssertNil(PredictiveAlertRules.evaluate(forecast(endingAt: 160, slope: -1), settings: settings, now: now))
+    }
+
+    func testAlreadyLowLeavesItToTheReadingAlert() {
+        let d = PredictiveAlertRules.evaluate(forecast(endingAt: 65, slope: -1), settings: settings, now: now)
+        // Below 70 already, so no "predicted low", but still heading for urgent low.
+        XCTAssertNotEqual(d?.kind, .low)
+    }
+
+    func testRisingTowardsHighAlerts() {
+        let d = PredictiveAlertRules.evaluate(forecast(endingAt: 165, slope: 2), settings: settings, now: now)
+        XCTAssertEqual(d?.kind, .high)
+        var off = settings
+        off.highAlertsOn = false
+        XCTAssertNil(PredictiveAlertRules.evaluate(forecast(endingAt: 165, slope: 2), settings: off, now: now))
+        off.highs = false
+        XCTAssertNil(PredictiveAlertRules.evaluate(forecast(endingAt: 240, slope: 3), settings: off, now: now))
+    }
+
+    func testRisingTowardsVeryHighAlertsEvenWithoutHighAlerts() {
+        var s = settings
+        s.highAlertsOn = false
+        let d = PredictiveAlertRules.evaluate(forecast(endingAt: 235, slope: 2), settings: s, now: now)
+        XCTAssertEqual(d?.kind, .veryHigh)
+    }
+
+    func testOldForecastNeverAlerts() {
+        let f = forecast(endingAt: 90, slope: -2)
+        XCTAssertNil(PredictiveAlertRules.evaluate(f, settings: settings, now: now.addingTimeInterval(10 * 60)))
+    }
+
+    func testLowsCanBeTurnedOff() {
+        var s = settings
+        s.lows = false
+        XCTAssertNil(PredictiveAlertRules.evaluate(forecast(endingAt: 90, slope: -2), settings: s, now: now))
+    }
+}
+
+final class RecurringPatternTests: XCTestCase {
+    /// 14 days of readings every 15 minutes at `base`, with `override(day, hour)` replacing values.
+    func history(base: Double = 120, override: (Int, Int) -> Double? = { _, _ in nil }) -> [GlucoseReading] {
+        let end = utc.startOfDay(for: referenceNow)
+        let start = end.addingTimeInterval(-14 * 86_400)
+        var out: [GlucoseReading] = []
+        var t = start
+        var day = 0
+        while t < end {
+            let hour = utc.component(.hour, from: t)
+            day = Int(t.timeIntervalSince(start) / 86_400)
+            out.append(reading(t, override(day, hour) ?? base))
+            t = t.addingTimeInterval(15 * 60)
+        }
+        return out
+    }
+
+    func testNoPatternsInSteadyData() {
+        XCTAssertTrue(RecurringPatternFinder.find(readings: history(), low: 70, high: 180, now: referenceNow, calendar: utc).isEmpty)
+    }
+
+    func testFindsRecurringNightLows() {
+        // Lows from 2 to 4 am on 6 of 14 days.
+        let r = history { day, hour in (day % 2 == 0 && day < 12 && (2..<4).contains(hour)) ? 60 : nil }
+        let p = RecurringPatternFinder.find(readings: r, low: 70, high: 180, now: referenceNow, calendar: utc)
+        let low = try? XCTUnwrap(p.first { $0.kind == .low })
+        XCTAssertEqual(low?.startHour, 2)
+        XCTAssertEqual(low?.endHour, 4)
+        XCTAssertEqual(low?.days, 6)
+        XCTAssertEqual(low?.hours, 2)
+        XCTAssertFalse(p.contains { $0.kind == .high })
+    }
+
+    func testOccasionalLowsAreNotAPattern() {
+        // Only twice.
+        let r = history { day, hour in (day < 2 && hour == 3) ? 60 : nil }
+        XCTAssertTrue(RecurringPatternFinder.find(readings: r, low: 70, high: 180, now: referenceNow, calendar: utc).isEmpty)
+    }
+
+    func testHighsAcrossMidnightAreOneWindow() {
+        // High from 10 pm to 1 am most days.
+        let r = history { day, hour in (day % 3 != 0 && (hour >= 22 || hour < 1)) ? 220 : nil }
+        let p = RecurringPatternFinder.find(readings: r, low: 70, high: 180, now: referenceNow, calendar: utc)
+        let highs = p.filter { $0.kind == .high }
+        XCTAssertEqual(highs.count, 1)
+        XCTAssertEqual(highs.first?.startHour, 22)
+        XCTAssertEqual(highs.first?.endHour, 1)
+        XCTAssertEqual(highs.first?.hours, 3)
+    }
+
+    func testNotEnoughDaysIsNotAPattern() {
+        let all = history { _, hour in hour == 3 ? 60 : nil }
+        let recent = all.filter { $0.timestamp >= referenceNow.addingTimeInterval(-5 * 86_400) }
+        XCTAssertTrue(RecurringPatternFinder.find(readings: recent, low: 70, high: 180, now: referenceNow, calendar: utc).isEmpty)
+    }
+}
+
+final class OutlookTests: XCTestCase {
+    func testSnapshotCarriesTheEssentials() {
+        let now = referenceNow
+        let r = readings(endingAt: now, minutes: 20) { m in 90 + 2 * m }   // falling 2/min to 90
+        let dose = InsulinDose(timestamp: now.addingTimeInterval(-3600), units: 2, kind: .rapid)
+        let outlook = OutlookEngine.outlook(readings: r, doses: [dose], meals: [], contexts: [], model: .empty, now: now)
+        let s = outlook.snapshot(lowMgdl: 70)
+        XCTAssertEqual(s.issuedAt, now)
+        XCTAssertEqual(s.basis, .trend)   // insulin not learnt
+        XCTAssertFalse(s.forecast.isEmpty)
+        XCTAssertEqual(s.insulinOnBoard ?? 0, 2 * InsulinActionCurve.rapid.fractionRemaining(after: 3600), accuracy: 1e-9)
+        XCTAssertNotNil(s.insulinMostlyDoneAt)
+        XCTAssertNil(s.carbsOnBoard)
+        XCTAssertNotNil(s.lowExpectedAt)
+        XCTAssertTrue(s.isCurrent(at: now))
+        XCTAssertFalse(s.isCurrent(at: now.addingTimeInterval(10 * 60)))
+        XCTAssertEqual(s.sample(minutesAhead: 30)?.date, now.addingTimeInterval(30 * 60))
+        XCTAssertNil(s.sample(minutesAhead: 90))
+        XCTAssertTrue(outlook.limitations.contains(.insulinNotLearned))
+    }
+
+    func testUnavailableForecastExplainsWhy() {
+        let now = referenceNow
+        let outlook = OutlookEngine.outlook(readings: [reading(now.addingTimeInterval(-3600), 100)], doses: [], meals: [],
+                                            contexts: [], model: .empty, now: now)
+        let s = outlook.snapshot(lowMgdl: 70)
+        XCTAssertTrue(s.forecast.isEmpty)
+        XCTAssertNotNil(s.unavailableReason)
+    }
+
+    func testSnapshotRoundTripsThroughJSON() throws {
+        let now = referenceNow
+        var snap = GlucoseSnapshot()
+        snap.outlook = OutlookSnapshot(issuedAt: now, basis: .trendInsulinCarbs,
+                                       forecast: [ForecastSample(date: now, mgdl: 100, lowerMgdl: 100, upperMgdl: 100)],
+                                       insulinOnBoard: 1.5)
+        let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        let back = try dec.decode(GlucoseSnapshot.self, from: enc.encode(snap))
+        XCTAssertEqual(back.outlook, snap.outlook)
+        // A snapshot written before the outlook existed still reads.
+        let old = #"{"history":[],"unit":"mmol","lowMgdl":70,"highMgdl":180,"fetchedAt":"2026-01-01T00:00:00Z"}"#
+        let legacy = try dec.decode(GlucoseSnapshot.self, from: Data(old.utf8))
+        XCTAssertNil(legacy.outlook)
+    }
+}

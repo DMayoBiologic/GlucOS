@@ -191,6 +191,8 @@ struct GlucoseSnapshot: Codable {
     var highMgdl: Double = 180               // 10.0 mmol/L
     var fetchedAt: Date = .distantPast
     var lastError: String?
+    /// Forecast and insulin/carbs still acting, worked out by the app. Estimates only.
+    var outlook: OutlookSnapshot?
 
     static let staleAfter: TimeInterval = 6 * 60
     static let empty = GlucoseSnapshot()
