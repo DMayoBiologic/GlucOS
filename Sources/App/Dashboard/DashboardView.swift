@@ -11,11 +11,16 @@ struct DashboardView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var logbook: LogbookStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openSettings) private var openSettings
+    @StateObject private var windowState = DashboardWindowState()
 
     @State private var logSheet: LogSheetTarget?
     /// End of the period on screen. Nil follows the latest readings.
     @State private var periodEnd: Date?
     @State private var showShortcuts = false
+    /// Notices closed this session. Keyed by content, so a new problem shows again.
+    @State private var dismissedNotices: Set<String> = []
+    @State private var toast: DashboardToast?
 
     @AppStorage("dashboardRange") private var range: DashboardRange = .h24
     @AppStorage("dashboardSection") private var section: DashboardSection = .overview
@@ -26,21 +31,25 @@ struct DashboardView: View {
         NavigationSplitView {
             sidebar(data)
         } detail: {
-            detail(data)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                        banners(data, now: ctx.date)
-                    }
+            // Notices sit in the layout above the section, not in a safe-area inset, so they always
+            // get their full height and push the content down instead of hiding under the toolbar.
+            VStack(spacing: 0) {
+                TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                    DashboardNoticeStack(notices: notices(data, now: ctx.date), dismissed: $dismissedNotices)
                 }
-                .background(alignment: .top) {
-                    AmbientGlow(tint: store.snapshot.displayTint(), intensity: 0.35)
-                        .frame(height: 320)
-                        .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                }
-                .navigationTitle(section.title)
-                .navigationSubtitle(section.usesRange ? data.periodTitle : "All stored history")
+                detail(data)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .overlay(alignment: .bottom) { toastView }
+            .background(alignment: .top) {
+                AmbientGlow(tint: store.snapshot.displayTint(), intensity: 0.35)
+                    .frame(height: 320)
+                    .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+            .navigationTitle(section.title)
+            .navigationSubtitle(section.usesRange ? data.periodTitle : "All stored history")
         }
         .toolbar { toolbarContent(data) }
         .background(shortcutButtons)
@@ -52,8 +61,9 @@ struct DashboardView: View {
         .onChange(of: logbook.logSheetRequested) { _, requested in
             if requested { openRequestedLogSheet() }
         }
-        .background(WindowConfigurator(floating: keepOnTop))
-        .frame(minWidth: 720, minHeight: 520)
+        .background(WindowConfigurator(floating: keepOnTop && !windowState.isFullScreen, state: windowState))
+        // Small enough for half a laptop screen; below this the sidebar, toolbar and cards collide.
+        .frame(minWidth: 760, idealWidth: 1180, minHeight: 540, idealHeight: 800)
         // A menu bar app has no Dock icon, so a window it opens can get lost behind others and
         // can't be reached with ⌘-Tab. Behave like a normal app while the dashboard is open.
         .onAppear {
@@ -158,38 +168,94 @@ struct DashboardView: View {
         ReportModel(data: data, archive: store.archive, doses: logbook.doses, meals: logbook.meals)
     }
 
-    // MARK: Banners
+    // MARK: Notices
+
+    /// Everything worth flagging right now, from the same checks as the menu bar popover.
+    private func notices(_ data: DashboardData, now: Date) -> [DashboardNotice] {
+        let snapshot = store.snapshot
+        var out: [DashboardNotice] = []
+        let refresh = BannerAction(title: store.isRefreshing ? "Checking…" : "Refresh", systemImage: "arrow.clockwise",
+                                   isBusy: store.isRefreshing) { Task { await store.refresh() } }
+
+        if !settings.hasCredentials {
+            out.append(DashboardNotice(
+                id: "signin", severity: .info, systemImage: "person.crop.circle.badge.exclamationmark",
+                title: "Sign in to LibreLinkUp",
+                message: "GlucOS needs your LibreLinkUp follower login to fetch new readings.",
+                action: BannerAction(title: "Open Settings…", systemImage: "gearshape") { openSettings() }))
+        }
+        if let cur = snapshot.current, snapshot.isStale(at: now) {
+            out.append(DashboardNotice(
+                id: "stale", severity: .warning, systemImage: "clock.badge.exclamationmark.fill",
+                title: "No new reading for \(PopoverFormat.age(cur.age(at: now)))",
+                message: "The latest reading is from \(cur.timestamp.formatted(date: .omitted, time: .shortened)). Don't treat from these numbers; check your sensor and phone.",
+                action: refresh))
+        }
+        if let err = snapshot.lastError {
+            out.append(DashboardNotice(
+                id: "error:\(err)", severity: .warning, systemImage: "wifi.exclamationmark",
+                title: "Couldn't reach LibreLinkUp",
+                message: err,
+                action: BannerAction(title: store.isRefreshing ? "Retrying…" : "Retry", systemImage: "arrow.clockwise",
+                                     isBusy: store.isRefreshing) { Task { await store.refresh() } },
+                secondaryAction: BannerAction(title: "Copy Error", systemImage: "doc.on.doc") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(err, forType: .string)
+                },
+                dismissible: true))
+        }
+        if store.notificationsBlocked {
+            out.append(DashboardNotice(
+                id: "notifications", severity: .critical, systemImage: "bell.slash.fill",
+                title: "Glucose alerts can't reach you",
+                message: "Notifications are off for GlucOS in System Settings, so low and high alerts won't appear.",
+                action: BannerAction(title: "Turn On…", systemImage: "bell.badge") {
+                    NSWorkspace.shared.open(AlertManager.notificationSettingsURL)
+                }))
+        }
+        if let sensor = snapshot.sensor {
+            let remaining = sensor.daysRemaining(at: now)
+            if remaining <= 0 {
+                out.append(DashboardNotice(
+                    id: "sensor-ended", severity: .critical, systemImage: "sensor.tag.radiowaves.forward.fill",
+                    title: "Sensor has ended",
+                    message: "Readings stop until you start a new sensor."))
+            } else if remaining < 1 {
+                out.append(DashboardNotice(
+                    id: "sensor-ending:\(sensor.serial)", severity: remaining < 0.25 ? .warning : .info,
+                    systemImage: "sensor.tag.radiowaves.forward.fill",
+                    title: "Sensor ends in \(Format.days(remaining))",
+                    message: "Have a replacement ready so you don't lose readings.",
+                    dismissible: true))
+            }
+        }
+        if !data.isLive && section.usesRange {
+            out.append(DashboardNotice(
+                id: "past", severity: .info, systemImage: "clock.arrow.circlepath",
+                title: "Viewing earlier data",
+                message: data.periodTitle,
+                action: BannerAction(title: "Back to Now", systemImage: "forward.end.fill") { goToNow() }))
+        }
+        return out
+    }
 
     @ViewBuilder
-    private func banners(_ data: DashboardData, now: Date) -> some View {
-        let snapshot = store.snapshot
-        let stale = snapshot.current != nil && snapshot.isStale(at: now)
-        if stale || !data.isLive {
-            VStack(spacing: 8) {
-                if stale, let cur = snapshot.current {
-                    DashboardBanner(
-                        systemImage: "exclamationmark.triangle.fill",
-                        title: "Glucose data is out of date",
-                        message: "The latest reading is from \(cur.timestamp.formatted(date: .omitted, time: .shortened)) (\(Format.age(cur.age(at: now)))). Don't rely on these numbers; check your sensor and phone.",
-                        tint: .orange,
-                        actionTitle: store.isRefreshing ? nil : "Refresh",
-                        action: { Task { await store.refresh() } })
+    private var toastView: some View {
+        if let toast {
+            StatusBanner(severity: toast.severity, title: toast.title, message: toast.message,
+                         onDismiss: { withAnimation(.smooth(duration: 0.25)) { self.toast = nil } })
+                .frame(maxWidth: 520)
+                .padding(20)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .task(id: toast.id) {
+                    try? await Task.sleep(for: .seconds(8))
+                    withAnimation(.smooth(duration: 0.25)) { if self.toast?.id == toast.id { self.toast = nil } }
                 }
-                if !data.isLive {
-                    DashboardBanner(
-                        systemImage: "clock.arrow.circlepath",
-                        title: "Viewing earlier data",
-                        message: data.periodTitle,
-                        tint: Palette.brand,
-                        actionTitle: "Back to Now",
-                        action: { goToNow() })
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
-            .transition(.move(edge: .top).combined(with: .opacity))
         }
+    }
+
+    private func showToast(_ t: DashboardToast) {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { toast = t }
     }
 
     // MARK: Toolbar
@@ -255,7 +321,17 @@ struct DashboardView: View {
             Toggle(isOn: $keepOnTop) {
                 Label("Keep on Top", systemImage: keepOnTop ? "pin.fill" : "pin")
             }
+            .disabled(windowState.isFullScreen)
             .help("Keep this window above other windows")
+
+            Button { windowState.toggleFullScreen() } label: {
+                Label(windowState.isFullScreen ? "Exit Full Screen" : "Enter Full Screen",
+                      systemImage: windowState.isFullScreen
+                        ? "arrow.down.right.and.arrow.up.left"
+                        : "arrow.up.left.and.arrow.down.right")
+            }
+            .keyboardShortcut("f", modifiers: [.command, .control])
+            .help(windowState.isFullScreen ? "Exit full screen (⌃⌘F)" : "Enter full screen (⌃⌘F)")
 
             Button { showShortcuts.toggle() } label: {
                 Label("Keyboard Shortcuts", systemImage: "keyboard")
@@ -359,11 +435,9 @@ struct DashboardView: View {
     }
 
     private func showExportFailure(_ url: URL) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Couldn't Save the Report"
-        alert.informativeText = "GlucOS couldn't write \(url.lastPathComponent). Check that the folder exists and you can save there, then try again."
-        alert.runModal()
+        showToast(DashboardToast(
+            severity: .critical, title: "Couldn't save \(url.lastPathComponent)",
+            message: "Check that the folder exists and you can save there, then try again."))
     }
 }
 
@@ -477,6 +551,7 @@ private struct ShortcutsHelp: View {
         ("Esc", "Clear the chart selection"),
         ("⌘L", "Log insulin or food"),
         ("⌘R", "Refresh"),
+        ("⌃⌘F", "Enter or exit full screen"),
         ("⇧⌘P", "Export report as PDF"),
     ]
 

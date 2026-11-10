@@ -122,7 +122,7 @@ struct TrendChart: View {
     private var controls: some View {
         HStack(spacing: 8) {
             Text(visibleCaption)
-                .font(.caption)
+                .font(.callout.weight(.medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .lineLimit(1)
@@ -130,7 +130,6 @@ struct TrendChart: View {
             Spacer(minLength: 8)
             if isZoomed && !atLatest {
                 Button("Latest") { scrollStart = domain.upperBound.addingTimeInterval(-visible) }
-                    .controlSize(.small)
                     .help("Jump to the most recent readings in this period")
             }
             overlaysMenu
@@ -161,9 +160,10 @@ struct TrendChart: View {
                     .disabled(!isZoomed || atLatest)
                     .accessibilityLabel("Pan later")
             }
-            .controlSize(.small)
             .fixedSize()
         }
+        // Full-size controls: these are the main way to move around the chart.
+        .controlSize(.regular)
     }
 
     private var overlaysMenu: some View {
@@ -183,7 +183,6 @@ struct TrendChart: View {
             Label("Overlays", systemImage: "square.3.layers.3d")
         }
         .menuStyle(.button)
-        .controlSize(.small)
         .fixedSize()
         .help("Choose what's drawn on the chart")
     }
@@ -614,7 +613,6 @@ private struct SelectionSummary: View {
             }
             Spacer(minLength: 8)
             Button("Zoom to Selection", action: onZoom)
-                .controlSize(.small)
             Button(action: onClear) { Image(systemName: "xmark.circle.fill") }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
