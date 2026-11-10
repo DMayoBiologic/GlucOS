@@ -2,97 +2,362 @@ import SwiftUI
 import AppKit
 import ServiceManagement
 
+/// Settings, grouped by what people come to change: the account, what counts as in range, how
+/// alerts behave, how logging works, and the rest.
 struct SettingsView: View {
+    enum Tab: String { case general, account, glucose, alerts, logging, advanced }
+
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var updater: Updater
+    @EnvironmentObject var logbook: LogbookStore
 
-    @State private var password: String = ""
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var loginError: String?
-    @State private var notificationsAllowed: Bool?
-    @State private var permissionChecked = false
+    @AppStorage("settingsTab") private var tab: Tab = .general
 
     var body: some View {
-        TabView {
-            accountTab.tabItem { Label("Account", systemImage: "person.crop.circle") }
-            displayTab.tabItem { Label("Display", systemImage: "chart.xyaxis.line") }
-            alertsTab.tabItem { Label("Alerts", systemImage: "bell.badge") }
-            insulinTab.tabItem { Label("Insulin", systemImage: "syringe") }
-            advancedTab.tabItem { Label("Advanced", systemImage: "gearshape.2") }
+        TabView(selection: $tab) {
+            GeneralSettingsTab()
+                .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(Tab.general)
+            AccountSettingsTab()
+                .tabItem { Label("Account", systemImage: "person.crop.circle") }
+                .tag(Tab.account)
+            GlucoseSettingsTab()
+                .tabItem { Label("Glucose", systemImage: "target") }
+                .tag(Tab.glucose)
+            AlertSettingsTab(openGlucoseTab: { tab = .glucose })
+                .tabItem { Label("Alerts", systemImage: "bell.badge") }
+                .tag(Tab.alerts)
+            LoggingSettingsTab()
+                .tabItem { Label("Logging", systemImage: "syringe") }
+                .tag(Tab.logging)
+            AdvancedSettingsTab()
+                .tabItem { Label("Advanced", systemImage: "gearshape.2") }
+                .tag(Tab.advanced)
         }
-        .frame(width: 480)
-        .onAppear { password = settings.password }
+        // Resizable: the window opens at a comfortable size, can grow for long lists (presets,
+        // alerts) and shrink to a laptop-friendly minimum without clipping a Form.
+        .frame(minWidth: 500, idealWidth: 580, maxWidth: 860, minHeight: 420, idealHeight: 600, maxHeight: .infinity)
+        .onAppear {
+            // Send someone with a broken connection straight to where they can fix it.
+            if !settings.hasCredentials || store.connectionProblem != nil { tab = .account }
+        }
     }
+}
 
-    // MARK: Account
+// MARK: - General
 
-    private var accountTab: some View {
+private struct GeneralSettingsTab: View {
+    @EnvironmentObject var settings: AppSettings
+    @Environment(\.openWindow) private var openWindow
+
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var loginError: String?
+
+    var body: some View {
         Form {
             Section {
-                TextField("LibreLinkUp email", text: $settings.email)
+                Toggle("Show change since last reading", isOn: $settings.showDeltaInMenuBar)
+                Toggle("Colour-code the menu bar icon", isOn: $settings.colorMenuBarIcon)
+                Picker("Popover chart", selection: $settings.chartHours) {
+                    Text("Last 3 hours").tag(3)
+                    Text("Last 6 hours").tag(6)
+                    Text("Last 12 hours").tag(12)
+                }
+            } header: {
+                Text("Menu Bar")
+            } footer: {
+                Text("Colour-coding tints the drop green, orange or red by range. Stale data always shows a plain warning sign instead.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                TextSizePicker()
+            } header: {
+                Text("Appearance")
+            }
+
+            Section {
+                // A binding rather than onChange: the toggle only ever reflects the service's real
+                // state, and correcting it never re-runs register/unregister.
+                Toggle("Launch at login", isOn: Binding(get: { launchAtLogin }, set: { setLaunchAtLogin($0) }))
+                if let loginError {
+                    StatusBanner(severity: .warning, title: "Launch at login needs attention", message: loginError,
+                                 onDismiss: { self.loginError = nil }, density: .compact)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                }
+            } header: {
+                Text("Startup")
+            } footer: {
+                Text("Recommended, so alerts keep working after a restart.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                LabeledContent("Desktop widget") {
+                    Text("Right-click the desktop → Edit Widgets → “GlucOS”")
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Setup assistant") {
+                    Button("Run Setup Again…") {
+                        openWindow(id: OnboardingView.windowID)
+                        NSApp.activate()
+                    }
+                }
+            } header: {
+                Text("Getting Started")
+            }
+        }
+        .formStyle(.grouped)
+        // Approval for a login item happens in System Settings, so pick up the result on return.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            let enabled = SMAppService.mainApp.status == .enabled
+            launchAtLogin = enabled
+            if enabled { loginError = nil }
+        }
+    }
+
+    private func setLaunchAtLogin(_ on: Bool) {
+        let service = SMAppService.mainApp
+        do {
+            if on {
+                if service.status == .requiresApproval {
+                    // Already registered; macOS is waiting for the user to allow it.
+                    SMAppService.openSystemSettingsLoginItems()
+                    loginError = "Allow GlucOS in System Settings → General → Login Items to finish turning this on."
+                } else if service.status != .enabled {
+                    try service.register()
+                    loginError = nil
+                }
+            } else if service.status != .notRegistered {
+                try service.unregister()
+                loginError = nil
+            }
+        } catch {
+            loginError = error.localizedDescription
+        }
+        launchAtLogin = service.status == .enabled
+    }
+}
+
+// MARK: - Account
+
+private struct AccountSettingsTab: View {
+    @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var settings: AppSettings
+
+    @State private var email = ""
+    @State private var password = ""
+    @State private var region = "au"
+    @State private var revealsPassword = false
+    @State private var signingIn = false
+    @State private var confirmingSignOut = false
+
+    private var edited: Bool {
+        email != settings.email || password != settings.password || region != settings.region
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                ConnectionStatusRow()
+                if let problem = store.connectionProblem, !signingIn {
+                    ConnectionProblemView(problem: problem, compact: true) { store.apply($0) }
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                }
+            }
+
+            Section {
+                TextField("Email", text: $email, prompt: Text("follower@example.com"))
                     .textContentType(.username)
                     .autocorrectionDisabled()
-                SecureField("Password", text: $password)
-                    .textContentType(.password)
-                Picker("Region", selection: $settings.region) {
-                    Text("Australia (api-au)").tag("au")
-                    Text("Europe (api-eu)").tag("eu")
-                    Text("Europe 2 (api-eu2)").tag("eu2")
-                    Text("US (api-us)").tag("us")
-                    Text("Asia-Pacific (api-ap)").tag("ap")
-                    Text("Canada (api-ca)").tag("ca")
-                    Text("Japan (api-jp)").tag("jp")
-                    Text("Auto-detect (global)").tag("global")
+                LabeledContent("Password") {
+                    HStack(spacing: 6) {
+                        Group {
+                            if revealsPassword {
+                                TextField("Password", text: $password)
+                            } else {
+                                SecureField("Password", text: $password)
+                            }
+                        }
+                        .labelsHidden()
+                        .textContentType(.password)
+                        Button {
+                            revealsPassword.toggle()
+                        } label: {
+                            Image(systemName: revealsPassword ? "eye.slash" : "eye")
+                        }
+                        .buttonStyle(.borderless)
+                        .help(revealsPassword ? "Hide password" : "Show password")
+                    }
+                }
+                RegionPicker(region: $region)
+                HStack(spacing: 8) {
+                    if settings.hasCredentials {
+                        Button("Sign Out…", role: .destructive) { confirmingSignOut = true }
+                    }
+                    Spacer()
+                    if signingIn {
+                        ProgressView().controlSize(.small)
+                        Text("Signing in…").font(.callout).foregroundStyle(.secondary)
+                    }
+                    Button(settings.hasCredentials && !edited ? "Reconnect" : "Sign In") { signIn() }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(email.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty || signingIn)
                 }
             } header: {
                 Text("LibreLinkUp Follower Account")
             } footer: {
-                Text("Use the *follower* account you created to accept the invitation from LibreLink, not your LibreLink login. Credentials are stored in the macOS Keychain and only ever sent to Abbott.")
+                Text("Use the *follower* account that accepted the invitation from LibreLink, not your LibreLink login. Credentials are stored in the macOS Keychain and only ever sent to Abbott.")
                     .foregroundStyle(.secondary)
             }
 
             Section {
-                LabeledContent("Status") {
-                    HStack(spacing: 6) {
-                        if store.isRefreshing {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Circle().fill(connectionColor).frame(width: 8, height: 8)
-                        }
-                        Text(store.statusLine).lineLimit(2).multilineTextAlignment(.trailing)
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                if let err = store.snapshot.lastError {
-                    Label(err, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.callout)
-                }
-            } footer: {
-                HStack {
-                    Spacer()
-                    Button("Save & Connect") {
-                        settings.password = password
-                        store.reconnect()
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(settings.email.isEmpty || password.isEmpty)
-                }
+                FollowerAccountHelp()
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            email = settings.email
+            password = settings.password
+            region = settings.region
+        }
+        .confirmationDialog("Sign out of LibreLinkUp?", isPresented: $confirmingSignOut) {
+            Button("Sign Out", role: .destructive) {
+                store.signOut()
+                password = ""
+            }
+        } message: {
+            Text("GlucOS stops fetching readings and alerts until you sign in again. Your logbook and stored history are kept.")
+        }
     }
 
-    private var connectionColor: Color {
-        if store.snapshot.lastError != nil { return .orange }
-        if !settings.hasCredentials { return .secondary }
-        return store.snapshot.current == nil || store.snapshot.isStale() ? .yellow : .green
+    private func signIn() {
+        signingIn = true
+        Task {
+            _ = await store.signIn(email: email, password: password, region: region)
+            signingIn = false
+        }
+    }
+}
+
+/// Connected / not signed in / problem, with the last reading's age.
+struct ConnectionStatusRow: View {
+    @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var settings: AppSettings
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(color.opacity(0.16))
+                if store.isRefreshing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: symbol).foregroundStyle(color).font(.system(size: 15, weight: .semibold))
+                }
+            }
+            .frame(width: 34, height: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(subtitle).font(.callout).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer()
+            if settings.hasCredentials {
+                Button("Refresh") { Task { await store.refresh() } }
+                    .disabled(store.isRefreshing)
+            }
+        }
     }
 
-    // MARK: Display
+    /// Green only for a connection that is actually delivering fresh readings. Signed out is
+    /// neutral; old or missing readings are a warning, never a reassuring colour.
+    private var color: Color {
+        if !settings.hasCredentials { return Palette.stale }
+        if let p = store.connectionProblem { return p.severity.tint }
+        return store.snapshot.current == nil || store.snapshot.isStale() ? BannerSeverity.warning.tint : BannerSeverity.success.tint
+    }
 
-    private var displayTab: some View {
+    private var symbol: String {
+        if !settings.hasCredentials { return "person.crop.circle.badge.questionmark" }
+        if let p = store.connectionProblem { return p.systemImage }
+        return store.snapshot.current == nil || store.snapshot.isStale() ? "clock.badge.exclamationmark" : "checkmark"
+    }
+
+    private var title: String {
+        if !settings.hasCredentials { return "Not signed in" }
+        if let p = store.connectionProblem { return p.title }
+        if store.snapshot.current == nil { return "Connecting…" }
+        return store.snapshot.isStale() ? "Connected, but no recent readings" : "Connected"
+    }
+
+    private var subtitle: String {
+        if !settings.hasCredentials { return "Sign in below to start receiving readings." }
+        var parts = [settings.email]
+        if let cur = store.snapshot.current {
+            parts.append("last reading \(Format.age(cur.age()))")
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+struct RegionPicker: View {
+    @Binding var region: String
+
+    var body: some View {
+        Picker("Region", selection: $region) {
+            Text("Australia").tag("au")
+            Text("Europe").tag("eu")
+            Text("Europe 2").tag("eu2")
+            Text("United States").tag("us")
+            Text("Asia-Pacific").tag("ap")
+            Text("Canada").tag("ca")
+            Text("Japan").tag("jp")
+            Divider()
+            Text("Auto-detect").tag("global")
+        }
+        .help("Where the LibreLinkUp account was created. Auto-detect works for most people but takes an extra step at sign-in.")
+    }
+}
+
+/// How to get a LibreLinkUp follower account, step by step.
+struct FollowerAccountHelp: View {
+    @State private var expanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                step(1, "On the phone that reads the sensor, open **LibreLink** → Menu → Connected Apps → LibreLinkUp → Connect.")
+                step(2, "Invite an email address you'll use only for following (it can't be your LibreLink email).")
+                step(3, "Install **LibreLinkUp** (on any phone), create an account with that email, and accept the invitation.")
+                step(4, "Sign in to GlucOS with that LibreLinkUp email and password.")
+            }
+            .padding(.top, 6)
+        } label: {
+            Label("How do I get a follower account?", systemImage: "questionmark.circle")
+        }
+    }
+
+    private func step(_ n: Int, _ text: LocalizedStringKey) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(n)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(Palette.brand))
+            Text(text)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+// MARK: - Glucose
+
+private struct GlucoseSettingsTab: View {
+    @EnvironmentObject var settings: AppSettings
+
+    var body: some View {
         Form {
             Section("Units") {
                 Picker("Glucose units", selection: $settings.unit) {
@@ -102,110 +367,117 @@ struct SettingsView: View {
             }
 
             Section {
-                thresholdField("Low", mgdl: $settings.lowMgdl)
-                thresholdField("High", mgdl: $settings.highMgdl)
+                TargetRangeEditor(settings: settings)
+                    .padding(.vertical, 4)
             } header: {
                 Text("Target Range")
             } footer: {
-                if settings.lowMgdl >= settings.highMgdl {
-                    Label("Low must be below high.", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                } else {
-                    Text("Readings between \(settings.unit.format(mgdl: settings.lowMgdl)) and \(settings.unit.format(mgdl: settings.highMgdl, withUnit: true)) count as in range.")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section {
-                Toggle("Show change since last reading", isOn: $settings.showDeltaInMenuBar)
-                Toggle("Colour-code the menu bar icon", isOn: $settings.colorMenuBarIcon)
-            } header: {
-                Text("Menu Bar")
-            } footer: {
-                Text("Tints the drop green, orange or red by range. Stale data always shows a plain warning sign instead.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Launch at login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, on in
-                        do {
-                            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-                            loginError = nil
-                        } catch {
-                            loginError = error.localizedDescription
-                            launchAtLogin = SMAppService.mainApp.status == .enabled
-                        }
-                    }
-                if let loginError { Text(loginError).font(.callout).foregroundStyle(.red) }
-            } header: {
-                Text("General")
-            } footer: {
-                Text("Add the widget: right-click the desktop → Edit Widgets → search “GlucOS”. Widgets refresh each time the app fetches new data.")
+                Text("Readings from \(settings.unit.format(mgdl: settings.lowMgdl)) to \(settings.unit.format(mgdl: settings.highMgdl, withUnit: true)) count as in range. This sets the colours everywhere, time in range, and when low and high alerts fire. Urgent low (below \(settings.unit.format(mgdl: 54))) and very high (above \(settings.unit.format(mgdl: 250))) are fixed.")
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
     }
+}
 
-    private func thresholdField(_ label: String, mgdl: Binding<Double>) -> some View {
-        let unit = settings.unit
-        let display = Binding<Double>(
-            get: { unit.value(fromMgdl: mgdl.wrappedValue) },
-            set: { mgdl.wrappedValue = unit.mgdl(fromDisplay: $0) }
-        )
-        return LabeledContent(label) {
-            HStack(spacing: 6) {
-                TextField(label, value: display, format: .number.precision(.fractionLength(unit == .mmol ? 1 : 0)))
-                    .labelsHidden()
-                    .frame(width: 64)
-                    .multilineTextAlignment(.trailing)
-                    .monospacedDigit()
-                Text(unit.label).foregroundStyle(.secondary)
-                    .frame(width: 52, alignment: .leading)
-            }
-        }
-    }
+// MARK: - Alerts
 
-    // MARK: Alerts
+private struct AlertSettingsTab: View {
+    let openGlucoseTab: () -> Void
 
-    private var alertsTab: some View {
+    @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var settings: AppSettings
+
+    @State private var notificationsAllowed: Bool?
+    @State private var permissionChecked = false
+
+    private static let cooldownChoices = [5, 10, 15, 20, 30, 45, 60, 90, 120]
+
+    var body: some View {
+        let u = settings.unit
         Form {
             Section {
-                Toggle("Enable notifications", isOn: $settings.alertsEnabled)
-                LabeledContent("macOS permission") {
+                Toggle("Glucose alerts", isOn: $settings.alertsEnabled)
+                LabeledContent("macOS notifications") {
                     HStack(spacing: 6) {
                         switch notificationsAllowed {
                         case .some(true):
                             Label("Allowed", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(Tone.success.textColor)
                         case .some(false):
                             Label("Off", systemImage: "bell.slash.fill")
-                                .foregroundStyle(.red)
-                            Button("Open Notification Settings…") {
-                                NSWorkspace.shared.open(AlertManager.notificationSettingsURL)
-                            }
+                                .foregroundStyle(Tone.critical.textColor)
                         case .none where permissionChecked:
-                            Text("Not asked yet").foregroundStyle(.secondary)
+                            Button("Allow Notifications…") {
+                                store.alerts.requestAuthorization()
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                                    await refreshNotificationStatus()
+                                }
+                            }
                         case .none:
                             ProgressView().controlSize(.mini)
                         }
                     }
                 }
-                LabeledContent("Test") {
+                if notificationsAllowed == false && settings.alertsEnabled {
+                    StatusBanner(severity: .critical, systemImage: "bell.slash.fill",
+                                 title: "Alerts can't reach you",
+                                 message: "Notifications for GlucOS are turned off in System Settings, so lows and highs won't show on this Mac.",
+                                 action: BannerAction(title: "Turn On…", systemImage: "gearshape") {
+                                     NSWorkspace.shared.open(AlertManager.notificationSettingsURL)
+                                 },
+                                 density: .compact)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                }
+                LabeledContent("Check it works") {
                     Button("Send Test Alert") { store.alerts.sendTest() }
                         .disabled(notificationsAllowed != true)
                 }
+            } footer: {
+                Text("These supplement, never replace, the alarms on your phone.")
+                    .foregroundStyle(.secondary)
             }
+
             Section {
-                Toggle("Rising or falling quickly", isOn: $settings.alertOnRapidChange)
-                Toggle("No data for more than 6 minutes", isOn: $settings.alertOnStale)
-                Toggle("Sensor expiring within 24 hours", isOn: $settings.alertOnSensorExpiry)
-                Stepper("Repeat after \(settings.alertCooldownMinutes) min", value: $settings.alertCooldownMinutes, in: 5...120, step: 5)
+                AlertRow(title: "Urgent low", detail: "Below \(u.format(mgdl: 54, withUnit: true)). Repeats every 5 minutes.",
+                         tint: GlucoseRange.urgentLow.tint, isOn: nil)
+                AlertRow(title: "Low", detail: "Below \(u.format(mgdl: settings.lowMgdl, withUnit: true))",
+                         tint: GlucoseRange.low.tint, isOn: nil)
+                AlertRow(title: "High", detail: "Above \(u.format(mgdl: settings.highMgdl, withUnit: true))",
+                         tint: GlucoseRange.high.tint, isOn: $settings.alertOnHigh)
+                AlertRow(title: "Very high", detail: "Above \(u.format(mgdl: 250, withUnit: true))",
+                         tint: GlucoseRange.veryHigh.tint, isOn: nil)
+            } header: {
+                Text("Glucose")
+            } footer: {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Lows and very highs always alert while glucose alerts are on.")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Change Target Range…", action: openGlucoseTab)
+                        .buttonStyle(.link)
+                }
+            }
+            .disabled(!settings.alertsEnabled)
+
+            Section {
+                AlertRow(title: "Rising or falling quickly", detail: "When the trend arrow points steeply up or down",
+                         tint: Palette.brand, systemImage: "arrow.up.right", isOn: $settings.alertOnRapidChange)
+                AlertRow(title: "No recent data", detail: "No reading for more than 6 minutes",
+                         tint: Palette.stale, systemImage: "antenna.radiowaves.left.and.right.slash", isOn: $settings.alertOnStale)
+                AlertRow(title: "Sensor expiring", detail: "Less than 24 hours left on the sensor",
+                         tint: BannerSeverity.warning.tint, systemImage: "sensor.tag.radiowaves.forward", isOn: $settings.alertOnSensorExpiry)
+                Picker("Repeat an ongoing alert every", selection: $settings.alertCooldownMinutes) {
+                    ForEach(Self.cooldownChoices, id: \.self) { m in Text(m < 60 ? "\(m) minutes" : m == 60 ? "1 hour" : "\(LogFormat.number(Double(m) / 60)) hours").tag(m) }
+                    if !Self.cooldownChoices.contains(settings.alertCooldownMinutes) {
+                        Text("\(settings.alertCooldownMinutes) minutes").tag(settings.alertCooldownMinutes)
+                    }
+                }
             } header: {
                 Text("Also Notify Me About")
             } footer: {
-                Text("Low and high alerts use your target range on the Display tab. Urgent low (below 3.0 mmol/L) repeats every 5 minutes regardless. These supplement, never replace, the alarms on your phone.")
+                Text("Repeats apply to low, high, very high and rapid-change alerts. Urgent low always repeats every 5 minutes.")
                     .foregroundStyle(.secondary)
             }
             .disabled(!settings.alertsEnabled)
@@ -223,15 +495,63 @@ struct SettingsView: View {
         permissionChecked = true
         await store.checkNotificationPermission()
     }
+}
 
-    // MARK: Insulin
+/// One alert: what it is, when it fires, and a switch (or "Always on").
+private struct AlertRow: View {
+    let title: String
+    let detail: String
+    let tint: Color
+    var systemImage: String?
+    let isOn: Binding<Bool>?
 
-    private var insulinTab: some View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Group {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(tint)
+                        .frame(width: 20, height: 20)
+                        .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                } else {
+                    Capsule().fill(tint.gradient).frame(width: 5, height: 20)
+                        .frame(width: 20)
+                }
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(detail).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            Spacer()
+            if let isOn {
+                Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
+            } else {
+                Label("Always on", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Logging
+
+private struct LoggingSettingsTab: View {
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var logbook: LogbookStore
+
+    @State private var renaming: LogPreset?
+    @State private var newName = ""
+
+    var body: some View {
         Form {
             Section {
                 Picker("Therapy", selection: $settings.therapy) {
                     if settings.therapy == .notSet { Text("Choose…").tag(TherapyType.notSet) }
-                    ForEach([TherapyType.injections, .pump, .noInsulin]) { Text($0.title).tag($0) }
+                    ForEach([TherapyType.injections, .pump, .noInsulin]) { Label($0.title, systemImage: $0.systemImage).tag($0) }
                 }
             } header: {
                 Text("How You Take Insulin")
@@ -250,15 +570,54 @@ struct SettingsView: View {
                         }
                     }
                     TextField("Name", text: $settings.bolusInsulinName, prompt: Text(settings.bolusInsulinKind.examples))
+                    if settings.therapy == .injections {
+                        TextField("Long-acting", text: $settings.basalInsulinName, prompt: Text(InsulinKind.long.examples))
+                    }
                 } header: {
-                    Text(settings.therapy == .pump ? "Insulin in Your Pump" : "Mealtime Insulin")
+                    Text(settings.therapy == .pump ? "Insulin in Your Pump" : "Your Insulins")
                 } footer: {
                     Text("Pre-filled when you log a dose.").foregroundStyle(.secondary)
                 }
             }
-            if settings.therapy == .injections {
-                Section("Long-Acting Insulin") {
-                    TextField("Name", text: $settings.basalInsulinName, prompt: Text(InsulinKind.long.examples))
+
+            Section {
+                if logbook.presets.isEmpty {
+                    Text("Tick “Save as preset” when you log something you log often, like a usual breakfast or a hypo treatment. It then appears under Quick add for one-tap logging.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(logbook.presets) { p in
+                        HStack(spacing: 10) {
+                            Image(systemName: p.systemImage)
+                                .foregroundStyle(Palette.brand)
+                                .frame(width: 20)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(p.name)
+                                Text(p.summary).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                newName = p.name
+                                renaming = p
+                            } label: { Image(systemName: "pencil") }
+                                .buttonStyle(.borderless)
+                                .help("Rename")
+                            Button {
+                                logbook.deletePreset(id: p.id)
+                            } label: { Image(systemName: "trash") }
+                                .buttonStyle(.borderless)
+                                .help("Delete preset")
+                        }
+                    }
+                    .onMove { logbook.movePresets(from: $0, to: $1) }
+                }
+            } header: {
+                Text("Quick-Add Presets")
+            } footer: {
+                if !logbook.presets.isEmpty {
+                    Text("Drag to reorder. Presets only repeat amounts you entered yourself.")
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -270,21 +629,53 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .alert("Rename Preset", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $newName)
+            Button("Rename") {
+                if var p = renaming, !newName.trimmingCharacters(in: .whitespaces).isEmpty {
+                    p.name = newName.trimmingCharacters(in: .whitespaces)
+                    logbook.savePreset(p)
+                }
+                renaming = nil
+            }
+            Button("Cancel", role: .cancel) { renaming = nil }
+        }
     }
+}
 
-    // MARK: Advanced
+// MARK: - Advanced
 
-    private var advancedTab: some View {
+private struct AdvancedSettingsTab: View {
+    @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var updater: Updater
+
+    var body: some View {
         Form {
             Section {
-                Stepper("Poll every \(settings.pollIntervalSeconds) s", value: $settings.pollIntervalSeconds, in: 30...300, step: 30)
-                Stepper("Sensor lifetime \(settings.sensorLifetimeDays) days", value: $settings.sensorLifetimeDays, in: 10...15)
-                TextField("Client version header", text: $settings.clientVersion)
-                    .monospacedDigit()
+                Picker("Check for new readings", selection: $settings.pollIntervalSeconds) {
+                    Text("Every 30 seconds").tag(30)
+                    Text("Every minute").tag(60)
+                    Text("Every 2 minutes").tag(120)
+                    Text("Every 5 minutes").tag(300)
+                    if ![30, 60, 120, 300].contains(settings.pollIntervalSeconds) {
+                        Text("Every \(settings.pollIntervalSeconds) seconds").tag(settings.pollIntervalSeconds)
+                    }
+                }
+                Stepper("Sensor lifetime: \(settings.sensorLifetimeDays) days", value: $settings.sensorLifetimeDays, in: 10...15)
+                LabeledContent("Client version") {
+                    HStack {
+                        TextField("Client version", text: $settings.clientVersion)
+                            .labelsHidden()
+                            .monospacedDigit()
+                            .frame(width: 90)
+                        Button("Apply") { store.reconnect() }
+                    }
+                }
             } header: {
                 Text("Connection")
             } footer: {
-                Text("Abbott periodically raises the minimum LibreLinkUp client version. If you see a “requires version” error, set this to the number in the error and reconnect.")
+                Text("Libre sensors last 14 days (Libre 2, 3) or 15 days (Libre 2 Plus, 3 Plus). Abbott periodically raises the minimum LibreLinkUp client version; GlucOS offers to switch when that happens.")
                     .foregroundStyle(.secondary)
             }
             Section("Updates") {
@@ -295,19 +686,25 @@ struct SettingsView: View {
                 } label: {
                     if !updater.isConfigured {
                         Label("Not configured in this build (no Sparkle public key).", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Tone.warning.textColor)
                     } else {
                         Text("Checks hourly; installs and relaunches automatically.")
                     }
                 }
             }
             Section("Diagnostics") {
-                LabeledContent("Snapshot") {
-                    Text(SharedStore.snapshotURL?.path ?? "unavailable")
-                        .font(.callout.monospaced())
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
+                LabeledContent("Status", value: store.statusLine)
+                LabeledContent("Data folder") {
+                    HStack {
+                        Text(SharedStore.containerURL?.path ?? "unavailable")
+                            .font(.callout.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                        if let url = SharedStore.containerURL {
+                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                        }
+                    }
                 }
                 LabeledContent("Session") {
                     Button("Reconnect") { store.reconnect() }

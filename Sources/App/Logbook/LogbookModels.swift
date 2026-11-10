@@ -291,3 +291,48 @@ enum LogFormat {
         return m == 0 ? "\(h) h" : "\(h) h \(m) min"
     }
 }
+
+// MARK: - Presets
+
+/// A saved combination the user logs often ("Usual breakfast", "Hypo: 3 jelly beans"). Tapping one
+/// fills the log sheet with exactly what the user saved. GlucOS never creates or changes the
+/// amounts in a preset on its own.
+struct LogPreset: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var name: String
+    var units: Double?
+    var kind: InsulinKind?
+    var insulinName: String = ""
+    var carbs: Double?
+    var food: String = ""
+    var tags: Set<ContextTag> = []
+
+    var hasInsulin: Bool { units != nil }
+    var hasFood: Bool { (carbs ?? 0) > 0 || !food.isEmpty }
+
+    var systemImage: String {
+        if tags.contains(.hypoTreatment) { return ContextTag.hypoTreatment.systemImage }
+        if hasInsulin && hasFood { return "takeoutbag.and.cup.and.straw" }
+        if hasInsulin { return "syringe" }
+        if hasFood { return "fork.knife" }
+        return "tag"
+    }
+
+    /// "4 u · 45 g · Exercise".
+    var summary: String {
+        var parts: [String] = []
+        if let units { parts.append(LogFormat.units(units)) }
+        if let carbs, carbs > 0 { parts.append(LogFormat.grams(carbs)) }
+        if !food.isEmpty, food != name { parts.append(food) }
+        parts += ContextTag.allCases.filter(tags.contains).map(\.title)
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// A food the user has logged before, offered again as a one-tap suggestion.
+struct RecentFood: Identifiable, Hashable {
+    let food: String
+    let carbs: Double
+    let count: Int
+    var id: String { food.lowercased() }
+}

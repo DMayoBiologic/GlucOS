@@ -59,6 +59,9 @@ actor LibreLinkUpClient {
     private var tokenExpiry: Date?
     private var accountID: String?
     private var patientID: String?
+    /// Which account the cached session belongs to, so a login that finished after the account
+    /// changed is never reused for another one.
+    private var sessionCredentials: Credentials?
 
     private let session: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
@@ -88,6 +91,7 @@ actor LibreLinkUpClient {
         tokenExpiry = nil
         accountID = nil
         patientID = nil
+        sessionCredentials = nil
     }
 
     var currentRegionHost: String { base.host ?? "" }
@@ -102,6 +106,7 @@ actor LibreLinkUpClient {
     // MARK: Public
 
     func fetch(credentials: Credentials) async throws -> Result {
+        if sessionCredentials != credentials { invalidateSession() }
         if token == nil || (tokenExpiry.map { $0 < Date().addingTimeInterval(300) } ?? true) {
             try await login(credentials)
         }
@@ -156,6 +161,7 @@ actor LibreLinkUpClient {
         } else {
             tokenExpiry = Date().addingTimeInterval(6 * 3600)
         }
+        sessionCredentials = creds
         accountID = SHA256.hash(data: Data(userID.utf8)).map { String(format: "%02x", $0) }.joined()
         patientID = nil
     }

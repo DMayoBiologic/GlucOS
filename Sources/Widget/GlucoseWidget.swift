@@ -86,23 +86,28 @@ struct GlucoseWidgetView: View {
 
     // MARK: Medium
 
+    /// Reading on the left, chart on the right. The trend dial sits with the reading it describes,
+    /// so the chart header only carries its window and, when needed, the refresh button.
     private var medium: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 0) {
-                StatusPill(entry: entry, compact: true)
+                HStack(alignment: .top, spacing: 4) {
+                    StatusPill(entry: entry, compact: true)
+                    Spacer(minLength: 0)
+                    WidgetTrend(entry: entry, size: 24)
+                }
                 Spacer(minLength: 2)
-                HeroValue(entry: entry, size: 42)
+                HeroValue(entry: entry, size: 40)
                 DetailLine(entry: entry)
                     .padding(.top, 1)
             }
-            .frame(width: 126, alignment: .leading)
+            .frame(minWidth: 112, maxWidth: 140, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     WidgetCaption(text: chartCaption)
                     Spacer(minLength: 0)
                     if showsRefresh { RefreshButton(size: 20) }
-                    WidgetTrend(entry: entry, size: 22)
                 }
                 chart(axes: false)
             }
@@ -111,21 +116,22 @@ struct GlucoseWidgetView: View {
 
     // MARK: Large
 
+    /// Reading, chart, then one quiet summary strip. Two controls at most, top right.
     private var large: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     StatusPill(entry: entry)
-                    HeroValue(entry: entry, size: 52)
+                    HeroValue(entry: entry, size: 50)
                     DetailLine(entry: entry)
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .trailing, spacing: 8) {
-                    WidgetTrend(entry: entry, size: 52)
                     HStack(spacing: 6) {
-                        if showsRefresh { RefreshButton() }
-                        DashboardLink()
+                        if showsRefresh { RefreshButton(size: 22) }
+                        DashboardLink(size: 22)
                     }
+                    WidgetTrend(entry: entry, size: 44)
                 }
             }
 
@@ -133,95 +139,87 @@ struct GlucoseWidgetView: View {
                 WidgetCaption(text: chartCaption)
                 chart(axes: true)
             }
+            .frame(maxHeight: .infinity)
 
             if config.showsStats {
-                statsRow(ringSize: 62)
+                summaryStrip(caption: "Last 12h")
             }
         }
     }
 
     // MARK: Extra large
 
+    /// Left: the reading and what it means. Right: the chart, full height. The 12-hour summary
+    /// appears once, under the reading, instead of in both columns.
     private var extraLarge: some View {
-        HStack(alignment: .top, spacing: 18) {
+        HStack(alignment: .top, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {
                 StatusPill(entry: entry)
-                HeroValue(entry: entry, size: 72)
-                DetailLine(entry: entry)
+                HeroValue(entry: entry, size: 60)
                 HStack(spacing: 10) {
-                    WidgetTrend(entry: entry, size: 56)
+                    WidgetTrend(entry: entry, size: 38)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(s.current.map { entry.freshness == .fresh ? $0.trend.description : "Trend unavailable" } ?? "No trend")
+                        Text(trendHeadline)
                             .font(.callout.weight(.semibold))
-                        if let cur = s.current {
-                            Text("Read at \(cur.timestamp.formatted(date: .omitted, time: .shortened))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        DetailLine(entry: entry, showsTrendWord: false)
                     }
                 }
-                .padding(.top, 4)
                 Spacer(minLength: 0)
-                if config.showsStats, let st = stats12h {
-                    VStack(alignment: .leading, spacing: 6) {
-                        WidgetCaption(text: "Last 12h in range")
-                        TimeInRangeBar(stats: st, height: 8)
-                        HStack {
-                            WidgetStat(title: "Below", value: Format.percent(st.timeBelowRange), dot: GlucoseRange.low.tint, valueSize: 13)
-                            WidgetStat(title: "In range", value: Format.percent(st.timeInRange), dot: GlucoseRange.inRange.tint, valueSize: 13)
-                            WidgetStat(title: "Above", value: Format.percent(st.timeAboveRange), dot: GlucoseRange.high.tint, valueSize: 13)
-                        }
-                    }
+                if config.showsStats {
+                    summaryStrip(caption: "Last 12h")
                 }
                 HStack(spacing: 8) {
-                    if showsRefresh { RefreshButton(size: 28) }
-                    DashboardLink(size: 28)
+                    if showsRefresh { RefreshButton(size: 26) }
+                    DashboardLink(size: 26)
                     Spacer(minLength: 0)
                     if s.fetchedAt > .distantPast {
                         Text("Updated \(Format.age(entry.date.timeIntervalSince(s.fetchedAt)))")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
+                            .lineLimit(1)
                     }
                 }
             }
-            .frame(width: 230, alignment: .leading)
+            .frame(minWidth: 210, maxWidth: 250, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 WidgetCaption(text: chartCaption, systemImage: "waveform.path.ecg")
                 chart(axes: true, lineWidth: 2.75)
-                if config.showsStats {
-                    statsGrid
+            }
+        }
+    }
+
+    private var trendHeadline: String {
+        guard let cur = s.current else { return "No reading" }
+        guard entry.freshness == .fresh else { return entry.freshness == .stale ? "Trend paused" : "No recent data" }
+        return cur.trend == .unknown ? "Trend unknown" : cur.trend.description
+    }
+
+    // MARK: Summary
+
+    /// Time in range as one bar, with the three numbers people actually check. Hidden entirely
+    /// once the reading has expired, because the window it describes is no longer "the last 12h".
+    @ViewBuilder
+    private func summaryStrip(caption: String) -> some View {
+        if let st = stats12h {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    WidgetCaption(text: caption)
+                    Spacer(minLength: 0)
+                    Text("Avg \(s.unit.format(mgdl: st.meanMgdl))")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-            }
-        }
-    }
-
-    // MARK: Stats
-
-    private func statsRow(ringSize: CGFloat) -> some View {
-        let st = stats12h
-        return HStack(spacing: 12) {
-            if let st {
-                TimeInRangeRing(stats: st, lineWidth: 6)
-                    .frame(width: ringSize, height: ringSize)
-            }
-            statsGrid
-        }
-    }
-
-    private var statsGrid: some View {
-        let st = stats12h
-        return Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
-            GridRow {
-                WidgetStat(title: "Average", value: st.map { s.unit.format(mgdl: $0.meanMgdl) } ?? "–")
-                WidgetStat(title: "Low · High", value: st.map { "\(s.unit.format(mgdl: $0.minMgdl))–\(s.unit.format(mgdl: $0.maxMgdl))" } ?? "–")
-                WidgetStat(title: "CV", value: st.map { Format.percent($0.coefficientOfVariation) } ?? "–",
-                           dot: st.map { $0.coefficientOfVariation > 0.36 ? GlucoseRange.high.tint : GlucoseRange.inRange.tint })
-            }
-            GridRow {
-                WidgetStat(title: "Below", value: st.map { Format.percent($0.timeBelowRange) } ?? "–", dot: GlucoseRange.low.tint)
-                WidgetStat(title: "Above", value: st.map { Format.percent($0.timeAboveRange) } ?? "–", dot: GlucoseRange.high.tint)
-                WidgetStat(title: "Sensor", value: s.sensor.map { Format.days($0.daysRemaining(at: entry.date)) } ?? "–")
+                TimeInRangeBar(stats: st, height: 7)
+                HStack(spacing: 8) {
+                    WidgetStat(title: "Below", value: Format.percent(st.timeBelowRange), dot: GlucoseRange.low.tint, valueSize: 13)
+                    WidgetStat(title: "In range", value: Format.percent(st.timeInRange), dot: GlucoseRange.inRange.tint, valueSize: 13)
+                    WidgetStat(title: "Above", value: Format.percent(st.timeAboveRange), dot: GlucoseRange.high.tint, valueSize: 13)
+                }
             }
         }
     }

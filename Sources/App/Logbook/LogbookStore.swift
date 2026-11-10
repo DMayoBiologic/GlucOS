@@ -11,6 +11,10 @@ final class LogbookStore: ObservableObject {
     @Published private(set) var meals: [MealEntry] = []
     @Published private(set) var siteChanges: [SiteChange] = []
     @Published private(set) var contexts: [ContextEvent] = []
+    /// Saved quick-log combinations, in the user's order.
+    @Published private(set) var presets: [LogPreset] = []
+    /// The entries removed by the last delete, kept in memory so it can be undone.
+    @Published private(set) var lastDeleted: [LogEntry] = []
 
     /// Set by the menu bar popover to have the dashboard open the log sheet.
     @Published var logSheetRequested = false
@@ -21,6 +25,7 @@ final class LogbookStore: ObservableObject {
         var meals: [MealEntry] = []
         var siteChanges: [SiteChange] = []
         var contexts: [ContextEvent]? = []
+        var presets: [LogPreset]? = []
     }
 
     private static var url: URL? {
@@ -44,6 +49,7 @@ final class LogbookStore: ObservableObject {
         meals = file.meals.sorted { $0.timestamp < $1.timestamp }
         siteChanges = file.siteChanges.sorted { $0.timestamp < $1.timestamp }
         contexts = (file.contexts ?? []).sorted { $0.timestamp < $1.timestamp }
+        presets = file.presets ?? []
     }
 
     var isEmpty: Bool { doses.isEmpty && meals.isEmpty && siteChanges.isEmpty && contexts.isEmpty }
@@ -78,10 +84,64 @@ final class LogbookStore: ObservableObject {
 
     func delete(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
+        let removed = ids.compactMap { self.entry(id: $0) }
+        guard !removed.isEmpty else { return }
+        // Accumulate while the undo banner is up, so Undo restores every delete since.
+        lastDeleted += removed
         doses.removeAll { ids.contains($0.id) }
         meals.removeAll { ids.contains($0.id) }
         siteChanges.removeAll { ids.contains($0.id) }
         contexts.removeAll { ids.contains($0.id) }
+        persist()
+    }
+
+    /// Puts back what the last delete removed.
+    func undoDelete() {
+        let restore = lastDeleted
+        guard !restore.isEmpty else { return }
+        lastDeleted = []
+        for e in restore {
+            switch e {
+            case .dose(let d): Self.upsert(d, into: &doses)
+            case .meal(let m): Self.upsert(m, into: &meals)
+            case .siteChange(let s): Self.upsert(s, into: &siteChanges)
+            case .context(let c): Self.upsert(c, into: &contexts)
+            }
+        }
+        persist()
+    }
+
+    /// Forgets the undo buffer, e.g. once its banner has been dismissed.
+    func clearUndo() { lastDeleted = [] }
+
+    /// A copy of `entry` at `time` with a fresh id ("Log again now").
+    func duplicate(_ entry: LogEntry, at time: Date = Date()) {
+        switch entry {
+        case .dose(var d): d.id = UUID(); d.timestamp = time; save(.dose(d))
+        case .meal(var m): m.id = UUID(); m.timestamp = time; save(.meal(m))
+        case .siteChange(var s): s.id = UUID(); s.timestamp = time; save(.siteChange(s))
+        case .context(var c): c.id = UUID(); c.timestamp = time; save(.context(c))
+        }
+    }
+
+    // MARK: Presets
+
+    func savePreset(_ preset: LogPreset) {
+        if let i = presets.firstIndex(where: { $0.id == preset.id }) {
+            presets[i] = preset
+        } else {
+            presets.append(preset)
+        }
+        persist()
+    }
+
+    func deletePreset(id: UUID) {
+        presets.removeAll { $0.id == id }
+        persist()
+    }
+
+    func movePresets(from source: IndexSet, to destination: Int) {
+        presets.move(fromOffsets: source, toOffset: destination)
         persist()
     }
 
@@ -93,7 +153,7 @@ final class LogbookStore: ObservableObject {
 
     private func persist() {
         guard let url = Self.url else { return }
-        let file = File(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts)
+        let file = File(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets)
         Self.writeQueue.async {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .secondsSince1970
@@ -131,6 +191,37 @@ final class LogbookStore: ObservableObject {
 
     var lastInjectionSite: InjectionSite? {
         doses.last { !$0.viaPump && $0.site != nil }?.site
+    }
+
+    /// The injection site used longest ago (never-used sites first), within the areas the user
+    /// has used before. A rotation hint only; nil until there are injections with a site.
+    var leastRecentInjectionSite: InjectionSite? {
+        let last = lastInjectionBySite
+        guard !last.isEmpty else { return nil }
+        let usedAreas = Set(last.keys.map(\.area))
+        let candidates = InjectionSite.allCases.filter { $0 != .other && usedAreas.contains($0.area) }
+        return candidates.min { (last[$0] ?? .distantPast) < (last[$1] ?? .distantPast) }
+    }
+
+    /// The most recent bolus (pump or injection), for "same as last time".
+    var lastBolus: InsulinDose? { doses.last { $0.kind.isBolus } }
+
+    /// Foods logged before, most recently used first, one per name. Carbs are from the latest
+    /// time it was logged.
+    func recentFoods(matching query: String = "", limit: Int = 8) -> [RecentFood] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        var order: [String] = []
+        var latest: [String: MealEntry] = [:]
+        var counts: [String: Int] = [:]
+        for m in meals.reversed() where !m.food.isEmpty {
+            let key = m.food.lowercased()
+            if !q.isEmpty && !key.contains(q) { continue }
+            if latest[key] == nil { latest[key] = m; order.append(key) }
+            counts[key, default: 0] += 1
+        }
+        return order.prefix(limit).compactMap { key in
+            latest[key].map { RecentFood(food: $0.food, carbs: $0.carbs, count: counts[key] ?? 1) }
+        }
     }
 }
 
