@@ -137,39 +137,9 @@ struct GlucoseChart: View {
                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 3]))
             }
 
-            // Where readings end and the forecast begins.
-            if marksNow, !projection.isEmpty, let last = window.last {
-                RuleMark(x: .value("Now", last.timestamp))
-                    .foregroundStyle(Color.secondary.opacity(0.35))
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
-                    .annotation(position: .top, alignment: .center, spacing: 2) {
-                        Text("Now").dsFont(.caption).foregroundStyle(.secondary)
-                    }
-            }
-
-            // A faint line at each midnight, so times either side can't be mistaken for the same day.
-            ForEach(ClockLabel.midnights(from: window.first?.timestamp ?? .now, to: window.last?.timestamp ?? .now), id: \.self) { m in
-                RuleMark(x: .value("Midnight", m))
-                    .foregroundStyle(Color.primary.opacity(0.14))
-                    .lineStyle(StrokeStyle(lineWidth: 1))
-            }
-
-            // Logged insulin and food, along the bottom.
-            ForEach(events.filter { e in window.first.map { e.date >= $0.timestamp } ?? false }) { e in
-                PointMark(
-                    x: .value("Time", e.date),
-                    y: .value("Logged", yd.lowerBound + (yd.upperBound - yd.lowerBound) * (0.06 + 0.08 * Double(e.lane)))
-                )
-                .symbol {
-                    Image(systemName: e.systemImage)
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 16, height: 16)
-                        .background(Circle().fill(e.tint))
-                        .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 0.5))
-                }
-                .accessibilityLabel(e.label)
-            }
+            nowMark(last: projection.isEmpty ? nil : window.last)
+            midnightMarks(window)
+            eventMarks(window, yd: yd)
 
             // Current reading: solid dot with a soft halo.
             if let last = window.last {
@@ -229,9 +199,7 @@ struct GlucoseChart: View {
                     AxisValueLabel {
                         if let d = v.as(Date.self) {
                             // A midnight label names the day instead of "12 am".
-                            Text(Calendar.current.component(.hour, from: d) == 0
-                                 ? d.formatted(.dateTime.weekday(.abbreviated))
-                                 : d.formatted(.dateTime.hour()))
+                            Text(Self.timeAxisLabel(d))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -270,6 +238,69 @@ struct ChartEvent: Identifiable {
     var lane: Int = 0
     /// For VoiceOver: "6 units Novorapid at 12:56 pm".
     let label: String
+}
+
+extension GlucoseChart {
+    /// "3 pm", or the weekday at midnight instead of "12 am".
+    static func timeAxisLabel(_ d: Date) -> String {
+        Calendar.current.component(.hour, from: d) == 0
+            ? d.formatted(.dateTime.weekday(.abbreviated))
+            : d.formatted(.dateTime.hour())
+    }
+
+    /// Where readings end and the forecast begins.
+    @ChartContentBuilder
+    func nowMark(last: GlucoseReading?) -> some ChartContent {
+        if marksNow, let last {
+            RuleMark(x: .value("Now", last.timestamp))
+                .foregroundStyle(Color.secondary.opacity(0.35))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                .annotation(position: .top, alignment: .center, spacing: 2) {
+                    Text("Now").dsFont(.caption).foregroundStyle(.secondary)
+                }
+        }
+    }
+
+    /// A faint line at each midnight, so times either side can't be mistaken for the same day.
+    @ChartContentBuilder
+    func midnightMarks(_ window: [GlucoseReading]) -> some ChartContent {
+        let marks: [Date] = {
+            guard let first = window.first, let last = window.last else { return [] }
+            return ClockLabel.midnights(from: first.timestamp, to: last.timestamp)
+        }()
+        ForEach(marks, id: \.self) { m in
+            RuleMark(x: .value("Midnight", m))
+                .foregroundStyle(Color.primary.opacity(0.14))
+                .lineStyle(StrokeStyle(lineWidth: 1))
+        }
+    }
+
+    /// Logged insulin and food, along the bottom.
+    @ChartContentBuilder
+    func eventMarks(_ window: [GlucoseReading], yd: ClosedRange<Double>) -> some ChartContent {
+        let start = window.first?.timestamp ?? .distantFuture
+        let shown = events.filter { $0.date >= start }
+        let span = yd.upperBound - yd.lowerBound
+        ForEach(shown) { e in
+            let y: Double = yd.lowerBound + span * (0.06 + 0.08 * Double(e.lane))
+            PointMark(x: .value("Time", e.date), y: .value("Logged", y))
+                .symbol { EventSymbol(event: e) }
+                .accessibilityLabel(e.label)
+        }
+    }
+}
+
+private struct EventSymbol: View {
+    let event: ChartEvent
+
+    var body: some View {
+        Image(systemName: event.systemImage)
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 16, height: 16)
+            .background(Circle().fill(event.tint))
+            .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 0.5))
+    }
 }
 
 private extension View {
