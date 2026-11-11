@@ -1,0 +1,39 @@
+name: Food data
+
+# Rebuilds the bundled AUSNUT 2023 food list (Sources/Food/ausnut-foods.json) from
+# FSANZ's published files and commits it when it changes. Run by hand, or when the build script
+# changes on a branch.
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+    paths: ["scripts/food/**", ".github/workflows/food-data.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download AUSNUT 2023
+        run: |
+          set -e
+          mkdir -p /tmp/ausnut && cd /tmp/ausnut
+          curl -fsSL -A "Mozilla/5.0" -o "AUSNUT 2023 - Food nutrient profiles.xlsx" \
+            "https://www.foodstandards.gov.au/sites/default/files/2025-09/AUSNUT%202023%20-%20Food%20nutrient%20profiles.xlsx?v=20250903"
+          curl -fsSL -A "Mozilla/5.0" -o "AUSNUT 2023 - Food measures.xlsx" \
+            "https://www.foodstandards.gov.au/sites/default/files/2025-08/AUSNUT%202023%20-%20Food%20measures.xlsx?v=20250829"
+          ls -la
+      - run: pip install openpyxl==3.1.5
+      - name: Build
+        run: python3 scripts/food/build_ausnut.py /tmp/ausnut Sources/Food/ausnut-foods.json
+      - name: Commit if changed
+        run: |
+          git add Sources/Food/ausnut-foods.json
+          if git diff --cached --quiet; then echo "No change"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898732+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Food data: rebuild AUSNUT 2023 food list [skip release]"
+          git push origin HEAD:${GITHUB_REF_NAME}

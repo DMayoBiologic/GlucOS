@@ -65,6 +65,7 @@ struct GlucOSApp: App {
         Window("Log Insulin or Food", id: LogWindow.id) {
             LogWindow()
                 .environmentObject(logbook)
+                .environmentObject(store)
                 .environmentObject(store.settings)
         }
         .defaultSize(width: 540, height: 680)

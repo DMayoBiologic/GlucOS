@@ -34,6 +34,8 @@ let package = Package(
                 "App/Logbook/SiteRotation.swift",
                 "Core/ShareProtocol.swift",
                 "App/Logbook/LogbookModels.swift",
+                "App/Logbook/FoodModels.swift",
+                "Food/FoodDatabase.swift",
                 "App/Logbook/LogbookSync.swift",
                 "App/Logbook/LogbookSyncClient.swift",
                 "App/LibreLinkUpClient.swift",

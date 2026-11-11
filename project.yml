@@ -41,6 +41,8 @@ targets:
       - path: Sources/Core
       - path: Sources/Engine
       - path: Sources/Shared
+      - path: Sources/Food
+      - path: Sources/Bolus
     dependencies:
       - target: GlucOSWidget
         embed: true
@@ -134,6 +136,9 @@ targets:
       - path: Sources/App/GlucoseStore.swift
       - path: Sources/App/HistoryArchive.swift
       - path: Sources/App/Logbook/LogbookModels.swift
+      - path: Sources/App/Logbook/FoodModels.swift
+      - path: Sources/Food
+      - path: Sources/Bolus
       - path: Sources/App/Logbook/LogbookStore.swift
       - path: Sources/App/Logbook/LogbookSync.swift
       - path: Sources/App/Logbook/LogbookSyncClient.swift
@@ -249,6 +254,7 @@ targets:
       - path: Sources/Engine
       - path: Sources/App/Keychain.swift
       - path: Sources/App/Logbook/LogbookModels.swift
+      - path: Sources/App/Logbook/FoodModels.swift
       - path: Sources/iOS/RelayClient.swift
       - path: Sources/iOS/Sharing/ShareClient.swift
     info:

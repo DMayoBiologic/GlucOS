@@ -12,6 +12,19 @@ struct LibreRegion: Identifiable {
     ]
 }
 
+// MARK: - Bolus calculator
+
+private struct PhoneBolusSettingsScreen: View {
+    @EnvironmentObject var logbook: LogbookStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        BolusSettingsEditor(current: logbook.bolusSettings) { dismiss() }
+            .navigationTitle("Bolus calculator")
+            .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 // MARK: - Sign in
 
 struct PhoneSignInView: View {
@@ -176,13 +189,18 @@ struct PhoneSettingsView: View {
                 }
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
+                NavigationLink {
+                    PhoneBolusSettingsScreen()
+                } label: {
+                    BolusSettingsSummary(settings: logbook.bolusSettings, unit: settings.unit)
+                }
             }
         } header: {
             Text("Logging")
         } footer: {
             Text(settings.therapy == .notSet
                  ? "Tap Log on the main screen to record insulin, food and events. GlucOS asks how you take insulin the first time."
-                 : "\(settings.therapy.detail) GlucOS records what you enter. It never suggests a dose. Say \"Log in GlucOS\" to Siri, or add the Log widget to your Lock Screen, to log in one step.")
+                 : "\(settings.therapy.detail) GlucOS records what you enter; only the bolus calculator suggests a dose, from settings you confirm. Say \"Log in GlucOS\" to Siri, or add the Log widget to your Lock Screen, to log in one step.")
         }
     }
 
