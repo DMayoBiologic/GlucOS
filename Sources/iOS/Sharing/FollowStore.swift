@@ -10,6 +10,26 @@ struct Follow: Codable, Hashable, Identifiable {
     var addedAt: Double
     /// Keep their reading on this phone's Lock Screen.
     var liveActivity: Bool = true
+    /// Get their glucose alerts (lows, highs, no data) as notifications, sent by the relay.
+    var alerts: Bool = true
+
+    init(id: String, label: String, expiresAt: Double?, addedAt: Double) {
+        self.id = id
+        self.label = label
+        self.expiresAt = expiresAt
+        self.addedAt = addedAt
+    }
+
+    // Follows saved before a setting existed get its default.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        label = try c.decode(String.self, forKey: .label)
+        expiresAt = try c.decodeIfPresent(Double.self, forKey: .expiresAt)
+        addedAt = try c.decode(Double.self, forKey: .addedAt)
+        liveActivity = try c.decodeIfPresent(Bool.self, forKey: .liveActivity) ?? true
+        alerts = try c.decodeIfPresent(Bool.self, forKey: .alerts) ?? true
+    }
 }
 
 /// The people this phone follows: their latest readings (fetched while GlucOS is open) and their
@@ -139,6 +159,16 @@ final class FollowStore: ObservableObject {
                 Keychain.delete("follow.\(id)")
             }
         }
+    }
+
+    func setAlerts(_ on: Bool, for follow: Follow) async {
+        guard let i = follows.firstIndex(where: { $0.id == follow.id }) else { return }
+        follows[i].alerts = on
+        save()
+        var r = FollowRegistration(installation: installation)
+        r.alertsEnabled = on
+        r.deviceToken = deviceToken
+        await send(r, to: follow.id)
     }
 
     func setLiveActivity(_ on: Bool, for follow: Follow) async {
@@ -282,8 +312,20 @@ final class FollowStore: ObservableObject {
         Task { for f in follows { await register(f.id) } }
     }
 
+    /// The phone's APNs device token (from the app delegate), for their alerts.
+    private var deviceToken: String? { defaults.string(forKey: "apnsDeviceToken") }
+    private var registeredDeviceToken: String?
+
+    func deviceTokenArrived(_ token: String) {
+        guard token != registeredDeviceToken else { return }
+        registeredDeviceToken = token
+        Task { for f in follows { await register(f.id) } }
+    }
+
     private func register(_ id: String) async {
         var r = FollowRegistration(installation: installation)
+        r.deviceToken = deviceToken
+        r.alertsEnabled = follows.first { $0.id == id }?.alerts ?? true
         r.apnsEnvironment = apnsEnvironment
         r.pushToStartToken = pushToStartToken
         r.liveActivityEnabled = follows.first { $0.id == id }?.liveActivity ?? true

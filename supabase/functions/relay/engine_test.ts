@@ -2,7 +2,7 @@
 // Swift relay's tests.
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1";
 import { type PushRequest, type PushResult, type PushSender, importAPNsKey, payloads, providerToken } from "./apns.ts";
-import { newRow, type RelayRow, RelayEngine, type Store, type Tx, rotateAfter } from "./engine.ts";
+import { claimWindow, newRow, type RelayRow, RelayEngine, type Store, type Tx, rotateAfter } from "./engine.ts";
 import type { Reading, Trend } from "./core.ts";
 import type { Account, FetchResult, GlucoseFetcher, LibreSession } from "./libre.ts";
 import { parseFactoryTimestamp } from "./libre.ts";
@@ -285,4 +285,24 @@ Deno.test("a tick that overran its lease leaves the newer tick's state alone", a
   assertEquals(t.store.lease, "a later tick");
   assertEquals(t.sender.sent, []);
   assertEquals((await t.engine.status()).lastReadingAt, undefined);
+});
+
+Deno.test("the owner's LibreLinkUp login claims the secret; wrong tries are limited", async () => {
+  const t = await registered();
+  assertEquals(await t.engine.claim("A@B.C ", "x"), "ok");
+  assertEquals(await t.engine.claim("a@b.c", "wrong"), "denied");
+  assertEquals(await t.engine.claim("someone@else.com", "x"), "denied");
+  assertEquals(await t.engine.claim(undefined, null), "denied");
+  assertEquals(await t.engine.claim("a@b.c", "w"), "denied");
+  assertEquals(await t.engine.claim("a@b.c", "w"), "denied");
+  // Five wrong: locked, even with the right password.
+  assertEquals(await t.engine.claim("a@b.c", "x"), "locked");
+  t.advance(claimWindow);
+  assertEquals(await t.engine.claim("a@b.c", "x"), "ok");
+  assertEquals(t.store.row.work.claimFailures, null);
+});
+
+Deno.test("a relay without an account can't be claimed", async () => {
+  const t = setup();
+  assertEquals(await t.engine.claim("a@b.c", "x"), "no account");
 });

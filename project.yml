@@ -169,10 +169,10 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: au.com.declanmayo.glucos
             CFBundleURLSchemes: [glucos]
-        # Baked in by the release workflow from the RELAY_URL variable and RELAY_SECRET secret,
-        # so the TestFlight build is connected to the relay with nothing to type.
+        # Baked in by the release workflow from the RELAY_URL variable. The relay's secret is
+        # never in the app (anyone with a TestFlight link can install it): the owner's phone
+        # claims it from the relay with the LibreLinkUp login the relay uses (RelaySettings).
         GlucOSRelayURL: $(GLUCOS_RELAY_URL)
-        GlucOSRelaySecret: $(GLUCOS_RELAY_SECRET)
     entitlements:
       path: Sources/iOS/GlucOS.entitlements
       properties:
@@ -191,7 +191,6 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         ENABLE_HARDENED_RUNTIME: NO
         GLUCOS_RELAY_URL: ""
-        GLUCOS_RELAY_SECRET: ""
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
 
   GlucOSiOSWidget:
@@ -256,9 +255,9 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.message-payload-provider
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).MessagesViewController
-        # The same relay the app uses, baked in by the release workflow (see the app's Info.plist).
+        # The same relay URL the app uses (see the app's Info.plist). The secret comes from the
+        # app, through the app group, once the owner's phone has claimed it.
         GlucOSRelayURL: $(GLUCOS_RELAY_URL)
-        GlucOSRelaySecret: $(GLUCOS_RELAY_SECRET)
     entitlements:
       path: Sources/iOSMessages/GlucOSMessages.entitlements
       properties:
@@ -275,7 +274,6 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         ENABLE_HARDENED_RUNTIME: NO
         GLUCOS_RELAY_URL: ""
-        GLUCOS_RELAY_SECRET: ""
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
 
 schemes:

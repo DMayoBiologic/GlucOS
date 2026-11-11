@@ -88,7 +88,10 @@ any SKU. Open **TestFlight** → **Internal Testing** → **+**, add yourself an
 
 ### 4. Secrets
 
-One random relay secret, shared by the phone (baked into the build) and the function:
+One random relay secret, kept by the function. It is never built into the app, because anyone
+with the public TestFlight link can install it: your iPhone gets it from the relay when you sign
+in with the same LibreLinkUp account the relay uses (`POST /v1/claim`). The GitHub copy is no
+longer used by the build.
 
 ```sh
 RELAY_SECRET=$(openssl rand -hex 32)
@@ -99,7 +102,6 @@ gh secret set APPLE_TEAM_ID       -R $R --body "ABCDE12345"
 gh secret set APPLE_API_KEY_ID    -R $R --body "<App Store Connect key id>"
 gh secret set APPLE_API_ISSUER_ID -R $R --body "<issuer id>"
 gh secret set APPLE_API_KEY_P8    -R $R < AuthKey_XXXXXXXXXX.p8
-gh secret set RELAY_SECRET        -R $R --body "$RELAY_SECRET"
 
 # Supabase, for the relay (supabase login once)
 P=aqlbadbyjuoruwnwyfrc
@@ -115,7 +117,8 @@ ID certificate secrets are also set.
 
 Re-run the latest **Release** workflow (Actions → Release → Run workflow) or merge anything. The
 iPhone build uploads to TestFlight (Apple takes 5–20 minutes to process it) and already knows the
-relay's address and secret.
+relay's address. It connects to the relay once you sign in with the relay's LibreLinkUp account.
+The same build then goes to external testers through the public link: see docs/TestFlight.md.
 
 On the iPhone: install **TestFlight**, open the GlucOS invite, install, sign in with your
 LibreLinkUp follower account, and allow notifications. Settings → Push relay should say
@@ -142,12 +145,15 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 
 Base URL `https://aqlbadbyjuoruwnwyfrc.supabase.co/functions/v1/relay`. Endpoints: `GET /health`,
 `GET /v1/status`, `POST /v1/register`, `POST /v1/test` (see `Sources/Core/RelayProtocol.swift`),
-all but `/health` with `Authorization: Bearer <RELAY_SECRET>`, and `POST /v1/tick`, which the
-schedule calls with a token the migration keeps in Vault.
+all but `/health` and `/v1/claim` with `Authorization: Bearer <RELAY_SECRET>`, and `POST /v1/tick`,
+which the schedule calls with a token the migration keeps in Vault. `POST /v1/claim` with
+`{email, password}` returns `{secret}` when they match the LibreLinkUp login the relay fetches
+with (403 otherwise; 5 wrong tries lock it for 15 minutes). That's how the owner's iPhone connects
+without the secret being in the app, and why nobody else's install can sign the relay out.
 
 | Function secret | |
 |---|---|
-| `RELAY_SECRET` | required; the app sends it as `Authorization: Bearer …` |
+| `RELAY_SECRET` | required; the owner's app claims it and sends it as `Authorization: Bearer …` |
 | `APNS_KEY_P8`, `APNS_KEY_ID`, `APPLE_TEAM_ID` | APNs auth; without them it fetches but can't push |
 | `APNS_BUNDLE_ID` | default `au.com.declanmayo.glucos.ios` |
 | `APNS_CRITICAL_ALERTS` | `true` once Apple grants Critical Alerts |

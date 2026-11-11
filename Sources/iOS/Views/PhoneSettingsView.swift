@@ -17,7 +17,9 @@ struct LibreRegion: Identifiable {
 struct PhoneSignInView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
-    @State private var showsFollow = false
+    @Environment(\.dismiss) private var dismiss
+    /// On the first run: go back and follow someone instead. Nil when shown from the follower screen.
+    var onFollowInstead: (() -> Void)?
     @State private var email = ""
     @State private var password = ""
     @State private var region = "au"
@@ -60,6 +62,10 @@ struct PhoneSignInView: View {
                     Task {
                         problem = await store.signIn(email: email, password: password, region: region)
                         working = false
+                        if problem == nil {
+                            UserDefaults.standard.set(PhoneMode.sensor.rawValue, forKey: "phoneMode")
+                            if onFollowInstead == nil { dismiss() }
+                        }
                     }
                 } label: {
                     HStack {
@@ -70,14 +76,15 @@ struct PhoneSignInView: View {
                 }
                 .disabled(working || email.isEmpty || password.isEmpty)
             }
-            Section {
-                Button("Follow Someone's Readings…", systemImage: "person.2.wave.2") { showsFollow = true }
-            } footer: {
-                Text("Someone sent you a GlucOS share link? You don't need a LibreLinkUp account to follow it.")
+            if let onFollowInstead {
+                Section {
+                    Button("I'm Following Someone Instead", systemImage: "person.2.wave.2", action: onFollowInstead)
+                } footer: {
+                    Text("Someone sent you a GlucOS share link? You don't need a sensor or a LibreLinkUp account to follow it.")
+                }
             }
         }
-        .sheet(isPresented: $showsFollow) { NavigationStack { AddFollowView() } }
-        .navigationTitle("Welcome to GlucOS")
+        .navigationTitle("Sign In")
         .onAppear {
             email = settings.email
             region = settings.region
@@ -322,7 +329,7 @@ struct PhoneSettingsView: View {
         } header: {
             Text("Push relay")
         } footer: {
-            Text("A small server of your own that checks LibreLinkUp every minute and pushes alerts and Lock Screen updates to this iPhone while it's locked. It receives your LibreLinkUp login so it can fetch for you. See docs/iOS.md to set one up.")
+            Text("A small server of your own that checks LibreLinkUp every minute and pushes alerts and Lock Screen updates to this iPhone while it's locked. It receives your LibreLinkUp login so it can fetch for you. Signed in with the same LibreLinkUp account as the relay, this iPhone connects by itself. See docs/iOS.md to set one up.")
         }
     }
 }

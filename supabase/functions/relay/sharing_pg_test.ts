@@ -42,6 +42,17 @@ Deno.test({
       assertEquals(again?.id, f.id);
       assertEquals(again?.activityToken, "abcd");
       assertEquals(again?.liveActivityEnabled, false);
+      assertEquals(again?.alertsEnabled, true);
+      assertEquals(again?.deviceToken, null);
+      const alerting = await store.registerFollower(s.id, { installation: "phone-1", deviceToken: "dddd", alertsEnabled: false }, now + 5);
+      assertEquals(alerting?.deviceToken, "dddd");
+      assertEquals(alerting?.alertsEnabled, false);
+      // Only the token APNs refused is cleared.
+      await store.clearFollowerDeviceToken(f.id, "other");
+      assertEquals((await store.followers(now))[0].deviceToken, "dddd");
+      await store.clearFollowerDeviceToken(f.id, "dddd");
+      assertEquals((await store.followers(now))[0].deviceToken, null);
+      await store.registerFollower(s.id, { installation: "phone-1", deviceToken: "eeee" }, now + 5);
 
       const all = await store.followers(now);
       assertEquals(all.length, 1);
@@ -60,6 +71,9 @@ Deno.test({
       const after = (await store.followers(now))[0];
       assertEquals(after.activityToken, "beef");
       assertEquals(after.liveActivityEnabled, false);
+      // The relay's save leaves the phone's alert settings alone.
+      assertEquals(after.deviceToken, "eeee");
+      assertEquals(after.alertsEnabled, false);
       // A save never brings back a deleted follower.
       const gone1 = await store.removeFollower(s.id, "phone-1");
       assert(gone1);

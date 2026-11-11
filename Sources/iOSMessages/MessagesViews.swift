@@ -35,7 +35,7 @@ struct ComposerView: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             if !model.relay.isConfigured {
                 Eyebrow(title: "Share your glucose", systemImage: "dot.radiowaves.left.and.right")
-                Text("Sharing needs GlucOS's push relay, which keeps the reading live after you send it. Open GlucOS and set it up in Settings.")
+                Text("Sharing needs GlucOS's push relay, which keeps the reading live after you send it. Open GlucOS and sign in with the LibreLinkUp account your relay uses, or set it up in Settings. To follow someone, open the link they sent.")
                     .dsFont(.callout)
                     .foregroundStyle(.secondary)
                 Button("Open GlucOS") { model.openApp(URL(string: "glucos://open")) }

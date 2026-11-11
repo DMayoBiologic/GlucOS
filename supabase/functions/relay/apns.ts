@@ -45,6 +45,17 @@ export const payloads = {
     return { aps, kind: n.kind };
   },
 
+  /// The owner's alert, on a follower's phone: named for whose readings they are, and grouped
+  /// per person.
+  followerAlert(n: AlertNotice, label: string, shareId: string, criticalSound: boolean) {
+    const base = payloads.alert(n, criticalSound);
+    // The owner's urgent-low text tells them to treat it; a follower should check on them.
+    const body = n.kind === "urgentLow" ? n.body.replace("Treat now and confirm on your phone.", `Check on ${label} now.`) : n.body;
+    base.aps.alert = { title: `${label}: ${n.title}`, body };
+    base.aps["thread-id"] = `glucos.follow.${shareId}`;
+    return { ...base, followID: shareId };
+  },
+
   test() {
     return {
       aps: {

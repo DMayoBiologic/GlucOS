@@ -49,6 +49,10 @@ export interface Follower {
   pendingStart: boolean;
   startAttempts: number;
   lastStartAttempt: number | null;
+  /// The phone's APNs device token, for the owner's alerts.
+  deviceToken: string | null;
+  /// Send this phone the owner's glucose alerts.
+  alertsEnabled: boolean;
 }
 
 /// What a follower phone tells the share function. Every field but `installation` is optional:
@@ -61,6 +65,8 @@ export interface FollowRegistration {
   activityToken?: string;
   endedActivityID?: string;
   liveActivityEnabled?: boolean;
+  deviceToken?: string;
+  alertsEnabled?: boolean;
 }
 
 export interface ShareStore {
@@ -82,6 +88,8 @@ export interface ShareStore {
   /// (then the next tick works from the new ones).
   saveFollower(f: Follower, seen: { activityToken: string | null; pushToStartToken: string | null }): Promise<void>;
   deleteFollowers(ids: string[]): Promise<void>;
+  /// APNs said this device token is no longer valid: forget it, unless the phone has sent a new one.
+  clearFollowerDeviceToken(id: string, token: string): Promise<void>;
   /// The relay's latest card, for the web view and for a follower starting its card.
   latestCard(): Promise<{ card: CardState; at: number } | null>;
 }
@@ -126,6 +134,7 @@ function followerOf(r: Record<string, unknown>): Follower {
     activityStartedAt: epoch(r.activity_started_at), lastCard: (r.last_card as CardState | null) ?? null,
     lastPushedAt: epoch(r.last_pushed_at), pendingStart: r.pending_start === true,
     startAttempts: Number(r.start_attempts ?? 0), lastStartAttempt: epoch(r.last_start_attempt),
+    deviceToken: (r.device_token as string | null) ?? null, alertsEnabled: r.alerts_enabled !== false,
   };
 }
 
@@ -202,7 +211,7 @@ export class PostgresShareStore implements ShareStore {
           id: crypto.randomUUID(), shareId, label: "", active: true, installation: r.installation, sandbox: false,
           liveActivityEnabled: true, pushToStartToken: null, activityId: null, activityToken: null,
           activityStartedAt: null, lastCard: null, lastPushedAt: null, pendingStart: false, startAttempts: 0,
-          lastStartAttempt: null,
+          lastStartAttempt: null, deviceToken: null, alertsEnabled: true,
         };
       }
       applyRegistration(f, r, now);
@@ -244,6 +253,12 @@ export class PostgresShareStore implements ShareStore {
     await this.sql`delete from glucos.followers where id = any(${ids}::uuid[])`;
   }
 
+  async clearFollowerDeviceToken(id: string, token: string): Promise<void> {
+    await this.sql`
+      update glucos.followers set device_token = null, updated_at = now()
+      where id = ${id}::uuid and device_token = ${token}`;
+  }
+
   async latestCard(): Promise<{ card: CardState; at: number } | null> {
     const rows = await this.sql`select work->'latestCard' as latest from glucos.relay where id = 1`;
     const v = rows[0]?.latest as { card?: CardState; at?: number } | null | undefined;
@@ -255,18 +270,19 @@ async function saveFollower(sql: SQL, f: Follower) {
   await sql`
     insert into glucos.followers (id, share_id, installation, sandbox, live_activity_enabled, push_to_start_token,
       activity_id, activity_token, activity_started_at, last_card, last_pushed_at, pending_start, start_attempts,
-      last_start_attempt, updated_at)
+      last_start_attempt, device_token, alerts_enabled, updated_at)
     values (${f.id}::uuid, ${f.shareId}::uuid, ${f.installation}, ${f.sandbox}, ${f.liveActivityEnabled},
       ${f.pushToStartToken}, ${f.activityId}, ${f.activityToken},
       ${f.activityStartedAt},
       ${f.lastCard ? sql.json(f.lastCard as never) : null}, ${f.lastPushedAt}, ${f.pendingStart}, ${f.startAttempts},
-      ${f.lastStartAttempt}, now())
+      ${f.lastStartAttempt}, ${f.deviceToken}, ${f.alertsEnabled}, now())
     on conflict (id) do update set
       sandbox = excluded.sandbox, live_activity_enabled = excluded.live_activity_enabled,
       push_to_start_token = excluded.push_to_start_token, activity_id = excluded.activity_id,
       activity_token = excluded.activity_token, activity_started_at = excluded.activity_started_at,
       last_card = excluded.last_card, last_pushed_at = excluded.last_pushed_at, pending_start = excluded.pending_start,
-      start_attempts = excluded.start_attempts, last_start_attempt = excluded.last_start_attempt, updated_at = now()`;
+      start_attempts = excluded.start_attempts, last_start_attempt = excluded.last_start_attempt,
+      device_token = excluded.device_token, alerts_enabled = excluded.alerts_enabled, updated_at = now()`;
 }
 
 /// A follower phone's registration, the same rules as the owner's in engine.ts `register`.
@@ -291,6 +307,8 @@ export function applyRegistration(f: Follower, r: FollowRegistration, now: numbe
     f.startAttempts = 0;
   }
   if (r.liveActivityEnabled !== undefined) f.liveActivityEnabled = r.liveActivityEnabled;
+  if (r.deviceToken) f.deviceToken = r.deviceToken;
+  if (r.alertsEnabled !== undefined) f.alertsEnabled = r.alertsEnabled;
 }
 
 // MARK: - In memory (tests)
@@ -340,6 +358,7 @@ export class MemoryShareStore implements ShareStore {
         id: crypto.randomUUID(), shareId, label: "", active: true, installation: r.installation, sandbox: false,
         liveActivityEnabled: true, pushToStartToken: null, activityId: null, activityToken: null, activityStartedAt: null,
         lastCard: null, lastPushedAt: null, pendingStart: false, startAttempts: 0, lastStartAttempt: null,
+        deviceToken: null, alertsEnabled: true,
       };
       this.rows.push(f);
     }
@@ -361,12 +380,21 @@ export class MemoryShareStore implements ShareStore {
     const i = this.rows.findIndex((x) => x.id === f.id);
     const row = this.rows[i];
     if (row && row.activityToken === seen.activityToken && row.pushToStartToken === seen.pushToStartToken) {
-      this.rows[i] = { ...structuredClone(f), liveActivityEnabled: row.liveActivityEnabled, sandbox: row.sandbox };
+      // Like Postgres: the relay saves only its own columns.
+      this.rows[i] = {
+        ...structuredClone(f), liveActivityEnabled: row.liveActivityEnabled, sandbox: row.sandbox,
+        deviceToken: row.deviceToken, alertsEnabled: row.alertsEnabled,
+      };
     }
     return Promise.resolve();
   }
   deleteFollowers(ids: string[]) {
     this.rows = this.rows.filter((f) => !ids.includes(f.id));
+    return Promise.resolve();
+  }
+  clearFollowerDeviceToken(id: string, token: string) {
+    const f = this.rows.find((x) => x.id === id);
+    if (f && f.deviceToken === token) f.deviceToken = null;
     return Promise.resolve();
   }
   latestCard() {
