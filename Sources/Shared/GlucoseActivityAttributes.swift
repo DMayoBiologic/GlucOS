@@ -7,6 +7,11 @@ import ActivityKit
 struct GlucoseActivityAttributes: ActivityAttributes {
     typealias ContentState = GlucoseActivityState
 
+    /// Whose readings: "GlucOS" on the owner's own card, the share's label on a follower's.
     var name: String = "GlucOS"
+    /// Set on a card following someone else's share (the share's id); nil on the owner's own.
+    /// The relay sends it when it starts a follower's card, so an old app that doesn't know it
+    /// would just ignore it.
+    var followID: String? = nil
 }
 #endif

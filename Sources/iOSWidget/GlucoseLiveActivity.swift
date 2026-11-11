@@ -9,7 +9,8 @@ import WidgetKit
 struct GlucoseLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: GlucoseActivityAttributes.self) { context in
-            LockScreenGlucoseCard(state: context.state, stale: context.isStale || context.state.isStale())
+            LockScreenGlucoseCard(state: context.state, stale: context.isStale || context.state.isStale(),
+                                  person: context.attributes.followID == nil ? nil : context.attributes.name)
                 .activityBackgroundTint(Color.black.opacity(0.25))
                 .activitySystemActionForegroundColor(.primary)
                 .widgetURL(URL(string: "glucos://open"))
@@ -43,7 +44,9 @@ struct GlucoseLiveActivity: Widget {
                     .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Text(stale ? "No recent reading" : state.range.label)
+                    Text(stale ? "No recent reading"
+                         : context.attributes.followID == nil ? state.range.label
+                         : "\(context.attributes.name) · \(state.range.label)")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(state.range.textTint))
                 }
@@ -53,14 +56,17 @@ struct GlucoseLiveActivity: Widget {
                             .frame(height: 54)
                         HStack(spacing: 8) {
                             ActivityFooter(state: state, stale: stale)
-                            Link(destination: URL(string: "glucos://log")!) {
-                                Label("Log", systemImage: "plus")
-                                    .font(.caption.weight(.semibold))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Color.white.opacity(0.16), in: Capsule())
+                            // Logging is for your own readings, not someone you follow.
+                            if context.attributes.followID == nil {
+                                Link(destination: URL(string: "glucos://log")!) {
+                                    Label("Log", systemImage: "plus")
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(Color.white.opacity(0.16), in: Capsule())
+                                }
+                                .accessibilityLabel("Log insulin, food or an event")
                             }
-                            .accessibilityLabel("Log insulin, food or an event")
                         }
                     }
                 }
@@ -96,6 +102,8 @@ extension GlucoseActivityState {
 struct LockScreenGlucoseCard: View {
     let state: GlucoseActivityState
     let stale: Bool
+    /// Whose reading, on a card following someone else's share. nil on the owner's own card.
+    var person: String? = nil
 
     var body: some View {
         let tone = state.tone(stale: stale)
@@ -106,6 +114,12 @@ struct LockScreenGlucoseCard: View {
                              systemImage: stale ? "exclamationmark.triangle.fill" : state.range.systemImage,
                              tone: tone)
                         .environment(\.dsTextScale, 1.1)
+                    if let person {
+                        Label(person, systemImage: "person.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text(state.valueText)
                             .font(.system(size: 46, weight: .bold, design: .rounded))
@@ -142,9 +156,9 @@ struct LockScreenGlucoseCard: View {
                            startPoint: .topLeading, endPoint: .bottomTrailing)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(stale
+        .accessibilityLabel((person.map { "\($0), " } ?? "") + (stale
             ? "Glucose \(state.glucoseUnit.format(mgdl: state.mgdl, withUnit: true)), stale"
-            : "Glucose \(state.glucoseUnit.format(mgdl: state.mgdl, withUnit: true)), \(state.range.label), \(state.glucoseTrend.description)")
+            : "Glucose \(state.glucoseUnit.format(mgdl: state.mgdl, withUnit: true)), \(state.range.label), \(state.glucoseTrend.description)"))
     }
 }
 

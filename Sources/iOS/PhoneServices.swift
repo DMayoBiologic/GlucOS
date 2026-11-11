@@ -16,6 +16,8 @@ final class PhoneServices: ObservableObject {
     let relaySettings = RelaySettings.shared
     /// Brings in doses and food logged on the Mac, which the forecast here uses.
     var logbookSync: LogbookSyncService?
+    /// Other people's shared readings this phone follows.
+    var follows: FollowStore?
 
     /// Keep a Live Activity on the Lock Screen.
     @Published var liveActivityEnabled: Bool {
@@ -72,6 +74,7 @@ final class PhoneServices: ObservableObject {
         liveActivity.onPushToStartToken = { [weak self] token in
             Task { @MainActor in
                 self?.pushToStartToken = token
+                self?.follows?.pushToStartTokenArrived(token)
                 await self?.syncRelay()
             }
         }
@@ -98,6 +101,7 @@ final class PhoneServices: ObservableObject {
             isForeground = true
             store.start()
             logbookSync?.start()
+            follows?.start()
             Task {
                 await store.refresh()
                 await showLiveActivity(canStart: true)
@@ -107,6 +111,7 @@ final class PhoneServices: ObservableObject {
             isForeground = false
             store.stop()
             logbookSync?.stop()
+            follows?.stop()
             BackgroundRefresh.schedule()
         default:
             break
@@ -120,6 +125,7 @@ final class PhoneServices: ObservableObject {
         await store.refresh()
         await showLiveActivity(canStart: false)
         await syncRelay()
+        await follows?.refresh(canStart: false)
     }
 
     func deviceTokenArrived(_ token: String) {

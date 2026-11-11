@@ -1,0 +1,298 @@
+import ActivityKit
+import Foundation
+
+/// Someone's live readings this phone follows, from a share link they sent.
+struct Follow: Codable, Hashable, Identifiable {
+    /// The share's id (`ShareSnapshot.followID`), also on the follower's Live Activity.
+    var id: String
+    var label: String
+    var expiresAt: Double?
+    var addedAt: Double
+    /// Keep their reading on this phone's Lock Screen.
+    var liveActivity: Bool = true
+}
+
+/// The people this phone follows: their latest readings (fetched while GlucOS is open) and their
+/// Lock Screen cards (kept live by the push relay once started, like the owner's own card).
+///
+/// Share tokens are kept in the Keychain; the list itself in UserDefaults.
+@MainActor
+final class FollowStore: ObservableObject {
+    typealias GlucoseActivity = Activity<GlucoseActivityAttributes>
+
+    @Published private(set) var follows: [Follow] = []
+    @Published private(set) var snapshots: [String: ShareSnapshot] = [:]
+    /// Shares the owner stopped (or that expired): shown as ended until removed.
+    @Published private(set) var ended: Set<String> = []
+    @Published private(set) var errors: [String: String] = [:]
+    /// The outcome of opening a share link, for an alert.
+    @Published var notice: String?
+
+    private let defaults = UserDefaults.standard
+    private var tracked = Set<String>()
+    private var pushToStartToken: String?
+    private var timer: Task<Void, Never>?
+    private var activityObserver: Task<Void, Never>?
+
+    #if DEBUG
+    private let apnsEnvironment = "sandbox"
+    #else
+    private let apnsEnvironment = "production"
+    #endif
+
+    /// A random id for this phone, so following again replaces its old entry on the server.
+    private var installation: String {
+        if let id = defaults.string(forKey: "followInstallation") { return id }
+        let id = UUID().uuidString
+        defaults.set(id, forKey: "followInstallation")
+        return id
+    }
+
+    init() {
+        if let data = defaults.data(forKey: "follows"), let saved = try? JSONDecoder().decode([Follow].self, from: data) {
+            follows = saved
+        }
+    }
+
+    var isFollowing: Bool { !follows.isEmpty }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(follows) { defaults.set(data, forKey: "follows") }
+    }
+
+    private func token(_ id: String) -> String? { Keychain.get("follow.\(id)") }
+
+    private func client(_ id: String) -> ShareClient? { token(id).map(ShareClient.init(token:)) }
+
+    // MARK: Adding and removing
+
+    /// Follows the share in a link. Returns the follow, or throws if the share has ended.
+    @discardableResult
+    func add(token: String) async throws -> Follow {
+        let snapshot = try await ShareClient(token: token).snapshot()
+        Keychain.set(token, for: "follow.\(snapshot.followID)")
+        var follow = follows.first { $0.id == snapshot.followID }
+            ?? Follow(id: snapshot.followID, label: snapshot.label, expiresAt: snapshot.expiresAt,
+                      addedAt: Date().timeIntervalSince1970)
+        follow.label = snapshot.label
+        follow.expiresAt = snapshot.expiresAt
+        follows.removeAll { $0.id == follow.id }
+        follows.insert(follow, at: 0)
+        ended.remove(follow.id)
+        pendingUnfollows.removeAll { $0 == follow.id }
+        snapshots[follow.id] = snapshot
+        save()
+        await register(follow.id)
+        await showActivity(for: follow, canStart: true)
+        return follow
+    }
+
+    /// A share link was opened (from Messages, through the web view's Open in GlucOS button).
+    func open(token: String) async {
+        do {
+            let f = try await add(token: token)
+            notice = "You're following \(f.label). \(f.liveActivity && ActivityAuthorizationInfo().areActivitiesEnabled ? "Their reading is on your Lock Screen." : "")"
+        } catch {
+            notice = error.localizedDescription
+        }
+    }
+
+    func remove(_ follow: Follow) async {
+        follows.removeAll { $0.id == follow.id }
+        snapshots[follow.id] = nil
+        errors[follow.id] = nil
+        ended.remove(follow.id)
+        save()
+        await endActivities(for: follow.id)
+        // The token is kept until the server has let go of this phone (so it doesn't keep a
+        // follower slot, or get pushes), retrying on later launches if need be.
+        if !pendingUnfollows.contains(follow.id) { pendingUnfollows.append(follow.id) }
+        await retryUnfollows()
+    }
+
+    /// Shares this phone stopped following but hasn't told the server yet.
+    private var pendingUnfollows: [String] {
+        get { defaults.stringArray(forKey: "pendingUnfollows") ?? [] }
+        set { defaults.set(newValue, forKey: "pendingUnfollows") }
+    }
+
+    private func retryUnfollows() async {
+        for id in pendingUnfollows where !follows.contains(where: { $0.id == id }) {
+            guard let client = client(id) else {
+                pendingUnfollows.removeAll { $0 == id }
+                continue
+            }
+            do {
+                try await client.unfollow(installation: installation)
+            } catch ShareClient.ShareError.ended {
+                // The share is gone, and its followers with it.
+            } catch {
+                continue
+            }
+            // Followed again while this was in flight: keep the token.
+            if !follows.contains(where: { $0.id == id }) { Keychain.delete("follow.\(id)") }
+            pendingUnfollows.removeAll { $0 == id }
+        }
+    }
+
+    func setLiveActivity(_ on: Bool, for follow: Follow) async {
+        guard let i = follows.firstIndex(where: { $0.id == follow.id }) else { return }
+        follows[i].liveActivity = on
+        save()
+        var r = FollowRegistration(installation: installation)
+        r.liveActivityEnabled = on
+        await send(r, to: follow.id)
+        if on { await showActivity(for: follows[i], canStart: true) } else { await endActivities(for: follow.id) }
+    }
+
+    // MARK: Refreshing
+
+    /// While GlucOS is open: every minute, fetch each followed reading and update its card.
+    func start() {
+        guard timer == nil else { return }
+        observeActivities()
+        timer = Task { [weak self] in
+            await self?.retryUnfollows()
+            while !Task.isCancelled {
+                await self?.refresh(canStart: true)
+                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+            }
+        }
+    }
+
+    func stop() {
+        timer?.cancel()
+        timer = nil
+    }
+
+    func refresh(canStart: Bool) async {
+        for follow in follows {
+            guard let client = client(follow.id) else { continue }
+            do {
+                let s = try await client.snapshot()
+                // Removed, or switched off the Lock Screen, while that was loading: use what's current.
+                guard let i = follows.firstIndex(where: { $0.id == follow.id }) else { continue }
+                snapshots[follow.id] = s
+                errors[follow.id] = nil
+                if follows[i].label != s.label {
+                    follows[i].label = s.label
+                    save()
+                }
+                await showActivity(for: follows[i], canStart: canStart)
+            } catch ShareClient.ShareError.ended {
+                guard follows.contains(where: { $0.id == follow.id }) else { continue }
+                ended.insert(follow.id)
+                await endActivities(for: follow.id)
+            } catch {
+                guard follows.contains(where: { $0.id == follow.id }) else { continue }
+                errors[follow.id] = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: Lock Screen
+
+    private func activities(for id: String) -> [GlucoseActivity] {
+        GlucoseActivity.activities.filter {
+            $0.attributes.followID == id && ($0.activityState == .active || $0.activityState == .stale)
+        }
+    }
+
+    private func showActivity(for follow: Follow, canStart: Bool) async {
+        guard follow.liveActivity, !ended.contains(follow.id), ActivityAuthorizationInfo().areActivitiesEnabled,
+              let card = snapshots[follow.id]?.card else { return }
+        let content = ActivityContent(state: card, staleDate: card.staleDate,
+                                      relevanceScore: card.range == .inRange ? 40 : 90)
+        let running = activities(for: follow.id)
+        for extra in running.dropLast() { await extra.end(nil, dismissalPolicy: .immediate) }
+        if let a = running.last {
+            if a.content.state != card || a.activityState == .stale { await a.update(content) }
+            return
+        }
+        guard canStart else { return }
+        let attributes = GlucoseActivityAttributes(name: follow.label, followID: follow.id)
+        do {
+            let a: GlucoseActivity
+            do {
+                a = try GlucoseActivity.request(attributes: attributes, content: content, pushType: .token)
+            } catch {
+                // A build without the push entitlement can still show a card while GlucOS is open.
+                a = try GlucoseActivity.request(attributes: attributes, content: content, pushType: nil)
+            }
+            track(a)
+        } catch {
+            errors[follow.id] = error.localizedDescription
+        }
+    }
+
+    private func endActivities(for id: String) async {
+        for a in GlucoseActivity.activities where a.attributes.followID == id {
+            await a.end(nil, dismissalPolicy: .immediate)
+        }
+    }
+
+    private func observeActivities() {
+        // Cards the relay starts by push (when iOS's 8-hour limit comes round) arrive here.
+        if activityObserver == nil {
+            activityObserver = Task { [weak self] in
+                for await a in GlucoseActivity.activityUpdates where a.attributes.followID != nil {
+                    self?.track(a)
+                }
+            }
+        }
+        GlucoseActivity.activities.filter { $0.attributes.followID != nil }.forEach(track)
+    }
+
+    private func track(_ activity: GlucoseActivity) {
+        guard let followID = activity.attributes.followID, tracked.insert(activity.id).inserted else { return }
+        let id = activity.id
+        Task { [weak self] in
+            for await data in activity.pushTokenUpdates {
+                guard let self else { return }
+                var r = FollowRegistration(installation: self.installation)
+                r.activityID = id
+                r.activityToken = data.hexString
+                await self.send(r, to: followID)
+            }
+        }
+        Task { [weak self] in
+            for await state in activity.activityStateUpdates where state == .ended || state == .dismissed {
+                guard let self else { return }
+                self.tracked.remove(id)
+                var r = FollowRegistration(installation: self.installation)
+                r.endedActivityID = id
+                await self.send(r, to: followID)
+            }
+        }
+    }
+
+    // MARK: Registration
+
+    /// The app's push-to-start token (shared with the owner's own card), so the relay can start
+    /// a follower's next card.
+    func pushToStartTokenArrived(_ token: String) {
+        guard token != pushToStartToken else { return }
+        pushToStartToken = token
+        Task { for f in follows { await register(f.id) } }
+    }
+
+    private func register(_ id: String) async {
+        var r = FollowRegistration(installation: installation)
+        r.apnsEnvironment = apnsEnvironment
+        r.pushToStartToken = pushToStartToken
+        r.liveActivityEnabled = follows.first { $0.id == id }?.liveActivity ?? true
+        await send(r, to: id)
+    }
+
+    private func send(_ r: FollowRegistration, to id: String) async {
+        guard let client = client(id) else { return }
+        do {
+            _ = try await client.follow(r)
+            errors[id] = nil
+        } catch ShareClient.ShareError.ended {
+            ended.insert(id)
+        } catch {
+            errors[id] = error.localizedDescription
+        }
+    }
+}

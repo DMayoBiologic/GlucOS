@@ -9,6 +9,8 @@ struct GlucOSPhoneApp: App {
     @StateObject private var logbook: LogbookStore
     @StateObject private var services: PhoneServices
     @StateObject private var logbookSync: LogbookSyncService
+    @StateObject private var follows: FollowStore
+    @StateObject private var sharing = OwnerSharing()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -19,8 +21,11 @@ struct GlucOSPhoneApp: App {
         _logbook = StateObject(wrappedValue: logbook)
         let sync = LogbookSyncService(logbook: logbook, settings: store.settings, device: "iPhone")
         _logbookSync = StateObject(wrappedValue: sync)
+        let follows = FollowStore()
+        _follows = StateObject(wrappedValue: follows)
         let services = PhoneServices(store: store)
         services.logbookSync = sync
+        services.follows = follows
         _services = StateObject(wrappedValue: services)
         // Has to happen before launch finishes.
         BackgroundRefresh.register()
@@ -34,12 +39,18 @@ struct GlucOSPhoneApp: App {
                 .environmentObject(services)
                 .environmentObject(logbookSync)
                 .environmentObject(store.settings)
+                .environmentObject(follows)
+                .environmentObject(sharing)
                 .environmentObject(PhoneLogRouter.shared)
                 .modifier(PhoneTextScale())
                 .onOpenURL { url in
-                    // glucos://log opens the log sheet (Lock Screen widget, Dynamic Island, links).
-                    PhoneLogRouter.shared.handle(url)
-                    Task { await store.refresh() }
+                    if let token = FollowLink.token(from: url) {
+                        Task { await follows.open(token: token) }
+                    } else {
+                        // glucos://log opens the log sheet (Lock Screen widget, Dynamic Island, links).
+                        PhoneLogRouter.shared.handle(url)
+                        Task { await store.refresh() }
+                    }
                 }
         }
         .onChange(of: scenePhase) { _, phase in services.scenePhaseChanged(phase) }
