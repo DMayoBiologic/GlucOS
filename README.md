@@ -145,10 +145,11 @@ Release + tag. Every installed copy updates and relaunches itself within the hou
 - To force a version: Actions → Release → Run workflow, or `make release V=1.0.0`.
 
 The same push ships the iPhone app to TestFlight once its secrets are set up ([docs/iOS.md](docs/iOS.md));
-until then that job skips with a notice. Supabase deploys the push relay (`supabase/`) from main itself.
+until then that job skips with a notice. Supabase deploys the push relay and logbook sync
+(`supabase/`) from main itself.
 
-`ci.yml` compiles every push and PR: the Mac app, the iPhone app (unsigned), and the relay's
-Deno tests against a local Supabase Postgres.
+`ci.yml` compiles every push and PR: the Mac app, the iPhone app (unsigned), and the Supabase
+functions' Deno tests against a local Supabase Postgres.
 
 ## Layout
 
@@ -162,7 +163,8 @@ Sources/Core/            alert rules (AlertPlanner) and the app ↔ relay protoc
 Sources/iOS/             iPhone app: cards, settings, Live Activity controller, relay client, background refresh
 Sources/iOSWidget/       iPhone widget extension: Live Activity (Lock Screen + Dynamic Island), Lock Screen widgets
 supabase/                push relay: a Supabase edge function run every minute by pg_cron (LibreLinkUp → alerts +
-                         Live Activity via APNs), its Postgres tables, and the parity fixtures shared with Swift
+                         Live Activity via APNs), its Postgres tables, and the parity fixtures shared with Swift;
+                         logbook sync: the `account` sign-in function and the logbook table (docs/LogbookSync.md)
 scripts/make_app_icon.py regenerates the app icon PNGs (Pillow)
 .github/workflows/       ci.yml (compile check), release.yml (merge to main → release + appcast)
 ```

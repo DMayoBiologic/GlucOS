@@ -12,3 +12,10 @@ major_version = 17
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/relay/index.ts"
+
+# Signs a device in to logbook sync with its LibreLinkUp login. Its callers aren't signed in yet,
+# so the gateway's JWT check is off; the function checks the login with LibreLinkUp itself.
+[functions.account]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/account/index.ts"

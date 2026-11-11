@@ -35,8 +35,16 @@ export interface GlucoseFetcher {
   fetch(account: Account, session: LibreSession | null): Promise<{ result: FetchResult; session: LibreSession }>;
 }
 
+/// LibreLinkUp region codes: "au", "eu", "eu2", "us", … Anything else is refused, so neither a
+/// caller nor a login redirect can point the client at a host outside libreview.io.
+export function isRegion(region: string | null | undefined): boolean {
+  const r = (region ?? "").trim().toLowerCase();
+  return !r || r === "global" || /^[a-z]{2}[0-9]?$/.test(r);
+}
+
 export function baseURL(region: string | null | undefined): string {
   const r = (region ?? "").trim().toLowerCase();
+  if (!isRegion(r)) throw new LibreError("Unexpected LibreLinkUp region.");
   return !r || r === "global" ? "https://api.libreview.io" : `https://api-${r}.libreview.io`;
 }
 
@@ -125,7 +133,14 @@ export class LibreLinkUpFetcher implements GlucoseFetcher {
     return o;
   }
 
-  private async login(account: Account, key: string, base: string, followingRedirect: boolean): Promise<LibreSession> {
+  /// Logs in and returns the LibreLinkUp user id, which identifies the account whatever its
+  /// email or region. Used by the `account` function to sign a device in to logbook sync.
+  async identify(account: Account): Promise<string> {
+    const s = await this.login(account, await sessionKey(account), baseURL(account.region), false);
+    return s.userId;
+  }
+
+  private async login(account: Account, key: string, base: string, followingRedirect: boolean): Promise<LibreSession & { userId: string }> {
     const res = await this.http(`${base}/llu/auth/login`, {
       method: "POST",
       headers: this.headers(account),
@@ -151,6 +166,7 @@ export class LibreLinkUpFetcher implements GlucoseFetcher {
       key, base, token: ticket.token,
       expires: typeof ticket.expires === "number" ? ticket.expires : Date.now() / 1000 + 6 * 3600,
       accountId: await sha256Hex(user.id),
+      userId: user.id,
     };
   }
 

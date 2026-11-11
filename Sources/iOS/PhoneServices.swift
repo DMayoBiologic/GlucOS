@@ -14,6 +14,8 @@ final class PhoneServices: ObservableObject {
     let store: GlucoseStore
     let liveActivity = LiveActivityController()
     let relaySettings = RelaySettings.shared
+    /// Brings in doses and food logged on the Mac, which the forecast here uses.
+    var logbookSync: LogbookSyncService?
 
     /// Keep a Live Activity on the Lock Screen.
     @Published var liveActivityEnabled: Bool {
@@ -95,6 +97,7 @@ final class PhoneServices: ObservableObject {
         case .active:
             isForeground = true
             store.start()
+            logbookSync?.start()
             Task {
                 await store.refresh()
                 await showLiveActivity(canStart: true)
@@ -103,6 +106,7 @@ final class PhoneServices: ObservableObject {
         case .background:
             isForeground = false
             store.stop()
+            logbookSync?.stop()
             BackgroundRefresh.schedule()
         default:
             break
@@ -111,6 +115,8 @@ final class PhoneServices: ObservableObject {
 
     /// A background app refresh: fetch once, update the card, and alert if the relay isn't.
     func backgroundRefresh() async {
+        // The logbook first, so the forecast on the Lock Screen counts what was logged on the Mac.
+        await logbookSync?.sync()
         await store.refresh()
         await showLiveActivity(canStart: false)
         await syncRelay()

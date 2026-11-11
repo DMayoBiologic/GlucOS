@@ -7,13 +7,18 @@ struct GlucOSApp: App {
     @StateObject private var store: GlucoseStore
     @StateObject private var updater = Updater()
     @StateObject private var logbook: LogbookStore
+    @StateObject private var logbookSync: LogbookSyncService
 
     init() {
         let store = GlucoseStore()
         let logbook = LogbookStore()
         store.logbook = logbook
+        let sync = LogbookSyncService(logbook: logbook, settings: store.settings, device: "Mac")
         _store = StateObject(wrappedValue: store)
         _logbook = StateObject(wrappedValue: logbook)
+        _logbookSync = StateObject(wrappedValue: sync)
+        // The Mac app runs all the time, so sync starts with it and keeps going.
+        Task { @MainActor in sync.start() }
     }
 
     var body: some Scene {
@@ -73,6 +78,7 @@ struct GlucOSApp: App {
                 .environmentObject(store.settings)
                 .environmentObject(updater)
                 .environmentObject(logbook)
+                .environmentObject(logbookSync)
         }
         .windowResizability(.contentMinSize)
     }
