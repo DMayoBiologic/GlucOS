@@ -30,6 +30,8 @@ let package = Package(
                 "Shared/GlucoseActivityState.swift",
                 "Shared/ClockLabel.swift",
                 "Core/RelayProtocol.swift",
+                "App/Logbook/InsulinLibrary.swift",
+                "App/Logbook/SiteRotation.swift",
                 "Core/ShareProtocol.swift",
                 "App/Logbook/LogbookModels.swift",
                 "App/Logbook/LogbookSync.swift",

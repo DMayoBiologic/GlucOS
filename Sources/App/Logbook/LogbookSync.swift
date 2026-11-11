@@ -58,6 +58,8 @@ enum JSONValue: Codable, Equatable {
 /// What a record is. Stored as text on the server, so a newer app can add kinds; this app leaves
 /// kinds it doesn't know alone.
 enum LogbookRecordKind: String, CaseIterable {
+    /// One of the user's insulins (`SavedInsulin`).
+    case insulin
     case dose, meal, siteChange, context, preset
 }
 
@@ -108,6 +110,8 @@ struct LogbookSyncState: Codable, Equatable {
 
 /// Everything in the logbook that syncs.
 struct LogbookContents: Equatable {
+    /// The user's insulins, in their order.
+    var insulins: [SavedInsulin] = []
     var doses: [InsulinDose] = []
     var meals: [MealEntry] = []
     var siteChanges: [SiteChange] = []
@@ -116,6 +120,7 @@ struct LogbookContents: Equatable {
     var presets: [LogPreset] = []
 
     var allIDs: [(UUID, LogbookRecordKind)] {
+        insulins.map { ($0.id, LogbookRecordKind.insulin) } +
         doses.map { ($0.id, .dose) } + meals.map { ($0.id, .meal) } + siteChanges.map { ($0.id, .siteChange) }
             + contexts.map { ($0.id, .context) } + presets.map { ($0.id, .preset) }
     }
@@ -179,6 +184,7 @@ enum LogbookMerge {
     static func apply(_ remote: [LogbookRecord], to contents: inout LogbookContents, state: inout LogbookSyncState) -> Bool {
         var changed = false
         var presetPositions: [UUID: Double] = [:]
+        var insulinPositions: [UUID: Double] = [:]
         for r in remote {
             if let rev = r.rev { state.cursor = max(state.cursor, rev) }
             if let p = state.pending[r.id], p.modified >= r.modified { continue }
@@ -195,16 +201,23 @@ enum LogbookMerge {
             }
             state.pending[r.id] = nil
             if kind == .preset { presetPositions[r.id] = payload["position"]?.number ?? .infinity }
+            if kind == .insulin { insulinPositions[r.id] = payload["position"]?.number ?? .infinity }
             changed = true
         }
         if !presetPositions.isEmpty {
             // Presets keep the order their positions say; ones that didn't change keep their place.
-            let indexed = contents.presets.enumerated().map { i, p in (p, presetPositions[p.id] ?? Double(i)) }
-            contents.presets = indexed.enumerated()
-                .sorted { a, b in a.element.1 == b.element.1 ? a.offset < b.offset : a.element.1 < b.element.1 }
-                .map { $0.element.0 }
+            contents.presets = ordered(contents.presets, by: presetPositions)
         }
+        if !insulinPositions.isEmpty { contents.insulins = ordered(contents.insulins, by: insulinPositions) }
         return changed
+    }
+
+    /// `list` sorted by the positions given; items without one keep their place.
+    private static func ordered<T: Identifiable>(_ list: [T], by positions: [UUID: Double]) -> [T] where T.ID == UUID {
+        list.enumerated().map { i, item in (item, positions[item.id] ?? Double(i)) }
+            .enumerated()
+            .sorted { a, b in a.element.1 == b.element.1 ? a.offset < b.offset : a.element.1 < b.element.1 }
+            .map { $0.element.0 }
     }
 
     // MARK: Encoding
@@ -234,6 +247,11 @@ enum LogbookMerge {
 
     static func payload(for id: UUID, kind: String, in c: LogbookContents) -> JSONValue? {
         switch LogbookRecordKind(rawValue: kind) {
+        case .insulin:
+            guard let i = c.insulins.firstIndex(where: { $0.id == id }),
+                  case .object(var o)? = json(c.insulins[i]) else { return nil }
+            o["position"] = .number(Double(i))
+            return .object(o)
         case .dose: return c.doses.first { $0.id == id }.flatMap(json)
         case .meal: return c.meals.first { $0.id == id }.flatMap(json)
         case .siteChange: return c.siteChanges.first { $0.id == id }.flatMap(json)
@@ -249,6 +267,22 @@ enum LogbookMerge {
 
     private static func upsert(_ payload: JSONValue, kind: LogbookRecordKind, into c: inout LogbookContents) -> Bool {
         switch kind {
+        case .insulin:
+            guard let i = decode(SavedInsulin.self, from: payload) else { return false }
+            if let at = c.insulins.firstIndex(where: { $0.id == i.id }) {
+                c.insulins[at] = i
+            } else {
+                c.insulins.append(i)
+            }
+            // The same insulin saved under two ids (e.g. renamed on one device while the other
+            // added the new name). Every device keeps only the one with the smallest id, in the
+            // place of the first, so all devices settle on the same entry without extra writes.
+            let same = c.insulins.indices.filter { c.insulins[$0].key == i.key }
+            if same.count > 1, let keep = same.min(by: { c.insulins[$0].id.uuidString < c.insulins[$1].id.uuidString }) {
+                let winner = c.insulins[keep]
+                c.insulins[same[0]] = winner
+                for at in same.dropFirst().reversed() { c.insulins.remove(at: at) }
+            }
         case .dose:
             guard let d = decode(InsulinDose.self, from: payload) else { return false }
             insertSorted(d, into: &c.doses)
@@ -271,6 +305,10 @@ enum LogbookMerge {
     private static func remove(_ id: UUID, kind: LogbookRecordKind, from c: inout LogbookContents) -> Bool {
         let before = c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count
         switch kind {
+        case .insulin:
+            let had = c.insulins.count
+            c.insulins.removeAll { $0.id == id }
+            return had != c.insulins.count
         case .dose: c.doses.removeAll { $0.id == id }
         case .meal: c.meals.removeAll { $0.id == id }
         case .siteChange: c.siteChanges.removeAll { $0.id == id }

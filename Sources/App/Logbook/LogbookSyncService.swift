@@ -189,7 +189,7 @@ final class LogbookSyncService: ObservableObject {
 
         // Push in batches; anything changed meanwhile stays pending for the next round.
         for _ in 0..<20 {
-            let out = LogbookMerge.outgoing(logbook.contents, state: logbook.syncState, device: device)
+            let out = LogbookMerge.outgoing(logbook.syncContents, state: logbook.syncState, device: device)
             guard !out.isEmpty else { break }
             try await client.push(out, session: s)
             logbook.updateSyncState { state, _ in LogbookMerge.pushed(out, state: &state) }

@@ -45,6 +45,12 @@ struct LogSheet: View {
     @State private var unitsText: String
     @State private var kind: InsulinKind
     @State private var insulinName: String
+    /// Typing an insulin that isn't in Settings → Your Insulins.
+    @State private var typesInsulin = false
+    /// The injection site filled in automatically, until the user picks another.
+    @State private var autoSite: InjectionSite?
+    /// The site is still the automatic one: no site has been picked by hand since.
+    @State private var siteIsAutomatic = false
     @State private var injectionSite: InjectionSite?
     @State private var carbsText: String
     @State private var food: String
@@ -184,7 +190,7 @@ struct LogSheet: View {
             }
         }
         .frame(minWidth: 460, idealWidth: 540, maxWidth: 780)
-        .onAppear { focusFirstField() }
+        .onAppear { startDose(); focusFirstField() }
         .onChange(of: settings.therapy) { _, therapy in
             // Picked in the setup step above: start from that therapy's defaults.
             guard editing == nil else { return }
@@ -193,9 +199,35 @@ struct LogSheet: View {
             includeFood = !therapy.logsInsulin
             kind = settings.bolusInsulinKind
             insulinName = settings.bolusInsulinName
+            startDose()
+        }
+        .onChange(of: logbook.insulins) { _, _ in
+            // The list can arrive by sync after the sheet opened.
+            guard editing == nil, !typesInsulin, insulinName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let p = logbook.preferredInsulin(viaPump: viaPump) else { return }
+            kind = p.kind
+            insulinName = p.name
+        }
+        .onChange(of: time) { _, newTime in
+            // Keep an automatic site in step with the dose time; a site the user picked stays.
+            guard editing == nil, !viaPump, siteIsAutomatic else { return }
+            autoSite = logbook.suggestedInjectionSite(at: newTime)
+            injectionSite = autoSite
+            // With no suggestion the sheet shows "Not recorded", and a tap on it changes nothing
+            // the sheet can see, so stop following the time rather than override that choice.
+            if autoSite == nil { siteIsAutomatic = false }
+        }
+        .onChange(of: injectionSite) { _, site in
+            // Any pick by hand (including "Not recorded") stops the site following the time.
+            if site != autoSite { siteIsAutomatic = false }
         }
         .onChange(of: kind) { old, new in
-            if insulinName == settings.defaultInsulinName(for: old) {
+            // An edited dose keeps its name whatever its type (the name field shows if they differ).
+            guard editingID == nil else { return }
+            // Picking another type while a saved insulin of the old type is selected.
+            if let saved = logbook.savedInsulin(named: insulinName), saved.kind == old, saved.kind != new {
+                insulinName = ""
+            } else if insulinName == settings.defaultInsulinName(for: old) {
                 insulinName = settings.defaultInsulinName(for: new)
             }
         }
@@ -332,6 +364,44 @@ struct LogSheet: View {
         if f.carbs > 0 { carbsText = LogFormat.number(f.carbs) }
     }
 
+    // MARK: Insulin
+
+    /// Saved insulins this dose can be logged with.
+    private var insulinChoices: [SavedInsulin] { InsulinLibrary.choices(logbook.insulins, viaPump: viaPump) }
+
+    /// Show the type picker and name field: nothing saved yet, "Other…" chosen, or a name (from
+    /// an older entry or preset) that isn't in the list.
+    private var showsInsulinEntry: Bool {
+        if insulinChoices.isEmpty || typesInsulin { return true }
+        let name = insulinName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        guard let saved = logbook.savedInsulin(named: name) else { return true }
+        // An older dose whose type differs from the saved insulin's shows its own type.
+        return saved.kind != kind || !insulinChoices.contains(saved)
+    }
+
+    private func pick(_ insulin: SavedInsulin) {
+        typesInsulin = false
+        kind = insulin.kind
+        insulinName = insulin.name
+    }
+
+    /// A new entry starts on the user's usual insulin and, for an injection, the site used
+    /// longest ago. Both are one click to change.
+    private func startDose() {
+        guard editing == nil else { return }
+        if let p = logbook.preferredInsulin(viaPump: viaPump) {
+            kind = p.kind
+            insulinName = p.name
+            typesInsulin = false
+        }
+        if !viaPump, injectionSite == nil {
+            autoSite = logbook.suggestedInjectionSite(at: time)
+            injectionSite = autoSite
+            siteIsAutomatic = autoSite != nil
+        }
+    }
+
     // MARK: Parts
 
     private var showsInsulin: Bool { editing == .dose || (editing == nil && settings.therapy.logsInsulin) }
@@ -371,18 +441,49 @@ struct LogSheet: View {
     private var insulinPanel: some View {
         FlowPanel(title: viaPump ? "Bolus" : "Insulin", systemImage: "syringe", tint: Self.insulinTint) {
             NumberStepperField(title: "Units", text: $unitsText, unitLabel: "units",
-                               step: viaPump ? 0.5 : 1, range: LogLimits.units,
-                               focus: $focus, focusValue: .units)
+                               step: InsulinLibrary.step(for: logbook.savedInsulin(named: insulinName), viaPump: viaPump),
+                               range: LogLimits.units, focus: $focus, focusValue: .units)
             if let problem = unitsProblem { FieldProblem(text: problem) }
-            HStack(spacing: 10) {
-                Picker("Insulin", selection: $kind) {
-                    ForEach(viaPump ? InsulinKind.pumpKinds : InsulinKind.allCases) { k in
-                        Text(k.title).tag(k)
+            VStack(alignment: .leading, spacing: 6) {
+                let choices = insulinChoices
+                let picked = showsInsulinEntry ? nil : logbook.savedInsulin(named: insulinName)
+                if !choices.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(choices) { i in
+                                Button { pick(i) } label: {
+                                    Text(i.name) + Text("  \(i.kind.title)").foregroundColor(.secondary)
+                                }
+                                .buttonStyle(ChipButtonStyle(selected: picked?.id == i.id, tint: Self.insulinTint))
+                                .help(i.summary)
+                            }
+                            Button {
+                                typesInsulin = true
+                                // An edited dose keeps its name until the user changes it.
+                                if editing == nil { insulinName = "" }
+                            } label: {
+                                Label("Other…", systemImage: "pencil")
+                            }
+                            .buttonStyle(ChipButtonStyle(selected: showsInsulinEntry, tint: Self.insulinTint))
+                        }
+                        .padding(.vertical, 1)
                     }
                 }
-                .fixedSize()
-                TextField("Name", text: $insulinName, prompt: Text(kind.examples))
-                    .textFieldStyle(.roundedBorder)
+                if showsInsulinEntry {
+                    HStack(spacing: 10) {
+                        Picker("Insulin", selection: $kind) {
+                            ForEach(viaPump ? InsulinKind.pumpKinds : InsulinKind.allCases) { k in
+                                Text(k.title).tag(k)
+                            }
+                        }
+                        .fixedSize()
+                        TextField("Name", text: $insulinName, prompt: Text(kind.examples))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    Text("Names you log are saved under Settings → Logging → Your Insulins, ready to pick next time.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             if viaPump {
                 LabeledContent("Infusion site") {
@@ -390,7 +491,7 @@ struct LogSheet: View {
                 }
                 .font(.callout)
             } else {
-                InjectionSitePicker(selection: $injectionSite)
+                InjectionSitePicker(selection: $injectionSite, at: time)
             }
         }
     }
@@ -626,19 +727,30 @@ struct LogSheet: View {
 /// longest ago is marked, to help with rotation.
 struct InjectionSitePicker: View {
     @Binding var selection: InjectionSite?
+    /// When the dose is: only injections before it count.
+    var at: Date = .distantFuture
     @EnvironmentObject var logbook: LogbookStore
 
     var body: some View {
-        let last = logbook.lastInjectionBySite
-        let suggested = logbook.leastRecentInjectionSite
+        let last = logbook.lastInjectionBySite(before: at)
+        let suggested = SiteRotation.suggestion(lastUse: last)
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Injection site").font(.callout)
                 Spacer()
                 if let suggested {
-                    Text("Longest since used: \(suggested.title)")
+                    if selection == suggested {
+                        Label("Suggested: not used for longest", systemImage: "sparkle")
+                            .font(.caption)
+                            .foregroundStyle(Palette.insulin)
+                    } else {
+                        Button { selection = suggested } label: {
+                            Label("Use \(suggested.title)", systemImage: "sparkle")
+                        }
+                        .buttonStyle(.link)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .help("The site you've gone longest without using")
+                    }
                 }
             }
             Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 6) {
@@ -653,6 +765,13 @@ struct InjectionSitePicker: View {
                         }
                     }
                 }
+            }
+            if let recent = SiteRotation.recentUse(of: selection, lastUse: last) {
+                Label("Used \(recent.formatted(.relative(presentation: .named))). Moving to a site you haven't used lately helps avoid lumps under the skin, where insulin absorbs unevenly.",
+                      systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 6) {
                 Button("Other") { selection = selection == .other ? nil : .other }
@@ -673,13 +792,20 @@ struct InjectionSitePicker: View {
                     Text((s.side ?? s.title).capitalized)
                     if suggested { Image(systemName: "sparkle").imageScale(.small) }
                 }
-                Text(last.map { $0.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)) } ?? "not used")
+                Text(suggested ? "suggested" : last.map { $0.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)) } ?? "not used")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(suggested ? AnyShapeStyle(Palette.insulin) : AnyShapeStyle(.secondary))
             }
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(ChipButtonStyle(selected: selection == s))
+        .overlay {
+            // Dashed ring on the suggested site while another is picked.
+            if suggested && selection != s {
+                Capsule().strokeBorder(Palette.insulin.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    .allowsHitTesting(false)
+            }
+        }
         .help(last.map { "\(s.title), last used \($0.formatted(date: .abbreviated, time: .shortened))" } ?? s.title)
         .accessibilityLabel(s.title)
     }
