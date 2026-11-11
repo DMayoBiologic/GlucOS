@@ -13,8 +13,8 @@ import Security
 /// keychain refuses them (`errSecMissingEntitlement`) and they keep using the login keychain.
 ///
 /// Items saved by builds before this change sit in the login keychain. The first read of each one
-/// copies it across, which is the last time macOS asks. The old copy is left alone: deleting it
-/// could prompt again, and it's never read once the new one exists.
+/// copies it across, which is the last time macOS asks. The old copy is left alone (deleting it
+/// could prompt again); a per-account marker in UserDefaults means it's never read again.
 enum Keychain {
     private static let service = "au.com.declanmayo.glucos"
     private static let lock = NSLock()
@@ -31,7 +31,7 @@ enum Keychain {
         let data = Data(value.utf8)
         #if os(macOS)
         if useModern() {
-            if store(data, account: account, modern: true) { cache[account] = value }
+            if store(data, account: account, modern: true) { cache[account] = value; markMigrated(account) }
             return
         }
         #endif
@@ -41,32 +41,22 @@ enum Keychain {
     static func get(_ account: String) -> String? {
         lock.lock(); defer { lock.unlock() }
         if let hit = cache[account] { return hit }
-        let value: String?
+        let result: ReadResult
         #if os(macOS)
         if useModern() {
-            switch read(account, modern: true) {
-            case .found(let v):
-                value = v
-            case .notFound:
-                // Not migrated yet (or never saved). Bring it over from the login keychain.
-                if case .found(let legacy) = read(account, modern: false) {
-                    _ = store(Data(legacy.utf8), account: account, modern: true)
-                    value = legacy
-                } else {
-                    value = nil
-                }
-            case .failed:
-                // Locked or otherwise unreadable right now: try again next time, don't cache.
-                return nil
-            }
+            result = readMigrating(account)
         } else {
-            value = read(account, modern: false).value
+            result = read(account, modern: false)
         }
         #else
-        value = read(account, modern: false).value
+        result = read(account, modern: false)
         #endif
-        cache[account] = .some(value)
-        return value
+        switch result {
+        case .found(let v): cache[account] = .some(v); return v
+        case .notFound: cache[account] = .some(nil); return nil
+        // Locked, denied or otherwise unreadable right now: try again next time, don't cache.
+        case .failed: return nil
+        }
     }
 
     static func delete(_ account: String) {
@@ -75,8 +65,8 @@ enum Keychain {
         #if os(macOS)
         if useModern() {
             SecItemDelete(query(account, modern: true) as CFDictionary)
-            // Also the login keychain copy, or the next read would migrate it back.
-            SecItemDelete(query(account, modern: false) as CFDictionary)
+            // The login keychain copy stays (deleting it could prompt), but it's never migrated now.
+            markMigrated(account)
             return
         }
         #endif
@@ -87,7 +77,6 @@ enum Keychain {
 
     private enum ReadResult {
         case found(String), notFound, failed
-        var value: String? { if case .found(let v) = self { return v } else { return nil } }
     }
 
     private static func query(_ account: String, modern: Bool) -> [String: Any] {
@@ -132,6 +121,28 @@ enum Keychain {
     }
 
     #if os(macOS)
+    /// Each account is copied from the login keychain at most once. The marker also stops a
+    /// stale login-keychain copy from coming back after the item is changed or deleted.
+    private static func migratedKey(_ account: String) -> String { "keychain.migrated.\(account)" }
+    private static func markMigrated(_ account: String) {
+        UserDefaults.standard.set(true, forKey: migratedKey(account))
+    }
+
+    private static func readMigrating(_ account: String) -> ReadResult {
+        let modern = read(account, modern: true)
+        guard case .notFound = modern, !UserDefaults.standard.bool(forKey: migratedKey(account)) else { return modern }
+        switch read(account, modern: false) {
+        case .found(let legacy):
+            if store(Data(legacy.utf8), account: account, modern: true) { markMigrated(account) }
+            return .found(legacy)
+        case .notFound:
+            markMigrated(account)
+            return .notFound
+        case .failed:
+            return .failed
+        }
+    }
+
     /// Whether this build is entitled to the data protection keychain. A lookup for an item that
     /// can't exist answers it without touching anything: missing entitlement vs. not found.
     private static func useModern() -> Bool {

@@ -163,7 +163,10 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
           SPARKLE_PUBLIC_ED_KEY: ${{ steps.key.outputs.public }}
         run: |
-          if [ -n "$MACOS_CERTIFICATE_P12" ] && [ -n "$TEAM_ID" ] && [ -n "$KEY_P8" ] && [ -n "$KEY_ID" ] && [ -n "$ISSUER" ]; then
+          if [ -n "$MACOS_CERTIFICATE_P12" ]; then
+            for v in MACOS_CERTIFICATE_PASSWORD TEAM_ID KEY_P8 KEY_ID ISSUER; do
+              [ -n "${!v}" ] || { echo "::error::MACOS_CERTIFICATE_P12 is set but $v isn't, so the Mac app can't be signed"; exit 1; }
+            done
             # Once releases are Developer ID signed, an ad-hoc one would lose access to the saved
             # logins, so a signing failure fails the release instead of quietly falling back.
             OUT=build/export scripts/sign_mac.sh
