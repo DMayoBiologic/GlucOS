@@ -287,23 +287,32 @@ Deno.test("followers past the tick's time budget wait for the next tick", async 
     (await share(t, "/v1/follow", links[i % 2].token, { installation: `phone-${1000 + i}`, activityID: `a${i}`, activityToken: tok })).body?.cancel();
   }
   assertEquals(await t.engine.tick(), "done");
-  // The first batch always goes; the rest are left for later.
-  assertEquals(events(t.sent).filter((e) => e.endsWith(":update")).length, followerConcurrency);
+  // The first batch always goes; the rest are left for the next tick, which starts with them.
+  const first = events(t.sent).filter((e) => e.endsWith(":update"));
+  assertEquals(first.length, followerConcurrency);
+  t.sent.length = 0;
+  t.advance(60);
+  assertEquals(await t.engine.tick(), "done");
+  const second = events(t.sent).filter((e) => e.endsWith(":update"));
+  assertEquals(new Set([...first, ...second]).size, followerConcurrency + 2);
 });
 
-Deno.test("ticks short of time start further along, so every follower gets a turn", () => {
-  // Only the first batch goes each tick. Ended followers (here, ones whose delete keeps failing)
-  // take some of its places.
-  for (const [live, ended] of [[20, 1], [25, 3], [24, 0], [7, 2]]) {
-    const fs = Array.from({ length: live + ended }, (_, i) => ({ id: i, active: i < live }));
-    const seen = new Set<number>();
-    for (let minute = 0; minute < live; minute++) {
-      const first = followerOrder(fs, minute * 60).slice(0, followerConcurrency);
-      assert(first.slice(0, ended).every((f) => !f.active), "ended ones go first");
-      first.filter((f) => f.active).forEach((f) => seen.add(f.id));
-    }
-    assertEquals(seen.size, live, `${live} live, ${ended} ended`);
+Deno.test("ticks short of time pick up where the last one stopped, so every follower gets a turn", () => {
+  // Each tick only gets through its first batch, then saves where it stopped. Ended followers
+  // whose delete keeps failing stay in the list; followers come and go between ticks.
+  let fs = Array.from({ length: 25 }, (_, i) => ({ id: `f${String(i).padStart(2, "0")}` }));
+  let cursor: string | null = null;
+  const seen = new Set<string>();
+  for (let tick = 0; tick < 3; tick++) {
+    const order: { id: string }[] = followerOrder(fs, cursor);
+    assertEquals(order.length, fs.length);
+    order.slice(0, followerConcurrency).forEach((f) => seen.add(f.id));
+    cursor = order[followerConcurrency]?.id ?? null;
+    if (tick === 0) fs = fs.filter((f) => f.id !== "f03").concat({ id: "f99" }); // one leaves, one joins
   }
+  assertEquals(seen.size, 26);
+  // A cursor past the end wraps round.
+  assertEquals(followerOrder(fs, "zzz")[0].id, "f00");
 });
 
 Deno.test("share expiry is kept between 10 minutes and 90 days", async () => {
