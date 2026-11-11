@@ -107,11 +107,14 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 GlucOS checks `releases/latest/download/appcast.xml` every hour via [Sparkle](https://sparkle-project.org).
 A new version downloads in the background, installs, and GlucOS relaunches itself on it: no prompts,
 nothing to click, no restart needed. **Check for Updates** in the menu checks on demand.
-Downloads are verified with an EdDSA signature, so an ad-hoc-signed build is fine.
+Downloads are verified with an EdDSA signature. Releases are Developer ID signed and notarized, so
+the app's signature stays the same across updates and macOS doesn't ask for the Keychain password
+when a new version starts (saved logins live in the data protection keychain).
 
 ## Developing
 
-Requirements: macOS 14+, Xcode 15+, Homebrew. No Apple Developer account needed (ad-hoc signing).
+Requirements: macOS 14+, Xcode 15+, Homebrew. No Apple Developer account needed for local builds
+(ad-hoc signed; they keep their saved logins in the login keychain).
 
 ```sh
 make            # xcodegen → xcodebuild Release → /Applications → launch
@@ -128,9 +131,11 @@ Generates the Sparkle EdDSA key pair with Sparkle's own tool, stores the private
 Keychain *and* as the repo secret `SPARKLE_PRIVATE_KEY`, sets repo variable `SPARKLE_PUBLIC_ED_KEY`,
 writes the public key into `project.yml` and pushes. Needs `gh auth login` once.
 
-Optional repo secrets for proper Developer ID signing + notarization (needs a paid developer account):
-`MACOS_CERTIFICATE_P12` (base64 .p12), `MACOS_CERTIFICATE_PASSWORD`, `APPLE_API_KEY_ID`,
-`APPLE_API_ISSUER_ID`, `APPLE_API_KEY_P8`. Without them releases are ad-hoc signed.
+Developer ID signing and notarization use the same secrets as the iPhone release (`APPLE_TEAM_ID`,
+`APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`, `APPLE_API_KEY_P8`, an Admin-role App Store Connect key) and
+Apple's cloud-managed Developer ID certificate, so there's no certificate to export
+(`scripts/sign_mac.sh`). Without them releases are ad-hoc signed, and macOS asks for the Keychain
+password after each update.
 
 ### Releases
 
