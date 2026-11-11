@@ -18,3 +18,5 @@ supabase/.temp/
 supabase/.branches/
 Sources/iOSMessages/Info.plist
 Sources/iOSMessages/GlucOSMessages.entitlements
+__pycache__/
+*.pyc
