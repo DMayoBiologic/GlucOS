@@ -17,6 +17,7 @@ struct LibreRegion: Identifiable {
 struct PhoneSignInView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
+    @State private var showsFollow = false
     @State private var email = ""
     @State private var password = ""
     @State private var region = "au"
@@ -69,7 +70,13 @@ struct PhoneSignInView: View {
                 }
                 .disabled(working || email.isEmpty || password.isEmpty)
             }
+            Section {
+                Button("Follow Someone's Readings…", systemImage: "person.2.wave.2") { showsFollow = true }
+            } footer: {
+                Text("Someone sent you a GlucOS share link? You don't need a LibreLinkUp account to follow it.")
+            }
         }
+        .sheet(isPresented: $showsFollow) { NavigationStack { AddFollowView() } }
         .navigationTitle("Welcome to GlucOS")
         .onAppear {
             email = settings.email
@@ -98,6 +105,8 @@ struct PhoneSettingsView: View {
             syncSection
             alertsSection
             lockScreenSection
+            sharingSection
+            FollowingSettingsSection()
             relaySection
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
@@ -210,6 +219,20 @@ struct PhoneSettingsView: View {
             Text("Lock Screen")
         } footer: {
             Text("Your reading, trend, the last 3 hours and the forecast on the Lock Screen and in the Dynamic Island. iOS ends a Live Activity after 8 hours; the push relay starts a fresh one automatically. Without the relay it only updates while GlucOS is open.")
+        }
+    }
+
+    private var sharingSection: some View {
+        Section {
+            NavigationLink {
+                PhoneSharingView(showsDone: false)
+            } label: {
+                Label("Share Live Readings", systemImage: "person.2.wave.2")
+            }
+        } header: {
+            Text("Sharing")
+        } footer: {
+            Text("Send family a link in Messages that shows your glucose live, and on their Lock Screen if they have GlucOS.")
         }
     }
 

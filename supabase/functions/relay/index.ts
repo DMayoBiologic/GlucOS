@@ -6,6 +6,9 @@
 //   POST /v1/register   RelayRegistration  → RelayStatus
 //   POST /v1/test                          → RelayStatus   (sends a test alert push)
 //   POST /v1/tick                                          (pg_cron, every minute)
+//   GET  /v1/shares                        → Share[]       (the owner's live share links)
+//   POST /v1/shares     CreateShareRequest → CreatedShare
+//   POST /v1/shares/revoke  {id}           → Share[]
 //
 // The phone sends `Authorization: Bearer <RELAY_SECRET>`. The schedule sends `X-GlucOS-Cron`
 // with a token the migration generated into Vault. JWT verification is off for this function
@@ -15,9 +18,10 @@
 // optionally APNS_BUNDLE_ID (default au.com.declanmayo.glucos.ios) and APNS_CRITICAL_ALERTS=true.
 
 import { APNsSender } from "./apns.ts";
-import { RelayEngine, type RelayRegistration } from "./engine.ts";
+import { type CreateShareRequest, RelayEngine, type RelayRegistration, ShareError } from "./engine.ts";
 import { LibreLinkUpFetcher } from "./libre.ts";
 import { connect, PostgresStore } from "./store.ts";
+import { PostgresShareStore } from "./sharing.ts";
 
 const env = (k: string) => Deno.env.get(k)?.trim() || undefined;
 
@@ -35,12 +39,14 @@ let cached: { store: PostgresStore; engine: RelayEngine } | null = null;
 
 function services() {
   if (cached) return cached;
-  const store = new PostgresStore(connect());
+  const sql = connect();
+  const store = new PostgresStore(sql);
   const keyPem = env("APNS_KEY_P8"), keyId = env("APNS_KEY_ID"), teamId = env("APPLE_TEAM_ID");
   const sender = keyPem && keyId && teamId ? new APNsSender({ keyPem, keyId, teamId }, store.tokenCache()) : null;
   const engine = new RelayEngine(store, sender, new LibreLinkUpFetcher(), {
     bundleId: env("APNS_BUNDLE_ID") ?? "au.com.declanmayo.glucos.ios",
     criticalAlerts: env("APNS_CRITICAL_ALERTS") === "true",
+    shares: new PostgresShareStore(sql),
   });
   cached = { store, engine };
   return cached;
@@ -71,6 +77,21 @@ export async function handle(req: Request): Promise<Response> {
   const { engine } = services();
   if (path === "/v1/status" && req.method === "GET") return json(await engine.status());
   if (path === "/v1/test" && req.method === "POST") return json(await engine.sendTest());
+  if (path.startsWith("/v1/shares")) {
+    try {
+      if (path === "/v1/shares" && req.method === "GET") return json(await engine.listShares());
+      const body = req.method === "POST" ? await req.json().catch(() => null) : null;
+      if (path === "/v1/shares" && req.method === "POST") return json(await engine.createShare((body ?? {}) as CreateShareRequest));
+      if (path === "/v1/shares/revoke" && req.method === "POST") {
+        if (typeof body?.id !== "string") return json({ error: "bad request" }, 400);
+        return json(await engine.revokeShare(body.id));
+      }
+    } catch (e) {
+      if (e instanceof ShareError) return json({ error: e.message }, e.status);
+      throw e;
+    }
+    return json({ error: "not found" }, 404);
+  }
   if (path === "/v1/register" && req.method === "POST") {
     let body: RelayRegistration;
     try {

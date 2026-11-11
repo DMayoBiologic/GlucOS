@@ -49,12 +49,15 @@ struct RelayClient {
         case unauthorized
         case http(Int)
         case badResponse
+        /// The relay's own explanation, e.g. too many share links.
+        case refused(String)
 
         var errorDescription: String? {
             switch self {
             case .unauthorized: return "The relay didn't accept the secret."
             case .http(let code): return "The relay returned HTTP \(code)."
             case .badResponse: return "The relay's reply wasn't understood."
+            case .refused(let message): return message
             }
         }
     }
@@ -73,7 +76,19 @@ struct RelayClient {
 
     func sendTest() async throws -> RelayStatus { try await call("v1/test", method: "POST") }
 
-    private func call(_ path: String, method: String, body: Data? = nil) async throws -> RelayStatus {
+    // MARK: Sharing (ShareProtocol.swift)
+
+    func shares() async throws -> [ShareInfo] { try await call("v1/shares", method: "GET") }
+
+    func createShare(_ request: CreateShare) async throws -> CreatedShare {
+        try await call("v1/shares", method: "POST", body: try JSONEncoder().encode(request))
+    }
+
+    func revokeShare(id: String) async throws -> [ShareInfo] {
+        try await call("v1/shares/revoke", method: "POST", body: try JSONEncoder().encode(RevokeShare(id: id)))
+    }
+
+    private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil) async throws -> T {
         var req = URLRequest(url: baseURL.appendingPathComponent(path))
         req.httpMethod = method
         req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
@@ -85,8 +100,14 @@ struct RelayClient {
         let (data, resp) = try await Self.session.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if code == 401 { throw RelayError.unauthorized }
-        guard code == 200 else { throw RelayError.http(code) }
-        guard let status = try? JSONDecoder().decode(RelayStatus.self, from: data) else { throw RelayError.badResponse }
-        return status
+        guard code == 200 else {
+            if (400..<500).contains(code),
+               let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String {
+                throw RelayError.refused(message)
+            }
+            throw RelayError.http(code)
+        }
+        guard let value = try? JSONDecoder().decode(T.self, from: data) else { throw RelayError.badResponse }
+        return value
     }
 }

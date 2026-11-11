@@ -19,3 +19,10 @@ entrypoint = "./functions/relay/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/account/index.ts"
+
+# What a share link's holder can see: the web view and follower phones. Public by design (the share
+# token in the link is the credential), so the gateway's JWT check is off.
+[functions.share]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/share/index.ts"

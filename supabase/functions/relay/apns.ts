@@ -54,7 +54,10 @@ export const payloads = {
     };
   },
 
-  activity(event: "update" | "start" | "end", state: CardState | null, now: number) {
+  /// `attributes` for a start: the owner's own card by default, or a follower's card
+  /// ({name: whose readings, followID: the share}).
+  activity(event: "update" | "start" | "end", state: CardState | null, now: number,
+           attributes: Record<string, unknown> = { name: "GlucOS" }) {
     const aps: Record<string, unknown> = { timestamp: Math.trunc(now), event };
     if (state) {
       aps["content-state"] = state;
@@ -64,9 +67,11 @@ export const payloads = {
     }
     if (event === "start") {
       aps["attributes-type"] = activityAttributesType;
-      aps["attributes"] = { name: "GlucOS" };
+      aps["attributes"] = attributes;
       // Required to start an activity. No sound, so a restart in the night is silent.
-      aps["alert"] = { title: "GlucOS", body: "Live glucose is on your Lock Screen." };
+      aps["alert"] = attributes.followID
+        ? { title: "GlucOS", body: `${attributes.name}'s glucose is on your Lock Screen.` }
+        : { title: "GlucOS", body: "Live glucose is on your Lock Screen." };
     }
     if (event === "end") aps["dismissal-date"] = Math.trunc(now);
     return { aps };

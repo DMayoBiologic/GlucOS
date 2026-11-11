@@ -1,15 +1,25 @@
 import SwiftUI
 
-/// Sign in first; after that, the glucose screen.
+/// Sign in first; after that, the glucose screen. A phone that only follows other people's
+/// shared readings shows those instead.
 struct PhoneRootView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var follows: FollowStore
 
     var body: some View {
-        if settings.hasCredentials {
-            PhoneHomeView()
-        } else {
-            NavigationStack { PhoneSignInView() }
+        Group {
+            if settings.hasCredentials {
+                PhoneHomeView()
+            } else if follows.isFollowing {
+                FollowingHomeView()
+            } else {
+                NavigationStack { PhoneSignInView() }
+            }
+        }
+        .alert(follows.notice ?? "", isPresented: Binding(get: { follows.notice != nil },
+                                                          set: { if !$0 { follows.notice = nil } })) {
+            Button("OK") { follows.notice = nil }
         }
     }
 }
@@ -19,7 +29,9 @@ struct PhoneHomeView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var services: PhoneServices
+    @EnvironmentObject var follows: FollowStore
     @State private var showsSettings = false
+    @State private var showsSharing = false
 
     var body: some View {
         NavigationStack {
@@ -27,6 +39,7 @@ struct PhoneHomeView: View {
                 VStack(spacing: DS.Space.lg) {
                     PhoneBanners(showsSettings: $showsSettings)
                     PhoneHeroCard()
+                    ForEach(follows.follows) { PhoneFollowingCard(follow: $0) }
                     PhoneChartCard()
                     if let outlook = store.snapshot.currentOutlook() {
                         PhoneOutlookCard(outlook: outlook)
@@ -52,6 +65,10 @@ struct PhoneHomeView: View {
             .navigationTitle("GlucOS")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showsSharing = true } label: { Image(systemName: "person.2.wave.2") }
+                        .accessibilityLabel("Share live readings")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showsSettings = true } label: { Image(systemName: "gearshape") }
                         .accessibilityLabel("Settings")
@@ -59,6 +76,9 @@ struct PhoneHomeView: View {
             }
             .sheet(isPresented: $showsSettings) {
                 NavigationStack { PhoneSettingsView() }
+            }
+            .sheet(isPresented: $showsSharing) {
+                NavigationStack { PhoneSharingView() }
             }
         }
     }

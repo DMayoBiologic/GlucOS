@@ -10,6 +10,10 @@ import {
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
 import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
+import {
+  cleanLabel, type Follower, hashShareToken, maxShareLifetime, maxShares, newShareToken, type Share, type ShareStore,
+  shareURL,
+} from "./sharing.ts";
 
 export const version = "2.0.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
@@ -56,6 +60,8 @@ export interface Work {
   lastPushError: string | null;
   /// The last card delivered to `activityId`, so unchanged cards aren't resent.
   lastCard: { activityId: string; card: CardState; pushedAt: number } | null;
+  /// The newest card, whether or not the owner has a Live Activity: what followers see.
+  latestCard: { card: CardState; at: number } | null;
 }
 
 export interface RelayRow {
@@ -80,6 +86,7 @@ export const newRow = (): RelayRow => ({
   work: {
     planner: newPlanner(), calibration: null, learnedAt: 0, current: null, sensor: null, lastFetchAt: null,
     lastError: null, lastPushAt: null, lastPushError: null, lastCard: null,
+    latestCard: null,
   },
 });
 
@@ -144,6 +151,27 @@ export interface RelayStatus {
 export interface EngineConfig {
   bundleId: string;
   criticalAlerts: boolean;
+  /// Share links and followers. Without it the relay serves only the owner.
+  shares?: ShareStore;
+}
+
+export interface CreateShareRequest {
+  label?: string;
+  /// Seconds from now; null or missing: until revoked.
+  expiresIn?: number | null;
+}
+
+export interface CreatedShare {
+  share: Share;
+  /// Given out once: only its hash is kept.
+  token: string;
+  url: string;
+}
+
+export class ShareError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
 }
 
 export class RelayEngine {
@@ -320,6 +348,8 @@ export class RelayEngine {
           }
         }
         await this.updateActivity(row, result.card, result.notices.length > 0, now);
+        if (result.card) w.latestCard = { card: result.card, at: now };
+        await this.updateFollowers(result.card, result.notices.length > 0, now);
         return "done";
       });
     } finally {
@@ -375,6 +405,130 @@ export class RelayEngine {
       deviceToken: a.token, type: "liveactivity", topic: this.config.bundleId, priority: 10,
       payload: payloads.activity("end", null, now), sandbox: row.prefs.sandbox,
     }, () => {});
+  }
+
+  // MARK: Sharing
+
+  private get shares(): ShareStore {
+    if (!this.config.shares) throw new ShareError("Sharing isn't set up on this relay", 503);
+    return this.config.shares;
+  }
+
+  listShares(): Promise<Share[]> {
+    return this.shares.listShares(this.clock());
+  }
+
+  async createShare(r: CreateShareRequest): Promise<CreatedShare> {
+    const now = this.clock();
+    const shares = this.shares;
+    if ((await shares.listShares(now)).length >= maxShares) {
+      throw new ShareError(`At most ${maxShares} share links at once. Stop sharing an old one first.`, 409);
+    }
+    let expiresAt: number | null = null;
+    if (r.expiresIn !== undefined && r.expiresIn !== null) {
+      if (typeof r.expiresIn !== "number" || !Number.isFinite(r.expiresIn)) throw new ShareError("bad expiresIn", 400);
+      expiresAt = now + Math.min(Math.max(r.expiresIn, 600), maxShareLifetime);
+    }
+    const token = newShareToken();
+    const share = await shares.createShare(cleanLabel(r.label), await hashShareToken(token), expiresAt);
+    return { share, token, url: shareURL(token) };
+  }
+
+  /// Ends a share now: the link stops working and followers' Lock Screen cards are taken down.
+  async revokeShare(id: string): Promise<Share[]> {
+    const now = this.clock();
+    const gone = await this.shares.revokeShare(id, now);
+    if (gone === null) throw new ShareError("No such share", 404);
+    for (const f of gone) await this.endFollower(f, now);
+    return await this.shares.listShares(now);
+  }
+
+  /// Each follower's Lock Screen card gets the same card as the owner's, by the same rules:
+  /// resent when it changes or every 10 minutes, replaced before iOS's 8-hour limit, and taken
+  /// down when the share expires.
+  private async updateFollowers(card: CardState | null, urgent: boolean, now: number) {
+    const shares = this.config.shares;
+    if (!shares || !this.sender) return;
+    let all: Follower[];
+    try {
+      all = await shares.followers(now);
+    } catch (e) {
+      console.error("followers", e);
+      return;
+    }
+    const ended: string[] = [];
+    for (const f of all) {
+      if (!f.active) {
+        await this.endFollower(f, now);
+        ended.push(f.id);
+        continue;
+      }
+      if (!card || !f.liveActivityEnabled) continue;
+      if (await this.updateFollower(f, card, urgent, now)) await shares.saveFollower(f);
+    }
+    await shares.deleteFollowers(ended);
+  }
+
+  /// Whether `f` changed and needs saving.
+  private async updateFollower(f: Follower, card: CardState, urgent: boolean, now: number): Promise<boolean> {
+    const sender = this.sender!;
+    let dirty = false;
+    if (f.activityId && f.activityToken) {
+      const age = f.activityStartedAt === null ? 0 : now - f.activityStartedAt;
+      if (age >= rotateAfter && f.pushToStartToken) {
+        await this.endFollower(f, now);
+        f.activityId = f.activityToken = null;
+        f.activityStartedAt = null;
+        f.lastCard = null;
+        f.pendingStart = true;
+        f.startAttempts = 0;
+        f.lastStartAttempt = null;
+        dirty = true;
+      } else {
+        const changed = !sameCard(card, f.lastCard);
+        const due = f.lastPushedAt === null || now - f.lastPushedAt >= activityRefresh;
+        if (!changed && !due) return false;
+        const rangeChanged = f.lastCard ? cardRange(f.lastCard) !== cardRange(card) : true;
+        const result = await sender.send({
+          deviceToken: f.activityToken, type: "liveactivity", topic: this.config.bundleId,
+          priority: urgent || rangeChanged || cardRange(card) !== "inRange" ? 10 : 5,
+          payload: payloads.activity("update", card, now), expiration: cardStaleDate(card), sandbox: f.sandbox,
+        });
+        if (result.kind === "delivered") {
+          f.lastCard = card;
+          f.lastPushedAt = now;
+          return true;
+        }
+        if (result.kind === "tokenInvalid") {
+          f.activityId = f.activityToken = null;
+          f.activityStartedAt = null;
+          f.lastCard = null;
+          return true;
+        }
+        return false;
+      }
+    }
+
+    const p2s = f.pushToStartToken;
+    if (!f.pendingStart || !p2s || f.startAttempts >= maxStartAttempts) return dirty;
+    if (f.lastStartAttempt !== null && now - f.lastStartAttempt < startRetry) return dirty;
+    f.startAttempts += 1;
+    f.lastStartAttempt = now;
+    const result = await sender.send({
+      deviceToken: p2s, type: "liveactivity", topic: this.config.bundleId, priority: 10,
+      payload: payloads.activity("start", card, now, { name: f.label, followID: f.shareId }),
+      expiration: now + 600, sandbox: f.sandbox,
+    });
+    if (result.kind === "tokenInvalid") f.pushToStartToken = null;
+    return true;
+  }
+
+  private async endFollower(f: Follower, now: number) {
+    if (!this.sender || !f.activityToken) return;
+    await this.sender.send({
+      deviceToken: f.activityToken, type: "liveactivity", topic: this.config.bundleId, priority: 10,
+      payload: payloads.activity("end", null, now), sandbox: f.sandbox,
+    });
   }
 
   // MARK: Plumbing

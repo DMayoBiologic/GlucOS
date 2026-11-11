@@ -29,6 +29,7 @@ let package = Package(
                 "Core/AlertPlanner.swift",
                 "Shared/GlucoseActivityState.swift",
                 "Core/RelayProtocol.swift",
+                "Core/ShareProtocol.swift",
                 "App/Logbook/LogbookModels.swift",
                 "App/Logbook/LogbookSync.swift",
                 "App/Logbook/LogbookSyncClient.swift",

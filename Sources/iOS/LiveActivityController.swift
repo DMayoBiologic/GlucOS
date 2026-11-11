@@ -20,6 +20,11 @@ final class LiveActivityController: ObservableObject {
     var onPushToStartToken: ((String) -> Void)?
     var onActivityEnded: ((_ activityID: String) -> Void)?
 
+    /// This controller looks after the owner's own card only. Cards following someone else's
+    /// share (`followID` set) belong to `FollowStore`.
+    nonisolated private static func isOwn(_ a: GlucoseActivity) -> Bool { a.attributes.followID == nil }
+    private var ownActivities: [GlucoseActivity] { GlucoseActivity.activities.filter(LiveActivityController.isOwn) }
+
     private var tracked = Set<String>()
     private var observers: [Task<Void, Never>] = []
     private var lastSent: GlucoseActivityState?
@@ -39,15 +44,15 @@ final class LiveActivityController: ObservableObject {
         })
         // Activities the relay starts by push arrive here, even with the app in the background.
         observers.append(Task { [weak self] in
-            for await activity in GlucoseActivity.activityUpdates {
+            for await activity in GlucoseActivity.activityUpdates where LiveActivityController.isOwn(activity) {
                 self?.track(activity)
             }
         })
-        GlucoseActivity.activities.forEach(track)
+        ownActivities.forEach(track)
     }
 
     private var current: GlucoseActivity? {
-        GlucoseActivity.activities.last { $0.activityState == .active || $0.activityState == .stale }
+        ownActivities.last { $0.activityState == .active || $0.activityState == .stale }
     }
 
     private func track(_ activity: GlucoseActivity) {
@@ -82,7 +87,7 @@ final class LiveActivityController: ObservableObject {
         let content = ActivityContent(state: state, staleDate: state.staleDate,
                                       relevanceScore: state.range == .inRange ? 50 : 100)
         // Only ever one GlucOS card.
-        let all = GlucoseActivity.activities.filter { $0.activityState == .active || $0.activityState == .stale }
+        let all = ownActivities.filter { $0.activityState == .active || $0.activityState == .stale }
         for extra in all.dropLast() {
             await extra.end(nil, dismissalPolicy: .immediate)
         }
@@ -113,9 +118,10 @@ final class LiveActivityController: ObservableObject {
         }
     }
 
-    /// Ends every GlucOS Live Activity (the switch was turned off, or the account signed out).
+    /// Ends the owner's Live Activity (the switch was turned off, or the account signed out).
+    /// Cards following other people stay.
     func endAll() async {
-        for activity in GlucoseActivity.activities {
+        for activity in ownActivities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
         lastSent = nil

@@ -18,7 +18,7 @@ const cronSecret = "glucos_cron_token";
 export function connect(url = Deno.env.get("SUPABASE_DB_URL")): SQL {
   if (!url) throw new Error("SUPABASE_DB_URL is not set");
   // The pooler runs in transaction mode, which can't keep prepared statements.
-  return postgres(url, { prepare: false, max: 2, idle_timeout: 5, connect_timeout: 10 });
+  return postgres(url, { prepare: false, max: 3, idle_timeout: 5, connect_timeout: 10 });
 }
 
 /// Fills in anything a stored row lacks (a new field, or the empty row the migration inserts).
