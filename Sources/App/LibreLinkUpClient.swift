@@ -222,11 +222,17 @@ actor LibreLinkUpClient {
         return f
     }()
 
+    /// LibreLinkUp's `FactoryTimestamp` ("11/11/2026 9:33:48 PM") is UTC with a 12-hour clock.
+    /// Only display code converts to the phone's or Mac's own time zone.
+    static func factoryDate(_ s: String) -> Date? {
+        factoryFormatter.date(from: s.trimmingCharacters(in: .whitespaces))
+    }
+
     private static func reading(from dict: [String: Any]?) -> GlucoseReading? {
         guard let dict,
               let mgdl = (dict["ValueInMgPerDl"] as? NSNumber)?.doubleValue,
               let ts = dict["FactoryTimestamp"] as? String,
-              let date = factoryFormatter.date(from: ts)
+              let date = factoryDate(ts)
         else { return nil }
         let trend = Trend(rawValue: (dict["TrendArrow"] as? NSNumber)?.intValue ?? 0) ?? .unknown
         return GlucoseReading(timestamp: date, mgdl: mgdl, trend: trend)

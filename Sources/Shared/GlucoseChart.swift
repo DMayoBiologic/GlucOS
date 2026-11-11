@@ -23,6 +23,12 @@ struct GlucoseChart: View {
     /// range, never in a reading's colour. Pass only a current forecast (`OutlookSnapshot.isCurrent`);
     /// it's hidden anyway while the newest reading is stale.
     var forecast: [ForecastSample] = []
+    /// Logged doses and food, drawn as small markers along the bottom of the chart.
+    var events: [ChartLogMarker] = []
+    /// How many time labels to aim for along the bottom.
+    var timeLabelCount: Int = 4
+    /// A faint "Now" line where readings end and the forecast begins.
+    var marksNow: Bool = false
 
     @State private var hoverDate: Date?
 
@@ -118,7 +124,7 @@ struct GlucoseChart: View {
                     series: .value("Series", "Forecast range")
                 )
                 .interpolationMethod(.monotone)
-                .foregroundStyle(Palette.stale.opacity(0.16))
+                .foregroundStyle(Palette.stale.opacity(0.22))
             }
             ForEach(projection) { p in
                 LineMark(
@@ -128,8 +134,12 @@ struct GlucoseChart: View {
                 )
                 .interpolationMethod(.monotone)
                 .foregroundStyle(Palette.stale)
-                .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 3]))
+                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 3]))
             }
+
+            nowMark(last: projection.isEmpty ? nil : window.last)
+            midnightMarks(window)
+            eventMarks(window, yd: yd)
 
             // Current reading: solid dot with a soft halo.
             if let last = window.last {
@@ -170,7 +180,7 @@ struct GlucoseChart: View {
                             .fontWeight(.semibold)
                             .dsFont(.callout)
                             .monospacedDigit()
-                        Text(h.timestamp.formatted(date: .omitted, time: .shortened))
+                        Text(ClockLabel.dayTime(h.timestamp, now: Date()))
                             .dsFont(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -184,11 +194,16 @@ struct GlucoseChart: View {
         .chartYScale(domain: yDomain)
         .chartXAxis {
             if showAxes {
-                AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                AxisMarks(values: .automatic(desiredCount: timeLabelCount)) { v in
                     AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
-                    AxisValueLabel(format: .dateTime.hour())
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    AxisValueLabel {
+                        if let d = v.as(Date.self) {
+                            // A midnight label names the day instead of "12 am".
+                            Text(Self.timeAxisLabel(d))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }
@@ -210,6 +225,81 @@ struct GlucoseChart: View {
         .hoverSelection(interactive, $hoverDate)
         .accessibilityLabel(projection.isEmpty ? "Glucose, last \(Int(hours)) hours"
                                                 : "Glucose, last \(Int(hours)) hours, with an estimated forecast")
+    }
+}
+
+/// Something logged, shown as a marker on the chart.
+struct ChartLogMarker: Identifiable {
+    let id: UUID
+    let date: Date
+    let systemImage: String
+    let tint: Color
+    /// Which row of markers, from the bottom, so a dose and a meal logged together don't overlap.
+    var lane: Int = 0
+    /// For VoiceOver: "6 units Novorapid at 12:56 pm".
+    let label: String
+}
+
+extension GlucoseChart {
+    /// "3 pm", or the weekday at midnight instead of "12 am".
+    static func timeAxisLabel(_ d: Date) -> String {
+        Calendar.current.component(.hour, from: d) == 0
+            ? d.formatted(.dateTime.weekday(.abbreviated))
+            : d.formatted(.dateTime.hour())
+    }
+
+    /// Where readings end and the forecast begins.
+    @ChartContentBuilder
+    func nowMark(last: GlucoseReading?) -> some ChartContent {
+        if marksNow, let last {
+            RuleMark(x: .value("Now", last.timestamp))
+                .foregroundStyle(Color.secondary.opacity(0.35))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                .annotation(position: .top, alignment: .center, spacing: 2) {
+                    Text("Now").dsFont(.caption).foregroundStyle(.secondary)
+                }
+        }
+    }
+
+    /// A faint line at each midnight, so times either side can't be mistaken for the same day.
+    @ChartContentBuilder
+    func midnightMarks(_ window: [GlucoseReading]) -> some ChartContent {
+        let marks: [Date] = {
+            guard let first = window.first, let last = window.last else { return [] }
+            return ClockLabel.midnights(from: first.timestamp, to: last.timestamp)
+        }()
+        ForEach(marks, id: \.self) { m in
+            RuleMark(x: .value("Midnight", m))
+                .foregroundStyle(Color.primary.opacity(0.14))
+                .lineStyle(StrokeStyle(lineWidth: 1))
+        }
+    }
+
+    /// Logged insulin and food, along the bottom.
+    @ChartContentBuilder
+    func eventMarks(_ window: [GlucoseReading], yd: ClosedRange<Double>) -> some ChartContent {
+        let start = window.first?.timestamp ?? .distantFuture
+        let shown = events.filter { $0.date >= start }
+        let span = yd.upperBound - yd.lowerBound
+        ForEach(shown) { e in
+            let y: Double = yd.lowerBound + span * (0.06 + 0.08 * Double(e.lane))
+            PointMark(x: .value("Time", e.date), y: .value("Logged", y))
+                .symbol { EventSymbol(event: e) }
+                .accessibilityLabel(e.label)
+        }
+    }
+}
+
+private struct EventSymbol: View {
+    let event: ChartLogMarker
+
+    var body: some View {
+        Image(systemName: event.systemImage)
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 16, height: 16)
+            .background(Circle().fill(event.tint))
+            .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 0.5))
     }
 }
 
