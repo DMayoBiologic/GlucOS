@@ -5,8 +5,9 @@ name: iOS signing
 # releases). Exports the .ipa and checks its signature; nothing is uploaded. Also lists the team's
 # signing certificates. Skips itself on forks, which don't get the Apple secrets.
 #
-# Run it by hand with "revoke CI development certificates" ticked to clear out the Apple
-# Development certificates that releases made before scripts/sign_ios.sh (see that script).
+# Run it by hand with certificate ids to revoke the Apple Development certificates that releases
+# made before scripts/sign_ios.sh. Pick the ids from a run's listing (marked [CI]); only
+# development certificates can be revoked this way.
 
 on:
   pull_request:
@@ -18,10 +19,10 @@ on:
       - project.yml
   workflow_dispatch:
     inputs:
-      revoke_ci_development:
-        description: "Revoke the Apple Development certificates CI created (never Xcode, distribution or Developer ID ones)"
-        type: boolean
-        default: false
+      revoke_ids:
+        description: "Comma-separated ids of development certificates to revoke (from a run's listing)"
+        type: string
+        default: ""
 
 jobs:
   certificates:
@@ -38,10 +39,10 @@ jobs:
       - name: Signing certificates
         if: env.KEY_P8 != ''
         env:
-          REVOKE: ${{ inputs.revoke_ci_development && '--revoke-ci-development' || '' }}
+          REVOKE_IDS: ${{ inputs.revoke_ids }}
         run: |
           pip install --quiet 'pyjwt[crypto]==2.10.1'
-          python3 scripts/asc_certificates.py $REVOKE
+          python3 scripts/asc_certificates.py --revoke "$REVOKE_IDS"
 
   sign:
     needs: certificates

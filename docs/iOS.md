@@ -86,8 +86,8 @@ any SKU. Open **TestFlight** → **Internal Testing** → **+**, add yourself an
   CI signs with Apple's cloud-managed distribution certificate through this key
   (`scripts/sign_ios.sh`), so there's no certificate to export and no run ever creates one. The
   **iOS signing** workflow checks this on pull requests that touch signing, lists the team's
-  certificates, and (run by hand with the box ticked) revokes the Apple Development certificates
-  that releases made before this.
+  certificates, and (run by hand with ids from that list) revokes the Apple Development
+  certificates that releases made before this.
 - **APNs key** (lets the relay push): developer.apple.com → Certificates, IDs & Profiles → **Keys**
   → **+** → tick **Apple Push Notifications service (APNs)**, environment **Sandbox & Production**.
   Download the `.p8` and note its **Key ID**. An existing APNs key for the team works too.
