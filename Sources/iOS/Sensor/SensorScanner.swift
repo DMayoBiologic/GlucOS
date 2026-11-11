@@ -68,7 +68,7 @@ final class SensorScanner: NSObject {
         // Abbott tags carry the TI manufacturer code (0x07) the custom command is addressed to.
         tag.customCommand(requestFlags: .highDataRate, customCommandCode: 0xA1, customRequestParameters: Data()) { [weak self] data, error in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.session === session else { return }
                 if let error {
                     session.invalidate(errorMessage: "Couldn't read the sensor. Try again and hold still.")
                     self.finish(.failure(SensorScanError.failed(error.localizedDescription)))
@@ -94,7 +94,7 @@ extension SensorScanner: NFCTagReaderSessionDelegate {
     nonisolated func tagReaderSession(_ session: NFCTagReaderSession, didInvalidateWithError error: Error) {
         Task { @MainActor in
             // A successful read already finished; this is just the sheet closing.
-            guard self.continuation != nil else { return }
+            guard self.session === session, self.continuation != nil else { return }
             let nfc = error as? NFCReaderError
             if nfc?.code == .readerSessionInvalidationErrorUserCanceled {
                 self.finish(.failure(CancellationError()))
@@ -106,6 +106,7 @@ extension SensorScanner: NFCTagReaderSessionDelegate {
 
     nonisolated func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
         Task { @MainActor in
+            guard self.session === session else { return }
             guard let first = tags.first, case let .iso15693(tag) = first else {
                 session.invalidate(errorMessage: SensorScanError.notLibre.localizedDescription)
                 self.finish(.failure(SensorScanError.notLibre))
@@ -113,6 +114,7 @@ extension SensorScanner: NFCTagReaderSessionDelegate {
             }
             session.connect(to: first) { error in
                 Task { @MainActor in
+                    guard self.session === session else { return }
                     if let error {
                         session.invalidate(errorMessage: "Lost the sensor. Try again and hold still.")
                         self.finish(.failure(SensorScanError.failed(error.localizedDescription)))
