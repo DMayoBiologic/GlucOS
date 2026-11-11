@@ -130,19 +130,23 @@ struct PhoneLogBar: View {
     }
 
     var body: some View {
-        HStack(spacing: DS.Space.sm) {
-            ForEach(parts) { part in
-                Button { router.open(part) } label: {
-                    Label(part.title(pump: settings.therapy == .pump), systemImage: part.systemImage)
-                        .labelStyle(LogBarLabelStyle())
-                        .foregroundStyle(part.tint)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, DS.Space.sm + 2)
-                        .background(part.tint.opacity(0.14), in: Capsule())
-                        .contentShape(Capsule())
+        VStack(spacing: 0) {
+            // "Woke up at 6:41?" in the morning, until it's logged or dismissed.
+            PhoneWakeStrip()
+            HStack(spacing: DS.Space.sm) {
+                ForEach(parts) { part in
+                    Button { router.open(part) } label: {
+                        Label(part.title(pump: settings.therapy == .pump), systemImage: part.systemImage)
+                            .labelStyle(LogBarLabelStyle())
+                            .foregroundStyle(part.tint)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, DS.Space.sm + 2)
+                            .background(part.tint.opacity(0.14), in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(PressScaleStyle())
+                    .accessibilityLabel("Log \(part.title(pump: settings.therapy == .pump))")
                 }
-                .buttonStyle(PressScaleStyle())
-                .accessibilityLabel("Log \(part.title(pump: settings.therapy == .pump))")
             }
         }
         .padding(.horizontal, DS.Space.lg)

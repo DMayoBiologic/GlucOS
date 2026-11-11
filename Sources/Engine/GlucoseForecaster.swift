@@ -12,6 +12,9 @@ import Foundation
 // be trusted, or something is going on the model can't describe (food without carbs, a hypo
 // treatment, a site problem), the forecast uses the trend alone and only looks 30 minutes ahead.
 // It always assumes nothing new is eaten or dosed, and that background insulin holds glucose level.
+//
+// After a logged wake-up, the user's usual post-wake change (`MorningPattern`, only once it has
+// been shown to improve their past forecasts) is added to the modelled rate the same way.
 
 /// Why there's no forecast right now.
 enum ForecastUnavailable: Hashable {
@@ -92,6 +95,8 @@ struct GlucoseForecast: Hashable {
     let limitations: [ForecastLimitation]
     /// The accuracy figures the range came from, if any.
     let calibrated: Bool
+    /// The post-wake adjustment included, if any.
+    var morning: AppliedMorningAdjustment? = nil
 
     var horizon: TimeInterval { samples.last.map { $0.date.timeIntervalSince(issuedAt) } ?? 0 }
 
@@ -107,16 +112,19 @@ struct ForecastInputs {
     var contexts: [ContextEvent]
     var profile: EffectProfile
     var calibration: ForecastCalibration?
+    /// The user's usual post-wake change. Pass it only once it's usable (`isUsable`).
+    var morning: MorningPattern?
     var now: Date
 
     init(readings: GlucoseSeries, doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
-         profile: EffectProfile, calibration: ForecastCalibration? = nil, now: Date) {
+         profile: EffectProfile, calibration: ForecastCalibration? = nil, morning: MorningPattern? = nil, now: Date) {
         self.readings = readings
         self.doses = doses
         self.meals = meals
         self.contexts = contexts
         self.profile = profile
         self.calibration = calibration
+        self.morning = morning
         self.now = now
     }
 }
@@ -183,7 +191,15 @@ enum GlucoseForecaster {
             limitations.append(.backgroundInsulin)
         }
 
-        let trendOnly = limitations.contains(where: \.forcesTrendOnly) || (!insulinMatters && !carbsMatter)
+        let forced = limitations.contains(where: \.forcesTrendOnly)
+        let trendOnly = forced || (!insulinMatters && !carbsMatter)
+        // The usual post-wake change, while inside it. Not when the forecast can't trust the
+        // logbook (it's learnt on top of what insulin and carbs explain).
+        var morningWake: Date?
+        if !forced, let p = input.morning, !p.stepChange.isEmpty,
+           let wake = WakeLog.latest(input.contexts, before: t0), t0.timeIntervalSince(wake.timestamp) < p.duration {
+            morningWake = wake.timestamp
+        }
         // With nothing acting, the model is the trend fading to level, so it's still "trend".
         let basis: ForecastBasis = trendOnly ? .trend : .trendInsulinCarbs
 
@@ -213,6 +229,11 @@ enum GlucoseForecaster {
             let carbsPerMinute = carbs.reduce(0) { $0 + $1.ratePerHour(at: t) } / 60
             return (K ?? 0) * carbsPerMinute - (S ?? 0) * insulinPerMinute
         }
+        func morningRate(at t: Date) -> Double {
+            guard let wake = morningWake, let p = input.morning else { return 0 }
+            return p.ratePerMinute(after: t.timeIntervalSince(wake))
+        }
+        var morningAdded = 0.0
         func band(_ minutes: Double) -> (Double, Double) {
             let q = stats.flatMap { ForecastCalibration.interpolate($0, minutes: minutes) }
                 ?? ForecastCalibration.defaultBand(minutes: minutes)
@@ -223,7 +244,10 @@ enum GlucoseForecaster {
             // Midpoint rule over each minute.
             let mid = minute + 0.5
             let w = max(0, 1 - mid * 60 / trendFade)
-            let rate = w * trend + (1 - w) * modelRate(at: t0.addingTimeInterval(mid * 60))
+            let at = t0.addingTimeInterval(mid * 60)
+            let fromMorning = (1 - w) * morningRate(at: at)
+            let rate = w * trend + (1 - w) * modelRate(at: at) + fromMorning
+            morningAdded += fromMorning
             g += rate
             minute += 1
             if Int(minute) % Int(step / 60) == 0 {
@@ -234,8 +258,12 @@ enum GlucoseForecaster {
                                               upperMgdl: min(sensorRange.upperBound + 1, central + hi)))
             }
         }
+        let morning = morningWake.map {
+            AppliedMorningAdjustment(wokeAt: $0, addedMgdl: morningAdded, confidence: input.morning?.confidence)
+        }
         return .success(GlucoseForecast(issuedAt: t0, startMgdl: latest.mgdl, basis: basis, trendPerMinute: trend,
-                                        samples: samples, limitations: limitations, calibrated: calibrated))
+                                        samples: samples, limitations: limitations, calibrated: calibrated,
+                                        morning: morning))
     }
 
     /// Slope of the readings in the 20 minutes up to `date`, mg/dL per minute. Needs at least

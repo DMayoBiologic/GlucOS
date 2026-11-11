@@ -175,7 +175,7 @@ struct PhoneOnBoardCard: View {
                         value: OutlookFormat.approx(s.mgdl, unit: unit), unit: nil, fraction: nil,
                         caption: low.map { "Low ~\(ClockLabel.time($0))" } ?? OutlookFormat.range(s, unit: unit),
                         captionTone: low == nil ? .neutral : .warning,
-                        detail: outlook.basis == .trend ? "Trend only" : "Trend + logbook",
+                        detail: (outlook.basis == .trend ? "Trend" : "Trend + logbook") + (outlook.morning != nil ? " + morning" : outlook.basis == .trend ? " only" : ""),
                         accessibility: "Forecast, not a reading. In \(headline.minutes) minutes about \(unit.format(mgdl: s.mgdl, withUnit: true)), likely \(OutlookFormat.range(s, unit: unit))\(low.map { ". Low expected around \(ClockLabel.time($0))" } ?? "")")
         } else {
             OnBoardTile(title: "Forecast", systemImage: "chart.line.uptrend.xyaxis", tint: Palette.stale,
@@ -297,6 +297,11 @@ struct PhoneChartCard: View {
                                   tint: Palette.insulin,
                                   label: "\(LogFormat.units(d.units)) \(d.displayName) at \(ClockLabel.time(d.timestamp))"))
         }
+        for c in logbook.contexts where c.isWake && c.timestamp >= cutoff {
+            out.append(ChartLogMarker(id: c.id, date: c.timestamp, systemImage: ContextTag.wokeUp.systemImage,
+                                      tint: Palette.context, lane: 2,
+                                      label: "Woke up at \(ClockLabel.time(c.timestamp))"))
+        }
         for m in logbook.meals where m.timestamp >= cutoff {
             out.append(ChartLogMarker(id: m.id, date: m.timestamp, systemImage: "fork.knife", tint: Palette.food, lane: 1,
                                   label: m.carbs > 0 ? "\(LogFormat.grams(m.carbs)) carbs at \(ClockLabel.time(m.timestamp))"
@@ -329,6 +334,12 @@ struct PhoneChartCard: View {
                 Label("Low expected around \(ClockLabel.time(low))", systemImage: "exclamationmark.triangle.fill")
                     .dsFont(.label)
                     .foregroundStyle(Tone.warning.textColor)
+            }
+            if let morning = outlook.morning {
+                Label(MorningFormat.todayLine(morning, unit: unit), systemImage: ContextTag.wokeUp.systemImage)
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Text("Forecast from \(outlook.basis.title.lowercased()). An estimate, not a reading: never use it to decide a dose.")
                 .dsFont(.caption)

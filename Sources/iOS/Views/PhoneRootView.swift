@@ -122,6 +122,7 @@ struct PhoneHomeView: View {
                     ForEach(follows.follows) { PhoneFollowingCard(follow: $0) }
                     PhoneOnBoardCard()
                     PhoneChartCard()
+                    PhoneMorningCard(outlook: store.outlook)
                     PhoneLogbookCard()
                     PhoneGlanceCard()
                     if let sensor = store.snapshot.sensor {

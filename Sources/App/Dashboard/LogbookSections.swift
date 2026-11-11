@@ -241,7 +241,7 @@ struct LogbookSection: View {
         case .dose(let d): return d.kind.isBolus ? .bolus : .basal
         case .meal: return .food
         case .siteChange: return .siteChange
-        case .context: return .context
+        case .context(let c): return c.isWake ? .wake : .context
         }
     }
 

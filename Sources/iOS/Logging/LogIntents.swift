@@ -45,6 +45,20 @@ struct OpenLogIntent: AppIntent {
     }
 }
 
+/// "I'm up": logs a wake-up now (not twice within a few hours). Handy on the Action button or as
+/// a morning alarm automation.
+struct LogWakeIntent: AppIntent {
+    static var title: LocalizedStringResource = "Log Wake-Up in GlucOS"
+    static var description = IntentDescription("Logs that you've just woken up, so GlucOS can learn how your glucose moves in the morning.")
+    static var openAppWhenRun = true
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        PhoneWakeLogger.shared.quickLog()
+        return .result()
+    }
+}
+
 struct GlucOSAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: OpenLogIntent(),
@@ -53,5 +67,11 @@ struct GlucOSAppShortcuts: AppShortcutsProvider {
                               "Add to my \(.applicationName) logbook"],
                     shortTitle: "Log",
                     systemImageName: "plus.circle.fill")
+        AppShortcut(intent: LogWakeIntent(),
+                    phrases: ["I'm up in \(.applicationName)",
+                              "Log wake-up in \(.applicationName)",
+                              "I just woke up in \(.applicationName)"],
+                    shortTitle: "Woke Up",
+                    systemImageName: "sunrise.fill")
     }
 }

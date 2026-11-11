@@ -7,6 +7,8 @@ struct OutlookModel: Hashable {
     var calibration: ForecastCalibration?
     var patterns: [RecurringPattern]
     var learnedAt: Date
+    /// What glucose usually does after the user wakes, from their logged wake-ups.
+    var morning: MorningPattern = .empty
 
     static let empty = OutlookModel(profile: .empty, calibration: nil, patterns: [], learnedAt: .distantPast)
 }
@@ -44,6 +46,9 @@ struct Outlook {
         s.lowExpectedAt = f?.firstBelow(lowMgdl)
         s.lowPossibleAt = f?.firstRangeBelow(lowMgdl)
         if case .failure(let e) = forecast { s.unavailableReason = e.reason.message }
+        s.morning = f?.morning.map {
+            MorningAdjustmentSnapshot(wokeAt: $0.wokeAt, addedMgdl: $0.addedMgdl, confidence: $0.confidence ?? .low)
+        }
         return s
     }
 }
@@ -60,8 +65,10 @@ enum OutlookEngine {
         let calibration = ForecastBacktest.run(readings: readings, doses: doses, meals: meals, contexts: contexts,
                                                profile: profile, now: now, profileAt: heldOut)
         let patterns = RecurringPatternFinder.find(readings: readings, low: low, high: high, now: now, calendar: calendar)
+        let morning = MorningPatternLearner.learn(readings: readings, doses: doses, meals: meals, contexts: contexts,
+                                                  profile: profile, low: low, now: now)
         return OutlookModel(profile: profile, calibration: calibration.origins > 0 ? calibration : nil,
-                            patterns: patterns, learnedAt: now)
+                            patterns: patterns, learnedAt: now, morning: morning)
     }
 
     /// The quick part, run on every new reading. `readings` only needs the last hour or so.
@@ -69,7 +76,8 @@ enum OutlookEngine {
                         model: OutlookModel, now: Date = Date()) -> Outlook {
         let series = GlucoseSeries(readings)
         let input = ForecastInputs(readings: series, doses: doses, meals: meals, contexts: contexts,
-                                   profile: model.profile, calibration: model.calibration, now: now)
+                                   profile: model.profile, calibration: model.calibration,
+                                   morning: model.morning.isUsable ? model.morning : nil, now: now)
         let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
         return Outlook(at: now,
                        forecast: GlucoseForecaster.forecast(input),

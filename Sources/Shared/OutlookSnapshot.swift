@@ -49,6 +49,8 @@ struct OutlookSnapshot: Codable, Hashable {
     var lowPossibleAt: Date?
     /// Plain-language reason no forecast is shown, if none is.
     var unavailableReason: String?
+    /// The user's usual post-wake rise, when the forecast includes it.
+    var morning: MorningAdjustmentSnapshot?
 
     /// Only usable while the reading it started from is still current.
     func isCurrent(at now: Date = Date()) -> Bool {
@@ -67,4 +69,29 @@ struct OutlookSnapshot: Codable, Hashable {
     /// The insulin numbers are worth showing.
     var showsInsulin: Bool { (insulinOnBoard ?? 0) >= 0.05 }
     var showsCarbs: Bool { (carbsOnBoard ?? 0) >= 1 }
+}
+
+// MARK: - Mornings
+
+/// How far a learnt morning pattern can be trusted, from how many mornings it's seen and how
+/// much it improved past forecasts in a check that left each morning out.
+enum MorningConfidence: String, Codable, Hashable, CaseIterable {
+    case low, moderate, high
+
+    var title: String {
+        switch self {
+        case .low: return "Low confidence"
+        case .moderate: return "Moderate confidence"
+        case .high: return "High confidence"
+        }
+    }
+}
+
+/// The post-wake adjustment in the current forecast, for the popover, widget and iPhone.
+struct MorningAdjustmentSnapshot: Codable, Hashable {
+    /// The logged wake-up the adjustment counts from.
+    var wokeAt: Date
+    /// How much the adjustment moves the forecast's last point, mg/dL (negative: a fall).
+    var addedMgdl: Double
+    var confidence: MorningConfidence
 }

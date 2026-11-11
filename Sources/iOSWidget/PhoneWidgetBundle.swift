@@ -9,6 +9,7 @@ struct GlucOSPhoneWidgetBundle: WidgetBundle {
         GlucoseLiveActivity()
         GlucoseAccessoryWidget()
         LogShortcutWidget()
+        WakeShortcutWidget()
         GlucoseWidget()
         TimeInRangeWidget()
         SensorWidget()

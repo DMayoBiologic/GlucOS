@@ -52,6 +52,12 @@ struct OutlookSection: View {
                     StatusBanner(severity: .info, systemImage: "info.circle", title: "No forecast right now", message: reason,
                                  density: .compact)
                 }
+                if let morning = current?.morning {
+                    Label(MorningFormat.todayLine(morning, unit: unit), systemImage: ContextTag.wokeUp.systemImage)
+                        .dsFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let o = outlook, !o.limitations.isEmpty, current != nil {
                     LimitationList(limitations: o.limitations)
                 }
@@ -69,6 +75,8 @@ struct OutlookSection: View {
                 LearntEffectsCard(profile: model.profile, unit: unit)
                 RecurringPatternsCard(patterns: model.patterns, hasHistory: hasPatternHistory(now: now))
             }
+
+            MorningCard(pattern: model.morning, unit: unit)
 
             HistoryNote(text: "Forecasts assume nothing new is eaten or dosed, and that background insulin (long-acting or a pump's basal) holds glucose level. Timing uses typical curves for each insulin type. GlucOS never suggests a dose.")
             Disclaimer()
@@ -341,6 +349,94 @@ private struct LearntEffectsCard: View {
                 TonePill(text: effect == nil ? "Not enough data" : "Learning", tone: .neutral)
             }
         }
+    }
+}
+
+// MARK: - Mornings
+
+/// What glucose usually does after the user wakes, learnt from their logged wake-ups, and
+/// whether it's trusted enough to go into the forecast.
+private struct MorningCard: View {
+    let pattern: MorningPattern
+    let unit: GlucoseUnit
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            SectionHeader("Mornings", systemImage: ContextTag.wokeUp.systemImage,
+                          subtitle: "What glucose usually does after you wake, from the wake-ups you log") {
+                switch pattern.status {
+                case .used(let c): TonePill(text: c.title, tone: c.tone)
+                case .notHelping: TonePill(text: "Not used", tone: .neutral)
+                case .learning: TonePill(text: "Learning", tone: .neutral)
+                case .notLogged: EmptyView()
+                }
+            }
+            if pattern.mornings >= MorningPatternLearner.minimumMornings {
+                Text(pattern.summary(unit: unit)).dsFont(.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !pattern.stepChange.isEmpty {
+                    curve.frame(height: 130)
+                }
+            }
+            Text(pattern.statusMessage).dsFont(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let check = pattern.checkSummary {
+                Text(check).dsFont(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Learnt from \(pattern.loggedWakes) logged wake-up\(pattern.loggedWakes == 1 ? "" : "s") in the last 90 days, \(pattern.mornings) with clean readings. It only shapes the forecast: it isn't a setting and is never used to work out a dose.")
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .dashboardCard()
+    }
+
+    private struct CurvePoint: Identifiable {
+        let minutes: Int
+        let mgdl: Double
+        var id: Int { minutes }
+    }
+
+    /// The usual change from waking, every 15 minutes.
+    private var curve: some View {
+        let points = [CurvePoint(minutes: 0, mgdl: 0)] + pattern.stepChange.indices.map { i in
+            CurvePoint(minutes: (i + 1) * Int(MorningPattern.step / 60),
+                       mgdl: pattern.cumulative(after: Double(i + 1) * MorningPattern.step))
+        }
+        return Chart {
+            ForEach(points) { p in
+                LineMark(x: .value("Minutes after waking", p.minutes), y: .value("Change", unit.value(fromMgdl: p.mgdl)))
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(Palette.context)
+                PointMark(x: .value("Minutes after waking", p.minutes), y: .value("Change", unit.value(fromMgdl: p.mgdl)))
+                    .symbolSize(18)
+                    .foregroundStyle(Palette.context)
+            }
+            RuleMark(y: .value("No change", 0))
+                .foregroundStyle(Color.secondary.opacity(0.4))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: 30)) { v in
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
+                AxisValueLabel {
+                    if let m = v.as(Int.self) { Text(m == 0 ? "Woke" : "+\(LogFormat.duration(Double(m) * 60))").font(.caption2) }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { v in
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
+                AxisValueLabel {
+                    if let d = v.as(Double.self) {
+                        Text((d > 0 ? "+" : "") + d.formatted(.number.precision(.fractionLength(unit == .mmol ? 1 : 0))))
+                            .font(.caption2)
+                    }
+                }
+            }
+        }
+        .accessibilityLabel("Usual glucose change after waking")
     }
 }
 
