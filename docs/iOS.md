@@ -35,8 +35,9 @@ from `supabase/` whenever main changes (the project's GitHub integration).
 ## Setup (one time)
 
 Everything else ships on merge, like the Mac app. These are the steps only you can do, because
-they need your Apple account or a secret. Until a step's secrets exist, its release job just
-skips with a notice; the Mac release is never affected.
+they need your Apple account or a secret. Until the Apple secrets exist, the iPhone release job
+skips with a notice. With them but without `RELAY_SECRET`, it ships an iPhone build that doesn't
+use the relay, and says so in a notice. The Mac release is never affected.
 
 ### 1. Apple Developer Program
 
@@ -112,7 +113,8 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **The relay's forecast is trend-only.** Insulin and food are logged on the Mac, so the relay
   and the phone forecast from the recent trend; the Mac's forecast also uses the logbook.
 - **The relay gets your LibreLinkUp login.** The app sends it over HTTPS (with the relay secret).
-  It's kept encrypted in Supabase Vault and deleted when you sign out on the phone.
+  It's kept encrypted in Supabase Vault. Signing out on the phone asks the relay to delete it; if
+  the relay can't be reached then, the login stays in Vault until it can.
 - **Two followers, one account.** The Mac and the relay each poll LibreLinkUp once a minute.
 - **Without the relay** the app still works while it's open, and the Lock Screen card updates
   whenever iOS gives it background time.

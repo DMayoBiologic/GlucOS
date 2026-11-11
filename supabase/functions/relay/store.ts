@@ -118,16 +118,17 @@ export class PostgresStore implements Store {
     }) as Promise<T>;
   }
 
-  async claimTick(_now: number, seconds: number): Promise<boolean> {
+  /// The lease's expiry as text is its token: exact to the microsecond, unlike a JS Date.
+  async claimTick(_now: number, seconds: number): Promise<string | null> {
     const rows = await this.sql`
       update glucos.relay set tick_lease_until = now() + make_interval(secs => ${seconds})
       where id = 1 and (tick_lease_until is null or tick_lease_until < now())
-      returning id`;
-    return rows.length > 0;
+      returning tick_lease_until::text as lease`;
+    return rows.length ? (rows[0].lease as string) : null;
   }
 
-  async releaseTick(): Promise<void> {
-    await this.sql`update glucos.relay set tick_lease_until = null where id = 1`;
+  async releaseTick(lease: string): Promise<void> {
+    await this.sql`update glucos.relay set tick_lease_until = null where id = 1 and tick_lease_until::text = ${lease}`;
   }
 
   async cronToken(): Promise<string | null> {

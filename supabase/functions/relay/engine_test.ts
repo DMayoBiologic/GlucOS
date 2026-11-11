@@ -13,7 +13,8 @@ class MemoryStore implements Store {
   account: Account | null = null;
   session: LibreSession | null = null;
   readings: Reading[] = [];
-  lease = false;
+  lease: string | null = null;
+  private leases = 0;
   private queue: Promise<unknown> = Promise.resolve();
 
   transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
@@ -45,13 +46,13 @@ class MemoryStore implements Store {
   }
 
   claimTick() {
-    if (this.lease) return Promise.resolve(false);
-    this.lease = true;
-    return Promise.resolve(true);
+    if (this.lease) return Promise.resolve(null);
+    this.lease = `lease-${++this.leases}`;
+    return Promise.resolve(this.lease);
   }
 
-  releaseTick() {
-    this.lease = false;
+  releaseTick(lease: string) {
+    if (this.lease === lease) this.lease = null;
     return Promise.resolve();
   }
 }
@@ -231,7 +232,7 @@ Deno.test("the LibreLinkUp session is kept between ticks", async () => {
 
 Deno.test("only one tick runs at a time", async () => {
   const t = await registered();
-  t.store.lease = true;
+  t.store.lease = "someone else's";
   assertEquals(await t.engine.tick(), "busy");
   assertEquals(t.fetcher.calls, 0);
 });

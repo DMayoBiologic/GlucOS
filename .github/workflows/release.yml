@@ -267,7 +267,10 @@ jobs:
           xcodegen generate --spec project.yml
           echo "$KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
           URL="${RELAY_URL:-https://aqlbadbyjuoruwnwyfrc.supabase.co/functions/v1/relay}"
-          [ -n "$RELAY_SECRET" ] || URL=""
+          if [ -z "$RELAY_SECRET" ]; then
+            URL=""
+            echo "::notice::RELAY_SECRET is not set, so this iPhone build doesn't use the push relay (see docs/iOS.md)."
+          fi
           set -o pipefail
           xcodebuild -project GlucOS.xcodeproj -scheme GlucOSiOS -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/GlucOS.xcarchive" \

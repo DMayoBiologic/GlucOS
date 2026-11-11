@@ -99,8 +99,10 @@ export interface Tx {
 export interface Store {
   transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
   /// Only one tick at a time: false while another holds the lease.
-  claimTick(now: number, seconds: number): Promise<boolean>;
-  releaseTick(): Promise<void>;
+  /// A token for the lease, or null when another tick holds it.
+  claimTick(now: number, seconds: number): Promise<string | null>;
+  /// Ends this lease only, so a tick that overran can't end the next tick's.
+  releaseTick(lease: string): Promise<void>;
 }
 
 // MARK: - Protocol (Sources/Core/RelayProtocol.swift)
@@ -254,7 +256,8 @@ export class RelayEngine {
 
   async tick(): Promise<"done" | "busy" | "no account" | "account changed"> {
     const started = this.clock();
-    if (!(await this.store.claimTick(started, 50))) return "busy";
+    const lease = await this.store.claimTick(started, 50);
+    if (lease === null) return "busy";
     try {
       // Read what's needed for the fetch, then let go of the row while LibreLinkUp answers.
       const before = await this.store.transaction(async (tx) => ({
@@ -316,7 +319,7 @@ export class RelayEngine {
         return "done";
       });
     } finally {
-      await this.store.releaseTick();
+      await this.store.releaseTick(lease);
     }
   }
 
