@@ -90,13 +90,11 @@ def main(src, out):
         foods[str(r[key_i]).strip()] = {"name": " ".join(str(r[name_i]).split()), "carbs": round(carbs, 2), "measures": []}
 
     h, rows = sheet_rows(meas)
-    mkey = find(h, "key") if find(h, "key") is not None else find(h, "food", "id")
-    mdesc = find(h, "measure", "description")
-    if mdesc is None:
-        mdesc = find(h, "measure", avoid=("weight", "gram", "number", "id", "key"))
-    mqty = find(h, "quantity") if find(h, "quantity") is not None else find(h, "number")
-    mgrams = find(h, "weight") if find(h, "weight") is not None else find(h, "gram")
-    print("measure columns:", h[mkey], "|", h[mdesc], "|", None if mqty is None else h[mqty], "|", h[mgrams])
+    mkey = find(h, "public food key")
+    descs = [i for i, x in enumerate(h) if norm(x).startswith("descriptor")]
+    mgrams = find(h, "gram amount")
+    mvol = find(h, "volume")
+    print("measure columns:", h[mkey], "|", [h[i] for i in descs], "|", h[mgrams], "|", None if mvol is None else h[mvol])
     count = 0
     for r in rows:
         if r is None or r[mkey] is None:
@@ -108,17 +106,25 @@ def main(src, out):
             grams = float(r[mgrams])
         except (TypeError, ValueError):
             continue
-        if grams <= 0:
+        parts = [" ".join(str(r[i]).split()) for i in descs if r[i] not in (None, "")]
+        # "density" rows are g per ml, not a portion.
+        if grams <= 0 or not parts or parts[0].lower() == "density":
             continue
-        desc = " ".join(str(r[mdesc] or "").split())
-        if mqty is not None and r[mqty] not in (None, "", 1, 1.0):
-            q = r[mqty]
-            q = int(q) if isinstance(q, float) and q.is_integer() else q
-            desc = f"{q} {desc}".strip()
-        if not desc:
+        desc = ", ".join(parts)
+        if mvol is not None and r[mvol] not in (None, ""):
+            try:
+                ml = float(r[mvol])
+                desc += f" ({ml:g} ml)"
+            except (TypeError, ValueError):
+                pass
+        if any(m[0] == desc and abs(m[1] - grams) < 0.05 for m in f["measures"]):
             continue
         f["measures"].append([desc, round(grams, 1)])
         count += 1
+    if count:
+        sample = [f for f in foods.values() if f["measures"]][:15]
+        for f in sample:
+            print("   ", f["name"], f["carbs"], f["measures"][:6])
 
     out_rows = [[k, f["name"], f["carbs"], f["measures"]] for k, f in sorted(foods.items(), key=lambda kv: kv[1]["name"].lower())]
     doc = {
