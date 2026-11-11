@@ -35,6 +35,7 @@ final class PhoneServices: ObservableObject {
     private var lastRegistration: RelayRegistration?
     private var cancellables = Set<AnyCancellable>()
     private var isForeground = true
+    private var lastStatusCheck = Date.distantPast
 
     #if DEBUG
     private let apnsEnvironment = "sandbox"
@@ -47,10 +48,17 @@ final class PhoneServices: ObservableObject {
         liveActivityEnabled = UserDefaults.standard.object(forKey: "liveActivityEnabled") as? Bool ?? true
         Self.shared = self
 
+        // Checked at delivery time: the relay's last status counts only while it's recent
+        // (`isDeliveringAlerts` wants a fetch in the last 5 minutes), so if the relay goes quiet
+        // the phone starts alerting by itself again.
+        store.alerts.deliversLocally = { [weak self] in
+            !(self?.relayStatus?.isDeliveringAlerts() ?? false)
+        }
         store.onPublish = { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 await self.showLiveActivity(canStart: self.isForeground)
+                await self.refreshRelayStatusIfDue()
             }
         }
         liveActivity.onActivityToken = { [weak self] id, token in
@@ -137,7 +145,6 @@ final class PhoneServices: ObservableObject {
         guard relaySettings.isConfigured else {
             relayStatus = nil
             relayError = nil
-            store.alerts.deliversLocally = true
             return
         }
         let s = store.settings
@@ -168,14 +175,24 @@ final class PhoneServices: ObservableObject {
             return true
         } catch {
             relayError = error.localizedDescription
-            store.alerts.deliversLocally = true
+            relayStatus = nil
             return false
         }
     }
 
     func refreshRelayStatus() async {
         guard let client = relaySettings.client else { return }
-        do { apply(try await client.status()) } catch { relayError = error.localizedDescription }
+        lastStatusCheck = Date()
+        do { apply(try await client.status()) } catch {
+            relayError = error.localizedDescription
+            relayStatus = nil
+        }
+    }
+
+    /// Keeps the relay's status fresh while the app is fetching, at most once a minute.
+    private func refreshRelayStatusIfDue() async {
+        guard relaySettings.isConfigured, Date().timeIntervalSince(lastStatusCheck) >= 60 else { return }
+        await refreshRelayStatus()
     }
 
     func sendRelayTest() async {
@@ -184,11 +201,11 @@ final class PhoneServices: ObservableObject {
     }
 
     private func apply(_ status: RelayStatus) {
+        // While the relay is fetching and can reach this phone it sends the alerts, even when the
+        // app is closed, and `deliversLocally` stands down so they don't arrive twice.
         relayStatus = status
         relayError = nil
-        // While the relay is fetching and can reach this phone it sends the alerts, even when the
-        // app is closed. Showing local ones too would make every alert arrive twice.
-        store.alerts.deliversLocally = !status.isDeliveringAlerts()
+        lastStatusCheck = Date()
     }
 }
 

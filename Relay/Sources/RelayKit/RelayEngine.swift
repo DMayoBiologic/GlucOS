@@ -37,6 +37,9 @@ actor RelayEngine {
     private var model = OutlookModel.empty
     private var isTicking = false
     private var wakeEarly = false
+    /// Bumped whenever the account changes, so a fetch that was in flight across the change
+    /// (the actor re-enters while it awaits) is thrown away instead of restoring old readings.
+    private var accountGeneration: UInt64 = 0
 
     init(config: RelayConfig, sender: PushSending?, fetcher: GlucoseFetching, store: StateStore?,
          clock: @escaping @Sendable () -> Date = { Date() }) {
@@ -73,6 +76,7 @@ actor RelayEngine {
         if let a = r.alerts { state.alerts = a }
 
         if r.signedOut == true {
+            accountGeneration &+= 1
             state.account = nil
             state.readings = []
             state.current = nil
@@ -88,7 +92,10 @@ actor RelayEngine {
                 planner = AlertPlanner()
                 model = .empty
             }
-            if state.account != a { wakeEarly = true }
+            if state.account != a {
+                accountGeneration &+= 1
+                wakeEarly = true
+            }
             state.account = a
         }
 
@@ -150,9 +157,11 @@ actor RelayEngine {
         isTicking = true
         defer { isTicking = false }
         let now = clock()
+        let generation = accountGeneration
 
         do {
             let r = try await fetcher.fetch(account)
+            guard accountGeneration == generation else { return }
             var incoming = r.history
             if let c = r.current { incoming.append(c) }
             state.merge(incoming, now: now)
@@ -160,6 +169,7 @@ actor RelayEngine {
             if let s = r.sensor { state.sensor = s }
             state.lastError = nil
         } catch {
+            guard accountGeneration == generation else { return }
             state.lastError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
         }
         state.lastFetchAt = now

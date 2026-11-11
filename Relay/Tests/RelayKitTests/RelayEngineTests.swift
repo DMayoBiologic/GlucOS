@@ -23,10 +23,13 @@ final class FakeFetcher: GlucoseFetching, @unchecked Sendable {
     var clock: () -> Date
     /// Pin the reading's time, as if LibreLinkUp had nothing new.
     var readingAt: Date?
+    /// Runs while the fetch is in flight, before it returns.
+    var duringFetch: (() async -> Void)?
 
     init(clock: @escaping () -> Date) { self.clock = clock }
 
     func fetch(_ account: RelayRegistration.Account) async throws -> LibreLinkUpClient.Result {
+        await duringFetch?()
         let now = readingAt ?? clock()
         let history = stride(from: 180, through: 5, by: -5).map {
             GlucoseReading(timestamp: now.addingTimeInterval(-Double($0) * 60), mgdl: mgdl, trend: .flat)
@@ -75,6 +78,21 @@ final class RelayEngineTests: XCTestCase {
         sender.clear()
         clock.now += 60
         await engine.tick()
+        XCTAssertTrue(sender.sent.filter { $0.type == .alert }.isEmpty)
+    }
+
+    func testSignOutDuringAFetchDiscardsItsReadings() async {
+        fetcher.mgdl = 62
+        let engine = engine!
+        fetcher.duringFetch = {
+            var reg = RelayRegistration()
+            reg.signedOut = true
+            _ = await engine.register(reg)
+        }
+        await engine.tick()
+        let status = await engine.status()
+        XCTAssertFalse(status.hasAccount)
+        XCTAssertNil(status.lastReadingAt)
         XCTAssertTrue(sender.sent.filter { $0.type == .alert }.isEmpty)
     }
 

@@ -47,8 +47,9 @@ final class AlertManager {
     }
 
     /// Shows local notifications for the alerts that are due. The iPhone app turns this off
-    /// while the push relay is delivering the same alerts, so they don't arrive twice.
-    var deliversLocally = true
+    /// while the push relay is delivering the same alerts, so they don't arrive twice. It's asked
+    /// at delivery time, so a relay that has gone quiet since its last status hands alerts back.
+    var deliversLocally: @MainActor () -> Bool = { true }
 
     func evaluate(_ s: GlucoseSnapshot, settings: AppSettings, now: Date = Date()) {
         for notice in planner.evaluate(s, prefs: settings.alertPreferences, now: now) { deliver(notice) }
@@ -62,7 +63,7 @@ final class AlertManager {
     }
 
     private func deliver(_ notice: AlertNotice) {
-        guard deliversLocally else { return }
+        guard deliversLocally() else { return }
         let content = UNMutableNotificationContent()
         content.title = notice.title
         content.body = notice.body
