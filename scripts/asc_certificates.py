@@ -3,8 +3,8 @@
 
 Before scripts/sign_ios.sh, every iPhone release made a new "Apple Development" certificate on a
 throwaway runner, until the account hit Apple's cap. This prints what's there so the leftovers can
-be seen, and with --revoke-ci-development revokes only development certificates that the App Store
-Connect API created (Xcode names those "Created via API") are marked [candidate] as likely leftovers.
+be seen. Development certificates the App Store Connect API created (Xcode names those
+"Created via API") are marked [candidate] as likely leftovers.
 Other API clients (EAS, say) also create "Created via API" certificates, so the name alone is not
 proof: --revoke takes the exact ids to revoke, picked from this listing, and refuses any id that
 isn't a development certificate. Distribution and Developer ID certificates are never touched.
