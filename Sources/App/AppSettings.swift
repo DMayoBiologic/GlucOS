@@ -95,6 +95,14 @@ final class AppSettings: ObservableObject {
         onboardingCompleted = d.object(forKey: "onboardingCompleted") as? Bool ?? !savedEmail.isEmpty
     }
 
+    /// The alert switches, for `AlertPlanner` (and the push relay, which runs the same rules).
+    var alertPreferences: AlertPreferences {
+        AlertPreferences(enabled: alertsEnabled, high: alertOnHigh, rapidChange: alertOnRapidChange,
+                         stale: alertOnStale, sensorExpiry: alertOnSensorExpiry,
+                         predictedLow: alertOnPredictedLow, predictedHigh: alertOnPredictedHigh,
+                         predictiveMinutes: predictiveAlertMinutes, cooldownMinutes: alertCooldownMinutes)
+    }
+
     /// Show the setup window at launch: never finished it and no account yet.
     var needsOnboarding: Bool { !onboardingCompleted && !hasCredentials }
 

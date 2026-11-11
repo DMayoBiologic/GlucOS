@@ -236,6 +236,8 @@ extension ContextEvent: Timestamped {}
 
 // MARK: - Chart events
 
+#if os(macOS)
+// ChartEvent lives in the Mac dashboard, which the iPhone target doesn't compile.
 extension LogbookStore {
     /// Logged entries inside `domain`, to mark on the dashboard chart.
     func chartEvents(in domain: ClosedRange<Date>) -> [ChartEvent] {
@@ -264,3 +266,4 @@ extension LogbookStore {
         return out.sorted { $0.date < $1.date }
     }
 }
+#endif

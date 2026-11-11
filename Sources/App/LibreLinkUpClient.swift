@@ -1,5 +1,12 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto // swift-crypto, for the push relay on Linux
+#endif
 
 /// Minimal client for Abbott's (unofficial) LibreLinkUp follower API.
 ///
@@ -66,7 +73,9 @@ actor LibreLinkUpClient {
     private let session: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 20
+        #if !os(Linux)
         cfg.waitsForConnectivity = false
+        #endif
         return URLSession(configuration: cfg)
     }()
 

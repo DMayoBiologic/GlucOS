@@ -1,5 +1,12 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
+/// NSColor on the Mac, UIColor on iPhone. The palette is written once for both.
+typealias PlatformColor = NSColor
+#else
+import UIKit
+typealias PlatformColor = UIColor
+#endif
 
 // GlucOS design system: palette and the glucose-specific pieces (trend dial, time-in-range ring,
 // ambient glow). Tokens live in DesignSystem/Tokens.swift, the type scale in Typography.swift,
@@ -14,8 +21,9 @@ import AppKit
 enum Palette {
     /// A colour with separate light and dark appearances, and optionally its own values when
     /// Increase Contrast is on.
-    static func dynamic(light: NSColor, dark: NSColor,
-                        highContrastLight: NSColor? = nil, highContrastDark: NSColor? = nil) -> Color {
+    static func dynamic(light: PlatformColor, dark: PlatformColor,
+                        highContrastLight: PlatformColor? = nil, highContrastDark: PlatformColor? = nil) -> Color {
+        #if os(macOS)
         Color(nsColor: NSColor(name: nil) { appearance in
             switch appearance.bestMatch(from: [.aqua, .darkAqua,
                                                .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua]) {
@@ -25,13 +33,45 @@ enum Palette {
             default: return light
             }
         })
+        #else
+        Color(uiColor: UIColor { traits in
+            let isDark = traits.userInterfaceStyle == .dark
+            let high = traits.accessibilityContrast == .high
+            switch (isDark, high) {
+            case (true, true): return highContrastDark ?? dark
+            case (true, false): return dark
+            case (false, true): return highContrastLight ?? light
+            case (false, false): return light
+            }
+        })
+        #endif
     }
 
-    static func rgb(_ hex: UInt32) -> NSColor {
-        NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
-                green: CGFloat((hex >> 8) & 0xFF) / 255,
-                blue: CGFloat(hex & 0xFF) / 255,
-                alpha: 1)
+    static func rgb(_ hex: UInt32) -> PlatformColor {
+        let r = CGFloat((hex >> 16) & 0xFF) / 255, g = CGFloat((hex >> 8) & 0xFF) / 255, b = CGFloat(hex & 0xFF) / 255
+        #if os(macOS)
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
+        #else
+        return UIColor(red: r, green: g, blue: b, alpha: 1)
+        #endif
+    }
+
+    /// Opaque card fill for Reduce Transparency.
+    static var controlBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .controlBackgroundColor)
+        #else
+        Color(uiColor: .secondarySystemGroupedBackground)
+        #endif
+    }
+
+    /// The window (or screen) background.
+    static var windowBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color(uiColor: .systemBackground)
+        #endif
     }
 
     // Range hues, for lines, fills, icons and big numbers (3:1 or better). With Increase
@@ -86,6 +126,7 @@ extension GlucoseRange {
         }
     }
 
+    #if os(macOS)
     /// The dark-appearance hue as an NSColor, for AppKit drawing on the menu bar.
     var nsTint: NSColor {
         switch self {
@@ -96,6 +137,7 @@ extension GlucoseRange {
         case .veryHigh: return Palette.rgb(0xF472B6)
         }
     }
+    #endif
 }
 
 extension GlucoseSnapshot {

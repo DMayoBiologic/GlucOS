@@ -1,7 +1,8 @@
 # GlucOS
 
 Native macOS menu bar app + desktop widgets for FreeStyle Libre glucose, fed by Abbott's
-LibreLinkUp follower service. Read-only: it never touches the sensor or the LibreLink phone app.
+LibreLinkUp follower service, and an iPhone app with a Lock Screen Live Activity and push alerts
+([docs/iOS.md](docs/iOS.md)). Read-only: it never touches the sensor or the LibreLink phone app.
 
 ```
 sensor → LibreLink (phone) → LibreView cloud → LibreLinkUp API → GlucOS (Mac) → widget
@@ -143,7 +144,10 @@ Release + tag. Every installed copy updates and relaunches itself within the hou
 - Re-running a release job for a commit that already shipped rebuilds the same version.
 - To force a version: Actions → Release → Run workflow, or `make release V=1.0.0`.
 
-`ci.yml` compiles every push and PR.
+The same push ships the iPhone app to TestFlight and deploys the push relay, once their secrets are
+set up ([docs/iOS.md](docs/iOS.md)); until then those jobs skip with a notice.
+
+`ci.yml` compiles every push and PR: the Mac app, the iPhone app (unsigned) and the relay (Linux).
 
 ## Layout
 
@@ -153,6 +157,10 @@ Sources/Shared/          models, stats, shared snapshot store, chart (compiled i
 Sources/App/             menu bar app: LibreLinkUp client, Keychain, poll loop, alerts, Sparkle, views,
                          app delegate (glucos:// URLs, notification presentation), Assets.xcassets (app icon)
 Sources/Widget/          WidgetKit extension: Glucose, Time in Range and Sensor widgets, configuration + refresh intents
+Sources/Core/            alert rules (AlertPlanner) and the app ↔ relay protocol, shared with the relay
+Sources/iOS/             iPhone app: cards, settings, Live Activity controller, relay client, background refresh
+Sources/iOSWidget/       iPhone widget extension: Live Activity (Lock Screen + Dynamic Island), Lock Screen widgets
+Relay/                   push relay (Swift on Linux, Docker, Fly.io): LibreLinkUp → alerts + Live Activity via APNs
 scripts/make_app_icon.py regenerates the app icon PNGs (Pillow)
 .github/workflows/       ci.yml (compile check), release.yml (merge to main → release + appcast)
 ```

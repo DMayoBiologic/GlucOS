@@ -1,21 +1,36 @@
 // swift-tools-version:5.9
-// Unit tests for the prediction engine. The app itself is built from project.yml with XcodeGen;
-// this package only compiles the engine and the plain-Foundation model files it uses, so the
-// models can be tested with `swift test` without building the app.
+// The app itself is built from project.yml with XcodeGen. This package compiles the plain-Foundation
+// core that every part of GlucOS shares (models, LibreLinkUp client, prediction engine, alert rules,
+// Live Activity state) so it can be unit-tested with `swift test`, and so the push relay
+// (Relay/, which compiles these same files through symlinks) runs the same code on Linux.
 import PackageDescription
 
 let package = Package(
     name: "GlucOSEngine",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS("17.2")],
+    products: [
+        .library(name: "GlucOSEngine", targets: ["GlucOSEngine"]),
+    ],
+    dependencies: [
+        // SHA-256 for LibreLinkUp's Account-Id header where CryptoKit isn't available (Linux).
+        .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
+    ],
     targets: [
         .target(
             name: "GlucOSEngine",
+            dependencies: [
+                .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux])),
+            ],
             path: "Sources",
             sources: [
                 "Engine",
                 "Shared/GlucoseModels.swift",
                 "Shared/OutlookSnapshot.swift",
+                "Core/AlertPlanner.swift",
+                "Shared/GlucoseActivityState.swift",
+                "Core/RelayProtocol.swift",
                 "App/Logbook/LogbookModels.swift",
+                "App/LibreLinkUpClient.swift",
             ]
         ),
         .testTarget(

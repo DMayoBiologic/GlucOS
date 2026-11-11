@@ -236,9 +236,24 @@ struct GlucoseSnapshot: Codable {
     }
 }
 
-// MARK: - Shared store (~/Library/Application Support/GlucOS)
+// MARK: - Shared store (~/Library/Application Support/GlucOS on the Mac, the app group on iPhone)
 
 enum SharedStore {
+    #if os(iOS)
+    /// Shared between the iPhone app and its widgets (Lock Screen card, Home Screen widgets).
+    static let appGroup = "group.au.com.declanmayo.glucos"
+
+    /// The app group's folder. A build without the app group (an unsigned CI build) falls back
+    /// to the app's own Application Support, where only the app can see it.
+    static var containerURL: URL? {
+        let fm = FileManager.default
+        guard let base = fm.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
+                ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        let url = base.appendingPathComponent("GlucOS", isDirectory: true)
+        try? fm.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+    #else
     /// The real ~/Library/Application Support/GlucOS. Inside the widget's sandbox the home
     /// directory APIs point at its container, so this goes through the password database.
     /// The widget's entitlements grant read-only access to exactly this folder.
@@ -249,6 +264,7 @@ enum SharedStore {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
+    #endif
 
     static var snapshotURL: URL? {
         containerURL?.appendingPathComponent("snapshot.json")

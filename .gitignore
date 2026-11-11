@@ -10,3 +10,7 @@ Sources/Widget/Info.plist
 Sources/Widget/GlucOSWidget.entitlements
 .build/
 .swiftpm/
+Sources/iOS/Info.plist
+Sources/iOS/GlucOS.entitlements
+Sources/iOSWidget/Info.plist
+Sources/iOSWidget/GlucOSWidget.entitlements

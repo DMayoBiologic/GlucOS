@@ -29,7 +29,7 @@ struct WidgetBackdrop: View {
 
     var body: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
+            Palette.windowBackground
             AmbientGlow(tint: tint, intensity: intensity)
         }
     }
@@ -387,7 +387,7 @@ struct WidgetChart: View {
                     .foregroundStyle(tint.opacity(0.22))
                 PointMark(x: .value("Time", last.timestamp), y: .value("Glucose", unit.value(fromMgdl: last.mgdl)))
                     .symbolSize(lineWidth * 24)
-                    .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                    .foregroundStyle(Palette.windowBackground)
                 PointMark(x: .value("Time", last.timestamp), y: .value("Glucose", unit.value(fromMgdl: last.mgdl)))
                     .symbolSize(lineWidth * 12)
                     .foregroundStyle(tint)

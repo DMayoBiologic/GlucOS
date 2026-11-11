@@ -1,6 +1,10 @@
 import Foundation
 import Combine
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import WidgetKit
 
 /// Owns the poll loop. Fetches from LibreLinkUp, writes the shared snapshot for the widget,
@@ -60,11 +64,19 @@ final class GlucoseStore: ObservableObject {
             .sink { [weak self] _ in self?.applySettings() }
             .store(in: &cancellables)
 
+        #if os(macOS)
         // Refresh promptly after sleep/wake.
         NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didWakeNotification)
             .sink { [weak self] _ in Task { await self?.refresh() } }
             .store(in: &cancellables)
+        #else
+        // iOS suspends the poll loop in the background; catch up as soon as the app is back.
+        NotificationCenter.default
+            .publisher(for: UIApplication.willEnterForegroundNotification)
+            .sink { [weak self] _ in Task { await self?.refresh() } }
+            .store(in: &cancellables)
+        #endif
 
         // Re-render age text every 15 s even without new data.
         tick.sink { [weak self] _ in self?.objectWillChange.send() }
@@ -234,12 +246,18 @@ final class GlucoseStore: ObservableObject {
         publish()
     }
 
+    /// Called after every change to the snapshot. The iPhone app updates its Live Activity here.
+    var onPublish: ((GlucoseSnapshot) -> Void)?
+
     private func publish() {
         SharedStore.save(snapshot)
         WidgetCenter.shared.reloadAllTimelines()
+        onPublish?(snapshot)
     }
 
+    #if os(macOS)
     // MARK: Derived for the menu bar
 
     var menuBarText: String { statusItemText() }
+    #endif
 }

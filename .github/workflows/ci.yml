@@ -30,3 +30,41 @@ jobs:
         with:
           name: build-log
           path: build.log
+
+  # The iPhone app and its widget extension (Live Activity, Lock Screen and Home Screen
+  # widgets), unsigned. Signing and TestFlight happen in release.yml.
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate --spec project.yml
+      - name: Build (Debug, simulator, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project GlucOS.xcodeproj -scheme GlucOSiOS -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-ios -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-ios.log | grep -E "error:|BUILD" || true
+          grep -q "BUILD SUCCEEDED" build-ios.log || { echo "::error::iOS build failed"; grep -E "error:" build-ios.log | sort -u; exit 1; }
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-ios-log
+          path: build-ios.log
+
+  # The push relay, on Linux like it runs in production. Also checks the shared core compiles
+  # and passes its tests on Linux.
+  relay:
+    runs-on: ubuntu-latest
+    container: swift:6.1-jammy
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core tests on Linux
+        run: swift test
+      - name: Relay tests
+        working-directory: Relay
+        run: swift test
