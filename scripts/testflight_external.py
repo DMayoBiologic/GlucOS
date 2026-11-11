@@ -197,8 +197,10 @@ def ensure_review_details(app_id):
     changes = {}
     for field, env in (("contactFirstName", "CONTACT_FIRST_NAME"), ("contactLastName", "CONTACT_LAST_NAME"),
                        ("contactEmail", "CONTACT_EMAIL"), ("contactPhone", "CONTACT_PHONE")):
+        # The repository variables are the source of truth: they replace whatever App Store Connect
+        # holds, so a corrected email or phone reaches Apple on the next run.
         v = os.environ.get(env, "").strip()
-        if v and not cur.get(field):
+        if v and cur.get(field) != v:
             changes[field] = v
     if cur.get("notes") != REVIEW_NOTES:
         changes["notes"] = REVIEW_NOTES

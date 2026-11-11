@@ -20,6 +20,11 @@ jobs:
       KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+      # So a change to the reviewer contact details reaches Apple without waiting for a release.
+      CONTACT_FIRST_NAME: ${{ vars.TESTFLIGHT_CONTACT_FIRST_NAME }}
+      CONTACT_LAST_NAME: ${{ vars.TESTFLIGHT_CONTACT_LAST_NAME }}
+      CONTACT_EMAIL: ${{ vars.TESTFLIGHT_CONTACT_EMAIL }}
+      CONTACT_PHONE: ${{ vars.TESTFLIGHT_CONTACT_PHONE }}
     steps:
       - uses: actions/checkout@v4
         if: env.KEY_P8 != ''
