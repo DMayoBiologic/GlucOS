@@ -34,6 +34,17 @@ export const followerConcurrency = 10;
 /// relay row's 50 s lease. A skipped follower's card is a minute late, never lost.
 export const followerBudgetMs = 25_000;
 
+/// The order a tick works through followers when it might run out of time: ended ones first (their
+/// cards should go promptly), then the rest starting a batch further along each minute, so a run of
+/// slow ticks still reaches everyone.
+export function followerOrder<F extends { active: boolean }>(all: F[], now: number): F[] {
+  const ending = all.filter((f) => !f.active);
+  const live = all.filter((f) => f.active);
+  if (live.length <= followerConcurrency) return [...ending, ...live];
+  const start = (Math.floor(now / 60) * followerConcurrency) % live.length;
+  return [...ending, ...live.slice(start), ...live.slice(0, start)];
+}
+
 // MARK: - State
 
 export interface RelayPrefs {
@@ -485,12 +496,13 @@ export class RelayEngine {
     };
     const budget = this.config.followerBudgetMs ?? followerBudgetMs;
     const started = Date.now();
-    for (let i = 0; i < all.length; i += followerConcurrency) {
+    const order = followerOrder(all, now);
+    for (let i = 0; i < order.length; i += followerConcurrency) {
       if (i > 0 && Date.now() - started >= budget) {
-        console.warn(`followers: ${all.length - i} left for the next tick`);
+        console.warn(`followers: ${order.length - i} left for the next tick`);
         break;
       }
-      await Promise.all(all.slice(i, i + followerConcurrency).map(one));
+      await Promise.all(order.slice(i, i + followerConcurrency).map(one));
     }
     try {
       await shares.deleteFollowers(ended);

@@ -2,7 +2,7 @@
 // in-memory store and fake APNs; sharing_pg_test.ts runs the Postgres store.
 import { assert, assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert@1";
 import type { PushRequest, PushResult, PushSender } from "./apns.ts";
-import { followerConcurrency, RelayEngine, rotateAfter, type Store, type Tx, newRow, type RelayRow } from "./engine.ts";
+import { followerConcurrency, followerOrder, RelayEngine, rotateAfter, type Store, type Tx, newRow, type RelayRow } from "./engine.ts";
 import type { Reading } from "./core.ts";
 import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
 import { hashShareToken, isShareToken, maxFollowersPerShare, MemoryShareStore, shareURL } from "./sharing.ts";
@@ -289,6 +289,18 @@ Deno.test("followers past the tick's time budget wait for the next tick", async 
   assertEquals(await t.engine.tick(), "done");
   // The first batch always goes; the rest are left for later.
   assertEquals(events(t.sent).filter((e) => e.endsWith(":update")).length, followerConcurrency);
+});
+
+Deno.test("ticks short of time start further along, so every follower gets a turn", () => {
+  const fs = Array.from({ length: 25 }, (_, i) => ({ id: i, active: i !== 24 }));
+  const seen = new Set<number>();
+  for (let minute = 0; minute < 3; minute++) {
+    const order = followerOrder(fs, minute * 60);
+    assertEquals(order[0].id, 24); // the ended one always goes first
+    assertEquals(order.length, 25);
+    order.slice(1, 1 + followerConcurrency).forEach((f) => seen.add(f.id));
+  }
+  assertEquals(seen.size, 24);
 });
 
 Deno.test("share expiry is kept between 10 minutes and 90 days", async () => {
