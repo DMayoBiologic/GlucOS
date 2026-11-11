@@ -1,0 +1,14 @@
+# Supabase CLI and GitHub integration settings. The GitHub integration deploys supabase/ from
+# main: it applies new migrations and deploys the edge functions listed here.
+project_id = "glucos"
+
+[db]
+major_version = 17
+
+# The push relay. Its callers aren't Supabase users (the iPhone app sends the relay secret, and
+# pg_cron sends a token from Vault), so the gateway's JWT check is off and the function checks
+# its own credentials.
+[functions.relay]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/relay/index.ts"

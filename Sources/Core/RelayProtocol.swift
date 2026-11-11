@@ -1,6 +1,7 @@
 import Foundation
 
-// What the iPhone app and the push relay (Relay/) say to each other over HTTPS. Shared so both
+// What the iPhone app and the push relay (supabase/functions/relay) say to each other over HTTPS.
+// The relay's TypeScript types in engine.ts mirror these; keep the two in step. Shared so both
 // sides encode the same JSON. Every request carries `Authorization: Bearer <relay secret>`.
 //
 //   POST /v1/register   RelayRegistration  → RelayStatus   (send only what changed)

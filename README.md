@@ -160,7 +160,8 @@ Sources/Widget/          WidgetKit extension: Glucose, Time in Range and Sensor 
 Sources/Core/            alert rules (AlertPlanner) and the app ↔ relay protocol, shared with the relay
 Sources/iOS/             iPhone app: cards, settings, Live Activity controller, relay client, background refresh
 Sources/iOSWidget/       iPhone widget extension: Live Activity (Lock Screen + Dynamic Island), Lock Screen widgets
-Relay/                   push relay (Swift on Linux, Docker, Fly.io): LibreLinkUp → alerts + Live Activity via APNs
+supabase/                push relay: a Supabase edge function run every minute by pg_cron (LibreLinkUp → alerts +
+                         Live Activity via APNs), its Postgres tables, and the parity fixtures shared with Swift
 scripts/make_app_icon.py regenerates the app icon PNGs (Pillow)
 .github/workflows/       ci.yml (compile check), release.yml (merge to main → release + appcast)
 ```

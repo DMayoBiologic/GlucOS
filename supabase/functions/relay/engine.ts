@@ -1,0 +1,400 @@
+// The relay's work, ported from the Swift relay (formerly Relay/Sources/RelayKit/RelayEngine.swift):
+// on every tick fetch from LibreLinkUp, alert first, then update the Lock Screen card; between
+// ticks, take registrations from the phone. State lives in Postgres (see store.ts), because the
+// edge function starts fresh every minute.
+
+import {
+  type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
+  type Display, learnCalibration, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
+  type Sensor,
+} from "./core.ts";
+import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
+import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
+
+export const version = "2.0.0";
+/// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
+/// one, so the Lock Screen card never just disappears.
+export const rotateAfter = 7 * 3600 + 40 * 60;
+/// Resend the card at least this often, even when nothing changed, so a missed push heals.
+export const activityRefresh = 10 * 60;
+export const startRetry = 15 * 60;
+export const maxStartAttempts = 3;
+/// How often the forecast's accuracy is relearnt, and from how much history.
+export const relearnEvery = 3 * 3600;
+export const learnFromDays = 14;
+/// Readings kept in the database.
+export const readingRetentionDays = 90;
+
+// MARK: - State
+
+export interface RelayPrefs {
+  deviceToken?: string;
+  pushToStartToken?: string;
+  sandbox: boolean;
+  liveActivityEnabled: boolean;
+  display: Display;
+  alerts: AlertPreferences;
+}
+
+export interface ActivityRecord {
+  id: string;
+  /// Update token (hex) for this activity.
+  token: string;
+  startedAt: number;
+}
+
+/// What the tick works out and keeps.
+export interface Work {
+  planner: PlannerState;
+  calibration: Calibration | null;
+  learnedAt: number;
+  current: Reading | null;
+  sensor: Sensor | null;
+  lastFetchAt: number | null;
+  lastError: string | null;
+  lastPushAt: number | null;
+  lastPushError: string | null;
+  /// The last card delivered to `activityId`, so unchanged cards aren't resent.
+  lastCard: { activityId: string; card: CardState; pushedAt: number } | null;
+}
+
+export interface RelayRow {
+  prefs: RelayPrefs;
+  /// Bumped whenever the account changes, so a fetch that was in flight across the change is
+  /// thrown away instead of restoring the old account's readings.
+  accountGeneration: number;
+  activity: ActivityRecord | null;
+  /// The relay ended an activity at iOS's 8-hour limit and is starting the next one.
+  pendingStart: boolean;
+  startAttempts: number;
+  lastStartAttempt: number | null;
+  work: Work;
+}
+
+export const newRow = (): RelayRow => ({
+  prefs: {
+    sandbox: false, liveActivityEnabled: true,
+    display: { unit: "mmol", lowMgdl: 70, highMgdl: 180 }, alerts: defaultAlertPreferences(),
+  },
+  accountGeneration: 0, activity: null, pendingStart: false, startAttempts: 0, lastStartAttempt: null,
+  work: {
+    planner: newPlanner(), calibration: null, learnedAt: 0, current: null, sensor: null, lastFetchAt: null,
+    lastError: null, lastPushAt: null, lastPushError: null, lastCard: null,
+  },
+});
+
+/// One locked read-modify-write of the relay's state. `row` is saved when the callback returns.
+export interface Tx {
+  row: RelayRow;
+  account(): Promise<Account | null>;
+  setAccount(a: Account | null): Promise<void>;
+  libreSession(): Promise<LibreSession | null>;
+  setLibreSession(s: LibreSession | null): Promise<void>;
+  readings(since: number): Promise<Reading[]>;
+  addReadings(rs: Reading[]): Promise<void>;
+  clearReadings(): Promise<void>;
+  pruneReadings(before: number): Promise<void>;
+}
+
+export interface Store {
+  transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
+  /// Only one tick at a time: false while another holds the lease.
+  claimTick(now: number, seconds: number): Promise<boolean>;
+  releaseTick(): Promise<void>;
+}
+
+// MARK: - Protocol (Sources/Core/RelayProtocol.swift)
+
+export interface RelayRegistration {
+  deviceToken?: string;
+  pushToStartToken?: string;
+  activityToken?: string;
+  activityID?: string;
+  endedActivityID?: string;
+  liveActivityEnabled?: boolean;
+  apnsEnvironment?: string;
+  account?: Account;
+  signedOut?: boolean;
+  display?: Display;
+  alerts?: AlertPreferences;
+}
+
+export interface RelayStatus {
+  version: string;
+  lastFetchAt?: number;
+  lastReadingAt?: number;
+  lastError?: string;
+  lastPushAt?: number;
+  lastPushError?: string;
+  hasAccount: boolean;
+  hasDeviceToken: boolean;
+  hasPushToStartToken: boolean;
+  activityID?: string;
+  activityStartedAt?: number;
+  liveActivityEnabled: boolean;
+  alertsEnabled: boolean;
+}
+
+// MARK: - Engine
+
+export interface EngineConfig {
+  bundleId: string;
+  criticalAlerts: boolean;
+}
+
+export class RelayEngine {
+  constructor(
+    private readonly store: Store,
+    private readonly sender: PushSender | null,
+    private readonly fetcher: GlucoseFetcher,
+    private readonly config: EngineConfig,
+    private readonly clock: () => number = () => Date.now() / 1000,
+  ) {}
+
+  // MARK: API
+
+  register(r: RelayRegistration): Promise<RelayStatus> {
+    return this.store.transaction(async (tx) => {
+      const now = this.clock();
+      const row = tx.row;
+      if (r.deviceToken) row.prefs.deviceToken = r.deviceToken;
+      if (r.pushToStartToken) row.prefs.pushToStartToken = r.pushToStartToken;
+      if (r.apnsEnvironment !== undefined) row.prefs.sandbox = r.apnsEnvironment === "sandbox";
+      if (r.display) row.prefs.display = r.display;
+      if (r.alerts) row.prefs.alerts = { ...defaultAlertPreferences(), ...r.alerts };
+
+      if (r.signedOut === true) {
+        row.accountGeneration += 1;
+        await tx.setAccount(null);
+        await tx.setLibreSession(null);
+        await tx.clearReadings();
+        row.work.current = null;
+        row.work.sensor = null;
+        row.work.lastError = null;
+        await this.endActivity(row, now);
+      } else if (r.account) {
+        const old = await tx.account();
+        if (old?.email.toLowerCase() !== r.account.email.toLowerCase()) {
+          // Another person's readings: start again.
+          await tx.clearReadings();
+          row.work.current = null;
+          row.work.sensor = null;
+          row.work.planner = newPlanner();
+          row.work.calibration = null;
+          row.work.learnedAt = 0;
+        }
+        if (JSON.stringify(old) !== JSON.stringify(normaliseAccount(r.account))) {
+          row.accountGeneration += 1;
+          await tx.setAccount(normaliseAccount(r.account));
+        }
+      }
+
+      if (r.endedActivityID && row.activity?.id === r.endedActivityID) {
+        // The phone ended it, or it was swiped away. Don't put it back until the phone starts another.
+        row.activity = null;
+        row.pendingStart = false;
+      }
+      if (r.activityID && r.activityToken) {
+        const startedAt = row.activity?.id === r.activityID ? row.activity.startedAt : now;
+        row.activity = { id: r.activityID, token: r.activityToken, startedAt };
+        row.pendingStart = false;
+        row.startAttempts = 0;
+      }
+      if (r.liveActivityEnabled !== undefined) {
+        row.prefs.liveActivityEnabled = r.liveActivityEnabled;
+        if (!r.liveActivityEnabled) await this.endActivity(row, now);
+      }
+      return this.statusOf(row, (await tx.account()) !== null);
+    });
+  }
+
+  status(): Promise<RelayStatus> {
+    return this.store.transaction(async (tx) => this.statusOf(tx.row, (await tx.account()) !== null));
+  }
+
+  sendTest(): Promise<RelayStatus> {
+    return this.store.transaction(async (tx) => {
+      const row = tx.row;
+      if (row.prefs.deviceToken) {
+        await this.push(row, {
+          deviceToken: row.prefs.deviceToken, type: "alert", topic: this.config.bundleId, priority: 10,
+          payload: payloads.test(), collapseId: "glucos.test", expiration: this.clock() + 600, sandbox: row.prefs.sandbox,
+        }, (r) => { delete r.prefs.deviceToken; });
+      } else {
+        row.work.lastPushError = "The phone hasn't registered for notifications yet";
+      }
+      return this.statusOf(row, (await tx.account()) !== null);
+    });
+  }
+
+  private statusOf(row: RelayRow, hasAccount: boolean): RelayStatus {
+    const w = row.work;
+    const s: RelayStatus = {
+      version,
+      hasAccount,
+      hasDeviceToken: !!row.prefs.deviceToken && this.sender !== null,
+      hasPushToStartToken: !!row.prefs.pushToStartToken,
+      liveActivityEnabled: row.prefs.liveActivityEnabled,
+      alertsEnabled: row.prefs.alerts.enabled,
+    };
+    if (w.lastFetchAt !== null) s.lastFetchAt = w.lastFetchAt;
+    if (w.current) s.lastReadingAt = w.current.t;
+    if (w.lastError !== null) s.lastError = w.lastError;
+    if (w.lastPushAt !== null) s.lastPushAt = w.lastPushAt;
+    const pushError = this.sender === null ? "APNs key not configured on the relay" : w.lastPushError;
+    if (pushError) s.lastPushError = pushError;
+    if (row.activity) {
+      s.activityID = row.activity.id;
+      s.activityStartedAt = row.activity.startedAt;
+    }
+    return s;
+  }
+
+  // MARK: Tick
+
+  async tick(): Promise<"done" | "busy" | "no account" | "account changed"> {
+    const started = this.clock();
+    if (!(await this.store.claimTick(started, 50))) return "busy";
+    try {
+      // Read what's needed for the fetch, then let go of the row while LibreLinkUp answers.
+      const before = await this.store.transaction(async (tx) => ({
+        account: await tx.account(), session: await tx.libreSession(), generation: tx.row.accountGeneration,
+      }));
+      if (!before.account) return "no account";
+      let fetched: Awaited<ReturnType<GlucoseFetcher["fetch"]>> | null = null;
+      let error: string | null = null;
+      try {
+        fetched = await this.fetcher.fetch(before.account, before.session);
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+      }
+
+      return await this.store.transaction(async (tx) => {
+        const row = tx.row;
+        if (row.accountGeneration !== before.generation) return "account changed";
+        const now = this.clock();
+        const w = row.work;
+        if (fetched) {
+          if (fetched.session !== before.session) await tx.setLibreSession(fetched.session);
+          const incoming = [...fetched.result.history];
+          if (fetched.result.current) incoming.push(fetched.result.current);
+          await tx.addReadings(incoming);
+          if (fetched.result.current) w.current = fetched.result.current;
+          if (fetched.result.sensor) w.sensor = fetched.result.sensor;
+          w.lastError = null;
+        } else {
+          w.lastError = error;
+        }
+        w.lastFetchAt = now;
+
+        const stored = await tx.readings(now - 13 * 3600);
+        if (now - w.learnedAt > relearnEvery) {
+          const history = await tx.readings(now - learnFromDays * 86_400);
+          if (history.length > 24) {
+            w.calibration = learnCalibration(history, now);
+            w.learnedAt = now;
+          }
+          await tx.pruneReadings(now - readingRetentionDays * 86_400);
+        }
+
+        const result = processTick({
+          stored, current: w.current, sensor: w.sensor, lastError: w.lastError, display: row.prefs.display,
+          prefs: row.prefs.alerts, planner: w.planner, calibration: w.calibration, now,
+        });
+
+        const token = row.prefs.deviceToken;
+        if (token) {
+          for (const n of result.notices) {
+            await this.push(row, {
+              deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
+              payload: payloads.alert(n, this.config.criticalAlerts), collapseId: noticeIdentifier(n),
+              expiration: now + 15 * 60, sandbox: row.prefs.sandbox,
+            }, (r) => { delete r.prefs.deviceToken; });
+          }
+        }
+        await this.updateActivity(row, result.card, result.notices.length > 0, now);
+        return "done";
+      });
+    } finally {
+      await this.store.releaseTick();
+    }
+  }
+
+  // MARK: Live Activity
+
+  private async updateActivity(row: RelayRow, card: CardState | null, urgent: boolean, now: number) {
+    if (!row.prefs.liveActivityEnabled || !card) return;
+    const a = row.activity;
+    if (a) {
+      if (now - a.startedAt >= rotateAfter && row.prefs.pushToStartToken) {
+        await this.endActivity(row, now);
+        row.pendingStart = true;
+        row.startAttempts = 0;
+        row.lastStartAttempt = null;
+      } else {
+        const last = row.work.lastCard?.activityId === a.id ? row.work.lastCard : null;
+        const changed = !sameCard(card, last?.card);
+        const due = last ? now - last.pushedAt >= activityRefresh : true;
+        if (!changed && !due) return;
+        const rangeChanged = last ? cardRange(last.card) !== cardRange(card) : true;
+        const priority = urgent || rangeChanged || cardRange(card) !== "inRange" ? 10 : 5;
+        const result = await this.push(row, {
+          deviceToken: a.token, type: "liveactivity", topic: this.config.bundleId, priority,
+          payload: payloads.activity("update", card, now), expiration: cardStaleDate(card), sandbox: row.prefs.sandbox,
+        }, (r) => { if (r.activity?.id === a.id) r.activity = null; });
+        if (result.kind === "delivered") row.work.lastCard = { activityId: a.id, card, pushedAt: now };
+        return;
+      }
+    }
+
+    const p2s = row.prefs.pushToStartToken;
+    if (!row.pendingStart || !p2s || row.startAttempts >= maxStartAttempts) return;
+    if (row.lastStartAttempt !== null && now - row.lastStartAttempt < startRetry) return;
+    row.startAttempts += 1;
+    row.lastStartAttempt = now;
+    // The new activity's own update token reaches the phone, which registers it here.
+    await this.push(row, {
+      deviceToken: p2s, type: "liveactivity", topic: this.config.bundleId, priority: 10,
+      payload: payloads.activity("start", card, now), expiration: now + 600, sandbox: row.prefs.sandbox,
+    }, (r) => { delete r.prefs.pushToStartToken; });
+  }
+
+  private async endActivity(row: RelayRow, now: number) {
+    const a = row.activity;
+    if (!a) return;
+    row.activity = null;
+    row.work.lastCard = null;
+    await this.push(row, {
+      deviceToken: a.token, type: "liveactivity", topic: this.config.bundleId, priority: 10,
+      payload: payloads.activity("end", null, now), sandbox: row.prefs.sandbox,
+    }, () => {});
+  }
+
+  // MARK: Plumbing
+
+  private async push(row: RelayRow, request: PushRequest, onInvalid: (row: RelayRow) => void): Promise<PushResult> {
+    if (!this.sender) return { kind: "failed", reason: "no APNs key" };
+    const result = await this.sender.send(request);
+    switch (result.kind) {
+      case "delivered":
+        row.work.lastPushAt = this.clock();
+        row.work.lastPushError = null;
+        break;
+      case "tokenInvalid":
+        row.work.lastPushError = `${request.type}: ${result.reason}`;
+        onInvalid(row);
+        break;
+      case "failed":
+        row.work.lastPushError = `${request.type}: ${result.reason}`;
+        break;
+    }
+    return result;
+  }
+}
+
+function normaliseAccount(a: Account): Account {
+  return {
+    email: a.email, password: a.password, region: a.region, clientVersion: a.clientVersion,
+    sensorLifetimeDays: a.sensorLifetimeDays,
+  };
+}
