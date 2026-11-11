@@ -6,8 +6,9 @@ name: iOS signing
 # signing certificates. Skips itself on forks, which don't get the Apple secrets.
 #
 # Run it by hand with certificate ids to revoke the Apple Development certificates that releases
-# made before scripts/sign_ios.sh. Pick the ids from a run's listing (marked [CI]); only
-# development certificates can be revoked this way.
+# made before scripts/sign_ios.sh. A run's listing marks API-made ones as [candidate]. EAS makes
+# those too, so confirm each id is a CI one (developer portal) before passing it. Only development
+# certificates can be revoked this way.
 
 on:
   pull_request:

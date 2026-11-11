@@ -4,7 +4,7 @@
 Before scripts/sign_ios.sh, every iPhone release made a new "Apple Development" certificate on a
 throwaway runner, until the account hit Apple's cap. This prints what's there so the leftovers can
 be seen, and with --revoke-ci-development revokes only development certificates that the App Store
-Connect API created (Xcode names those "Created via API") are marked [CI] as likely leftovers.
+Connect API created (Xcode names those "Created via API") are marked [candidate] as likely leftovers.
 Other API clients (EAS, say) also create "Created via API" certificates, so the name alone is not
 proof: --revoke takes the exact ids to revoke, picked from this listing, and refuses any id that
 isn't a development certificate. Distribution and Developer ID certificates are never touched.
@@ -49,10 +49,10 @@ def main():
     certs = sorted(certificates(), key=lambda c: (c["attributes"].get("certificateType", ""),
                                                   c["attributes"].get("expirationDate", "")))
     ci = [c for c in certs if made_by_ci(c)]
-    print(f"{len(certs)} certificates, {len(ci)} of them development certificates made by CI:")
+    print(f"{len(certs)} certificates, {len(ci)} of them API-made development certificates (candidates; check each is a CI one before revoking):")
     for c in certs:
         a = c["attributes"]
-        mark = "  [CI]" if c in ci else ""
+        mark = "  [candidate]" if c in ci else ""
         print(f'  {a.get("certificateType", "?"):24} {a.get("expirationDate", "?")[:10]}  '
               f'{a.get("name", "")} / {a.get("displayName", "")}  {c["id"]}{mark}')
 
@@ -60,7 +60,7 @@ def main():
     if summary:
         with open(summary, "a") as f:
             f.write(f"**Signing certificates:** {len(certs)} in total, {len(ci)} development "
-                    f"certificates made by CI.\n")
+                    f"certificates made through the API (candidates, not proof of CI).\n")
 
     wanted = {i.strip() for i in args.revoke.split(",") if i.strip()}
     if wanted:
