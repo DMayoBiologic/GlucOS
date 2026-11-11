@@ -289,16 +289,16 @@ struct PhoneChartCard: View {
         .dsCard(.standard, padding: DS.Space.lg)
     }
 
-    private func events(hours: Double) -> [ChartEvent] {
+    private func events(hours: Double) -> [ChartLogMarker] {
         let cutoff = Date().addingTimeInterval(-hours * 3600)
-        var out: [ChartEvent] = []
+        var out: [ChartLogMarker] = []
         for d in logbook.doses where d.timestamp >= cutoff {
-            out.append(ChartEvent(id: d.id, date: d.timestamp, systemImage: d.viaPump ? "cross.vial.fill" : "syringe.fill",
+            out.append(ChartLogMarker(id: d.id, date: d.timestamp, systemImage: d.viaPump ? "cross.vial.fill" : "syringe.fill",
                                   tint: Palette.insulin,
                                   label: "\(LogFormat.units(d.units)) \(d.displayName) at \(ClockLabel.time(d.timestamp))"))
         }
         for m in logbook.meals where m.timestamp >= cutoff {
-            out.append(ChartEvent(id: m.id, date: m.timestamp, systemImage: "fork.knife", tint: Palette.food, lane: 1,
+            out.append(ChartLogMarker(id: m.id, date: m.timestamp, systemImage: "fork.knife", tint: Palette.food, lane: 1,
                                   label: m.carbs > 0 ? "\(LogFormat.grams(m.carbs)) carbs at \(ClockLabel.time(m.timestamp))"
                                                      : "Food at \(ClockLabel.time(m.timestamp))"))
         }

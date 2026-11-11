@@ -24,7 +24,7 @@ struct GlucoseChart: View {
     /// it's hidden anyway while the newest reading is stale.
     var forecast: [ForecastSample] = []
     /// Logged doses and food, drawn as small markers along the bottom of the chart.
-    var events: [ChartEvent] = []
+    var events: [ChartLogMarker] = []
     /// How many time labels to aim for along the bottom.
     var timeLabelCount: Int = 4
     /// A faint "Now" line where readings end and the forecast begins.
@@ -229,7 +229,7 @@ struct GlucoseChart: View {
 }
 
 /// Something logged, shown as a marker on the chart.
-struct ChartEvent: Identifiable {
+struct ChartLogMarker: Identifiable {
     let id: UUID
     let date: Date
     let systemImage: String
@@ -291,7 +291,7 @@ extension GlucoseChart {
 }
 
 private struct EventSymbol: View {
-    let event: ChartEvent
+    let event: ChartLogMarker
 
     var body: some View {
         Image(systemName: event.systemImage)
