@@ -126,6 +126,22 @@ final class InsulinLibraryTests: XCTestCase {
         XCTAssertEqual(second.insulins, [a])
     }
 
+    func testARenameOntoAnExistingNameEndsUpOnce() {
+        // This device has NovoRapid (id 2) and a newer Fiasp (id 1); another device renames
+        // NovoRapid to Fiasp, keeping id 2.
+        let fiasp = SavedInsulin(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, name: "Fiasp", kind: .ultraRapid)
+        let novo = SavedInsulin(id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!, name: "NovoRapid", kind: .rapid)
+        let lantus = SavedInsulin(name: "Lantus", kind: .long)
+        var renamed = novo
+        renamed.name = "Fiasp"
+        renamed.kind = .ultraRapid
+        var contents = LogbookContents(insulins: [novo, lantus, fiasp])
+        var state = LogbookSyncState(userID: "u1")
+        let r = LogbookRecord(id: renamed.id, kind: "insulin", payload: LogbookMerge.json(renamed), deleted: false, modified: 10, rev: 1)
+        LogbookMerge.apply([r], to: &contents, state: &state)
+        XCTAssertEqual(contents.insulins, [fiasp, lantus])
+    }
+
     // MARK: Site rotation
 
     func testSuggestsTheSiteUsedLongestAgoInAreasInUse() {
