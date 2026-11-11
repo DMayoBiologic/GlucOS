@@ -289,7 +289,15 @@ jobs:
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             GLUCOS_RELAY_URL="$URL" \
             archive 2>&1 | tee archive.log | grep -E "error:|ARCHIVE|Signing" || true
-          grep -q "ARCHIVE SUCCEEDED" archive.log || { echo "::error::iOS archive failed"; grep -E "error:" archive.log | sort -u; exit 1; }
+          if ! grep -q "ARCHIVE SUCCEEDED" archive.log; then
+            echo "::error::iOS archive failed"
+            grep -E "error:" archive.log | sort -u
+            # Apple's API can register an App ID but can't assign it an App Group.
+            if grep -q "application-groups entitlement" archive.log; then
+              echo "::error::An App ID is missing its App Group. Tick App Groups on it in the developer portal (docs/iOS.md, step 2)."
+            fi
+            exit 1
+          fi
 
       - name: Upload to TestFlight
         if: steps.check.outputs.ready == 'true'
