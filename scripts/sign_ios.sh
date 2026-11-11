@@ -42,6 +42,12 @@ if ! grep -q "ARCHIVE SUCCEEDED" "$TMP/archive-ios.log"; then
   echo "::error::iOS archive failed"; grep -E "error:" "$TMP/archive-ios.log" | sort -u; tail -30 "$TMP/archive-ios.log"; exit 1
 fi
 
+# The archive step no longer switches capabilities on for the App IDs (automatic signing did), so
+# do it here before export makes the App Store profiles from them.
+python3 -m venv "$TMP/asc-venv"
+"$TMP/asc-venv/bin/pip" install --quiet 'pyjwt[crypto]==2.10.1'
+"$TMP/asc-venv/bin/python" scripts/asc_capabilities.py "$ARCHIVE"
+
 cat > "$TMP/ExportOptions-ios.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

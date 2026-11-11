@@ -15,6 +15,7 @@ on:
     paths:
       - scripts/sign_ios.sh
       - scripts/asc_certificates.py
+      - scripts/asc_capabilities.py
       - .github/workflows/release.yml
       - .github/workflows/ios-signing.yml
       - project.yml
