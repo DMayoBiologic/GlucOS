@@ -2,22 +2,41 @@ import Foundation
 
 /// Where the push relay is and the secret it wants. Defaults come from the build (the release
 /// workflow bakes in the repo's RELAY_URL and RELAY_SECRET), and can be changed in Settings.
+///
+/// The app also copies its settings into the app group, so the Messages app (which can't read
+/// the app's Keychain or defaults) makes share links with the same relay. The relay secret is in
+/// the app bundle's Info.plist already, so the copy doesn't widen who can read it.
 final class RelaySettings: ObservableObject {
     static let shared = RelaySettings()
 
     private let d = UserDefaults.standard
+    private let group = SharedStore.defaults
 
-    @Published var urlString: String { didSet { d.set(urlString, forKey: "relayURL") } }
+    @Published var urlString: String {
+        didSet {
+            d.set(urlString, forKey: "relayURL")
+            group.set(urlString, forKey: "relayURL")
+        }
+    }
     var secret: String {
-        get { Keychain.get("relaySecret") ?? Self.builtIn("GlucOSRelaySecret") ?? "" }
+        get { Keychain.get("relaySecret") ?? group.string(forKey: "relaySecret") ?? Self.builtIn("GlucOSRelaySecret") ?? "" }
         set {
-            if newValue.isEmpty { Keychain.delete("relaySecret") } else { Keychain.set(newValue, for: "relaySecret") }
+            if newValue.isEmpty {
+                Keychain.delete("relaySecret")
+                group.removeObject(forKey: "relaySecret")
+            } else {
+                Keychain.set(newValue, for: "relaySecret")
+                group.set(newValue, forKey: "relaySecret")
+            }
             objectWillChange.send()
         }
     }
 
     private init() {
-        urlString = d.string(forKey: "relayURL") ?? Self.builtIn("GlucOSRelayURL") ?? ""
+        urlString = d.string(forKey: "relayURL") ?? group.string(forKey: "relayURL") ?? Self.builtIn("GlucOSRelayURL") ?? ""
+        // Settings changed before the Messages app existed: copy them over once.
+        if let url = d.string(forKey: "relayURL"), group.string(forKey: "relayURL") == nil { group.set(url, forKey: "relayURL") }
+        if let s = Keychain.get("relaySecret"), group.string(forKey: "relaySecret") == nil { group.set(s, forKey: "relaySecret") }
     }
 
     private static func builtIn(_ key: String) -> String? {

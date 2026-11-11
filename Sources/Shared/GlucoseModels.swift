@@ -243,6 +243,10 @@ enum SharedStore {
     /// Shared between the iPhone app and its widgets (Lock Screen card, Home Screen widgets).
     static let appGroup = "group.au.com.declanmayo.glucos"
 
+    /// Settings the app shares with its extensions (the Messages app). Falls back to the app's own
+    /// defaults in a build without the app group.
+    static let defaults: UserDefaults = UserDefaults(suiteName: appGroup) ?? .standard
+
     /// The app group's folder. A build without the app group (an unsigned CI build) falls back
     /// to the app's own Application Support, where only the app can see it.
     static var containerURL: URL? {

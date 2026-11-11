@@ -110,25 +110,17 @@ private struct ShareRow: View {
     }
 }
 
-enum ShareMessage {
-    static func text(label: String) -> String {
-        "Follow \(label == "GlucOS" ? "my" : "\(label)'s") glucose live in GlucOS:"
-    }
-}
-
 /// Make a link, then send it.
 struct NewShareView: View {
     @EnvironmentObject var sharing: OwnerSharing
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("shareLabel") private var label = ""
-    @AppStorage("shareDuration") private var duration: ShareDuration = .day
+    // In the app group, so the Messages app starts from the same name and length.
+    @AppStorage("shareLabel", store: SharedStore.defaults) private var label = ""
+    @AppStorage("shareDuration", store: SharedStore.defaults) private var duration: ShareDuration = .day
     @State private var working = false
     @State private var made: URL?
 
-    private var cleanLabel: String {
-        let t = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.isEmpty ? "GlucOS" : t
-    }
+    private var cleanLabel: String { ShareMessage.cleanLabel(label) }
 
     var body: some View {
         Form {
@@ -143,7 +135,7 @@ struct NewShareView: View {
                             .foregroundStyle(.secondary)
                     }
                     SwiftUI.ShareLink(item: made, message: Text(ShareMessage.text(label: cleanLabel)),
-                                      preview: SharePreview("\(cleanLabel == "GlucOS" ? "My" : "\(cleanLabel)'s") glucose, live")) {
+                                      preview: SharePreview("\(ShareMessage.title(label: cleanLabel)), live")) {
                         Label("Send Link", systemImage: "message.fill")
                     }
                     Button {
@@ -224,32 +216,7 @@ struct PhoneFollowingCard: View {
                     Button("Remove", role: .destructive) { Task { await follows.remove(follow) } }
                         .dsFont(.callout)
                 } else if let card {
-                    HStack(alignment: .center, spacing: DS.Space.md) {
-                        VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                            HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
-                                Text(card.valueText)
-                                    .font(.system(size: 44, weight: .bold, design: .rounded))
-                                    .monospacedDigit()
-                                    .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
-                                    .strikethrough(stale, color: .secondary)
-                                Text(card.glucoseUnit.label).dsFont(.label).foregroundStyle(.secondary)
-                            }
-                            HStack(spacing: DS.Space.xs) {
-                                if !stale, let delta = card.deltaText { Text(delta).monospacedDigit() }
-                                Text(card.readingDate, style: .relative) + Text(" ago")
-                            }
-                            .dsFont(.caption)
-                            .foregroundStyle(stale ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(Color.secondary))
-                        }
-                        Spacer(minLength: DS.Space.sm)
-                        TrendDial(trend: stale ? .unknown : card.glucoseTrend, tint: tone.color, size: 52)
-                            .opacity(stale ? 0.6 : 1)
-                            .accessibilityHidden(true)
-                    }
-                    GlucoseChart(readings: card.historyReadings, unit: card.glucoseUnit, lowMgdl: card.lowMgdl,
-                                 highMgdl: card.highMgdl, hours: GlucoseActivityState.historyHours, showAxes: false,
-                                 latestIsStale: stale)
-                        .frame(height: 70)
+                    SharedReadingView(card: card, now: now)
                 } else {
                     Text(follows.errors[follow.id] ?? "Waiting for \(follow.label)'s first reading…")
                         .dsFont(.callout).foregroundStyle(.secondary)

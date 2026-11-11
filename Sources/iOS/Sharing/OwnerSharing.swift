@@ -19,7 +19,7 @@ final class OwnerSharing: ObservableObject {
 
     /// The link for a share this phone made, if it still has it.
     func link(for share: ShareInfo) -> URL? {
-        Keychain.get("ownShare.\(share.id)").flatMap(FollowLink.url(token:))
+        (Keychain.get("ownShare.\(share.id)") ?? MessagesShareLinks.token(for: share.id)).flatMap(FollowLink.url(token:))
     }
 
     func refresh() async {
@@ -70,6 +70,7 @@ final class OwnerSharing: ObservableObject {
         let ids = Set(live.map(\.id))
         var known = UserDefaults.standard.stringArray(forKey: "ownShareIDs") ?? []
         for id in known where !ids.contains(id) { Keychain.delete("ownShare.\(id)") }
+        MessagesShareLinks.keep(only: ids)
         known = Array(ids)
         UserDefaults.standard.set(known, forKey: "ownShareIDs")
     }

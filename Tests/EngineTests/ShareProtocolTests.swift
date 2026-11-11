@@ -60,4 +60,21 @@ final class ShareProtocolTests: XCTestCase {
         XCTAssertTrue(info.isExpired(at: Date(timeIntervalSince1970: 100)))
         XCTAssertFalse(info.isExpired(at: Date(timeIntervalSince1970: 99)))
     }
+
+    func testShareMessageWording() {
+        XCTAssertEqual(ShareMessage.cleanLabel("  "), "GlucOS")
+        XCTAssertEqual(ShareMessage.cleanLabel(" Declan "), "Declan")
+        XCTAssertEqual(ShareMessage.cleanLabel(String(repeating: "a", count: 60)).count, 40)
+        XCTAssertEqual(ShareMessage.title(label: "GlucOS"), "My glucose")
+        XCTAssertEqual(ShareMessage.title(label: "Declan"), "Declan's glucose")
+        XCTAssertEqual(ShareMessage.text(label: "GlucOS"), "Follow my glucose live in GlucOS:")
+    }
+
+    func testMessagesBubbleLinkCarriesTheToken() throws {
+        // A Messages bubble's URL is the web link, so the bubble and the web view share one token.
+        let t = String(repeating: "A", count: 43)
+        let url = try XCTUnwrap(FollowLink.url(token: t))
+        XCTAssertEqual(FollowLink.token(from: url), t)
+        XCTAssertEqual(FollowLink.serviceURL.absoluteString, "https://aqlbadbyjuoruwnwyfrc.supabase.co/functions/v1/share")
+    }
 }

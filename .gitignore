@@ -16,3 +16,5 @@ Sources/iOSWidget/Info.plist
 Sources/iOSWidget/GlucOSWidget.entitlements
 supabase/.temp/
 supabase/.branches/
+Sources/iOSMessages/Info.plist
+Sources/iOSMessages/GlucOSMessages.entitlements

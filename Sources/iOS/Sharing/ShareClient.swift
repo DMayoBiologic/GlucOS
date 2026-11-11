@@ -3,7 +3,7 @@ import Foundation
 /// The public `share` function (supabase/functions/share), as a follower uses it. The share
 /// token from the link is the only credential.
 struct ShareClient {
-    static let baseURL = LogbookSyncConfig.projectURL.appendingPathComponent("functions/v1/share")
+    static let baseURL = FollowLink.serviceURL
 
     let token: String
 
