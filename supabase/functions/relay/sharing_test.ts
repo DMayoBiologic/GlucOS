@@ -297,6 +297,38 @@ Deno.test("followers past the tick's time budget wait for the next tick", async 
   assertEquals(new Set([...first, ...second]).size, followerConcurrency + 2);
 });
 
+Deno.test("short ticks reach every follower even when deletes keep failing and ticks are skipped", async () => {
+  const t = setup();
+  t.engine["config"].followerBudgetMs = 0;
+  // Two links run out, and their followers can't be deleted, so they stay in the list every tick.
+  // (Two of each, as one link takes at most maxFollowersPerShare.)
+  const ending = [await t.engine.createShare({ expiresIn: 600 }), await t.engine.createShare({ expiresIn: 600 })];
+  const lasting = [await t.engine.createShare({ expiresIn: 86_400 }), await t.engine.createShare({ expiresIn: 86_400 })];
+  const want = { end: new Set<string>(), update: new Set<string>() };
+  for (let i = 0; i < 12; i++) {
+    for (const [links, kind] of [[ending, "end"], [lasting, "update"]] as const) {
+      const link = links[i % 2];
+      const tok = `${kind === "end" ? "e" : "a"}${i}`.padStart(16, "0"); // hex, like a real token
+      want[kind].add(`${tok}:${kind}`);
+      (await share(t, "/v1/follow", link.token, { installation: `phone-${kind}-${i}`, activityID: `${kind}${i}`, activityToken: tok })).body?.cancel();
+    }
+  }
+  t.shares.deleteFollowers = () => Promise.reject(new Error("db down"));
+  t.advance(700);
+  const got = new Set<string>();
+  for (let tick = 0; tick < 3; tick++) {
+    assertEquals(await t.engine.tick(), "done");
+    // One batch per tick, from where the last one stopped. (An ended follower already told is
+    // visited again but sends nothing, so a batch can send fewer.)
+    assert(t.sent.length <= followerConcurrency);
+    events(t.sent).forEach((e) => got.add(e));
+    t.sent.length = 0;
+    t.advance(tick === 0 ? 3 * 3600 : 60); // a long gap, as if the scheduler skipped ticks
+  }
+  assertEquals([...got].filter((e) => e.endsWith(":end")).sort(), [...want.end].sort());
+  assertEquals([...got].filter((e) => e.endsWith(":update")).sort(), [...want.update].sort());
+});
+
 Deno.test("ticks short of time pick up where the last one stopped, so every follower gets a turn", () => {
   // Each tick only gets through its first batch, then saves where it stopped. Ended followers
   // whose delete keeps failing stay in the list; followers come and go between ticks.
