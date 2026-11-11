@@ -4,6 +4,20 @@ The iPhone app shows the same cards as the Mac popover (reading, trend, chart wi
 outlook, time in range, sensor), keeps a **Live Activity** on the Lock Screen and in the Dynamic
 Island, and sends low/high alerts. It also has Lock Screen and Home Screen widgets.
 
+## Logging on iPhone
+
+Tap **Log** (bottom right of the main screen) or one of the Insulin / Food / New site / Event
+buttons on the Logbook card. The log sheet records insulin (with injection site), food and carbs,
+pump site changes and events (exercise, unwell, alcohol, stress, period, hypo treatment, site
+problem) at one time, with presets, "same as last" and recent foods as one-tap quick adds. Tap
+an entry on the Logbook card to edit it; long-press to log it again or delete it (with Undo).
+Everything goes into the same logbook as the Mac and syncs both ways (docs/LogbookSync.md).
+
+Other ways in, all of which open the log sheet: the **Log** Lock Screen widget, the **Log**
+button in the expanded Dynamic Island, the "Log in GlucOS" App Shortcut (Siri, Spotlight,
+Shortcuts, the Action button), and `glucos://log` (or `glucos://log/insulin|food|site|event`).
+None of them ever fill in an amount: GlucOS records what you enter and never suggests a dose.
+
 ```
 LibreLinkUp ──► push relay (Supabase edge function, every minute) ──APNs──► iPhone: alerts + Lock Screen card
            └──► iPhone app (while it's open)
@@ -110,8 +124,8 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
-- **The relay's forecast is trend-only.** Insulin and food are logged on the Mac, so the relay
-  and the phone forecast from the recent trend; the Mac's forecast also uses the logbook.
+- **The relay's forecast is trend-only.** The phone and the Mac forecast with the synced
+  logbook; the relay still forecasts from the recent trend.
 - **The relay gets your LibreLinkUp login.** The app sends it over HTTPS (with the relay secret).
   It's kept encrypted in Supabase Vault. Signing out on the phone asks the relay to delete it; if
   the relay can't be reached then, the login stays in Vault until it can.

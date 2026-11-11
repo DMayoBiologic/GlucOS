@@ -34,8 +34,13 @@ struct GlucOSPhoneApp: App {
                 .environmentObject(services)
                 .environmentObject(logbookSync)
                 .environmentObject(store.settings)
+                .environmentObject(PhoneLogRouter.shared)
                 .modifier(PhoneTextScale())
-                .onOpenURL { _ in Task { await store.refresh() } }
+                .onOpenURL { url in
+                    // glucos://log opens the log sheet (Lock Screen widget, Dynamic Island, links).
+                    PhoneLogRouter.shared.handle(url)
+                    Task { await store.refresh() }
+                }
         }
         .onChange(of: scenePhase) { _, phase in services.scenePhaseChanged(phase) }
     }
