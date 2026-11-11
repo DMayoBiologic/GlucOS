@@ -59,18 +59,25 @@ enum Keychain {
         }
     }
 
-    static func delete(_ account: String) {
+    /// Returns false when the item couldn't be removed (it's then still there and still readable).
+    @discardableResult
+    static func delete(_ account: String) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        var modern = false
+        #if os(macOS)
+        modern = useModern()
+        #endif
+        let status = SecItemDelete(query(account, modern: modern) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            cache[account] = nil   // forget what we knew; the next read asks the keychain again
+            return false
+        }
         cache[account] = .some(nil)
         #if os(macOS)
-        if useModern() {
-            SecItemDelete(query(account, modern: true) as CFDictionary)
-            // The login keychain copy stays (deleting it could prompt), but it's never migrated now.
-            markMigrated(account)
-            return
-        }
+        // The login keychain copy stays (deleting it could prompt), but it's never migrated now.
+        if modern { markMigrated(account) }
         #endif
-        SecItemDelete(query(account, modern: false) as CFDictionary)
+        return true
     }
 
     // MARK: - Internals (call with `lock` held)
