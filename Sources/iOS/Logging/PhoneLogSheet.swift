@@ -13,6 +13,8 @@ struct PhoneLogSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private let editing: PhoneLogPart?
+    /// The part a new entry was opened for (the Event button, `glucos://log/event`…).
+    private let start: PhoneLogPart?
     private let editingID: UUID?
     private let doseID: UUID
     private let mealID: UUID
@@ -41,6 +43,7 @@ struct PhoneLogSheet: View {
     init(target: PhoneLogTarget) {
         let s = AppSettings.shared
         var editing: PhoneLogPart?
+        var startPart: PhoneLogPart?
         var editingID: UUID?
         var doseID = UUID(), mealID = UUID(), siteID = UUID(), contextID = UUID()
         var time = Date()
@@ -58,6 +61,7 @@ struct PhoneLogSheet: View {
 
         switch target {
         case .new(let start):
+            startPart = start
             if let start {
                 parts = [start]
             } else {
@@ -97,6 +101,7 @@ struct PhoneLogSheet: View {
         }
 
         self.editing = editing
+        self.start = startPart
         self.editingID = editingID
         self.doseID = doseID
         self.mealID = mealID
@@ -178,10 +183,15 @@ struct PhoneLogSheet: View {
         }
         .onAppear { focusFirstField() }
         .onChange(of: settings.therapy) { _, therapy in
-            // Picked in the setup step: start from that therapy's defaults.
+            // Picked in the setup step: keep the part the sheet was opened for if this therapy
+            // has it, otherwise start from that therapy's default.
             guard isNew else { return }
             viaPump = therapy == .pump
-            parts = therapy.logsInsulin ? [.insulin] : [.food]
+            if let start, availableParts.contains(start) {
+                parts = [start]
+            } else {
+                parts = therapy.logsInsulin ? [.insulin] : [.food]
+            }
             kind = settings.bolusInsulinKind
             insulinName = settings.bolusInsulinName
             focusFirstField()
@@ -503,7 +513,7 @@ struct PhoneLogSheet: View {
                 }
             }
             .tint(Palette.brand)
-            .disabled(!canSave)
+            .disabled(!canSave || !hasPresetContent)
             if savesAsPreset {
                 TextField("Preset name", text: $presetName, prompt: Text(defaultPresetName))
                     .textFieldStyle(.roundedBorder)
@@ -602,6 +612,11 @@ struct PhoneLogSheet: View {
         return !checks.isEmpty && checks.allSatisfy { $0.1 }
     }
 
+    /// A preset needs something to fill in: a site change on its own isn't one.
+    private var hasPresetContent: Bool {
+        includes(.insulin) || includes(.food) || (includes(.event) && !tags.isEmpty)
+    }
+
     private var pumpSiteText: String {
         if includes(.site) { return "\(newSite.title) (new)" }
         guard let current = logbook.infusionSite(at: time) else { return "None logged yet" }
@@ -642,7 +657,7 @@ struct PhoneLogSheet: View {
         if includes(.event), !tags.isEmpty {
             logbook.save(.context(ContextEvent(id: contextID, timestamp: time, tags: tags, note: trimmedNote)))
         }
-        if isNew && savesAsPreset {
+        if isNew && savesAsPreset && hasPresetContent {
             let name = presetName.trimmingCharacters(in: .whitespacesAndNewlines)
             let logsTags = includes(.event)
             logbook.savePreset(LogPreset(name: name.isEmpty ? defaultPresetName : name,
