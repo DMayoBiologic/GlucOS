@@ -9,6 +9,18 @@ struct OverviewSection: View {
     /// The period before this one, on its own timestamps.
     let comparison: [GlucoseReading]
 
+    @EnvironmentObject private var logbook: LogbookStore
+    @EnvironmentObject private var settings: AppSettings
+
+    /// The forecast runs a few hours at most, so it's only drawn where that's visible.
+    private var drawsForecast: Bool { data.isLive && data.range.duration <= 3 * 86_400 }
+
+    /// Insulin and carbs on board are about now, so they only show on a live period, and not
+    /// before anything has been logged or a therapy chosen.
+    private var showsOnBoard: Bool {
+        data.isLive && (settings.therapy != .notSet || !logbook.doses.isEmpty || !logbook.meals.isEmpty)
+    }
+
     var body: some View {
         // Only compare against a previous period that's reasonably complete.
         let previousStats: GlucoseStats? = {
@@ -18,6 +30,18 @@ struct OverviewSection: View {
         }()
         DashboardPage { layout in
             OverviewHeader(snapshot: snapshot, data: data, previous: previousStats, layout: layout)
+
+            if showsOnBoard {
+                TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                    OnBoardRow(onBoard: OnBoardNow(doses: logbook.doses, meals: logbook.meals,
+                                                   contexts: logbook.contexts, at: ctx.date),
+                               forecast: snapshot.currentOutlook(at: ctx.date),
+                               noForecastReason: snapshot.isStale(at: ctx.date) ? ForecastUnavailable.stale(age: 0).message
+                                                                                 : snapshot.outlook?.unavailableReason,
+                               therapy: settings.therapy, unit: data.unit, lowMgdl: data.lowMgdl,
+                               spacing: layout.gutter)
+                }
+            }
 
             Group {
                 if data.readings.isEmpty {
@@ -37,13 +61,15 @@ struct OverviewSection: View {
                                    lowMgdl: data.lowMgdl, highMgdl: data.highMgdl, events: events,
                                    comparison: comparison, comparisonShift: data.range.duration,
                                    latestIsStale: data.isLive && snapshot.isStale(at: context.date),
-                                   now: data.isLive ? context.date : nil)
+                                   now: data.isLive ? context.date : nil,
+                                   forecast: drawsForecast ? (snapshot.currentOutlook(at: context.date)?.forecast ?? []) : [],
+                                   forecastBasis: snapshot.outlook?.basis)
                     }
                     .id("\(data.range.rawValue)-\(data.isLive ? "live" : String(data.domain.upperBound.timeIntervalSince1970))")
                 }
             }
             // Room above for the header, and below for the top of the next row of cards.
-            .frame(height: layout.chartHeight(reserving: layout.widthClass == .compact ? 470 : 330))
+            .frame(height: layout.chartHeight(reserving: (layout.widthClass == .compact ? 470 : 330) + (showsOnBoard ? 150 : 0)))
             .dashboardCard()
 
             if let note = data.historyNote { HistoryNote(text: note) }

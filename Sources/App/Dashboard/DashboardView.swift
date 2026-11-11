@@ -107,7 +107,14 @@ struct DashboardView: View {
         .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
         .safeAreaInset(edge: .bottom) {
             TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                CurrentReadingTile(snapshot: store.snapshot, recent: recentReadings(now: ctx.date), now: ctx.date)
+                VStack(spacing: DS.Space.sm) {
+                    let onBoard = OnBoardNow(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts, at: ctx.date)
+                    // Only while something is acting, so the sidebar stays calm the rest of the time.
+                    if !onBoard.isEmpty {
+                        OnBoardSidebarTile(onBoard: onBoard, therapy: settings.therapy)
+                    }
+                    CurrentReadingTile(snapshot: store.snapshot, recent: recentReadings(now: ctx.date), now: ctx.date)
+                }
             }
             .padding(DS.Space.sm + 2)
         }
