@@ -292,15 +292,18 @@ Deno.test("followers past the tick's time budget wait for the next tick", async 
 });
 
 Deno.test("ticks short of time start further along, so every follower gets a turn", () => {
-  const fs = Array.from({ length: 25 }, (_, i) => ({ id: i, active: i !== 24 }));
-  const seen = new Set<number>();
-  for (let minute = 0; minute < 3; minute++) {
-    const order = followerOrder(fs, minute * 60);
-    assertEquals(order[0].id, 24); // the ended one always goes first
-    assertEquals(order.length, 25);
-    order.slice(1, 1 + followerConcurrency).forEach((f) => seen.add(f.id));
+  // Only the first batch goes each tick. Ended followers (here, ones whose delete keeps failing)
+  // take some of its places.
+  for (const [live, ended] of [[20, 1], [25, 3], [24, 0], [7, 2]]) {
+    const fs = Array.from({ length: live + ended }, (_, i) => ({ id: i, active: i < live }));
+    const seen = new Set<number>();
+    for (let minute = 0; minute < live; minute++) {
+      const first = followerOrder(fs, minute * 60).slice(0, followerConcurrency);
+      assert(first.slice(0, ended).every((f) => !f.active), "ended ones go first");
+      first.filter((f) => f.active).forEach((f) => seen.add(f.id));
+    }
+    assertEquals(seen.size, live, `${live} live, ${ended} ended`);
   }
-  assertEquals(seen.size, 24);
 });
 
 Deno.test("share expiry is kept between 10 minutes and 90 days", async () => {

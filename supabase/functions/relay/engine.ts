@@ -40,8 +40,11 @@ export const followerBudgetMs = 25_000;
 export function followerOrder<F extends { active: boolean }>(all: F[], now: number): F[] {
   const ending = all.filter((f) => !f.active);
   const live = all.filter((f) => f.active);
-  if (live.length <= followerConcurrency) return [...ending, ...live];
-  const start = (Math.floor(now / 60) * followerConcurrency) % live.length;
+  // Step by the live followers that fit in the first batch, so successive short ticks' first
+  // batches tile the whole list.
+  const step = Math.max(1, followerConcurrency - ending.length);
+  if (live.length <= step) return [...ending, ...live];
+  const start = (Math.floor(now / 60) * step) % live.length;
   return [...ending, ...live.slice(start), ...live.slice(0, start)];
 }
 
