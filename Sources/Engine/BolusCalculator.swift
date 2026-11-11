@@ -257,6 +257,8 @@ enum BolusCalculator {
     static let fallingFastRate = -2.0
     /// How far ahead the "falling towards a low" check looks.
     static let lowLookahead: TimeInterval = 20 * 60
+    /// The low gate is never set lower than this (3.9 mmol/L), even if the low alert is.
+    static let minimumLowMgdl = 70.0
     /// At or above this, suggest checking for ketones.
     static let veryHighMgdl = 300.0
 
@@ -302,11 +304,12 @@ enum BolusCalculator {
             rate = ratePerMinute(sorted, at: latest.timestamp) ?? arrowRate(latest.trend)
         }
 
-        // Low, or heading there fast: stop.
-        if let g = glucose, g < r.lowMgdl {
+        // Low, or heading there fast: stop. Never below 3.9 mmol/L, whatever the low alert is set to.
+        let low = max(r.lowMgdl, minimumLowMgdl)
+        if let g = glucose, g < low {
             return blocked(.low(mgdl: g), block: block, glucose: g, rate: rate, iob: iob)
         }
-        if let g = glucose, let rate, rate <= fallingFastRate, g + rate * lowLookahead / 60 < r.lowMgdl {
+        if let g = glucose, let rate, rate <= fallingFastRate, g + rate * lowLookahead / 60 < low {
             return blocked(.fallingFastTowardsLow, block: block, glucose: g, rate: rate, iob: iob)
         }
 

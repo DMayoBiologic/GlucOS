@@ -153,6 +153,11 @@ final class BolusCalculatorTests: XCTestCase {
         XCTAssertTrue(s.notices.contains(.low(mgdl: 65)))
     }
 
+    func testLowGateNeverBelow3Point9() {
+        let request = BolusRequest(carbs: 30, now: now, readings: steady(66), doses: [], lowMgdl: 55, therapy: .injections)
+        XCTAssertTrue(BolusCalculator.suggest(request, settings: settings(), calendar: utc).isBlocked)
+    }
+
     func testBlockedWhenFallingFastTowardsALow() {
         // 90 now, falling 3 a minute: about 30 in 20 minutes.
         let s = suggest(carbs: 40, readings: moving(to: 90, rate: -3))
