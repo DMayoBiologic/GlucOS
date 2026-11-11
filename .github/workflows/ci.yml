@@ -37,6 +37,11 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Use Xcode 26
+        # App Store Connect only accepts iOS builds made with the iOS 26 SDK or later.
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X" && xcodebuild -version
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project
