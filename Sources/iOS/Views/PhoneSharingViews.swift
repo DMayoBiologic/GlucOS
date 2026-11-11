@@ -410,11 +410,16 @@ private struct ExampleFollowCard: View {
 
     static func card(now: Date) -> GlucoseActivityState {
         let steps = Int(GlucoseActivityState.historyHours * 12)
-        let history: [Int?] = (0...steps).map { i in
-            Int(118 + 34 * sin(Double(i + 10) / 7.0) - Double(i) * 0.4)
+        var values: [Int] = []
+        for i in 0...steps {
+            let x = Double(i)
+            let wave: Double = 34.0 * sin((x + 10.0) / 7.0)
+            let drift: Double = x * 0.4
+            values.append(Int(118.0 + wave - drift))
         }
-        let last = Double(history.last!!)
-        let previous = Double(history[history.count - 2]!)
+        let history: [Int?] = values.map { Optional($0) }
+        let last = Double(values[values.count - 1])
+        let previous = Double(values[values.count - 2])
         return GlucoseActivityState(mgdl: last, trend: 3, readingAt: now.timeIntervalSince1970 - 60,
                                     deltaMgdl: last - previous, unit: GlucoseUnit.mmol.rawValue,
                                     lowMgdl: 70, highMgdl: 180, history: history)
