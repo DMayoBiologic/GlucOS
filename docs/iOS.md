@@ -66,8 +66,8 @@ At <https://developer.apple.com/account/resources/identifiers/list>:
    (choose the group above), **Push Notifications** and **Time Sensitive Notifications**.
 3. **App IDs** → **+** → bundle ID `au.com.declanmayo.glucos.ios.widget`. Tick **App Groups**.
 4. **App IDs** → **+** → bundle ID `au.com.declanmayo.glucos.ios.messages` (the Messages app). Tick
-   **App Groups** and choose the group above. (If a release already registered the ID, just open it and
-   tick App Groups: Apple's API can't assign a group, so without this the archive fails with "Provisioning
+   **App Groups** and choose the group above. (If a release already registered the ID, open it, tick App
+   Groups, then **Configure** and choose the same group before saving: Apple's API can't assign a group, so without this the archive fails with "Provisioning
    profile … doesn't match the entitlements file's value for the com.apple.security.application-groups
    entitlement".)
 
