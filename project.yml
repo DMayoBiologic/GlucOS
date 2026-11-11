@@ -232,7 +232,10 @@ targets:
   # reading and keeps updating in the chat for anyone with GlucOS, and falls back to a picture
   # and the web link for everyone else. See docs/Sharing.md.
   GlucOSMessages:
-    type: app-extension
+    # The Messages product type, not a plain app extension: only then does the asset catalog
+    # compile "iMessage App Icon" as the drawer icon. As a plain extension the icons are left out
+    # and App Store Connect rejects the upload ("Missing App Icon … iMessage app icon").
+    type: app-extension.messages
     platform: iOS
     deploymentTarget: "17.2"
     sources:
