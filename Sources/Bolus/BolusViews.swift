@@ -25,8 +25,9 @@ struct BolusSuggestionCard: View {
     let carbs: Double
     let onUse: (BolusSuggestion) -> Void
     let onSetUp: () -> Void
-    /// What the calculator says now, each time that changes: nil when it can't give a dose.
-    var onUpdate: ((BolusSuggestion?) -> Void)? = nil
+    /// What the calculator says now, each time that changes: nil when it can't give a dose. The
+    /// closure works it out again on the spot, for a check at the moment of logging.
+    var onUpdate: ((BolusSuggestion?, @escaping @MainActor () -> BolusSuggestion?) -> Void)? = nil
 
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var store: GlucoseStore
@@ -52,14 +53,33 @@ struct BolusSuggestionCard: View {
             let s = suggestion(at: context.date)
             let live = fingerPrickMissing ? nil : s
             content(s)
-                .task(id: live.map { "\($0.units)|\($0.isBlocked)|\($0.carbs)" } ?? "none") { onUpdate?(live) }
+                .task(id: (live.map { "\($0.units)|\($0.isBlocked)|\($0.carbs)" } ?? "none") + "|\(fingerPrick ?? -1)") {
+                    onUpdate?(live, recompute())
+                }
+        }
+    }
+
+    /// Works the suggestion out again at the time it's called, from the current readings, doses and
+    /// settings and the finger-prick value as it is now.
+    private func recompute() -> @MainActor () -> BolusSuggestion? {
+        let manual = fingerPrick, missing = fingerPrickMissing, carbs = carbs
+        let logbook = logbook, store = store, settings = settings
+        return { @MainActor in
+            guard !missing else { return nil }
+            return Self.suggestion(carbs: carbs, at: Date(), manual: manual,
+                                   logbook: logbook, store: store, settings: settings)
         }
     }
 
     private func suggestion(at now: Date) -> BolusSuggestion {
+        Self.suggestion(carbs: carbs, at: now, manual: fingerPrick, logbook: logbook, store: store, settings: settings)
+    }
+
+    private static func suggestion(carbs: Double, at now: Date, manual: Double?, logbook: LogbookStore,
+                                   store: GlucoseStore, settings: AppSettings) -> BolusSuggestion {
         let snapshot = store.snapshot
         let readings = snapshot.history + (snapshot.current.map { [$0] } ?? [])
-        let request = BolusRequest(carbs: carbs, now: now, readings: readings, manualGlucose: fingerPrick,
+        let request = BolusRequest(carbs: carbs, now: now, readings: readings, manualGlucose: manual,
                                    doses: logbook.doses, contexts: logbook.contexts,
                                    lowMgdl: settings.lowMgdl, therapy: settings.therapy)
         return BolusCalculator.suggest(request, settings: logbook.bolusSettings)

@@ -47,6 +47,8 @@ struct PhoneLogSheet: View {
     @State private var usedSuggestion: BolusSuggestion?
     /// What the calculator says now, to check a used suggestion against.
     @State private var liveSuggestion: BolusSuggestion?
+    /// Works the calculator's answer out again on the spot, for the check at save and log.
+    @State private var recomputeSuggestion: (@MainActor () -> BolusSuggestion?)?
     @State private var confirmingDose = false
     @FocusState private var focus: LogFieldFocus?
 
@@ -459,8 +461,9 @@ struct PhoneLogSheet: View {
                                         Haptics.tap()
                                     },
                                     onSetUp: { showsBolusSettings = true },
-                                    onUpdate: { live in
+                                    onUpdate: { live, recompute in
                                         liveSuggestion = live
+                                        recomputeSuggestion = recompute
                                         dropSuggestionIfStale()
                                     })
             }
@@ -767,6 +770,12 @@ struct PhoneLogSheet: View {
             && s.stillStands(given: liveSuggestion)
     }
 
+    /// Brings the calculator's answer up to this moment: the card only refreshes every 30 seconds.
+    private func refreshLiveSuggestion() {
+        guard usedSuggestion != nil, let recomputeSuggestion else { return }
+        liveSuggestion = recomputeSuggestion()
+    }
+
     private func dropSuggestionIfStale() {
         guard usedSuggestion != nil, !suggestionStillApplies else { return }
         usedSuggestion = nil
@@ -775,6 +784,7 @@ struct PhoneLogSheet: View {
 
     private func save() {
         guard canSave else { return }
+        refreshLiveSuggestion()
         if includes(.insulin) && usedSuggestion != nil && !suggestionStillApplies {
             dropSuggestionIfStale()
             return
@@ -789,6 +799,7 @@ struct PhoneLogSheet: View {
     private func commit() {
         guard canSave else { return }
         // Checked again here: the confirm step can sit open past the calculator's window.
+        refreshLiveSuggestion()
         if includes(.insulin) && usedSuggestion != nil && !suggestionStillApplies {
             dropSuggestionIfStale()
             return

@@ -339,5 +339,13 @@ final class BolusCalculatorTests: XCTestCase {
         XCTAssertFalse(used.stillStands(given: suggest(carbs: 45, readings: steady(180), settings: settings(ratio: 15))))
         XCTAssertTrue(used.stillStands(given: suggest(carbs: 45, readings: steady(200))))
     }
+
+    func testUsedSuggestionFallsWhenItsReadingGoesStale() {
+        // Taken with a 14-minute-old reading; by the time it's logged the reading is 16 minutes old.
+        let used = suggest(carbs: 45, readings: steady(220, endingAgo: 14 * 60))
+        XCTAssertGreaterThan(used.correctionUnits, 0)
+        let later = suggest(carbs: 45, readings: steady(220, endingAgo: 16 * 60))
+        XCTAssertFalse(used.stillStands(given: later))
+    }
 }
 
