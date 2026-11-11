@@ -180,7 +180,8 @@ final class LogbookStore: ObservableObject {
 
     func saveFood(_ food: SavedFood) {
         var f = food
-        f.modified = Date()
+        // Whole milliseconds, so the copy that comes back through sync compares equal.
+        f.modified = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 * 1000).rounded() / 1000)
         if let i = foods.firstIndex(where: { $0.id == f.id }) { foods[i] = f } else { foods.append(f) }
         touch(f.id, kind: .food)
         persist()

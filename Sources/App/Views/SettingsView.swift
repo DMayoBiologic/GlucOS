@@ -591,8 +591,11 @@ private struct LoggingSettingsTab: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var logbook: LogbookStore
 
+    @EnvironmentObject var store: GlucoseStore
+
     @State private var renaming: LogPreset?
     @State private var newName = ""
+    @State private var editingBolus = false
 
     var body: some View {
         Form {
@@ -626,6 +629,21 @@ private struct LoggingSettingsTab: View {
                     Text(settings.therapy == .pump ? "Insulin in Your Pump" : "Your Insulins")
                 } footer: {
                     Text("Pre-filled when you log a dose.").foregroundStyle(.secondary)
+                }
+            }
+
+            if settings.therapy.logsInsulin {
+                Section {
+                    HStack {
+                        BolusSettingsSummary(settings: logbook.bolusSettings, unit: settings.unit)
+                        Spacer()
+                        Button(logbook.bolusSettings?.isConfirmed == true ? "Edit…" : "Set Up…") { editingBolus = true }
+                    }
+                } header: {
+                    Text("Bolus Calculator")
+                } footer: {
+                    Text("Uses only the settings you enter and confirm. Shared with GlucOS on your iPhone. Not medical advice.")
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -671,13 +689,20 @@ private struct LoggingSettingsTab: View {
             }
 
             Section {
-                Text("Patterns in Dashboard → Insights are observations from your own logs and readings. They aren't medical advice and GlucOS never suggests a dose. Don't change your insulin, ratios or pump settings based on them without talking to your diabetes care team.")
+                Text("Patterns in Dashboard → Insights are observations from your own logs and readings. They aren't medical advice and never suggest a dose. Don't change your insulin, ratios or pump settings based on them without talking to your diabetes care team.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $editingBolus) {
+            BolusSettingsEditor(current: logbook.bolusSettings) { editingBolus = false }
+                .frame(minWidth: 480, idealWidth: 540, minHeight: 520, idealHeight: 640)
+                .environmentObject(logbook)
+                .environmentObject(store)
+                .environmentObject(settings)
+        }
         .alert("Rename Preset", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newName)
             Button("Rename") {

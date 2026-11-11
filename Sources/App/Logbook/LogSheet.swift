@@ -15,8 +15,9 @@ enum LogSheetTarget: Identifiable {
 }
 
 /// Logs insulin, food and (on a pump) a site change, all at one time. What it asks for follows
-/// the therapy type in Settings. It records what the user enters and never suggests an amount:
-/// presets and "same as last" only ever repeat numbers the user typed themselves.
+/// the therapy type in Settings. It records what the user enters: presets and "same as last" only
+/// ever repeat numbers the user typed themselves. The one suggested amount is the bolus
+/// calculator's, from the user's confirmed settings, and logging it asks for confirmation.
 ///
 /// Hosted both as a sheet on the dashboard and on its own in the quick-log window.
 struct LogSheet: View {
@@ -24,6 +25,7 @@ struct LogSheet: View {
 
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var store: GlucoseStore
     @Environment(\.dismiss) private var dismiss
 
     /// Closes the host. Nil for a sheet, which uses `dismiss`.
@@ -56,6 +58,12 @@ struct LogSheet: View {
     @State private var savesAsPreset = false
     @State private var presetName = ""
     @State private var confirmingDelete = false
+    @State private var mealItems: [MealItem]
+    @State private var showsFoodPicker = false
+    @State private var showsBolusSettings = false
+    /// The calculator suggestion the dose was filled from, if any.
+    @State private var usedSuggestion: BolusSuggestion?
+    @State private var confirmingDose = false
     @FocusState private var focus: LogFieldFocus?
 
     init(target: LogSheetTarget, onClose: (() -> Void)? = nil) {
@@ -77,6 +85,7 @@ struct LogSheet: View {
         var newSite = InjectionSite.abdomenLeft
         var tags = Set<ContextTag>()
         var note = ""
+        var items: [MealItem] = []
 
         if case .edit(let entry) = target {
             time = entry.timestamp
@@ -101,6 +110,7 @@ struct LogSheet: View {
                 carbsText = m.carbs > 0 ? LogFormat.number(m.carbs) : ""
                 food = m.food
                 note = m.note
+                items = m.items ?? []
             case .siteChange(let c):
                 editing = .siteChange
                 siteID = c.id
@@ -137,6 +147,7 @@ struct LogSheet: View {
         _tags = State(initialValue: tags)
         _note = State(initialValue: note)
         _showsTagPicker = State(initialValue: editing == .context || !tags.isEmpty)
+        _mealItems = State(initialValue: items)
     }
 
     var body: some View {
@@ -165,7 +176,7 @@ struct LogSheet: View {
                         TextField("Note", text: $note, prompt: Text("Add a note (optional)"), axis: .vertical)
                             .lineLimit(1...3)
                             .textFieldStyle(.roundedBorder)
-                        Label("GlucOS records what you enter. It never suggests a dose.", systemImage: "info.circle")
+                        Label("GlucOS records what you enter. Only the bolus calculator suggests a dose, from your own settings.", systemImage: "info.circle")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.top, 2)
@@ -198,6 +209,34 @@ struct LogSheet: View {
             if insulinName == settings.defaultInsulinName(for: old) {
                 insulinName = settings.defaultInsulinName(for: new)
             }
+        }
+        .sheet(isPresented: $showsFoodPicker) {
+            FoodPickerView(onAdd: { item in addItem(item) }, onClose: { showsFoodPicker = false })
+                .environmentObject(logbook)
+        }
+        .sheet(isPresented: $showsBolusSettings) {
+            BolusSettingsEditor(current: logbook.bolusSettings) { showsBolusSettings = false }
+                .frame(minWidth: 480, idealWidth: 540, minHeight: 520, idealHeight: 640)
+                .environmentObject(logbook)
+                .environmentObject(store)
+                .environmentObject(settings)
+        }
+        .confirmationDialog(units.map { "Log a \(LogFormat.units($0)) dose?" } ?? "Log this dose?",
+                            isPresented: $confirmingDose) {
+            Button("Log \(units.map { LogFormat.units($0) } ?? "dose")") { commit() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(usedSuggestion?.confirmation(loggedUnits: units ?? 0, unit: settings.unit) ?? "")
+        }
+        .onChange(of: carbsText) { _, _ in
+            // A suggestion was for the carbs at the time: if they change, take it again.
+            if let s = usedSuggestion, abs((carbs ?? -1) - s.carbs) > 0.001 {
+                usedSuggestion = nil
+                unitsText = ""
+            }
+        }
+        .onChange(of: unitsText) { _, text in
+            if text.trimmingCharacters(in: .whitespaces).isEmpty { usedSuggestion = nil }
         }
         .confirmationDialog("Delete this entry?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) {
@@ -384,6 +423,14 @@ struct LogSheet: View {
                 TextField("Name", text: $insulinName, prompt: Text(kind.examples))
                     .textFieldStyle(.roundedBorder)
             }
+            if showsCalculator {
+                BolusSuggestionCard(carbs: showsFood && includeFood ? (carbs ?? 0) : 0,
+                                    onUse: { s in
+                                        unitsText = LogFormat.number(s.units)
+                                        usedSuggestion = s
+                                    },
+                                    onSetUp: { showsBolusSettings = true })
+            }
             if viaPump {
                 LabeledContent("Infusion site") {
                     Text(pumpSiteText).foregroundStyle(.secondary)
@@ -395,8 +442,21 @@ struct LogSheet: View {
         }
     }
 
+    /// The calculator is for a mealtime or correction dose being logged now.
+    private var showsCalculator: Bool {
+        editing == nil && kind.isBolus && abs(time.timeIntervalSinceNow) < 15 * 60
+    }
+
     private var foodPanel: some View {
         FlowPanel(title: "Food", systemImage: "fork.knife", tint: Self.foodTint) {
+            HStack(spacing: 8) {
+                Button { showsFoodPicker = true } label: {
+                    Label(mealItems.isEmpty ? "Search foods…" : "Add another food…", systemImage: "magnifyingglass")
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                Spacer(minLength: 0)
+            }
+            if !mealItems.isEmpty { mealItemList }
             HStack(alignment: .center, spacing: 12) {
                 NumberStepperField(title: "Carbs", text: $carbsText, unitLabel: "g carbs",
                                    step: 5, range: LogLimits.carbs, focus: $focus, focusValue: .carbs)
@@ -427,6 +487,49 @@ struct LogSheet: View {
                 }
             }
         }
+    }
+
+    private var mealItemList: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(mealItems) { item in
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.name).font(.callout).lineLimit(2)
+                        Text(item.summary).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Button { removeItem(item) } label: { Image(systemName: "minus.circle.fill") }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Remove")
+                        .accessibilityLabel("Remove \(item.name)")
+                }
+            }
+            if let c = carbs, abs(c - itemsTotal) > 0.05 {
+                Button("Carbs changed by hand. Use the foods' total, \(LogFormat.grams(itemsTotal))") {
+                    carbsText = LogFormat.number(itemsTotal)
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+            }
+        }
+        .padding(8)
+        .dsCard(.inset, padding: 0)
+    }
+
+    private var itemsTotal: Double { (mealItems.reduce(0) { $0 + $1.carbs } * 10).rounded() / 10 }
+
+    private func addItem(_ item: MealItem) {
+        let followsItems = mealItems.isEmpty ? (carbs ?? 0) == 0 : abs((carbs ?? 0) - itemsTotal) < 0.05
+        mealItems.append(item)
+        if followsItems { carbsText = LogFormat.number(itemsTotal) }
+        includeFood = true
+    }
+
+    private func removeItem(_ item: MealItem) {
+        let followsItems = abs((carbs ?? 0) - itemsTotal) < 0.05
+        mealItems.removeAll { $0.id == item.id }
+        if followsItems { carbsText = mealItems.isEmpty ? "" : LogFormat.number(itemsTotal) }
     }
 
     private var siteChangePanel: some View {
@@ -587,18 +690,31 @@ struct LogSheet: View {
 
     private func save() {
         guard canSave else { return }
+        if showsInsulin && includeInsulin && usedSuggestion != nil {
+            confirmingDose = true
+        } else {
+            commit()
+        }
+    }
+
+    private func commit() {
+        guard canSave else { return }
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
         let logsInsulin = showsInsulin && includeInsulin
         let logsFood = showsFood && includeFood
         let trimmedName = insulinName.trimmingCharacters(in: .whitespacesAndNewlines)
         if logsInsulin, let units {
+            let calculation = usedSuggestion.map(BolusCalculation.init)
+                ?? (editing == .dose ? logbook.doses.first { $0.id == doseID }?.calculation : nil)
             logbook.save(.dose(InsulinDose(id: doseID, timestamp: time, units: units, kind: kind,
                                            name: trimmedName,
                                            site: viaPump ? nil : injectionSite, viaPump: viaPump,
-                                           note: trimmedNote)))
+                                           note: trimmedNote, calculation: calculation)))
         }
         if logsFood, let carbs {
-            logbook.save(.meal(MealEntry(id: mealID, timestamp: time, carbs: carbs, food: foodText, note: trimmedNote)))
+            let described = foodText.isEmpty ? mealItems.map(\.name).joined(separator: ", ") : foodText
+            logbook.save(.meal(MealEntry(id: mealID, timestamp: time, carbs: carbs, food: described, note: trimmedNote,
+                                         items: mealItems.isEmpty ? nil : mealItems)))
         }
         if showsSiteChange && includeSiteChange {
             logbook.save(.siteChange(SiteChange(id: siteID, timestamp: time, site: newSite, note: trimmedNote)))

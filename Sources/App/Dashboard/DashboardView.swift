@@ -71,6 +71,7 @@ struct DashboardView: View {
         .sheet(item: $logSheet) { target in
             LogSheet(target: target)
                 .environmentObject(logbook)
+                .environmentObject(store)
                 .environmentObject(settings)
         }
         .onChange(of: logbook.logSheetRequested) { _, requested in

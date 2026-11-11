@@ -207,7 +207,8 @@ extension LogbookSyncTests {
     func testFoodsAndBolusSettingsSyncBetweenDevices() throws {
         let server = FakeServer()
         var mac = Device(name: "Mac"), phone = Device(name: "iPhone")
-        let food = SavedFood(food: FoodItem(id: "ausnut:F1", name: "Banana", carbsPer100g: 20, source: .ausnut), favourite: true)
+        let food = SavedFood(food: FoodItem(id: "ausnut:F1", name: "Banana", carbsPer100g: 20, source: .ausnut), favourite: true,
+                             modified: Date(timeIntervalSince1970: 100))
         mac.contents.foods = [food]
         LogbookMerge.touch(food.id, kind: .food, deleted: false, now: Date(timeIntervalSince1970: 100), state: &mac.state)
         var settings = BolusSettings.blank
