@@ -19,6 +19,8 @@ jobs:
     runs-on: macos-15
     env:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
       KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
@@ -26,8 +28,8 @@ jobs:
       - name: Check secrets
         id: check
         run: |
-          if [ -z "$TEAM_ID" ] || [ -z "$KEY_P8" ] || [ -z "$KEY_ID" ] || [ -z "$ISSUER" ]; then
-            echo "::notice::No Apple secrets here (a fork?), so signing isn't checked."
+          if [ -z "$MACOS_CERTIFICATE_P12" ] || [ -z "$TEAM_ID" ] || [ -z "$KEY_P8" ] || [ -z "$KEY_ID" ] || [ -z "$ISSUER" ]; then
+            echo "::notice::No Developer ID secrets here (a fork, or MACOS_CERTIFICATE_P12 not set yet), so signing isn't checked."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"

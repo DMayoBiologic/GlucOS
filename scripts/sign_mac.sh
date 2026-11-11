@@ -1,7 +1,11 @@
 #!/bin/bash
-# Builds GlucOS.app for release, Developer ID signed through Apple's cloud-managed certificate,
-# so there's no certificate or private key to keep in a secret. Used by release.yml and by
-# mac-signing.yml (which checks a pull request's signing before it can reach main).
+# Builds GlucOS.app for release, Developer ID signed. Used by release.yml and by mac-signing.yml
+# (which checks a pull request's signing before it can reach main).
+#
+# The certificate comes from MACOS_CERTIFICATE_P12 / MACOS_CERTIFICATE_PASSWORD (a base64 .p12 of
+# a "Developer ID Application" certificate and its key). App Store Connect API keys can't use
+# Apple's cloud-managed Developer ID certificate ("Cloud signing permission error"), so the
+# certificate has to be a real one; the API key still makes the provisioning profile.
 #
 # Why it matters: macOS ties Keychain access to the app's code signature. Ad-hoc builds got a
 # new signature every release, so after each Sparkle update macOS asked for the login password
@@ -9,12 +13,12 @@
 # to release (Team ID + bundle ID), and the keychain-access-groups entitlement added here lets
 # the app use the data protection keychain, where that's all that matters.
 #
-# Needs: TEAM_ID, KEY_ID, ISSUER, KEY_P8 (App Store Connect API key, Admin role, the same one the
+# Needs: MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, TEAM_ID, KEY_ID, ISSUER, KEY_P8 (App Store Connect API key, Admin role, the same one the
 # iPhone release uses), VERSION, BUILD_NUMBER, SPARKLE_PUBLIC_ED_KEY. Run after `xcodegen generate`.
 # Leaves the signed app at $OUT/GlucOS.app (OUT defaults to build/export).
 set -euo pipefail
 
-: "${TEAM_ID:?}" "${KEY_ID:?}" "${ISSUER:?}" "${KEY_P8:?}" "${VERSION:?}" "${BUILD_NUMBER:?}" "${SPARKLE_PUBLIC_ED_KEY:?}"
+: "${MACOS_CERTIFICATE_P12:?}" "${MACOS_CERTIFICATE_PASSWORD:?}" "${TEAM_ID:?}" "${KEY_ID:?}" "${ISSUER:?}" "${KEY_P8:?}" "${VERSION:?}" "${BUILD_NUMBER:?}" "${SPARKLE_PUBLIC_ED_KEY:?}"
 TMP="${RUNNER_TEMP:-$(mktemp -d)}"
 OUT="${OUT:-build/export}"
 ARCHIVE="$TMP/GlucOS-mac.xcarchive"
@@ -23,13 +27,26 @@ GROUP="$TEAM_ID.au.com.declanmayo.glucos"
 ENT=Sources/App/GlucOS.entitlements   # written by xcodegen from project.yml
 
 printf '%s\n' "$KEY_P8" > "$KEY"
-trap 'rm -f "$KEY"' EXIT
+KC="$TMP/glucos-signing.keychain-db"
+trap 'rm -f "$KEY" "$TMP/cert.p12"; security delete-keychain "$KC" 2>/dev/null || true' EXIT
+
+# A throwaway keychain holding just the Developer ID identity, searched ahead of the login one.
+security delete-keychain "$KC" 2>/dev/null || true
+security create-keychain -p glucos "$KC"
+security set-keychain-settings -lut 21600 "$KC"
+security unlock-keychain -p glucos "$KC"
+printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > "$TMP/cert.p12"
+security import "$TMP/cert.p12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KC" >/dev/null
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k glucos "$KC" >/dev/null
+security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
+  || { echo "::error::MACOS_CERTIFICATE_P12 has no Developer ID Application identity"; exit 1; }
 AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$KEY" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER")
 
 # Only release builds get the keychain group: it needs a provisioning profile, which an ad-hoc
 # local build can't have (macOS would refuse to launch it).
 test -f "$ENT" || { echo "::error::$ENT not found. Run xcodegen generate first."; exit 1; }
-plutil -remove keychain-access-groups "$ENT" 2>/dev/null || true
+plutil -remove keychain-access-groups "$ENT" >/dev/null 2>&1 || true
 plutil -insert keychain-access-groups -json "[\"$GROUP\"]" "$ENT"
 
 # Archive signed to run locally; the export below re-signs everything with Developer ID. Signing
@@ -65,9 +82,6 @@ CODE=$?
 set -e
 if [ $CODE -ne 0 ] || [ ! -d "$OUT/GlucOS.app" ]; then
   echo "::error::Developer ID export failed"; grep -iE "error" "$TMP/export-mac.log" | sort -u; tail -30 "$TMP/export-mac.log"
-  if grep -qi "cloud" "$TMP/export-mac.log"; then
-    echo "::error::The API key may not be allowed to use the cloud-managed Developer ID certificate. In App Store Connect → Users and Access → Integrations, the key needs the Admin role, and the Account Holder must allow Admins to use cloud-managed Developer ID certificates (Users and Access → the Admin → 'Access to Cloud Managed Developer ID Certificate')."
-  fi
   exit 1
 fi
 

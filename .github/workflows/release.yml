@@ -9,9 +9,9 @@ name: Release
 # Manual run (Actions → Release → Run workflow) can force a specific version, or leave it blank to auto-bump.
 #
 # Required secret:   SPARKLE_PRIVATE_KEY   (from `make sparkle-keys`)
-# Mac signing:       APPLE_TEAM_ID, APPLE_API_KEY_ID, APPLE_API_ISSUER_ID, APPLE_API_KEY_P8 (the iPhone
-#                    release's App Store Connect key) → Developer ID signed with Apple's cloud-managed
-#                    certificate, then notarized. Without them the app is ad-hoc signed (and macOS asks
+# Mac signing:       MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD (Developer ID Application, base64
+#                    .p12; `make mac-signing-secret` sets them) + APPLE_TEAM_ID and the App Store Connect
+#                    key secrets below → Developer ID signed and notarized. Without them the app is ad-hoc signed (and macOS asks
 #                    for the Keychain password after each update); Sparkle verifies updates with EdDSA either way.
 #
 # The same push also ships the iPhone app (see docs/iOS.md), as a separate job after the Mac
@@ -146,14 +146,16 @@ jobs:
       - name: Generate project
         run: xcodegen generate --spec project.yml
 
-      # Developer ID signing through Apple's cloud-managed certificate, with the same App Store
-      # Connect API key the iPhone release uses: nothing else to set up. A stable signature is what
-      # stops macOS asking for the Keychain password after every update (scripts/sign_mac.sh).
+      # Developer ID signing (MACOS_CERTIFICATE_P12) plus the iPhone release's App Store Connect key
+      # for the provisioning profile. A stable signature is what stops macOS asking for the
+      # Keychain password after every update (scripts/sign_mac.sh).
       # Without the Apple secrets (a fork, say) the app is ad-hoc signed as before.
       - name: Build and sign
         id: sign
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
@@ -161,7 +163,7 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
           SPARKLE_PUBLIC_ED_KEY: ${{ steps.key.outputs.public }}
         run: |
-          if [ -n "$TEAM_ID" ] && [ -n "$KEY_P8" ] && [ -n "$KEY_ID" ] && [ -n "$ISSUER" ]; then
+          if [ -n "$MACOS_CERTIFICATE_P12" ] && [ -n "$TEAM_ID" ] && [ -n "$KEY_P8" ] && [ -n "$KEY_ID" ] && [ -n "$ISSUER" ]; then
             # Once releases are Developer ID signed, an ad-hoc one would lose access to the saved
             # logins, so a signing failure fails the release instead of quietly falling back.
             OUT=build/export scripts/sign_mac.sh
@@ -169,7 +171,7 @@ jobs:
             echo "signed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "::warning::No Apple secrets: ad-hoc signing, so macOS will ask for the Keychain password after this update."
+          echo "::warning::No Developer ID secrets: ad-hoc signing, so macOS will ask for the Keychain password after this update."
           set -o pipefail
           xcodebuild -project GlucOS.xcodeproj -scheme GlucOS -configuration Release \
             -derivedDataPath build -skipPackagePluginValidation -skipMacroValidation \

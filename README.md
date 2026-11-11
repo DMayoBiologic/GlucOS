@@ -131,10 +131,12 @@ Generates the Sparkle EdDSA key pair with Sparkle's own tool, stores the private
 Keychain *and* as the repo secret `SPARKLE_PRIVATE_KEY`, sets repo variable `SPARKLE_PUBLIC_ED_KEY`,
 writes the public key into `project.yml` and pushes. Needs `gh auth login` once.
 
-Developer ID signing and notarization use the same secrets as the iPhone release (`APPLE_TEAM_ID`,
-`APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`, `APPLE_API_KEY_P8`, an Admin-role App Store Connect key) and
-Apple's cloud-managed Developer ID certificate, so there's no certificate to export
-(`scripts/sign_mac.sh`). Without them releases are ad-hoc signed, and macOS asks for the Keychain
+For Developer ID signing and notarization, run `make mac-signing-secret` once on the Mac with the
+developer account: it uploads just the Developer ID Application certificate and key as
+`MACOS_CERTIFICATE_P12`/`MACOS_CERTIFICATE_PASSWORD`. The App Store Connect key secrets the iPhone
+release uses (`APPLE_TEAM_ID`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`, `APPLE_API_KEY_P8`) cover the
+provisioning profile and notarization (`scripts/sign_mac.sh`). API keys can't use Apple's
+cloud-managed Developer ID certificate, hence the one-time export. Without them releases are ad-hoc signed, and macOS asks for the Keychain
 password after each update.
 
 ### Releases
