@@ -54,7 +54,7 @@ struct ShareClient {
         let (data, resp) = try await Self.session.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if code == 404 { throw ShareError.ended }
-        guard code == 200 else {
+        guard (200..<300).contains(code) else {
             if (400..<500).contains(code),
                let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String {
                 throw ShareError.refused(message)

@@ -143,9 +143,9 @@ struct LockScreenGlucoseCard: View {
                            startPoint: .topLeading, endPoint: .bottomTrailing)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(stale
+        .accessibilityLabel((person.map { "\($0), " } ?? "") + (stale
             ? "Glucose \(state.glucoseUnit.format(mgdl: state.mgdl, withUnit: true)), stale"
-            : "Glucose \(state.glucoseUnit.format(mgdl: state.mgdl, withUnit: true)), \(state.range.label), \(state.glucoseTrend.description)")
+            : "Glucose \(state.glucoseUnit.format(mgdl: state.mgdl, withUnit: true)), \(state.range.label), \(state.glucoseTrend.description)"))
     }
 }
 
