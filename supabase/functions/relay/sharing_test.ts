@@ -2,7 +2,7 @@
 // in-memory store and fake APNs; sharing_pg_test.ts runs the Postgres store.
 import { assert, assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert@1";
 import type { PushRequest, PushResult, PushSender } from "./apns.ts";
-import { RelayEngine, rotateAfter, type Store, type Tx, newRow, type RelayRow } from "./engine.ts";
+import { followerConcurrency, RelayEngine, rotateAfter, type Store, type Tx, newRow, type RelayRow } from "./engine.ts";
 import type { Reading } from "./core.ts";
 import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
 import { hashShareToken, isShareToken, maxFollowersPerShare, MemoryShareStore, shareURL } from "./sharing.ts";
@@ -275,6 +275,20 @@ Deno.test("a failing follower doesn't stop the others or the owner's tick", asyn
   assertEquals(await t.engine.tick(), "done");
   assertEquals(events(t.sent).sort(), ["aaaaaaaaaaaaaaaa:update", "bbbbbbbbbbbbbbbb:update"]);
   assertEquals(t.shares.rows.filter((f) => f.lastCard).length, 1);
+});
+
+Deno.test("followers past the tick's time budget wait for the next tick", async () => {
+  const t = setup();
+  t.engine["config"].followerBudgetMs = 0;
+  // Two links, so there are more followers than one batch (and than one link allows).
+  const links = [await t.engine.createShare({}), await t.engine.createShare({})];
+  for (let i = 0; i < followerConcurrency + 2; i++) {
+    const tok = i.toString(16).padStart(16, "0");
+    (await share(t, "/v1/follow", links[i % 2].token, { installation: `phone-${1000 + i}`, activityID: `a${i}`, activityToken: tok })).body?.cancel();
+  }
+  assertEquals(await t.engine.tick(), "done");
+  // The first batch always goes; the rest are left for later.
+  assertEquals(events(t.sent).filter((e) => e.endsWith(":update")).length, followerConcurrency);
 });
 
 Deno.test("share expiry is kept between 10 minutes and 90 days", async () => {

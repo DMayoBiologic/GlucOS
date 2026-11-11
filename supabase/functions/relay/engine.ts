@@ -30,6 +30,9 @@ export const learnFromDays = 14;
 export const readingRetentionDays = 90;
 /// Follower pushes sent at once.
 export const followerConcurrency = 10;
+/// How long one tick spends on followers before leaving the rest to the next tick, well inside the
+/// relay row's 50 s lease. A skipped follower's card is a minute late, never lost.
+export const followerBudgetMs = 25_000;
 
 // MARK: - State
 
@@ -155,6 +158,8 @@ export interface EngineConfig {
   criticalAlerts: boolean;
   /// Share links and followers. Without it the relay serves only the owner.
   shares?: ShareStore;
+  /// Overrides `followerBudgetMs` (tests).
+  followerBudgetMs?: number;
 }
 
 export interface CreateShareRequest {
@@ -478,7 +483,13 @@ export class RelayEngine {
         console.error("follower", f.id, e);
       }
     };
+    const budget = this.config.followerBudgetMs ?? followerBudgetMs;
+    const started = Date.now();
     for (let i = 0; i < all.length; i += followerConcurrency) {
+      if (i > 0 && Date.now() - started >= budget) {
+        console.warn(`followers: ${all.length - i} left for the next tick`);
+        break;
+      }
       await Promise.all(all.slice(i, i + followerConcurrency).map(one));
     }
     try {
