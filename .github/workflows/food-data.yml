@@ -1,6 +1,6 @@
 name: Food data
 
-# Rebuilds the bundled AUSNUT 2023 food list (Sources/Shared/Resources/ausnut-foods.json) from
+# Rebuilds the bundled AUSNUT 2023 food list (Sources/Food/ausnut-foods.json) from
 # FSANZ's published files and commits it when it changes. Run by hand, or when the build script
 # changes on a branch.
 on:
@@ -28,10 +28,10 @@ jobs:
           ls -la
       - run: pip install openpyxl==3.1.5
       - name: Build
-        run: python3 scripts/food/build_ausnut.py /tmp/ausnut Sources/Shared/Resources/ausnut-foods.json
+        run: python3 scripts/food/build_ausnut.py /tmp/ausnut Sources/Food/ausnut-foods.json
       - name: Commit if changed
         run: |
-          git add Sources/Shared/Resources/ausnut-foods.json
+          git add Sources/Food/ausnut-foods.json
           if git diff --cached --quiet; then echo "No change"; exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898732+github-actions[bot]@users.noreply.github.com"

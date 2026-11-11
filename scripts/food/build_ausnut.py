@@ -114,7 +114,8 @@ def main(src, out):
         if mvol is not None and r[mvol] not in (None, ""):
             try:
                 ml = float(r[mvol])
-                desc += f" ({ml:g} ml)"
+                if ml > 0:
+                    desc += f" ({ml:g} ml)"
             except (TypeError, ValueError):
                 pass
         if any(m[0] == desc and abs(m[1] - grams) < 0.05 for m in f["measures"]):
