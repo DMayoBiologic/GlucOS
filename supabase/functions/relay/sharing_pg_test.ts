@@ -51,9 +51,22 @@ Deno.test({
 
       all[0].lastCard = { mgdl: 100, trend: 3, readingAt: now, unit: "mmol", lowMgdl: 70, highMgdl: 180, history: [100], forecast: [], source: "relay" };
       all[0].lastPushedAt = now;
-      await store.saveFollower(all[0]);
+      await store.saveFollower(all[0], { activityToken: "abcd", pushToStartToken: "p2s" });
       assertEquals((await store.followers(now))[0].lastCard?.mgdl, 100);
+      // The phone registered a new card meanwhile: the relay's stale save is dropped.
+      await store.registerFollower(s.id, { installation: "phone-1", activityID: "B", activityToken: "beef" }, now + 6);
+      all[0].lastCard = null;
+      await store.saveFollower(all[0], { activityToken: "abcd", pushToStartToken: "p2s" });
+      const after = (await store.followers(now))[0];
+      assertEquals(after.activityToken, "beef");
+      assertEquals(after.liveActivityEnabled, false);
+      // A save never brings back a deleted follower.
+      const gone1 = await store.removeFollower(s.id, "phone-1");
+      assert(gone1);
+      await store.saveFollower(after, { activityToken: "beef", pushToStartToken: "p2s" });
+      assertEquals((await store.followers(now)).length, 0);
 
+      assert(await store.registerFollower(s.id, { installation: "phone-1", activityID: "A", activityToken: "abcd" }, now));
       for (let i = 2; i <= maxFollowersPerShare; i++) assert(await store.registerFollower(s.id, { installation: `phone-${i}` }, now));
       assertEquals(await store.registerFollower(s.id, { installation: "phone-over" }, now), null);
       assertEquals((await store.listShares(now)).find((x) => x.id === s.id)?.followers, maxFollowersPerShare);

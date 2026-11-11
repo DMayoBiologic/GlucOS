@@ -114,6 +114,8 @@
     <div class="note" id="expiry"></div>
   </div>
 
+  <div class="note" id="offline" hidden>Can't reach GlucOS right now. Retrying…</div>
+
   <div class="note">Not a medical device. Readings can be delayed; confirm with the sensor app before acting.</div>
 </main>
 
@@ -202,13 +204,21 @@
   async function load() {
     try {
       const res = await fetch(API, { headers: { authorization: `Bearer ${token}` }, cache: "no-store", referrerPolicy: "no-referrer" });
-      if (res.status === 404) { snap = null; show("gone"); $("actions").hidden = true; clearInterval(timer); return; }
-      if (res.ok) { snap = await res.json(); render(); }
-    } catch { /* offline: keep the last reading, it goes stale on its own */ }
+      // 404 is how the share function says the share ended. Keep checking anyway (rarely), in
+      // case it was a passing gateway error rather than the owner stopping.
+      if (res.status === 404) { snap = null; show("gone"); $("actions").hidden = true; $("offline").hidden = true; return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      snap = await res.json();
+      $("offline").hidden = true;
+      render();
+    } catch {
+      // Keep the last reading on screen (it goes stale and says so by itself), and say why.
+      $("offline").hidden = !snap;
+    }
   }
 
   load();
-  timer = setInterval(load, 30_000);
+  timer = setInterval(() => { if (snap || $("gone").hidden || Math.random() < 0.2) load(); }, 30_000);
   setInterval(render, 15_000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 })();

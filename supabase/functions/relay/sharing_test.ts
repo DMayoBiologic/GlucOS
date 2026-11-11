@@ -254,6 +254,29 @@ Deno.test("an invalid follower token is forgotten", async () => {
   assertEquals((await t.engine.status()).lastPushError, undefined);
 });
 
+Deno.test("sign-out clears what share links show", async () => {
+  const t = setup();
+  const { token } = await t.engine.createShare({});
+  await t.engine.tick();
+  assert((await (await share(t, "/v1/snapshot", token)).json()).card);
+  await t.engine.register({ signedOut: true });
+  assertEquals((await (await share(t, "/v1/snapshot", token)).json()).card, null);
+});
+
+Deno.test("a failing follower doesn't stop the others or the owner's tick", async () => {
+  const t = setup();
+  const { token } = await t.engine.createShare({});
+  for (const [i, tok] of [["phone-1111", "aaaaaaaaaaaaaaaa"], ["phone-2222", "bbbbbbbbbbbbbbbb"]]) {
+    (await share(t, "/v1/follow", token, { installation: i, activityID: i, activityToken: tok })).body?.cancel();
+  }
+  const save = t.shares.saveFollower.bind(t.shares);
+  let calls = 0;
+  t.shares.saveFollower = (f, seen) => (calls++ === 0 ? Promise.reject(new Error("db down")) : save(f, seen));
+  assertEquals(await t.engine.tick(), "done");
+  assertEquals(events(t.sent).sort(), ["aaaaaaaaaaaaaaaa:update", "bbbbbbbbbbbbbbbb:update"]);
+  assertEquals(t.shares.rows.filter((f) => f.lastCard).length, 1);
+});
+
 Deno.test("share expiry is kept between 10 minutes and 90 days", async () => {
   const t = setup();
   assertEquals((await t.engine.createShare({ expiresIn: 1 })).share.expiresAt, t.clock() + 600);

@@ -28,6 +28,8 @@ export const relearnEvery = 3 * 3600;
 export const learnFromDays = 14;
 /// Readings kept in the database.
 export const readingRetentionDays = 90;
+/// Follower pushes sent at once.
+export const followerConcurrency = 10;
 
 // MARK: - State
 
@@ -202,6 +204,8 @@ export class RelayEngine {
         await tx.clearReadings();
         row.work.current = null;
         row.work.sensor = null;
+        // Share links mustn't keep showing a signed-out account's reading.
+        row.work.latestCard = null;
         row.work.lastError = null;
         await this.endActivity(row, now);
       } else if (r.account) {
@@ -211,6 +215,7 @@ export class RelayEngine {
           await tx.clearReadings();
           row.work.current = null;
           row.work.sensor = null;
+          row.work.latestCard = null;
           row.work.planner = newPlanner();
           row.work.calibration = null;
           row.work.learnedAt = 0;
@@ -456,17 +461,31 @@ export class RelayEngine {
       console.error("followers", e);
       return;
     }
+    // A follower's failure must never undo the owner's tick, so each one is on its own. And
+    // they go out a few at a time, so a slow APNs can't hold the relay row for long.
     const ended: string[] = [];
-    for (const f of all) {
-      if (!f.active) {
-        await this.endFollower(f, now);
-        ended.push(f.id);
-        continue;
+    const one = async (f: Follower) => {
+      try {
+        if (!f.active) {
+          await this.endFollower(f, now);
+          ended.push(f.id);
+          return;
+        }
+        if (!card || !f.liveActivityEnabled) return;
+        const seen = { activityToken: f.activityToken, pushToStartToken: f.pushToStartToken };
+        if (await this.updateFollower(f, card, urgent, now)) await shares.saveFollower(f, seen);
+      } catch (e) {
+        console.error("follower", f.id, e);
       }
-      if (!card || !f.liveActivityEnabled) continue;
-      if (await this.updateFollower(f, card, urgent, now)) await shares.saveFollower(f);
+    };
+    for (let i = 0; i < all.length; i += followerConcurrency) {
+      await Promise.all(all.slice(i, i + followerConcurrency).map(one));
     }
-    await shares.deleteFollowers(ended);
+    try {
+      await shares.deleteFollowers(ended);
+    } catch (e) {
+      console.error("deleteFollowers", e);
+    }
   }
 
   /// Whether `f` changed and needs saving.

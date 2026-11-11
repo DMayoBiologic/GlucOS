@@ -32,6 +32,7 @@ final class FollowStore: ObservableObject {
     private var tracked = Set<String>()
     private var pushToStartToken: String?
     private var timer: Task<Void, Never>?
+    private var activityObserver: Task<Void, Never>?
 
     #if DEBUG
     private let apnsEnvironment = "sandbox"
@@ -78,6 +79,7 @@ final class FollowStore: ObservableObject {
         follows.removeAll { $0.id == follow.id }
         follows.insert(follow, at: 0)
         ended.remove(follow.id)
+        pendingUnfollows.removeAll { $0 == follow.id }
         snapshots[follow.id] = snapshot
         save()
         await register(follow.id)
@@ -96,15 +98,41 @@ final class FollowStore: ObservableObject {
     }
 
     func remove(_ follow: Follow) async {
-        let client = client(follow.id)
         follows.removeAll { $0.id == follow.id }
         snapshots[follow.id] = nil
         errors[follow.id] = nil
         ended.remove(follow.id)
         save()
         await endActivities(for: follow.id)
-        Keychain.delete("follow.\(follow.id)")
-        try? await client?.unfollow(installation: installation)
+        // The token is kept until the server has let go of this phone (so it doesn't keep a
+        // follower slot, or get pushes), retrying on later launches if need be.
+        if !pendingUnfollows.contains(follow.id) { pendingUnfollows.append(follow.id) }
+        await retryUnfollows()
+    }
+
+    /// Shares this phone stopped following but hasn't told the server yet.
+    private var pendingUnfollows: [String] {
+        get { defaults.stringArray(forKey: "pendingUnfollows") ?? [] }
+        set { defaults.set(newValue, forKey: "pendingUnfollows") }
+    }
+
+    private func retryUnfollows() async {
+        for id in pendingUnfollows where !follows.contains(where: { $0.id == id }) {
+            guard let client = client(id) else {
+                pendingUnfollows.removeAll { $0 == id }
+                continue
+            }
+            do {
+                try await client.unfollow(installation: installation)
+            } catch ShareClient.ShareError.ended {
+                // The share is gone, and its followers with it.
+            } catch {
+                continue
+            }
+            // Followed again while this was in flight: keep the token.
+            if !follows.contains(where: { $0.id == id }) { Keychain.delete("follow.\(id)") }
+            pendingUnfollows.removeAll { $0 == id }
+        }
     }
 
     func setLiveActivity(_ on: Bool, for follow: Follow) async {
@@ -124,6 +152,7 @@ final class FollowStore: ObservableObject {
         guard timer == nil else { return }
         observeActivities()
         timer = Task { [weak self] in
+            await self?.retryUnfollows()
             while !Task.isCancelled {
                 await self?.refresh(canStart: true)
                 try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
@@ -141,17 +170,21 @@ final class FollowStore: ObservableObject {
             guard let client = client(follow.id) else { continue }
             do {
                 let s = try await client.snapshot()
+                // Removed, or switched off the Lock Screen, while that was loading: use what's current.
+                guard let i = follows.firstIndex(where: { $0.id == follow.id }) else { continue }
                 snapshots[follow.id] = s
                 errors[follow.id] = nil
-                if let i = follows.firstIndex(where: { $0.id == follow.id }), follows[i].label != s.label {
+                if follows[i].label != s.label {
                     follows[i].label = s.label
                     save()
                 }
-                await showActivity(for: follow, canStart: canStart)
+                await showActivity(for: follows[i], canStart: canStart)
             } catch ShareClient.ShareError.ended {
+                guard follows.contains(where: { $0.id == follow.id }) else { continue }
                 ended.insert(follow.id)
                 await endActivities(for: follow.id)
             } catch {
+                guard follows.contains(where: { $0.id == follow.id }) else { continue }
                 errors[follow.id] = error.localizedDescription
             }
         }
@@ -200,9 +233,11 @@ final class FollowStore: ObservableObject {
 
     private func observeActivities() {
         // Cards the relay starts by push (when iOS's 8-hour limit comes round) arrive here.
-        Task { [weak self] in
-            for await a in GlucoseActivity.activityUpdates where a.attributes.followID != nil {
-                self?.track(a)
+        if activityObserver == nil {
+            activityObserver = Task { [weak self] in
+                for await a in GlucoseActivity.activityUpdates where a.attributes.followID != nil {
+                    self?.track(a)
+                }
             }
         }
         GlucoseActivity.activities.filter { $0.attributes.followID != nil }.forEach(track)

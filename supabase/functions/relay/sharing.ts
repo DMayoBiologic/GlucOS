@@ -77,7 +77,10 @@ export interface ShareStore {
   removeFollower(shareId: string, installation: string): Promise<Follower | null>;
   /// Every follower, live share or not, so the relay can end the cards of expired ones.
   followers(now: number): Promise<Follower[]>;
-  saveFollower(f: Follower): Promise<void>;
+  /// The relay's side of a follower after a tick: only the columns the relay owns, only if the
+  /// row still exists, and only if the phone hasn't registered new tokens since `seen` was read
+  /// (then the next tick works from the new ones).
+  saveFollower(f: Follower, seen: { activityToken: string | null; pushToStartToken: string | null }): Promise<void>;
   deleteFollowers(ids: string[]): Promise<void>;
   /// The relay's latest card, for the web view and for a follower starting its card.
   latestCard(): Promise<{ card: CardState; at: number } | null>;
@@ -223,8 +226,17 @@ export class PostgresShareStore implements ShareStore {
     return rows.map(followerOf);
   }
 
-  saveFollower(f: Follower): Promise<void> {
-    return saveFollower(this.sql, f);
+  async saveFollower(f: Follower, seen: { activityToken: string | null; pushToStartToken: string | null }): Promise<void> {
+    await this.sql`
+      update glucos.followers set
+        activity_id = ${f.activityId}, activity_token = ${f.activityToken},
+        activity_started_at = ${f.activityStartedAt}, push_to_start_token = ${f.pushToStartToken},
+        last_card = ${f.lastCard ? this.sql.json(f.lastCard as never) : null}, last_pushed_at = ${f.lastPushedAt},
+        pending_start = ${f.pendingStart}, start_attempts = ${f.startAttempts},
+        last_start_attempt = ${f.lastStartAttempt}, updated_at = now()
+      where id = ${f.id}::uuid
+        and activity_token is not distinct from ${seen.activityToken}
+        and push_to_start_token is not distinct from ${seen.pushToStartToken}`;
   }
 
   async deleteFollowers(ids: string[]): Promise<void> {
@@ -345,9 +357,12 @@ export class MemoryShareStore implements ShareStore {
       return { ...structuredClone(f), label: s?.label ?? "", active: !!s && this.live(s, now) };
     }));
   }
-  saveFollower(f: Follower) {
+  saveFollower(f: Follower, seen: { activityToken: string | null; pushToStartToken: string | null }) {
     const i = this.rows.findIndex((x) => x.id === f.id);
-    if (i >= 0) this.rows[i] = structuredClone(f);
+    const row = this.rows[i];
+    if (row && row.activityToken === seen.activityToken && row.pushToStartToken === seen.pushToStartToken) {
+      this.rows[i] = { ...structuredClone(f), liveActivityEnabled: row.liveActivityEnabled, sandbox: row.sandbox };
+    }
     return Promise.resolve();
   }
   deleteFollowers(ids: string[]) {
