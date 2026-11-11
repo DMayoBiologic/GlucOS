@@ -31,6 +31,8 @@ struct PhoneLogSheet: View {
     @State private var typesInsulin = false
     /// The injection site filled in automatically, until the user picks another.
     @State private var autoSite: InjectionSite?
+    /// The site is still the automatic one: no site has been picked by hand since.
+    @State private var siteIsAutomatic = false
     @State private var injectionSite: InjectionSite?
     @State private var carbsText: String
     @State private var food: String
@@ -210,9 +212,13 @@ struct PhoneLogSheet: View {
         }
         .onChange(of: time) { _, newTime in
             // Keep an automatic site in step with the dose time; a site the user picked stays.
-            guard isNew, !viaPump, injectionSite == autoSite else { return }
+            guard isNew, !viaPump, siteIsAutomatic else { return }
             autoSite = logbook.suggestedInjectionSite(at: newTime)
             injectionSite = autoSite
+        }
+        .onChange(of: injectionSite) { _, site in
+            // Any pick by hand (including "Not recorded") stops the site following the time.
+            if site != autoSite { siteIsAutomatic = false }
         }
         .onChange(of: kind) { old, new in
             // Picking another type while a saved insulin of the old type is selected.
@@ -403,6 +409,7 @@ struct PhoneLogSheet: View {
         if !viaPump, injectionSite == nil {
             autoSite = logbook.suggestedInjectionSite(at: time)
             injectionSite = autoSite
+            siteIsAutomatic = autoSite != nil
         }
     }
 
