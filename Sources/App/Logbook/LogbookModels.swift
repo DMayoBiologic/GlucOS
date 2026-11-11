@@ -1,7 +1,9 @@
 import Foundation
 
 // What the user logs by hand: insulin, food and (on a pump) infusion site changes.
-// GlucOS only records these and shows them back. It never suggests or calculates a dose.
+// GlucOS records these and shows them back. The only dose it ever works out is the optional bolus
+// calculator's (Sources/Engine/BolusCalculator.swift), from settings the user entered and
+// confirmed, and the user always decides what to log.
 
 /// How the user takes insulin. Decides what the log sheet asks for and which insights appear.
 enum TherapyType: String, CaseIterable, Identifiable, Codable {
@@ -148,6 +150,8 @@ struct InsulinDose: Codable, Identifiable, Hashable {
     var site: InjectionSite?
     var viaPump: Bool = false
     var note: String = ""
+    /// The bolus calculator's working, when the user logged this dose from a suggestion.
+    var calculation: BolusCalculation? = nil
 
     var displayName: String { name.isEmpty ? kind.title : name }
 }
@@ -159,6 +163,9 @@ struct MealEntry: Codable, Identifiable, Hashable {
     var carbs: Double
     var food: String = ""
     var note: String = ""
+    /// The foods picked from the food list, when the meal was built from it. `carbs` is what the
+    /// user confirmed, which may differ from the items' total if they changed it.
+    var items: [MealItem]? = nil
 }
 
 /// A pump infusion set (or patch pump) moved to a new site.

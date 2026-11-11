@@ -59,6 +59,10 @@ enum JSONValue: Codable, Equatable {
 /// kinds it doesn't know alone.
 enum LogbookRecordKind: String, CaseIterable {
     case dose, meal, siteChange, context, preset
+    /// A favourite or the user's own food (`SavedFood`).
+    case food
+    /// The bolus calculator settings: one record, id `BolusSettings.recordID`.
+    case bolusSettings
 }
 
 /// One entry as the server keeps it.
@@ -114,10 +118,13 @@ struct LogbookContents: Equatable {
     var contexts: [ContextEvent] = []
     /// In the user's order.
     var presets: [LogPreset] = []
+    var foods: [SavedFood] = []
+    var bolusSettings: BolusSettings?
 
     var allIDs: [(UUID, LogbookRecordKind)] {
         doses.map { ($0.id, .dose) } + meals.map { ($0.id, .meal) } + siteChanges.map { ($0.id, .siteChange) }
-            + contexts.map { ($0.id, .context) } + presets.map { ($0.id, .preset) }
+            + contexts.map { ($0.id, .context) } + presets.map { ($0.id, .preset) } + foods.map { ($0.id, .food) }
+            + (bolusSettings == nil ? [] : [(BolusSettings.recordID, .bolusSettings)])
     }
 }
 
@@ -243,6 +250,8 @@ enum LogbookMerge {
                   case .object(var o)? = json(c.presets[i]) else { return nil }
             o["position"] = .number(Double(i))
             return .object(o)
+        case .food: return c.foods.first { $0.id == id }.flatMap(json)
+        case .bolusSettings: return id == BolusSettings.recordID ? c.bolusSettings.flatMap(json) : nil
         case nil: return nil
         }
     }
@@ -264,20 +273,33 @@ enum LogbookMerge {
         case .preset:
             guard let p = decode(LogPreset.self, from: payload) else { return false }
             if let i = c.presets.firstIndex(where: { $0.id == p.id }) { c.presets[i] = p } else { c.presets.append(p) }
+        case .food:
+            guard let f = decode(SavedFood.self, from: payload) else { return false }
+            if let i = c.foods.firstIndex(where: { $0.id == f.id }) { c.foods[i] = f } else { c.foods.append(f) }
+        case .bolusSettings:
+            guard let b = decode(BolusSettings.self, from: payload) else { return false }
+            c.bolusSettings = b
         }
         return true
     }
 
     private static func remove(_ id: UUID, kind: LogbookRecordKind, from c: inout LogbookContents) -> Bool {
-        let before = c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count
+        if kind == .bolusSettings {
+            guard c.bolusSettings != nil, id == BolusSettings.recordID else { return false }
+            c.bolusSettings = nil
+            return true
+        }
+        let before = c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count + c.foods.count
         switch kind {
         case .dose: c.doses.removeAll { $0.id == id }
         case .meal: c.meals.removeAll { $0.id == id }
         case .siteChange: c.siteChanges.removeAll { $0.id == id }
         case .context: c.contexts.removeAll { $0.id == id }
         case .preset: c.presets.removeAll { $0.id == id }
+        case .food: c.foods.removeAll { $0.id == id }
+        case .bolusSettings: break
         }
-        return before != c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count
+        return before != c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count + c.foods.count
     }
 
     /// Replaces the entry with the same id, keeping the list oldest → newest.

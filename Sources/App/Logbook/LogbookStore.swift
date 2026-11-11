@@ -16,6 +16,10 @@ final class LogbookStore: ObservableObject {
     @Published private(set) var contexts: [ContextEvent] = []
     /// Saved quick-log combinations, in the user's order.
     @Published private(set) var presets: [LogPreset] = []
+    /// Favourite and user-made foods.
+    @Published private(set) var foods: [SavedFood] = []
+    /// The bolus calculator settings, shared by the user's devices. Nil until set up.
+    @Published private(set) var bolusSettings: BolusSettings?
     /// The entries removed by the last delete, kept in memory so it can be undone.
     @Published private(set) var lastDeleted: [LogEntry] = []
 
@@ -34,6 +38,8 @@ final class LogbookStore: ObservableObject {
         var siteChanges: [SiteChange] = []
         var contexts: [ContextEvent]? = []
         var presets: [LogPreset]? = []
+        var foods: [SavedFood]? = []
+        var bolusSettings: BolusSettings?
     }
 
     private static var url: URL? {
@@ -66,6 +72,8 @@ final class LogbookStore: ObservableObject {
         siteChanges = file.siteChanges.sorted { $0.timestamp < $1.timestamp }
         contexts = (file.contexts ?? []).sorted { $0.timestamp < $1.timestamp }
         presets = file.presets ?? []
+        foods = file.foods ?? []
+        bolusSettings = file.bolusSettings
     }
 
     var isEmpty: Bool { doses.isEmpty && meals.isEmpty && siteChanges.isEmpty && contexts.isEmpty }
@@ -168,10 +176,62 @@ final class LogbookStore: ObservableObject {
         persist()
     }
 
+    // MARK: Foods
+
+    func saveFood(_ food: SavedFood) {
+        var f = food
+        f.modified = Date()
+        if let i = foods.firstIndex(where: { $0.id == f.id }) { foods[i] = f } else { foods.append(f) }
+        touch(f.id, kind: .food)
+        persist()
+    }
+
+    func deleteFood(id: UUID) {
+        guard foods.contains(where: { $0.id == id }) else { return }
+        foods.removeAll { $0.id == id }
+        touch(id, kind: .food, deleted: true)
+        persist()
+    }
+
+    /// The saved entry for a food from the list, if the user has one.
+    func savedFood(for foodID: String) -> SavedFood? { foods.first { $0.food.id == foodID } }
+
+    /// Stars or un-stars a food. Un-starring a food from the list forgets it; the user's own
+    /// foods are kept.
+    func setFavourite(_ food: FoodItem, _ favourite: Bool) {
+        if var saved = savedFood(for: food.id) {
+            if !favourite && food.source != .custom {
+                deleteFood(id: saved.id)
+            } else {
+                saved.favourite = favourite
+                saveFood(saved)
+            }
+        } else if favourite {
+            saveFood(SavedFood(food: food, favourite: true))
+        }
+    }
+
+    /// Remembers the portion last used for a saved food.
+    func notePortion(for foodID: String, grams: Double, portion: String?) {
+        guard var saved = savedFood(for: foodID) else { return }
+        saved.lastGrams = grams
+        saved.lastPortion = portion
+        saveFood(saved)
+    }
+
+    // MARK: Bolus settings
+
+    func saveBolusSettings(_ settings: BolusSettings) {
+        bolusSettings = settings.normalised
+        touch(BolusSettings.recordID, kind: .bolusSettings)
+        persist()
+    }
+
     // MARK: Sync
 
     var contents: LogbookContents {
-        LogbookContents(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets)
+        LogbookContents(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets,
+                        foods: foods, bolusSettings: bolusSettings)
     }
 
     private func touch(_ id: UUID, kind: LogbookRecordKind, deleted: Bool = false) {
@@ -196,6 +256,8 @@ final class LogbookStore: ObservableObject {
             if c.siteChanges != siteChanges { siteChanges = c.siteChanges }
             if c.contexts != contexts { contexts = c.contexts }
             if c.presets != presets { presets = c.presets }
+            if c.foods != foods { foods = c.foods }
+            if c.bolusSettings != bolusSettings { bolusSettings = c.bolusSettings }
             // An entry deleted elsewhere can't be undone here any more.
             let ids = Set(records.filter(\.deleted).map(\.id))
             if !ids.isEmpty { lastDeleted.removeAll { ids.contains($0.id) } }
@@ -221,7 +283,8 @@ final class LogbookStore: ObservableObject {
         persistSyncState()
         if notify { localChanges.send() }
         guard let url = Self.url else { return }
-        let file = File(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets)
+        let file = File(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets,
+                        foods: foods, bolusSettings: bolusSettings)
         Self.writeQueue.async {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .secondsSince1970

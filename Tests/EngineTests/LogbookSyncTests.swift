@@ -202,3 +202,48 @@ final class LogbookSyncTests: XCTestCase {
         XCTAssertEqual(state.pending[edited]?.modified, 1000)
     }
 }
+
+extension LogbookSyncTests {
+    func testFoodsAndBolusSettingsSyncBetweenDevices() throws {
+        let server = FakeServer()
+        var mac = Device(name: "Mac"), phone = Device(name: "iPhone")
+        let food = SavedFood(food: FoodItem(id: "ausnut:F1", name: "Banana", carbsPer100g: 20, source: .ausnut), favourite: true)
+        mac.contents.foods = [food]
+        LogbookMerge.touch(food.id, kind: .food, deleted: false, now: Date(timeIntervalSince1970: 100), state: &mac.state)
+        var settings = BolusSettings.blank
+        settings.confirmedAt = Date(timeIntervalSince1970: 100)
+        mac.contents.bolusSettings = settings
+        LogbookMerge.touch(BolusSettings.recordID, kind: .bolusSettings, deleted: false,
+                           now: Date(timeIntervalSince1970: 100), state: &mac.state)
+        mac.sync(server)
+        phone.sync(server)
+        XCTAssertEqual(phone.contents.foods, [food])
+        XCTAssertEqual(phone.contents.bolusSettings, settings)
+
+        // A later change on the phone wins on the Mac.
+        var changed = settings
+        changed.blocks[0].carbRatio = 8
+        phone.contents.bolusSettings = changed
+        LogbookMerge.touch(BolusSettings.recordID, kind: .bolusSettings, deleted: false,
+                           now: Date(timeIntervalSince1970: 200), state: &phone.state)
+        phone.contents.foods = []
+        LogbookMerge.touch(food.id, kind: .food, deleted: true, now: Date(timeIntervalSince1970: 200), state: &phone.state)
+        phone.sync(server)
+        mac.sync(server)
+        XCTAssertEqual(mac.contents.bolusSettings?.blocks.first?.carbRatio, 8)
+        XCTAssertTrue(mac.contents.foods.isEmpty, "un-starring reaches the other device")
+    }
+
+    func testMealItemsAndDoseCalculationsRoundTrip() throws {
+        let food = FoodItem(id: "ausnut:F1", name: "Banana", carbsPer100g: 20, source: .ausnut)
+        let meal = MealEntry(timestamp: Date(timeIntervalSince1970: 1_790_000_000), carbs: 25, food: "Banana",
+                             items: [MealItem(food: food, grams: 125, portion: "1 × banana, medium")])
+        let json = try XCTUnwrap(LogbookMerge.json(meal))
+        XCTAssertEqual(LogbookMerge.decode(MealEntry.self, from: json), meal)
+        var contents = LogbookContents()
+        var state = LogbookSyncState(userID: "u1")
+        XCTAssertTrue(LogbookMerge.apply([LogbookRecord(id: meal.id, kind: "meal", payload: json, deleted: false, modified: 5, rev: 1)],
+                                         to: &contents, state: &state))
+        XCTAssertEqual(contents.meals.first?.items?.first?.carbs, 25)
+    }
+}
