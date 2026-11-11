@@ -41,11 +41,14 @@ struct GlucOSPhoneApp: App {
                 .environmentObject(store.settings)
                 .environmentObject(follows)
                 .environmentObject(sharing)
+                .environmentObject(PhoneLogRouter.shared)
                 .modifier(PhoneTextScale())
                 .onOpenURL { url in
                     if let token = FollowLink.token(from: url) {
                         Task { await follows.open(token: token) }
                     } else {
+                        // glucos://log opens the log sheet (Lock Screen widget, Dynamic Island, links).
+                        PhoneLogRouter.shared.handle(url)
                         Task { await store.refresh() }
                     }
                 }

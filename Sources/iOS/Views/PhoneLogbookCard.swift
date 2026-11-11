@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// The last day's logbook, as synced from the Mac (or anywhere else signed in to the same
-/// LibreLinkUp account), with how sync is doing.
+/// The last day's logbook, logged here or synced from the Mac (or anywhere else signed in to the
+/// same LibreLinkUp account), with one-tap buttons to log and how sync is doing.
 struct PhoneLogbookCard: View {
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var sync: LogbookSyncService
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var router: PhoneLogRouter
 
     private static let window: TimeInterval = 24 * 3600
     private static let maxRows = 6
@@ -13,16 +15,41 @@ struct PhoneLogbookCard: View {
         let recent = logbook.entries.filter { $0.timestamp > Date().addingTimeInterval(-Self.window) }
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             Eyebrow(title: "Logbook", systemImage: "list.bullet.rectangle", trailing: "Last 24 hours")
+            quickButtons
+            if !logbook.lastDeleted.isEmpty {
+                HStack {
+                    Label(logbook.lastDeleted.count == 1 ? "Entry deleted" : "\(logbook.lastDeleted.count) entries deleted",
+                          systemImage: "trash")
+                        .dsFont(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Undo") { logbook.undoDelete(); Haptics.tap() }
+                        .dsFont(.headline)
+                }
+                .transition(.opacity)
+            }
             if recent.isEmpty {
                 Text(logbook.isEmpty
-                     ? "Doses and food you log in GlucOS on your Mac appear here."
+                     ? "Tap a button above to log insulin, food or an event. Entries from GlucOS on your Mac show up here too."
                      : "Nothing logged in the last 24 hours.")
                     .dsFont(.callout)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                VStack(spacing: DS.Space.xs) {
+                VStack(spacing: 0) {
                     ForEach(recent.prefix(Self.maxRows)) { entry in
-                        PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) })
+                        Button { router.edit(entry) } label: {
+                            PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) })
+                                .padding(.vertical, DS.Space.xs + 1)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Edit")
+                        .contextMenu {
+                            Button("Edit", systemImage: "pencil") { router.edit(entry) }
+                            Button("Log Again Now", systemImage: "arrow.clockwise") { logbook.duplicate(entry); Haptics.success() }
+                            Button("Delete", systemImage: "trash", role: .destructive) { logbook.delete(ids: [entry.id]) }
+                        }
                     }
                 }
                 if recent.count > Self.maxRows {
@@ -35,6 +62,41 @@ struct PhoneLogbookCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .dsCard(.standard, padding: DS.Space.lg)
+        .animation(DSMotion.quick.animation, value: logbook.lastDeleted.count)
+    }
+
+    private var parts: [PhoneLogPart] {
+        var out: [PhoneLogPart] = []
+        if settings.therapy.logsInsulin || settings.therapy == .notSet { out.append(.insulin) }
+        out.append(.food)
+        if settings.therapy == .pump { out.append(.site) }
+        out.append(.event)
+        return out
+    }
+
+    /// One tap to start logging each kind of entry.
+    private var quickButtons: some View {
+        HStack(spacing: DS.Space.sm) {
+            ForEach(parts) { part in
+                Button { router.open(part) } label: {
+                    VStack(spacing: DS.Space.xxs + 1) {
+                        Image(systemName: part.systemImage)
+                            .font(.system(size: 16, weight: .semibold))
+                        Text(part.title(pump: settings.therapy == .pump))
+                            .dsFont(.label)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .foregroundStyle(part.tint)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DS.Space.sm + 2)
+                    .background(part.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: DS.Radius.tile, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: DS.Radius.tile, style: .continuous))
+                }
+                .buttonStyle(PressScaleStyle())
+                .accessibilityLabel("Log \(part.title(pump: settings.therapy == .pump))")
+            }
+        }
     }
 
     @ViewBuilder
@@ -65,6 +127,9 @@ private struct PhoneLogRow: View {
                 .dsFont(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
         .accessibilityElement(children: .combine)
     }

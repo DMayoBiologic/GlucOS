@@ -92,6 +92,7 @@ struct PhoneSettingsView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var services: PhoneServices
     @EnvironmentObject var logbookSync: LogbookSyncService
+    @EnvironmentObject var logbook: LogbookStore
     @ObservedObject private var relay = RelaySettings.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -102,6 +103,8 @@ struct PhoneSettingsView: View {
         Form {
             accountSection
             displaySection
+            loggingSection
+            if !logbook.presets.isEmpty { presetsSection }
             syncSection
             alertsSection
             lockScreenSection
@@ -151,6 +154,55 @@ struct PhoneSettingsView: View {
         }
     }
 
+    private var loggingSection: some View {
+        Section {
+            Picker("Insulin", selection: $settings.therapy) {
+                ForEach(TherapyType.allCases) { Text($0.title).tag($0) }
+            }
+            if settings.therapy.logsInsulin {
+                Picker(settings.therapy == .pump ? "Pump insulin" : "Usual mealtime insulin", selection: $settings.bolusInsulinKind) {
+                    ForEach(settings.therapy == .pump ? InsulinKind.pumpKinds : InsulinKind.allCases.filter(\.isBolus)) {
+                        Text($0.title).tag($0)
+                    }
+                }
+                TextField("Brand name", text: $settings.bolusInsulinName, prompt: Text(settings.bolusInsulinKind.examples))
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+            }
+        } header: {
+            Text("Logging")
+        } footer: {
+            Text(settings.therapy == .notSet
+                 ? "Tap Log on the main screen to record insulin, food and events. GlucOS asks how you take insulin the first time."
+                 : "\(settings.therapy.detail) GlucOS records what you enter. It never suggests a dose. Say \"Log in GlucOS\" to Siri, or add the Log widget to your Lock Screen, to log in one step.")
+        }
+    }
+
+    private var presetsSection: some View {
+        Section {
+            ForEach(logbook.presets) { p in
+                Label {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(p.name)
+                        if !p.summary.isEmpty { Text(p.summary).dsFont(.caption).foregroundStyle(.secondary) }
+                    }
+                } icon: {
+                    Image(systemName: p.systemImage).foregroundStyle(Palette.brand)
+                }
+            }
+            .onDelete { idx in idx.map { logbook.presets[$0].id }.forEach(logbook.deletePreset(id:)) }
+            .onMove { logbook.movePresets(from: $0, to: $1) }
+        } header: {
+            HStack {
+                Text("Presets")
+                Spacer()
+                EditButton().textCase(nil)
+            }
+        } footer: {
+            Text("One-tap quick adds in the log sheet. Save one by turning on Save as preset when you log.")
+        }
+    }
+
     private var syncSection: some View {
         Section {
             Toggle("Sync logbook", isOn: $logbookSync.enabled)
@@ -166,7 +218,7 @@ struct PhoneSettingsView: View {
         } header: {
             Text("Logbook")
         } footer: {
-            Text("Doses, food, site changes and tags logged in GlucOS on your Mac, shared through the GlucOS sync server with the same LibreLinkUp account. The forecast and insulin on board here count them.")
+            Text("Doses, food, site changes and events logged here or in GlucOS on your Mac, shared through the GlucOS sync server with the same LibreLinkUp account. The forecast and insulin on board here count them.")
         }
     }
 

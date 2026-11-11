@@ -54,7 +54,20 @@ struct GlucoseLiveActivity: Widget {
                     VStack(spacing: 6) {
                         ActivitySparkline(state: state, stale: stale)
                             .frame(height: 54)
-                        ActivityFooter(state: state, stale: stale)
+                        HStack(spacing: 8) {
+                            ActivityFooter(state: state, stale: stale)
+                            // Logging is for your own readings, not someone you follow.
+                            if context.attributes.followID == nil {
+                                Link(destination: URL(string: "glucos://log")!) {
+                                    Label("Log", systemImage: "plus")
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(Color.white.opacity(0.16), in: Capsule())
+                                }
+                                .accessibilityLabel("Log insulin, food or an event")
+                            }
+                        }
                     }
                 }
             } compactLeading: {

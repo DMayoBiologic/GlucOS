@@ -30,6 +30,7 @@ struct PhoneHomeView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var services: PhoneServices
     @EnvironmentObject var follows: FollowStore
+    @EnvironmentObject var router: PhoneLogRouter
     @State private var showsSettings = false
     @State private var showsSharing = false
 
@@ -56,12 +57,14 @@ struct PhoneHomeView: View {
                         .padding(.top, DS.Space.xs)
                 }
                 .padding(.horizontal, DS.Space.lg)
-                .padding(.bottom, DS.Space.xxl)
+                // Room for the floating Log button.
+                .padding(.bottom, 88)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
             .background { PhoneBackdrop(tone: store.snapshot.displayTone()) }
             .refreshable { await store.refresh() }
+            .overlay(alignment: .bottomTrailing) { logButton }
             .navigationTitle("GlucOS")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -80,7 +83,32 @@ struct PhoneHomeView: View {
             .sheet(isPresented: $showsSharing) {
                 NavigationStack { PhoneSharingView() }
             }
+            .onChange(of: router.request?.id) { _, id in
+                // A log link arriving while Settings or Sharing is open: show the log sheet instead.
+                if id != nil { showsSettings = false; showsSharing = false }
+            }
+            .sheet(item: $router.request) { request in
+                PhoneLogSheet(target: request.target)
+                    .presentationDragIndicator(.visible)
+            }
         }
+    }
+
+    /// Always in reach: log insulin, food, a site change or an event.
+    private var logButton: some View {
+        Button { router.open() } label: {
+            Label("Log", systemImage: "plus")
+                .dsFont(.headline)
+                .foregroundStyle(.white)
+                .padding(.horizontal, DS.Space.xl)
+                .padding(.vertical, DS.Space.md + 2)
+                .background(Palette.brandGradient, in: Capsule())
+                .shadow(color: Palette.brand.opacity(0.35), radius: 12, y: 6)
+        }
+        .buttonStyle(PressScaleStyle())
+        .padding(.trailing, DS.Space.xl)
+        .padding(.bottom, DS.Space.lg)
+        .accessibilityLabel("Log insulin, food or an event")
     }
 }
 
