@@ -2,8 +2,11 @@ import Foundation
 import Combine
 
 /// Insulin, food and site-change entries, kept in
-/// `~/Library/Application Support/GlucOS/logbook.json`. Entries are kept until the user deletes
-/// them. Independent of fetching, the widget snapshot and alerts.
+/// `~/Library/Application Support/GlucOS/logbook.json` (the app group on iPhone). Entries are kept
+/// until the user deletes them. Independent of fetching, the widget snapshot and alerts.
+///
+/// Synced between devices by `LogbookSyncService`: every local change is noted in `syncState`
+/// (logbook-sync.json) until it has been pushed, and `applyRemote` takes in other devices' changes.
 @MainActor
 final class LogbookStore: ObservableObject {
     /// Each oldest → newest.
@@ -19,6 +22,11 @@ final class LogbookStore: ObservableObject {
     /// Set by the menu bar popover to have the dashboard open the log sheet.
     @Published var logSheetRequested = false
 
+    /// What's been synced and what's waiting to be pushed.
+    private(set) var syncState = LogbookSyncState()
+    /// Fires after every change made on this device (not ones pulled from another).
+    let localChanges = PassthroughSubject<Void, Never>()
+
     private struct File: Codable {
         var version = 1
         var doses: [InsulinDose] = []
@@ -32,9 +40,17 @@ final class LogbookStore: ObservableObject {
         SharedStore.containerURL?.appendingPathComponent("logbook.json")
     }
 
+    private static var syncURL: URL? {
+        SharedStore.containerURL?.appendingPathComponent("logbook-sync.json")
+    }
+
     private static let writeQueue = DispatchQueue(label: "au.com.declanmayo.glucos.logbook", qos: .utility)
 
     init() {
+        if let url = Self.syncURL, let data = try? Data(contentsOf: url),
+           let state = try? JSONDecoder().decode(LogbookSyncState.self, from: data) {
+            syncState = state
+        }
         guard let url = Self.url, let data = try? Data(contentsOf: url) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
@@ -73,13 +89,18 @@ final class LogbookStore: ObservableObject {
 
     /// Adds the entry, or replaces the one with the same id.
     func save(_ entry: LogEntry) {
-        switch entry {
-        case .dose(let d): Self.upsert(d, into: &doses)
-        case .meal(let m): Self.upsert(m, into: &meals)
-        case .siteChange(let s): Self.upsert(s, into: &siteChanges)
-        case .context(let c): Self.upsert(c, into: &contexts)
-        }
+        upsert(entry)
+        touch(entry.id, kind: entry.recordKind)
         persist()
+    }
+
+    private func upsert(_ entry: LogEntry) {
+        switch entry {
+        case .dose(let d): LogbookMerge.insertSorted(d, into: &doses)
+        case .meal(let m): LogbookMerge.insertSorted(m, into: &meals)
+        case .siteChange(let s): LogbookMerge.insertSorted(s, into: &siteChanges)
+        case .context(let c): LogbookMerge.insertSorted(c, into: &contexts)
+        }
     }
 
     func delete(ids: Set<UUID>) {
@@ -92,6 +113,7 @@ final class LogbookStore: ObservableObject {
         meals.removeAll { ids.contains($0.id) }
         siteChanges.removeAll { ids.contains($0.id) }
         contexts.removeAll { ids.contains($0.id) }
+        for e in removed { touch(e.id, kind: e.recordKind, deleted: true) }
         persist()
     }
 
@@ -101,12 +123,8 @@ final class LogbookStore: ObservableObject {
         guard !restore.isEmpty else { return }
         lastDeleted = []
         for e in restore {
-            switch e {
-            case .dose(let d): Self.upsert(d, into: &doses)
-            case .meal(let m): Self.upsert(m, into: &meals)
-            case .siteChange(let s): Self.upsert(s, into: &siteChanges)
-            case .context(let c): Self.upsert(c, into: &contexts)
-            }
+            upsert(e)
+            touch(e.id, kind: e.recordKind)
         }
         persist()
     }
@@ -132,26 +150,76 @@ final class LogbookStore: ObservableObject {
         } else {
             presets.append(preset)
         }
+        touch(preset.id, kind: .preset)
         persist()
     }
 
     func deletePreset(id: UUID) {
+        guard presets.contains(where: { $0.id == id }) else { return }
         presets.removeAll { $0.id == id }
+        touch(id, kind: .preset, deleted: true)
         persist()
     }
 
     func movePresets(from source: IndexSet, to destination: Int) {
         presets.move(fromOffsets: source, toOffset: destination)
+        // Positions are part of each preset's record, so every one that moved is pushed.
+        for p in presets { touch(p.id, kind: .preset) }
         persist()
     }
 
-    private static func upsert<T: Identifiable>(_ item: T, into list: inout [T]) where T.ID == UUID, T: Timestamped {
-        list.removeAll { $0.id == item.id }
-        let i = list.firstIndex { $0.timestamp > item.timestamp } ?? list.endIndex
-        list.insert(item, at: i)
+    // MARK: Sync
+
+    var contents: LogbookContents {
+        LogbookContents(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets)
     }
 
-    private func persist() {
+    private func touch(_ id: UUID, kind: LogbookRecordKind, deleted: Bool = false) {
+        LogbookMerge.touch(id, kind: kind, deleted: deleted, now: Date(), state: &syncState)
+    }
+
+    /// Replaces the sync bookkeeping (after a push, or when starting with an account).
+    func updateSyncState(_ change: (inout LogbookSyncState, LogbookContents) -> Void) {
+        let before = syncState
+        change(&syncState, contents)
+        if syncState != before { persistSyncState() }
+    }
+
+    /// Takes in changes pulled from the server.
+    func applyRemote(_ records: [LogbookRecord]) {
+        guard !records.isEmpty else { return }
+        var c = contents
+        let changed = LogbookMerge.apply(records, to: &c, state: &syncState)
+        if changed {
+            if c.doses != doses { doses = c.doses }
+            if c.meals != meals { meals = c.meals }
+            if c.siteChanges != siteChanges { siteChanges = c.siteChanges }
+            if c.contexts != contexts { contexts = c.contexts }
+            if c.presets != presets { presets = c.presets }
+            // An entry deleted elsewhere can't be undone here any more.
+            let ids = Set(records.filter(\.deleted).map(\.id))
+            if !ids.isEmpty { lastDeleted.removeAll { ids.contains($0.id) } }
+            persist(notify: false)
+        } else {
+            persistSyncState()
+        }
+    }
+
+    private func persistSyncState() {
+        guard let url = Self.syncURL else { return }
+        let state = syncState
+        Self.writeQueue.async {
+            do {
+                try JSONEncoder().encode(state).write(to: url, options: .atomic)
+            } catch {
+                NSLog("GlucOS: failed to save logbook sync state: \(error)")
+            }
+        }
+    }
+
+    private func persist(notify: Bool = true) {
+        persistSyncState()
+        if notify { localChanges.send() }
         guard let url = Self.url else { return }
         let file = File(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets)
         Self.writeQueue.async {
@@ -225,14 +293,16 @@ final class LogbookStore: ObservableObject {
     }
 }
 
-protocol Timestamped {
-    var timestamp: Date { get }
+extension LogEntry {
+    var recordKind: LogbookRecordKind {
+        switch self {
+        case .dose: return .dose
+        case .meal: return .meal
+        case .siteChange: return .siteChange
+        case .context: return .context
+        }
+    }
 }
-
-extension InsulinDose: Timestamped {}
-extension MealEntry: Timestamped {}
-extension SiteChange: Timestamped {}
-extension ContextEvent: Timestamped {}
 
 // MARK: - Chart events
 

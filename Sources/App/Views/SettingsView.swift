@@ -210,7 +210,7 @@ private struct AccountSettingsTab: View {
             } header: {
                 Text("LibreLinkUp Follower Account")
             } footer: {
-                Text("Use the *follower* account that accepted the invitation from LibreLink, not your LibreLink login. Credentials are stored in the macOS Keychain and only ever sent to Abbott.")
+                Text("Use the *follower* account that accepted the invitation from LibreLink, not your LibreLink login. Credentials are stored in the macOS Keychain and sent to Abbott. If logbook sync is on, they're also checked once by the GlucOS sync server to confirm the account, and not kept there.")
                     .foregroundStyle(.secondary)
             }
 
@@ -559,6 +559,34 @@ private struct AlertRow: View {
 
 // MARK: - Logging
 
+/// Logbook sync on or off, and how it's going.
+private struct LogbookSyncSection: View {
+    @EnvironmentObject var sync: LogbookSyncService
+
+    var body: some View {
+        Section {
+            Toggle("Sync logbook with your other devices", isOn: $sync.enabled)
+            if sync.enabled {
+                LabeledContent("Status") {
+                    HStack(spacing: DS.Space.xs) {
+                        if sync.status == .syncing { ProgressView().controlSize(.small) }
+                        Text(sync.summary)
+                            .foregroundStyle(sync.isProblem ? Tone.warning.textColor : Color.secondary)
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+                Button("Sync Now") { sync.requestSync() }
+                    .disabled(sync.status == .syncing || sync.status == .needsAccount)
+            }
+        } header: {
+            Text("Sync")
+        } footer: {
+            Text("Doses, food, site changes, tags and presets are shared with GlucOS on your iPhone, signed in with the same LibreLinkUp account. Everything is kept on this Mac too and works offline; changes sync when you're back online. If an entry is edited on two devices, the later edit is kept.")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 private struct LoggingSettingsTab: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var logbook: LogbookStore
@@ -568,6 +596,7 @@ private struct LoggingSettingsTab: View {
 
     var body: some View {
         Form {
+            LogbookSyncSection()
             Section {
                 Picker("Therapy", selection: $settings.therapy) {
                     if settings.therapy == .notSet { Text("Choose…").tag(TherapyType.notSet) }

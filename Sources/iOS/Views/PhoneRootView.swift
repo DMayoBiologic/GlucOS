@@ -31,6 +31,7 @@ struct PhoneHomeView: View {
                     if let outlook = store.snapshot.currentOutlook() {
                         PhoneOutlookCard(outlook: outlook)
                     }
+                    PhoneLogbookCard()
                     PhoneGlanceCard()
                     if let sensor = store.snapshot.sensor {
                         PhoneSensorCard(sensor: sensor)

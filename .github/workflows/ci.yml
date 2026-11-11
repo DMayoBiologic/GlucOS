@@ -61,7 +61,7 @@ jobs:
           name: build-ios-log
           path: build-ios.log
 
-  # The push relay: the Supabase edge function's tests, including the parity check against the
+  # The Supabase side: the push relay and logbook sync tests, including the parity check against the
   # Swift alert rules and forecast, and a run against Supabase's own Postgres image with the
   # migrations applied (twice, since the Supabase GitHub integration may re-run them).
   relay:
@@ -89,8 +89,8 @@ jobs:
             done
           done
       - name: Type-check
-        run: deno check supabase/functions/relay/index.ts
+        run: deno check supabase/functions/relay/index.ts supabase/functions/account/index.ts
       - name: Edge function tests
         env:
           GLUCOS_TEST_DB_URL: postgres://postgres:postgres@127.0.0.1:54329/postgres
-        run: deno test --allow-read --allow-env --allow-net supabase/functions/relay/
+        run: deno test --allow-read --allow-env --allow-net supabase/functions/

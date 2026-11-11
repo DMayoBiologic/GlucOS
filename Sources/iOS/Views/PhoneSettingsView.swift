@@ -32,7 +32,7 @@ struct PhoneSignInView: View {
                         .foregroundStyle(Palette.brandGradient)
                     Text("Sign in with your LibreLinkUp follower account")
                         .dsFont(.sectionTitle)
-                    Text("The account that accepted the invitation in the LibreLinkUp app, not your LibreLink login. Your password stays in this iPhone's Keychain (and on your push relay, if you set one up).")
+                    Text("The account that accepted the invitation in the LibreLinkUp app, not your LibreLink login. Your password stays in this iPhone's Keychain (and on your push relay, if you set one up). The GlucOS sync server checks it once so your logbook can sync, and doesn't keep it.")
                         .dsFont(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -84,6 +84,7 @@ struct PhoneSettingsView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var services: PhoneServices
+    @EnvironmentObject var logbookSync: LogbookSyncService
     @ObservedObject private var relay = RelaySettings.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -94,6 +95,7 @@ struct PhoneSettingsView: View {
         Form {
             accountSection
             displaySection
+            syncSection
             alertsSection
             lockScreenSection
             relaySection
@@ -137,6 +139,25 @@ struct PhoneSettingsView: View {
             Text("Display")
         } footer: {
             Text("The target range colours every reading, chart and alert, here and on the Lock Screen.")
+        }
+    }
+
+    private var syncSection: some View {
+        Section {
+            Toggle("Sync logbook", isOn: $logbookSync.enabled)
+            if logbookSync.enabled {
+                LabeledContent("Status") {
+                    Text(logbookSync.summary)
+                        .foregroundStyle(logbookSync.isProblem ? Tone.warning.textColor : Color.secondary)
+                        .multilineTextAlignment(.trailing)
+                }
+                Button("Sync Now") { logbookSync.requestSync() }
+                    .disabled(logbookSync.status == .syncing || logbookSync.status == .needsAccount)
+            }
+        } header: {
+            Text("Logbook")
+        } footer: {
+            Text("Doses, food, site changes and tags logged in GlucOS on your Mac, shared through the GlucOS sync server with the same LibreLinkUp account. The forecast and insulin on board here count them.")
         }
     }
 

@@ -125,7 +125,14 @@ export class LibreLinkUpFetcher implements GlucoseFetcher {
     return o;
   }
 
-  private async login(account: Account, key: string, base: string, followingRedirect: boolean): Promise<LibreSession> {
+  /// Logs in and returns the LibreLinkUp user id, which identifies the account whatever its
+  /// email or region. Used by the `account` function to sign a device in to logbook sync.
+  async identify(account: Account): Promise<string> {
+    const s = await this.login(account, await sessionKey(account), baseURL(account.region), false);
+    return s.userId;
+  }
+
+  private async login(account: Account, key: string, base: string, followingRedirect: boolean): Promise<LibreSession & { userId: string }> {
     const res = await this.http(`${base}/llu/auth/login`, {
       method: "POST",
       headers: this.headers(account),
@@ -151,6 +158,7 @@ export class LibreLinkUpFetcher implements GlucoseFetcher {
       key, base, token: ticket.token,
       expires: typeof ticket.expires === "number" ? ticket.expires : Date.now() / 1000 + 6 * 3600,
       accountId: await sha256Hex(user.id),
+      userId: user.id,
     };
   }
 

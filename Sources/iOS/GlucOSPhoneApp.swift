@@ -8,6 +8,7 @@ struct GlucOSPhoneApp: App {
     @StateObject private var store: GlucoseStore
     @StateObject private var logbook: LogbookStore
     @StateObject private var services: PhoneServices
+    @StateObject private var logbookSync: LogbookSyncService
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -16,7 +17,11 @@ struct GlucOSPhoneApp: App {
         store.logbook = logbook
         _store = StateObject(wrappedValue: store)
         _logbook = StateObject(wrappedValue: logbook)
-        _services = StateObject(wrappedValue: PhoneServices(store: store))
+        let sync = LogbookSyncService(logbook: logbook, settings: store.settings, device: "iPhone")
+        _logbookSync = StateObject(wrappedValue: sync)
+        let services = PhoneServices(store: store)
+        services.logbookSync = sync
+        _services = StateObject(wrappedValue: services)
         // Has to happen before launch finishes.
         BackgroundRefresh.register()
     }
@@ -27,6 +32,7 @@ struct GlucOSPhoneApp: App {
                 .environmentObject(store)
                 .environmentObject(logbook)
                 .environmentObject(services)
+                .environmentObject(logbookSync)
                 .environmentObject(store.settings)
                 .modifier(PhoneTextScale())
                 .onOpenURL { _ in Task { await store.refresh() } }
