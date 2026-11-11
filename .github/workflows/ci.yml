@@ -54,6 +54,16 @@ jobs:
             -derivedDataPath build-ios -skipPackagePluginValidation -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-ios.log | grep -E "error:|BUILD" || true
           grep -q "BUILD SUCCEEDED" build-ios.log || { echo "::error::iOS build failed"; grep -E "error:" build-ios.log | sort -u; exit 1; }
+      - name: Messages app has its drawer icon
+        # App Store Connect refuses an upload whose Messages extension has no iMessage app icon,
+        # which only shows up after a release has archived. Catch it here instead.
+        run: |
+          APPEX=$(find build-ios/Build/Products -name GlucOSMessages.appex -type d | head -1)
+          test -n "$APPEX" || { echo "::error::GlucOSMessages.appex wasn't built"; exit 1; }
+          plutil -p "$APPEX/Info.plist" | sed -n '/CFBundleIcons/,/}/p'
+          xcrun assetutil --info "$APPEX/Assets.car" | grep -E '"(Name|RenditionName)"' | sort -u | head -40
+          plutil -extract CFBundleIcons raw -o /dev/null "$APPEX/Info.plist" 2>/dev/null \
+            || { echo "::error::The Messages extension's Info.plist has no CFBundleIcons, so App Store Connect will reject it for a missing iMessage app icon"; exit 1; }
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
