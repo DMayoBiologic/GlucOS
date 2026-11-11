@@ -200,7 +200,7 @@ struct PhoneSettingsView: View {
 
     private var relaySection: some View {
         Section {
-            TextField("Relay address", text: $relay.urlString, prompt: Text("https://glucos-relay.fly.dev"))
+            TextField("Relay address", text: $relay.urlString, prompt: Text("https://….supabase.co/functions/v1/relay"))
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()

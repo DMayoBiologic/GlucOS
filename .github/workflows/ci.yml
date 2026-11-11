@@ -56,15 +56,36 @@ jobs:
           name: build-ios-log
           path: build-ios.log
 
-  # The push relay, on Linux like it runs in production. Also checks the shared core compiles
-  # and passes its tests on Linux.
+  # The push relay: the Supabase edge function's tests, including the parity check against the
+  # Swift alert rules and forecast, and a run against Supabase's own Postgres image with the
+  # migrations applied (twice, since the Supabase GitHub integration may re-run them).
   relay:
     runs-on: ubuntu-latest
-    container: swift:6.1-jammy
     steps:
       - uses: actions/checkout@v4
-      - name: Core tests on Linux
-        run: swift test
-      - name: Relay tests
-        working-directory: Relay
-        run: swift test
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.1.4
+      - name: Start Supabase Postgres
+        run: |
+          docker run -d --name db -p 54329:5432 -e POSTGRES_PASSWORD=postgres supabase/postgres:15.8.1.060 \
+            -c config_file=/etc/postgresql/postgresql.conf -c cron.database_name=postgres
+          for i in $(seq 90); do
+            docker logs db 2>&1 | grep -q "PostgreSQL init process complete" \
+              && docker exec db pg_isready -U postgres -h 127.0.0.1 >/dev/null && break
+            sleep 2
+          done
+          docker exec db pg_isready -U postgres -h 127.0.0.1
+      - name: Apply migrations
+        run: |
+          for pass in 1 2; do
+            for f in supabase/migrations/*.sql; do
+              docker exec -i db psql -v ON_ERROR_STOP=1 -q -U postgres -h 127.0.0.1 < "$f"
+            done
+          done
+      - name: Type-check
+        run: deno check supabase/functions/relay/index.ts
+      - name: Edge function tests
+        env:
+          GLUCOS_TEST_DB_URL: postgres://postgres:postgres@127.0.0.1:54329/postgres
+        run: deno test --allow-read --allow-env --allow-net supabase/functions/relay/

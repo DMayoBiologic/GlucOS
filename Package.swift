@@ -1,8 +1,8 @@
 // swift-tools-version:5.9
 // The app itself is built from project.yml with XcodeGen. This package compiles the plain-Foundation
 // core that every part of GlucOS shares (models, LibreLinkUp client, prediction engine, alert rules,
-// Live Activity state) so it can be unit-tested with `swift test`, and so the push relay
-// (Relay/, which compiles these same files through symlinks) runs the same code on Linux.
+// Live Activity state) so it can be unit-tested with `swift test`. The push relay is a TypeScript
+// port on Supabase (supabase/functions/relay); RelayParityTests keeps the two in step.
 import PackageDescription
 
 let package = Package(
