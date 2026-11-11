@@ -23,6 +23,12 @@ struct GlucoseChart: View {
     /// range, never in a reading's colour. Pass only a current forecast (`OutlookSnapshot.isCurrent`);
     /// it's hidden anyway while the newest reading is stale.
     var forecast: [ForecastSample] = []
+    /// Logged doses and food, drawn as small markers along the bottom of the chart.
+    var events: [ChartEvent] = []
+    /// How many time labels to aim for along the bottom.
+    var timeLabelCount: Int = 4
+    /// A faint "Now" line where readings end and the forecast begins.
+    var marksNow: Bool = false
 
     @State private var hoverDate: Date?
 
@@ -118,7 +124,7 @@ struct GlucoseChart: View {
                     series: .value("Series", "Forecast range")
                 )
                 .interpolationMethod(.monotone)
-                .foregroundStyle(Palette.stale.opacity(0.16))
+                .foregroundStyle(Palette.stale.opacity(0.22))
             }
             ForEach(projection) { p in
                 LineMark(
@@ -128,7 +134,41 @@ struct GlucoseChart: View {
                 )
                 .interpolationMethod(.monotone)
                 .foregroundStyle(Palette.stale)
-                .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 3]))
+                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 3]))
+            }
+
+            // Where readings end and the forecast begins.
+            if marksNow, !projection.isEmpty, let last = window.last {
+                RuleMark(x: .value("Now", last.timestamp))
+                    .foregroundStyle(Color.secondary.opacity(0.35))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                    .annotation(position: .top, alignment: .center, spacing: 2) {
+                        Text("Now").dsFont(.caption).foregroundStyle(.secondary)
+                    }
+            }
+
+            // A faint line at each midnight, so times either side can't be mistaken for the same day.
+            ForEach(ClockLabel.midnights(from: window.first?.timestamp ?? .now, to: window.last?.timestamp ?? .now), id: \.self) { m in
+                RuleMark(x: .value("Midnight", m))
+                    .foregroundStyle(Color.primary.opacity(0.14))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+            }
+
+            // Logged insulin and food, along the bottom.
+            ForEach(events.filter { e in window.first.map { e.date >= $0.timestamp } ?? false }) { e in
+                PointMark(
+                    x: .value("Time", e.date),
+                    y: .value("Logged", yd.lowerBound + (yd.upperBound - yd.lowerBound) * (0.06 + 0.08 * Double(e.lane)))
+                )
+                .symbol {
+                    Image(systemName: e.systemImage)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 16, height: 16)
+                        .background(Circle().fill(e.tint))
+                        .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 0.5))
+                }
+                .accessibilityLabel(e.label)
             }
 
             // Current reading: solid dot with a soft halo.
@@ -170,7 +210,7 @@ struct GlucoseChart: View {
                             .fontWeight(.semibold)
                             .dsFont(.callout)
                             .monospacedDigit()
-                        Text(h.timestamp.formatted(date: .omitted, time: .shortened))
+                        Text(ClockLabel.dayTime(h.timestamp, now: Date()))
                             .dsFont(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -184,11 +224,18 @@ struct GlucoseChart: View {
         .chartYScale(domain: yDomain)
         .chartXAxis {
             if showAxes {
-                AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                AxisMarks(values: .automatic(desiredCount: timeLabelCount)) { v in
                     AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
-                    AxisValueLabel(format: .dateTime.hour())
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    AxisValueLabel {
+                        if let d = v.as(Date.self) {
+                            // A midnight label names the day instead of "12 am".
+                            Text(Calendar.current.component(.hour, from: d) == 0
+                                 ? d.formatted(.dateTime.weekday(.abbreviated))
+                                 : d.formatted(.dateTime.hour()))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }
@@ -211,6 +258,18 @@ struct GlucoseChart: View {
         .accessibilityLabel(projection.isEmpty ? "Glucose, last \(Int(hours)) hours"
                                                 : "Glucose, last \(Int(hours)) hours, with an estimated forecast")
     }
+}
+
+/// Something logged, shown as a marker on the chart.
+struct ChartEvent: Identifiable {
+    let id: UUID
+    let date: Date
+    let systemImage: String
+    let tint: Color
+    /// Which row of markers, from the bottom, so a dose and a meal logged together don't overlap.
+    var lane: Int = 0
+    /// For VoiceOver: "6 units Novorapid at 12:56 pm".
+    let label: String
 }
 
 private extension View {

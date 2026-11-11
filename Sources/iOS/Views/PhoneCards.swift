@@ -103,7 +103,7 @@ struct PhoneHeroCard: View {
         HStack(spacing: DS.Space.xs) {
             Image(systemName: stale ? "clock.badge.exclamationmark" : "clock")
             Text(stale ? "Last reading \(PopoverFormat.ageAgo(cur.age(at: now)))" : "Updated \(PopoverFormat.ageAgo(cur.age(at: now)))")
-            Text("· \(cur.timestamp.formatted(date: .omitted, time: .shortened))").foregroundStyle(.tertiary)
+            Text("· \(ClockLabel.dayTime(cur.timestamp, now: now))").foregroundStyle(.tertiary)
         }
         .dsFont(.caption)
         .foregroundStyle(stale ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(Color.secondary))
@@ -111,54 +111,230 @@ struct PhoneHeroCard: View {
     }
 }
 
+// MARK: - On board
+
+/// What's still acting and where glucose is heading, as three tiles under the reading: fast-acting
+/// insulin, carbs and the forecast. Worked out on the view's clock from the logbook, like the Mac's
+/// Overview, so the numbers keep counting down between readings. Estimates only, never advice.
+struct PhoneOnBoardCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var logbook: LogbookStore
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+            let now = ctx.date
+            let onBoard = OnBoardNow(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts, at: now)
+            let s = store.snapshot
+            HStack(alignment: .top, spacing: DS.Space.sm) {
+                if onBoard.showsInsulin(therapy: settings.therapy) {
+                    insulinTile(onBoard, now: now)
+                }
+                carbsTile(onBoard, now: now)
+                forecastTile(s.currentOutlook(at: now), unit: s.unit, lowMgdl: s.lowMgdl, stale: s.isStale(at: now))
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func insulinTile(_ o: OnBoardNow, now: Date) -> some View {
+        let active = o.insulin.onBoard >= 0.05
+        var caption = "None acting"
+        if active {
+            if let peak = o.insulin.peakAt, peak > now { caption = "Peaks \(ClockLabel.time(peak))" }
+            else if let done = o.insulin.mostlyDoneAt { caption = "Done ~\(ClockLabel.time(done))" }
+            else { caption = "Winding down" }
+        }
+        let basal = o.background.isActive ? "Basal ≈ \(OnBoardFormatPhone.number(o.background.onBoard)) u" : nil
+        return OnBoardTile(title: "Insulin", systemImage: "syringe", tint: Palette.insulin,
+                           value: active ? OnBoardFormatPhone.number(o.insulin.onBoard) : "0", unit: "u",
+                           fraction: active && o.insulin.unitsGiven > 0 ? o.insulin.onBoard / o.insulin.unitsGiven : nil,
+                           caption: caption, detail: basal,
+                           accessibility: active ? "Insulin on board, \(OnBoardFormatPhone.number(o.insulin.onBoard)) units. \(caption)" : "No fast-acting insulin on board")
+    }
+
+    private func carbsTile(_ o: OnBoardNow, now: Date) -> some View {
+        let active = o.carbs.onBoard >= 1
+        var caption = "None absorbing"
+        if active {
+            caption = o.carbs.mostlyAbsorbedAt.map { "Done ~\(ClockLabel.time($0))" } ?? "Nearly absorbed"
+        }
+        return OnBoardTile(title: "Carbs", systemImage: "fork.knife", tint: Palette.food,
+                           value: active ? "\(Int(o.carbs.onBoard.rounded()))" : "0", unit: "g", fraction: nil,
+                           caption: caption, detail: o.carbs.uncountedFood ? "Some food has no carbs" : nil,
+                           accessibility: active ? "Carbs on board, \(Int(o.carbs.onBoard.rounded())) grams. \(caption)" : "No carbs on board")
+    }
+
+    @ViewBuilder
+    private func forecastTile(_ outlook: OutlookSnapshot?, unit: GlucoseUnit, lowMgdl: Double, stale: Bool) -> some View {
+        if let outlook, let headline = OutlookFormat.headlineSample(outlook) {
+            let s = headline.sample
+            let low = outlook.lowExpectedAt
+            OnBoardTile(title: "In \(headline.minutes) min", systemImage: low == nil ? "chart.line.uptrend.xyaxis" : "exclamationmark.triangle.fill",
+                        tint: Palette.stale, valueTint: low == nil ? nil : Tone.warning.textColor,
+                        value: OutlookFormat.approx(s.mgdl, unit: unit), unit: nil, fraction: nil,
+                        caption: low.map { "Low ~\(ClockLabel.time($0))" } ?? OutlookFormat.range(s, unit: unit),
+                        captionTone: low == nil ? .neutral : .warning,
+                        detail: outlook.basis == .trend ? "Trend only" : "Trend + logbook",
+                        accessibility: "Forecast, not a reading. In \(headline.minutes) minutes about \(unit.format(mgdl: s.mgdl, withUnit: true)), likely \(OutlookFormat.range(s, unit: unit))\(low.map { ". Low expected around \(ClockLabel.time($0))" } ?? "")")
+        } else {
+            OnBoardTile(title: "Forecast", systemImage: "chart.line.uptrend.xyaxis", tint: Palette.stale,
+                        value: "–", unit: nil, fraction: nil,
+                        caption: stale ? "Needs a new reading" : "Not available", detail: nil,
+                        accessibility: "No forecast right now")
+        }
+    }
+}
+
+enum OnBoardFormatPhone {
+    /// "2.4", or "12" from 10 up.
+    static func number(_ v: Double) -> String {
+        v.formatted(.number.precision(.fractionLength(v < 10 ? 1 : 0)))
+    }
+}
+
+private struct OnBoardTile: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    var valueTint: Color? = nil
+    let value: String
+    let unit: String?
+    let fraction: Double?
+    let caption: String
+    var captionTone: Tone = .neutral
+    let detail: String?
+    let accessibility: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            Label {
+                Text(title).lineLimit(1).minimumScaleFactor(0.8)
+            } icon: {
+                Image(systemName: systemImage).foregroundStyle(valueTint ?? tint)
+            }
+            .dsFont(.label)
+            .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: DS.Space.xxs) {
+                Text(value)
+                    .dsFont(.metricValueLarge)
+                    .foregroundStyle(valueTint ?? tint)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .contentTransition(.numericText())
+                if let unit { Text(unit).dsFont(.unit).foregroundStyle(.secondary) }
+            }
+            if let fraction {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.primary.opacity(0.08))
+                        Capsule().fill(tint.opacity(0.85))
+                            .frame(width: max(4, geo.size.width * min(1, max(0, fraction))))
+                    }
+                }
+                .frame(height: 4)
+            }
+            Spacer(minLength: 0)
+            Text(caption)
+                .dsFont(.caption)
+                .monospacedDigit()
+                .foregroundStyle(captionTone == .neutral ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(captionTone.textColor))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+            if let detail {
+                Text(detail).dsFont(.caption).foregroundStyle(.tertiary).lineLimit(1).minimumScaleFactor(0.85)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .dsCard(.standard, padding: DS.Space.md)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibility)
+    }
+}
+
 // MARK: - Chart
 
+/// The trace with logged insulin and food marked along the bottom, the forecast past "Now", and a
+/// one-line forecast summary under it. Replaces the separate Outlook card, so the forecast's
+/// number sits next to the line it describes.
 struct PhoneChartCard: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var logbook: LogbookStore
+
+    private static let choices = [3, 6, 12, 24]
 
     var body: some View {
         let s = store.snapshot
         let hours = Double(settings.chartHours)
+        let outlook = settings.showForecast ? s.currentOutlook() : nil
         VStack(alignment: .leading, spacing: DS.Space.md) {
             HStack {
-                Eyebrow(title: "Last \(settings.chartHours) hours", systemImage: "chart.xyaxis.line")
+                Eyebrow(title: "Glucose", systemImage: "chart.xyaxis.line")
                 Picker("Hours", selection: $settings.chartHours) {
-                    ForEach([3, 6, 12], id: \.self) { Text("\($0)h").tag($0) }
+                    ForEach(Self.choices, id: \.self) { Text("\($0)h").tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 160)
+                .frame(maxWidth: 200)
             }
             GlucoseChart(readings: store.readings(lastHours: hours), unit: s.unit, lowMgdl: s.lowMgdl,
                          highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
-                         forecast: settings.showForecast ? (s.currentOutlook()?.forecast ?? []) : [])
-                .frame(height: 220)
+                         forecast: outlook?.forecast ?? [], events: events(hours: hours),
+                         timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true)
+                .frame(height: 260)
+            legend(outlook)
+            if let outlook { forecastLine(outlook, unit: s.unit) }
         }
         .dsCard(.standard, padding: DS.Space.lg)
     }
-}
 
-// MARK: - Outlook
+    private func events(hours: Double) -> [ChartEvent] {
+        let cutoff = Date().addingTimeInterval(-hours * 3600)
+        var out: [ChartEvent] = []
+        for d in logbook.doses where d.timestamp >= cutoff {
+            out.append(ChartEvent(id: d.id, date: d.timestamp, systemImage: d.viaPump ? "cross.vial.fill" : "syringe.fill",
+                                  tint: Palette.insulin,
+                                  label: "\(LogFormat.units(d.units)) \(d.displayName) at \(ClockLabel.time(d.timestamp))"))
+        }
+        for m in logbook.meals where m.timestamp >= cutoff {
+            out.append(ChartEvent(id: m.id, date: m.timestamp, systemImage: "fork.knife", tint: Palette.food, lane: 1,
+                                  label: m.carbs > 0 ? "\(LogFormat.grams(m.carbs)) carbs at \(ClockLabel.time(m.timestamp))"
+                                                     : "Food at \(ClockLabel.time(m.timestamp))"))
+        }
+        return out
+    }
 
-struct PhoneOutlookCard: View {
-    @EnvironmentObject var store: GlucoseStore
-    let outlook: OutlookSnapshot
+    @ViewBuilder
+    private func legend(_ outlook: OutlookSnapshot?) -> some View {
+        HStack(spacing: DS.Space.md) {
+            LegendText(color: Palette.insulin, text: "Insulin")
+            LegendText(color: Palette.food, text: "Food")
+            if outlook != nil {
+                HStack(spacing: DS.Space.xs) {
+                    Capsule().fill(Palette.stale).frame(width: 12, height: 2)
+                    Text("Forecast")
+                }
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityHidden(true)
+    }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Eyebrow(title: "Outlook", systemImage: "chart.line.uptrend.xyaxis", trailing: outlook.basis.title)
-            OutlookSummaryRow(outlook: outlook, unit: store.snapshot.unit, lowMgdl: store.snapshot.lowMgdl)
+    private func forecastLine(_ outlook: OutlookSnapshot, unit: GlucoseUnit) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
             if let low = outlook.lowExpectedAt {
-                Label("Low expected around \(OutlookFormat.time(low))", systemImage: "exclamationmark.triangle.fill")
+                Label("Low expected around \(ClockLabel.time(low))", systemImage: "exclamationmark.triangle.fill")
                     .dsFont(.label)
                     .foregroundStyle(Tone.warning.textColor)
             }
-            Text("A forecast, not a reading. Never use it to decide a dose.")
+            Text("Forecast from \(outlook.basis.title.lowercased()). An estimate, not a reading: never use it to decide a dose.")
                 .dsFont(.caption)
                 .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .dsCard(.standard, padding: DS.Space.lg)
     }
 }
 
@@ -243,7 +419,7 @@ struct PhoneSensorCard: View {
                     .foregroundStyle(tone == .neutral ? AnyShapeStyle(Color.primary) : AnyShapeStyle(tone.textColor))
             }
             Spacer()
-            Text("Ends \(sensor.expires.formatted(.dateTime.weekday(.abbreviated).hour().minute()))")
+            Text("Ends \(ClockLabel.dayTime(sensor.expires, now: Date()))")
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -4,29 +4,6 @@ import SwiftUI
 // insulin and carbs, beside where the forecast says glucose is heading. Every number is an
 // estimate on typical timing curves for what was logged. None of it is advice on what to dose or eat.
 
-/// Insulin and carbs still acting at one moment, worked out from the logbook with the engine's
-/// own models. Worked out on the view's clock rather than taken from the last outlook, so the
-/// numbers keep counting down even when readings stop coming in.
-struct OnBoardNow {
-    let insulin: InsulinActivity
-    let background: BackgroundInsulinActivity
-    let carbs: CarbActivity
-
-    init(doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent], at now: Date) {
-        let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
-        insulin = InsulinActivity.compute(doses: doses, at: now)
-        background = BackgroundInsulinActivity.compute(doses: doses, at: now)
-        carbs = CarbActivity.compute(meals: meals, hypoTreatments: hypo, at: now)
-    }
-
-    /// People who don't take insulin only see carbs and the forecast, unless they logged some anyway.
-    func showsInsulin(therapy: TherapyType) -> Bool {
-        therapy != .noInsulin || insulin.doseCount > 0 || background.isActive
-    }
-
-    var isEmpty: Bool { insulin.onBoard < 0.05 && !background.isActive && carbs.onBoard < 1 }
-}
-
 /// The row of "on board" cards on the Overview, under the current reading and headline numbers.
 struct OnBoardRow: View {
     let onBoard: OnBoardNow
