@@ -221,8 +221,9 @@ struct PhoneLogSheet: View {
             if site != autoSite { siteIsAutomatic = false }
         }
         .onChange(of: kind) { old, new in
-            // Picking another type while a saved insulin of the old type is selected.
-            if let saved = logbook.savedInsulin(named: insulinName), saved.kind == old, saved.kind != new {
+            // Picking another type while a saved insulin of the old type is selected. An edited
+            // dose keeps its name (the name field then shows, since the types differ).
+            if editingID == nil, let saved = logbook.savedInsulin(named: insulinName), saved.kind == old, saved.kind != new {
                 insulinName = ""
             } else if insulinName == settings.defaultInsulinName(for: old) {
                 insulinName = settings.defaultInsulinName(for: new)
