@@ -105,7 +105,7 @@ export const isShareToken = (t: string) => /^[A-Za-z0-9_-]{43}$/.test(t);
 
 /// The link that goes in the message. The token is in the fragment, so it never reaches the web
 /// server's logs (or Messages' link preview fetch, which drops the fragment).
-export const shareViewerURL = "https://dmayobiologic.github.io/GlucOS/share/";
+export const shareViewerURL = "https://gluc-os-seven.vercel.app/share/";
 export const shareURL = (token: string, base = shareViewerURL) => `${base}#${token}`;
 
 export function cleanLabel(raw: unknown): string {

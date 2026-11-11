@@ -274,7 +274,7 @@ struct AddFollowView: View {
     var body: some View {
         Form {
             Section {
-                TextField("Share link", text: $text, prompt: Text("https://dmayobiologic.github.io/GlucOS/share/#…"), axis: .vertical)
+                TextField("Share link", text: $text, prompt: Text("https://gluc-os-seven.vercel.app/share/#…"), axis: .vertical)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)

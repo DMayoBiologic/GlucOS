@@ -43,16 +43,16 @@ anywhere.
 - A follower's Live Activity is `GlucoseActivityAttributes` with `followID` set to the share id and
   `name` set to the share's label. The owner's own card has `followID == nil`. `LiveActivityController`
   only touches the owner's card and `FollowStore` only touches follower cards.
-- The web view is `web/share/index.html` on GitHub Pages (`.github/workflows/pages.yml`). The token is in
-  the URL fragment, so it never reaches GitHub's servers or Messages' link-preview fetch.
+- The web view is `web/share/index.html`, served by the `gluc-os` Vercel project at
+  `https://gluc-os-seven.vercel.app/share/` (`vercel.json` serves `web/` as static files, no build). The
+  token is in the URL fragment, so it never reaches Vercel or Messages' link-preview fetch.
 
 Limits: 20 live links, 10 follower phones per link, and expiry between 10 minutes and 90 days (or none).
 
 ## Setup
 
-The functions and migration deploy on merge, like the rest of `supabase/`. The web view needs GitHub
-Pages turned on once: **Settings → Pages → Source: GitHub Actions**. Then re-run the "Share web view"
-workflow. Until then, links still work when pasted into the app.
+The functions and migration deploy on merge, like the rest of `supabase/`. The web view deploys on merge
+through Vercel's GitHub integration (pushes that don't touch `web/` or `vercel.json` skip the build).
 
 ## Privacy
 

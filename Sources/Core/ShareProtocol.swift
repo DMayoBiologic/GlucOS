@@ -107,11 +107,11 @@ enum ShareDuration: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-/// Follow links: https://dmayobiologic.github.io/GlucOS/share/#<token>, or glucos://follow#<token>
+/// Follow links: https://gluc-os-seven.vercel.app/share/#<token>, or glucos://follow#<token>
 /// from the web view's "Open in GlucOS" button. The token is in the fragment so it never reaches
 /// a web server.
 enum FollowLink {
-    static let viewerURL = "https://dmayobiologic.github.io/GlucOS/share/"
+    static let viewerURL = "https://gluc-os-seven.vercel.app/share/"
 
     static func url(token: String) -> URL? { URL(string: "\(viewerURL)#\(token)") }
 

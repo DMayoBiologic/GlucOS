@@ -8,7 +8,7 @@
 //   POST /v1/follow     FollowRegistration    → FollowStatus    (a follower phone's push tokens)
 //   POST /v1/unfollow   {installation}        → {ok}
 //
-// Browsers call it from the web view on GitHub Pages, so it answers CORS preflights. JWT
+// Browsers call it from the web view on Vercel, so it answers CORS preflights. JWT
 // verification is off for this function (supabase/config.toml). See docs/Sharing.md.
 
 import type { CardState } from "../relay/core.ts";

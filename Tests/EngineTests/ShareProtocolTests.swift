@@ -15,7 +15,7 @@ final class ShareProtocolTests: XCTestCase {
     func testLinksRoundTrip() throws {
         let t = token + "e"
         let web = try XCTUnwrap(FollowLink.url(token: t))
-        XCTAssertEqual(web.absoluteString, "https://dmayobiologic.github.io/GlucOS/share/#\(t)")
+        XCTAssertEqual(web.absoluteString, "https://gluc-os-seven.vercel.app/share/#\(t)")
         XCTAssertEqual(FollowLink.token(from: web), t)
         XCTAssertEqual(FollowLink.token(from: try XCTUnwrap(FollowLink.appURL(token: t))), t)
         XCTAssertEqual(FollowLink.token(from: try XCTUnwrap(URL(string: "glucos://follow?t=\(t)"))), t)
@@ -23,7 +23,7 @@ final class ShareProtocolTests: XCTestCase {
 
     func testFindsTheLinkInAPastedMessage() {
         let t = token + "e"
-        XCTAssertEqual(FollowLink.token(in: "Follow my glucose: https://dmayobiologic.github.io/GlucOS/share/#\(t) 💙"), t)
+        XCTAssertEqual(FollowLink.token(in: "Follow my glucose: https://gluc-os-seven.vercel.app/share/#\(t) 💙"), t)
         XCTAssertEqual(FollowLink.token(in: "  \(t)\n"), t)
         XCTAssertNil(FollowLink.token(in: "https://example.com/share/#\(t)"))
         XCTAssertNil(FollowLink.token(in: "glucos://open#\(t)"))
