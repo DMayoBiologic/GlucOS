@@ -3,7 +3,7 @@
 import { assert, assertEquals, assertNotEquals } from "jsr:@std/assert@1";
 import postgres from "npm:postgres@3.4.5";
 import { handle, type Identifier, type Minter, type Session, SupabaseAuth, syntheticEmail } from "./index.ts";
-import { LibreError } from "../relay/libre.ts";
+import { baseURL, LibreError } from "../relay/libre.ts";
 
 const session = (email: string): Session => ({
   access_token: `token-for-${email}`, refresh_token: "r", expires_at: 1, user_id: `user-${email}`,
@@ -41,6 +41,10 @@ Deno.test("refuses bad requests and bad logins, and says when LibreLinkUp is unr
   assertEquals((await call("not json", never)).status, 400);
   assertEquals((await call({ email: "", password: "pw" }, never)).status, 400);
   assertEquals((await call({ email: "a@b.c" }, never)).status, 400);
+  // A region that would move the login to another host never reaches LibreLinkUp.
+  for (const region of ["x.evil.co/", "x.evil.co#", "au.evil", "../", "a b"]) {
+    assertEquals((await call({ email: "a@b.c", password: "pw", region }, never)).status, 400, region);
+  }
 
   const rejected: Identifier = { identify: () => Promise.reject(new LibreError("LibreLinkUp rejected the email/password.")) };
   const r = await call({ email: "a@b.c", password: "wrong" }, rejected);
@@ -167,4 +171,20 @@ Deno.test({
       await sql.end();
     }
   },
+});
+
+Deno.test("LibreLinkUp hosts stay on libreview.io, redirects included", () => {
+  assertEquals(baseURL("AU"), "https://api-au.libreview.io");
+  assertEquals(baseURL("eu2"), "https://api-eu2.libreview.io");
+  assertEquals(baseURL(""), "https://api.libreview.io");
+  assertEquals(baseURL("global"), "https://api.libreview.io");
+  for (const bad of ["x.evil.co/", "evil.co#", "au/..", "au.x"]) {
+    let threw = false;
+    try {
+      baseURL(bad);
+    } catch (e) {
+      threw = e instanceof LibreError;
+    }
+    assert(threw, bad);
+  }
 });

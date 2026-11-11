@@ -35,8 +35,16 @@ export interface GlucoseFetcher {
   fetch(account: Account, session: LibreSession | null): Promise<{ result: FetchResult; session: LibreSession }>;
 }
 
+/// LibreLinkUp region codes: "au", "eu", "eu2", "us", … Anything else is refused, so neither a
+/// caller nor a login redirect can point the client at a host outside libreview.io.
+export function isRegion(region: string | null | undefined): boolean {
+  const r = (region ?? "").trim().toLowerCase();
+  return !r || r === "global" || /^[a-z]{2}[0-9]?$/.test(r);
+}
+
 export function baseURL(region: string | null | undefined): string {
   const r = (region ?? "").trim().toLowerCase();
+  if (!isRegion(r)) throw new LibreError("Unexpected LibreLinkUp region.");
   return !r || r === "global" ? "https://api.libreview.io" : `https://api-${r}.libreview.io`;
 }
 

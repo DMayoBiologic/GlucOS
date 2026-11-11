@@ -13,7 +13,7 @@
 // LibreLinkUp user id at a reserved domain. JWT verification is off for this function
 // (supabase/config.toml) because the caller isn't signed in yet.
 
-import { type Account, LibreError, LibreLinkUpFetcher } from "../relay/libre.ts";
+import { type Account, isRegion, LibreError, LibreLinkUpFetcher } from "../relay/libre.ts";
 
 const env = (k: string) => Deno.env.get(k)?.trim() || undefined;
 
@@ -116,9 +116,13 @@ function readAccount(body: unknown): Account | null {
   const str = (k: string) => (typeof o[k] === "string" ? (o[k] as string) : "");
   const email = str("email").trim(), password = str("password");
   if (!email || !password || email.length > 320 || password.length > 1024) return null;
+  // The region picks the LibreLinkUp host, and LibreLinkUp is this function's only identity
+  // check, so only real region codes get through.
+  const region = str("region").trim().toLowerCase();
+  if (!isRegion(region)) return null;
   return {
     email, password,
-    region: str("region").slice(0, 16),
+    region,
     clientVersion: str("clientVersion").slice(0, 16) || "4.16.0",
     sensorLifetimeDays: 15,
   };
