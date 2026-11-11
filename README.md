@@ -144,10 +144,11 @@ Release + tag. Every installed copy updates and relaunches itself within the hou
 - Re-running a release job for a commit that already shipped rebuilds the same version.
 - To force a version: Actions → Release → Run workflow, or `make release V=1.0.0`.
 
-The same push ships the iPhone app to TestFlight and deploys the push relay, once their secrets are
-set up ([docs/iOS.md](docs/iOS.md)); until then those jobs skip with a notice.
+The same push ships the iPhone app to TestFlight once its secrets are set up ([docs/iOS.md](docs/iOS.md));
+until then that job skips with a notice. Supabase deploys the push relay (`supabase/`) from main itself.
 
-`ci.yml` compiles every push and PR: the Mac app, the iPhone app (unsigned) and the relay (Linux).
+`ci.yml` compiles every push and PR: the Mac app, the iPhone app (unsigned), and the relay's
+Deno tests against a local Supabase Postgres.
 
 ## Layout
 
@@ -157,7 +158,7 @@ Sources/Shared/          models, stats, shared snapshot store, chart (compiled i
 Sources/App/             menu bar app: LibreLinkUp client, Keychain, poll loop, alerts, Sparkle, views,
                          app delegate (glucos:// URLs, notification presentation), Assets.xcassets (app icon)
 Sources/Widget/          WidgetKit extension: Glucose, Time in Range and Sensor widgets, configuration + refresh intents
-Sources/Core/            alert rules (AlertPlanner) and the app ↔ relay protocol, shared with the relay
+Sources/Core/            alert rules (AlertPlanner) and the app ↔ relay protocol
 Sources/iOS/             iPhone app: cards, settings, Live Activity controller, relay client, background refresh
 Sources/iOSWidget/       iPhone widget extension: Live Activity (Lock Screen + Dynamic Island), Lock Screen widgets
 supabase/                push relay: a Supabase edge function run every minute by pg_cron (LibreLinkUp → alerts +
