@@ -75,7 +75,7 @@ final class FoodDatabaseTests: XCTestCase {
         XCTAssertNil(try d.decode(InsulinDose.self, from: Data(dose.utf8)).calculation)
     }
 
-    func testOpenFoodFactsResults() {
+    func testOpenFoodFactsResults() throws {
         let json = #"""
         {"count":3,"products":[
           {"code":"9300633603379","product_name":"Wholemeal Bread","brands":"Tip Top, George Weston",
@@ -85,15 +85,42 @@ final class FoodDatabaseTests: XCTestCase {
           {"code":"3","product_name":"Juice","nutriments":{"carbohydrates_100g":"10,5"}}
         ]}
         """#
-        let items = OpenFoodFacts.parse(Data(json.utf8))
+        let items = try OpenFoodFacts.parse(Data(json.utf8))
         XCTAssertEqual(items.map(\.id), ["off:9300633603379", "off:3"])
         XCTAssertEqual(items[0].brand, "Tip Top")
         XCTAssertEqual(items[0].carbsPer100g, 38.5)
         XCTAssertEqual(items[0].portions.first?.grams, 76)
         XCTAssertEqual(items[1].carbsPer100g, 10.5)
-        XCTAssertTrue(OpenFoodFacts.parse(Data("nope".utf8)).isEmpty)
+        XCTAssertThrowsError(try OpenFoodFacts.parse(Data("nope".utf8)))
+        XCTAssertThrowsError(try OpenFoodFacts.parse(Data(#"{"error":"busy"}"#.utf8)))
+        XCTAssertEqual(try OpenFoodFacts.parse(Data(#"{"count":0,"products":[]}"#.utf8)), [])
         let url = OpenFoodFacts.searchURL("weet bix")?.absoluteString ?? ""
         XCTAssertTrue(url.hasPrefix("https://au.openfoodfacts.org/"))
         XCTAssertTrue(url.contains("weet%20bix"))
+    }
+
+    func testCustomFoodWithoutAWeightIsCountedInServes() {
+        let pie = FoodItem.custom(name: "Pie", carbsPerServe: 32, serveName: " slice ", serveGrams: nil)
+        XCTAssertTrue(pie.isServingOnly)
+        XCTAssertEqual(pie.portions.first?.name, "slice")
+        XCTAssertEqual(pie.carbs(grams: pie.portions[0].grams), 32, accuracy: 0.001)
+        let weighed = FoodItem.custom(name: "Pie", carbsPerServe: 32, serveName: "", serveGrams: 160)
+        XCTAssertFalse(weighed.isServingOnly)
+        XCTAssertEqual(weighed.carbsPer100g, 20, accuracy: 0.001)
+        XCTAssertEqual(weighed.portions.first?.name, "serve")
+    }
+
+    func testOldFoodRecordsDecodeWithoutServingOnly() throws {
+        let json = #"{"id":"ausnut:F1","name":"Banana","brand":"","carbsPer100g":20,"portions":[],"source":"ausnut"}"#
+        let food = try JSONDecoder().decode(FoodItem.self, from: Data(json.utf8))
+        XCTAssertFalse(food.isServingOnly)
+    }
+
+    func testSavedFoodIDIsTheSameOnEveryDevice() {
+        let banana = FoodItem(id: "ausnut:F1", name: "Banana", carbsPer100g: 20, source: .ausnut)
+        let apple = FoodItem(id: "ausnut:F2", name: "Apple", carbsPer100g: 12, source: .ausnut)
+        XCTAssertEqual(SavedFood.stableID(for: banana), SavedFood.stableID(for: banana))
+        XCTAssertNotEqual(SavedFood.stableID(for: banana), SavedFood.stableID(for: apple))
+        XCTAssertEqual(SavedFood.stableID(for: banana).uuidString.dropFirst(14).first, "5")
     }
 }

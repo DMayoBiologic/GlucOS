@@ -42,6 +42,9 @@ struct BolusSuggestionCard: View {
         return (20...600).contains(mgdl) ? mgdl : nil
     }
 
+    /// Ticked but not a usable number: don't fall back to the sensor behind the person's back.
+    private var fingerPrickMissing: Bool { usesFingerPrick && fingerPrick == nil }
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             content(suggestion(at: context.date))
@@ -79,7 +82,11 @@ struct BolusSuggestionCard: View {
                 Button(logbook.bolusSettings == nil ? "Set up bolus calculator" : "Bolus calculator settings", action: onSetUp)
                     .buttonStyle(.ds(.secondary, size: .small))
             } else {
-                if s.isBlocked {
+                if fingerPrickMissing {
+                    Label("Enter your finger-prick reading, or untick it to use the sensor", systemImage: "drop")
+                        .dsFont(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if s.isBlocked {
                     Label("No suggestion", systemImage: "hand.raised.fill")
                         .dsFont(.headline).foregroundStyle(Tone.critical.textColor)
                 } else {
@@ -92,10 +99,10 @@ struct BolusSuggestionCard: View {
                     }
                     .accessibilityElement(children: .combine)
                 }
-                if showsWorking && !s.isBlocked { BolusWorking(suggestion: s, unit: settings.unit) }
-                BolusNoticeList(notices: s.notices, unit: settings.unit)
+                if showsWorking && !s.isBlocked && !fingerPrickMissing { BolusWorking(suggestion: s, unit: settings.unit) }
+                if !fingerPrickMissing { BolusNoticeList(notices: s.notices, unit: settings.unit) }
                 fingerPrickRow
-                if !s.isBlocked {
+                if !s.isBlocked && !fingerPrickMissing {
                     Button { onUse(s) } label: {
                         Label("Use \(LogFormat.units(s.units))", systemImage: "arrow.down.circle").frame(maxWidth: .infinity)
                     }
@@ -350,7 +357,9 @@ struct BolusSettingsEditor: View {
                     .dsFont(.caption).foregroundStyle(.secondary)
             } else {
                 Button("Try it") {
-                    draft = draft.applying(s)
+                    let next = draft.applying(s)
+                    guard next != draft else { return }
+                    draft = next
                     applied.insert(s.id)
                 }
                 .buttonStyle(.ds(.secondary, size: .small))

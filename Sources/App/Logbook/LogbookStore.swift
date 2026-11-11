@@ -143,7 +143,7 @@ final class LogbookStore: ObservableObject {
     /// A copy of `entry` at `time` with a fresh id ("Log again now").
     func duplicate(_ entry: LogEntry, at time: Date = Date()) {
         switch entry {
-        case .dose(var d): d.id = UUID(); d.timestamp = time; save(.dose(d))
+        case .dose(var d): d.id = UUID(); d.timestamp = time; d.calculation = nil; save(.dose(d))
         case .meal(var m): m.id = UUID(); m.timestamp = time; save(.meal(m))
         case .siteChange(var s): s.id = UUID(); s.timestamp = time; save(.siteChange(s))
         case .context(var c): c.id = UUID(); c.timestamp = time; save(.context(c))
@@ -208,7 +208,7 @@ final class LogbookStore: ObservableObject {
                 saveFood(saved)
             }
         } else if favourite {
-            saveFood(SavedFood(food: food, favourite: true))
+            saveFood(SavedFood(id: SavedFood.stableID(for: food), food: food, favourite: true))
         }
     }
 

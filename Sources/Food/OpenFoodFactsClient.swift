@@ -21,6 +21,6 @@ enum OpenFoodFactsClient {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
-        return OpenFoodFacts.parse(data)
+        return try OpenFoodFacts.parse(data)
     }
 }

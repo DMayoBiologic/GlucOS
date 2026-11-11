@@ -96,6 +96,8 @@ struct PhoneLogSheet: View {
                 food = m.food
                 note = m.note
                 items = m.items ?? []
+                // A description made from the foods' names is remade from them on save.
+                if !items.isEmpty && food == items.map(\.name).joined(separator: ", ") { food = "" }
             case .siteChange(let c):
                 editing = .site
                 siteID = c.id
@@ -211,7 +213,10 @@ struct PhoneLogSheet: View {
             if insulinName == settings.defaultInsulinName(for: old) {
                 insulinName = settings.defaultInsulinName(for: new)
             }
+            dropSuggestionIfStale()
         }
+        .onChange(of: time) { _, _ in dropSuggestionIfStale() }
+        .onChange(of: parts) { _, _ in dropSuggestionIfStale() }
         .sheet(isPresented: $showsFoodPicker) {
             FoodPickerView(onAdd: { item in addItem(item) }, onClose: { showsFoodPicker = false })
                 .environmentObject(logbook)
@@ -445,7 +450,7 @@ struct PhoneLogSheet: View {
                     .autocorrectionDisabled()
             }
             if showsCalculator {
-                BolusSuggestionCard(carbs: includes(.food) ? (carbs ?? 0) : 0,
+                BolusSuggestionCard(carbs: calculatorCarbs,
                                     onUse: { s in
                                         unitsText = LogFormat.number(s.units)
                                         usedSuggestion = s
@@ -706,7 +711,7 @@ struct PhoneLogSheet: View {
 
     private var foodValid: Bool {
         guard let c = carbs else { return false }
-        return c > 0 || !foodText.isEmpty
+        return c > 0 || !foodText.isEmpty || !mealItems.isEmpty
     }
 
     private var canSave: Bool {
@@ -745,8 +750,28 @@ struct PhoneLogSheet: View {
         }
     }
 
+    /// The carbs the calculator works from: none when the food isn't being logged.
+    private var calculatorCarbs: Double { includes(.food) ? (carbs ?? 0) : 0 }
+
+    /// A suggestion is only kept while it still describes this dose: a bolus logged now, for the
+    /// same carbs. Otherwise it's dropped, units and all, so it can't be stored against the wrong dose.
+    private var suggestionStillApplies: Bool {
+        guard let s = usedSuggestion else { return false }
+        return includes(.insulin) && showsCalculator && abs(calculatorCarbs - s.carbs) < 0.001
+    }
+
+    private func dropSuggestionIfStale() {
+        guard usedSuggestion != nil, !suggestionStillApplies else { return }
+        usedSuggestion = nil
+        unitsText = ""
+    }
+
     private func save() {
         guard canSave else { return }
+        if includes(.insulin) && usedSuggestion != nil && !suggestionStillApplies {
+            dropSuggestionIfStale()
+            return
+        }
         if includes(.insulin) && usedSuggestion != nil {
             confirmingDose = true
         } else {
@@ -761,8 +786,12 @@ struct PhoneLogSheet: View {
         let logsFood = includes(.food)
         let trimmedName = insulinName.trimmingCharacters(in: .whitespacesAndNewlines)
         if logsInsulin, let units {
-            let calculation = usedSuggestion.map(BolusCalculation.init)
-                ?? (editing == .insulin ? logbook.doses.first { $0.id == doseID }?.calculation : nil)
+            // An edited dose keeps its calculator record only while it's still the dose that was worked out.
+            let existing = editing == .insulin ? logbook.doses.first { $0.id == doseID } : nil
+            let kept = existing.flatMap { d in
+                d.units == units && d.kind == kind && d.timestamp == time ? d.calculation : nil
+            }
+            let calculation = (suggestionStillApplies ? usedSuggestion.map(BolusCalculation.init) : nil) ?? kept
             logbook.save(.dose(InsulinDose(id: doseID, timestamp: time, units: units, kind: kind, name: trimmedName,
                                            site: viaPump ? nil : injectionSite, viaPump: viaPump, note: trimmedNote,
                                            calculation: calculation)))

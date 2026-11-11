@@ -36,7 +36,7 @@ struct FoodPickerView: View {
                 }
             } else if creating {
                 CustomFoodForm(initialName: query, onCancel: { creating = false }) { food in
-                    logbook.saveFood(SavedFood(food: food, favourite: true))
+                    logbook.saveFood(SavedFood(id: SavedFood.stableID(for: food), food: food, favourite: true))
                     creating = false
                     selected = food
                 }
@@ -197,6 +197,9 @@ struct FoodPickerView: View {
     }
 
     private func detail(_ food: FoodItem) -> String {
+        if food.isServingOnly, let p = food.portions.first {
+            return "\(LogFormat.grams((food.carbs(grams: p.grams) * 10).rounded() / 10)) carbs per \(p.name) · \(food.source.title)"
+        }
         var bits = ["\(LogFormat.number(food.carbsPer100g)) g carbs per 100 g"]
         if let p = food.portions.first {
             bits.append("1 \(p.name): \(LogFormat.grams((food.carbs(grams: p.grams) * 10).rounded() / 10))")
@@ -248,7 +251,7 @@ struct FoodPortionView: View {
             if let last = saved.lastPortion, let i = food.portions.firstIndex(where: { last.hasSuffix("× \($0.name)") }) {
                 index = i
                 quantity = max(0.25, (saved.lastGrams ?? food.portions[i].grams) / food.portions[i].grams)
-            } else if let g = saved.lastGrams {
+            } else if let g = saved.lastGrams, !food.isServingOnly {
                 index = nil
                 grams = g
             }
@@ -275,16 +278,18 @@ struct FoodPortionView: View {
                     .foregroundStyle(Tone.brand.textColor)
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     Text(food.displayName).dsFont(.title).fixedSize(horizontal: false, vertical: true)
-                    Text("\(LogFormat.number(food.carbsPer100g)) g carbohydrate per 100 g · \(food.source.title)")
+                    Text(food.isServingOnly
+                         ? "\(LogFormat.number((food.carbs(grams: food.portions.first?.grams ?? 100) * 10).rounded() / 10)) g carbohydrate per \(food.portions.first?.name ?? "serve") · \(food.source.title)"
+                         : "\(LogFormat.number(food.carbsPer100g)) g carbohydrate per 100 g · \(food.source.title)")
                         .dsFont(.callout).foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: DS.Space.md) {
-                    if !food.portions.isEmpty {
+                    if food.portions.count > 1 || (!food.portions.isEmpty && !food.isServingOnly) {
                         Picker("Portion", selection: $portionIndex) {
                             ForEach(food.portions.indices, id: \.self) { i in
                                 Text("\(food.portions[i].name) (\(LogFormat.number(food.portions[i].grams.rounded())) g)").tag(Int?.some(i))
                             }
-                            Text("Weigh it (grams)").tag(Int?.none)
+                            if !food.isServingOnly { Text("Weigh it (grams)").tag(Int?.none) }
                         }
                     }
                     if portion != nil {
@@ -324,7 +329,9 @@ struct FoodPortionView: View {
                             .font(.system(size: 34, weight: .bold, design: .rounded))
                             .foregroundStyle(Palette.food)
                             .monospacedDigit()
-                        Text(grams.map { "carbs in \(LogFormat.number($0.rounded())) g" } ?? "Enter an amount")
+                        Text(grams.map { g in
+                            food.isServingOnly ? "carbs in \(quantityLabel) \(portion?.name ?? "serve")" : "carbs in \(LogFormat.number(g.rounded())) g"
+                        } ?? "Enter an amount")
                             .dsFont(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -397,11 +404,7 @@ struct CustomFoodForm: View {
         if !weightText.trimmingCharacters(in: .whitespaces).isEmpty {
             guard let weight, weight > 0, weight < 5000, carbs <= weight else { return nil }
         }
-        // Without a weight, a serve counts as 100 g so carbs per 100 g equals carbs per serve.
-        let grams = weight ?? 100
-        let label = serveName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return FoodItem(id: "custom:\(UUID().uuidString)", name: n, carbsPer100g: carbs / grams * 100,
-                        portions: [FoodPortion(name: label.isEmpty ? "serve" : label, grams: grams)], source: .custom)
+        return FoodItem.custom(name: n, carbsPerServe: carbs, serveName: serveName, serveGrams: weight)
     }
 
     var body: some View {

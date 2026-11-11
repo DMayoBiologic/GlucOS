@@ -174,9 +174,11 @@ enum OpenFoodFacts {
         return c?.url
     }
 
-    static func parse(_ data: Data) -> [FoodItem] {
+    /// Products with a usable name and carbs per 100 g. Throws when the reply isn't a search result
+    /// at all, so a broken response reads as a failure rather than "no products found".
+    static func parse(_ data: Data) throws -> [FoodItem] {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let products = root["products"] as? [[String: Any]] else { return [] }
+              let products = root["products"] as? [[String: Any]] else { throw URLError(.cannotParseResponse) }
         return products.compactMap { p in
             guard let code = p["code"] as? String, !code.isEmpty,
                   let nutriments = p["nutriments"] as? [String: Any],
