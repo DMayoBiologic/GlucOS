@@ -2,7 +2,7 @@
 // in-memory store and fake APNs; sharing_pg_test.ts runs the Postgres store.
 import { assert, assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert@1";
 import type { PushRequest, PushResult, PushSender } from "./apns.ts";
-import { RelayEngine, rotateAfter, type Store, type Tx, newRow, type RelayRow } from "./engine.ts";
+import { followerConcurrency, followerOrder, RelayEngine, rotateAfter, type Store, type Tx, newRow, type RelayRow } from "./engine.ts";
 import type { Reading } from "./core.ts";
 import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
 import { hashShareToken, isShareToken, maxFollowersPerShare, MemoryShareStore, shareURL } from "./sharing.ts";
@@ -275,6 +275,76 @@ Deno.test("a failing follower doesn't stop the others or the owner's tick", asyn
   assertEquals(await t.engine.tick(), "done");
   assertEquals(events(t.sent).sort(), ["aaaaaaaaaaaaaaaa:update", "bbbbbbbbbbbbbbbb:update"]);
   assertEquals(t.shares.rows.filter((f) => f.lastCard).length, 1);
+});
+
+Deno.test("followers past the tick's time budget wait for the next tick", async () => {
+  const t = setup();
+  t.engine["config"].followerBudgetMs = 0;
+  // Two links, so there are more followers than one batch (and than one link allows).
+  const links = [await t.engine.createShare({}), await t.engine.createShare({})];
+  for (let i = 0; i < followerConcurrency + 2; i++) {
+    const tok = i.toString(16).padStart(16, "0");
+    (await share(t, "/v1/follow", links[i % 2].token, { installation: `phone-${1000 + i}`, activityID: `a${i}`, activityToken: tok })).body?.cancel();
+  }
+  assertEquals(await t.engine.tick(), "done");
+  // The first batch always goes; the rest are left for the next tick, which starts with them.
+  const first = events(t.sent).filter((e) => e.endsWith(":update"));
+  assertEquals(first.length, followerConcurrency);
+  t.sent.length = 0;
+  t.advance(60);
+  assertEquals(await t.engine.tick(), "done");
+  const second = events(t.sent).filter((e) => e.endsWith(":update"));
+  assertEquals(new Set([...first, ...second]).size, followerConcurrency + 2);
+});
+
+Deno.test("short ticks reach every follower even when deletes keep failing and ticks are skipped", async () => {
+  const t = setup();
+  t.engine["config"].followerBudgetMs = 0;
+  // Two links run out, and their followers can't be deleted, so they stay in the list every tick.
+  // (Two of each, as one link takes at most maxFollowersPerShare.)
+  const ending = [await t.engine.createShare({ expiresIn: 600 }), await t.engine.createShare({ expiresIn: 600 })];
+  const lasting = [await t.engine.createShare({ expiresIn: 86_400 }), await t.engine.createShare({ expiresIn: 86_400 })];
+  const want = { end: new Set<string>(), update: new Set<string>() };
+  for (let i = 0; i < 12; i++) {
+    for (const [links, kind] of [[ending, "end"], [lasting, "update"]] as const) {
+      const link = links[i % 2];
+      const tok = `${kind === "end" ? "e" : "a"}${i}`.padStart(16, "0"); // hex, like a real token
+      want[kind].add(`${tok}:${kind}`);
+      (await share(t, "/v1/follow", link.token, { installation: `phone-${kind}-${i}`, activityID: `${kind}${i}`, activityToken: tok })).body?.cancel();
+    }
+  }
+  t.shares.deleteFollowers = () => Promise.reject(new Error("db down"));
+  t.advance(700);
+  const got = new Set<string>();
+  for (let tick = 0; tick < 3; tick++) {
+    assertEquals(await t.engine.tick(), "done");
+    // One batch per tick, from where the last one stopped. (An ended follower already told is
+    // visited again but sends nothing, so a batch can send fewer.)
+    assert(t.sent.length <= followerConcurrency);
+    events(t.sent).forEach((e) => got.add(e));
+    t.sent.length = 0;
+    t.advance(tick === 0 ? 3 * 3600 : 60); // a long gap, as if the scheduler skipped ticks
+  }
+  assertEquals([...got].filter((e) => e.endsWith(":end")).sort(), [...want.end].sort());
+  assertEquals([...got].filter((e) => e.endsWith(":update")).sort(), [...want.update].sort());
+});
+
+Deno.test("ticks short of time pick up where the last one stopped, so every follower gets a turn", () => {
+  // Each tick only gets through its first batch, then saves where it stopped. Ended followers
+  // whose delete keeps failing stay in the list; followers come and go between ticks.
+  let fs = Array.from({ length: 25 }, (_, i) => ({ id: `f${String(i).padStart(2, "0")}` }));
+  let cursor: string | null = null;
+  const seen = new Set<string>();
+  for (let tick = 0; tick < 3; tick++) {
+    const order: { id: string }[] = followerOrder(fs, cursor);
+    assertEquals(order.length, fs.length);
+    order.slice(0, followerConcurrency).forEach((f) => seen.add(f.id));
+    cursor = order[followerConcurrency]?.id ?? null;
+    if (tick === 0) fs = fs.filter((f) => f.id !== "f03").concat({ id: "f99" }); // one leaves, one joins
+  }
+  assertEquals(seen.size, 26);
+  // A cursor past the end wraps round.
+  assertEquals(followerOrder(fs, "zzz")[0].id, "f00");
 });
 
 Deno.test("share expiry is kept between 10 minutes and 90 days", async () => {

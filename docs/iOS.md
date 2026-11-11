@@ -65,6 +65,9 @@ At <https://developer.apple.com/account/resources/identifiers/list>:
 2. **App IDs** → **+** → App → bundle ID `au.com.declanmayo.glucos.ios`. Tick **App Groups**
    (choose the group above), **Push Notifications** and **Time Sensitive Notifications**.
 3. **App IDs** → **+** → bundle ID `au.com.declanmayo.glucos.ios.widget`. Tick **App Groups**.
+4. The Messages app, `au.com.declanmayo.glucos.ios.messages`, with **App Groups**, is registered by the
+   release job's automatic signing (the API key below is an Admin key). If an archive ever fails with
+   "No profiles for 'au.com.declanmayo.glucos.ios.messages'", register it by hand like the widget.
 
 Then in App Store Connect (<https://appstoreconnect.apple.com/apps>) → **+** → **New App**:
 iOS, name "GlucOS" (any free name; it's never public), bundle ID `au.com.declanmayo.glucos.ios`,

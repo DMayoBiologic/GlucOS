@@ -4,15 +4,22 @@ GlucOS can share your glucose live with family, the way Find My shares a locatio
 Messages, and whoever opens it sees your reading, trend and the last 3 hours, updated every minute. With
 GlucOS on their iPhone, the reading also stays on their Lock Screen and in their Dynamic Island.
 
-Messages can't host a self-updating bubble like Apple's own Live Location (there is no public API for
-it), so the live part is a Live Activity on the follower's phone, plus a live web page for anyone without
-the app.
+GlucOS is also in the Messages **+** drawer. From there it sends a live bubble that keeps updating in
+the chat for anyone with GlucOS. Messages has no public API for Apple's own Live Location bubble, which
+updates even with the app closed, so a GlucOS bubble only updates while it's on screen. The Live Activity
+on the follower's phone, and the live web page for anyone without the app, cover everything else.
 
 ## Using it
 
 - **Share**: on the iPhone, tap the people icon at the top left of the home screen, or go to Settings →
   Sharing. Choose a name to show followers and how long the link lasts (1 hour up to "until I stop"),
   then send it in Messages.
+- **Share from a chat**: in Messages, tap **+**, then **GlucOS** (under **More** the first time). Pick how
+  long it lasts and tap **Send Live Glucose**. That makes a link and puts two things in the message field:
+  the live bubble, and the plain link for anyone without GlucOS. The bubble shows your reading, trend and
+  last 3 hours. In the chat it refreshes every 30 seconds while it's on screen, and its **Follow** button
+  opens GlucOS to put the reading on the Lock Screen. On a phone without GlucOS, or on a Mac, it shows a
+  picture of the reading from when it was sent.
 - **Follow**: open the link. In a browser it shows the live view. Tap **Open in GlucOS** to follow in the
   app, which puts the reading on your Lock Screen. You don't need a LibreLinkUp account to follow. You can
   also paste a link into **Follow Someone** in Settings or on the sign-in screen.
@@ -53,6 +60,18 @@ Limits: 20 live links, 10 follower phones per link, and expiry between 10 minute
 
 The functions and migration deploy on merge, like the rest of `supabase/`. The web view deploys on merge
 through Vercel's GitHub integration (pushes that don't touch `web/` or `vercel.json` skip the build).
+
+### The Messages app
+
+`Sources/iOSMessages` is an iMessage app extension (`au.com.declanmayo.glucos.ios.messages`) embedded in the
+iPhone app. Its bubble is an `MSMessageLiveLayout` whose URL is the share's web link. Messages runs the
+extension in transcript style to draw the bubble, and the extension polls the `share` function for
+that link's snapshot. The alternate `MSMessageTemplateLayout` holds a picture rendered at send time.
+
+The extension can't read the app's Keychain, so the app copies its relay settings into the app group
+(`SharedStore.defaults`). The build also bakes the relay URL and secret into the extension's Info.plist,
+the same as the app's. Links made in Messages keep their token in the app group
+(`MessagesShareLinks`), so the app's Sharing screen can send them again.
 
 ## Privacy
 

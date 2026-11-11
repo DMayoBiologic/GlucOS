@@ -113,6 +113,9 @@ enum ShareDuration: String, CaseIterable, Identifiable, Codable {
 enum FollowLink {
     static let viewerURL = "https://gluc-os-seven.vercel.app/share/"
 
+    /// The public `share` function, in the same Supabase project as the relay and logbook sync.
+    static let serviceURL = URL(string: "https://aqlbadbyjuoruwnwyfrc.supabase.co/functions/v1/share")!
+
     static func url(token: String) -> URL? { URL(string: "\(viewerURL)#\(token)") }
 
     static func appURL(token: String) -> URL? { URL(string: "glucos://follow#\(token)") }
@@ -139,5 +142,25 @@ enum FollowLink {
     /// 32 random bytes, base64url without padding: 43 characters.
     static func isToken(_ s: String) -> Bool {
         s.count == 43 && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+    }
+}
+
+/// The words that go with a share link, in the share sheet and in Messages.
+enum ShareMessage {
+    /// The label a link gets when the owner leaves their name blank.
+    static let defaultLabel = "GlucOS"
+
+    static func text(label: String) -> String {
+        "Follow \(label == defaultLabel ? "my" : "\(label)'s") glucose live in GlucOS:"
+    }
+
+    /// "My glucose" or "Declan's glucose".
+    static func title(label: String) -> String {
+        "\(label == defaultLabel ? "My" : "\(label)'s") glucose"
+    }
+
+    static func cleanLabel(_ raw: String) -> String {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? defaultLabel : String(t.prefix(40))
     }
 }

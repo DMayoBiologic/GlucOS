@@ -30,6 +30,18 @@ export const learnFromDays = 14;
 export const readingRetentionDays = 90;
 /// Follower pushes sent at once.
 export const followerConcurrency = 10;
+/// How long one tick spends on followers before leaving the rest to the next tick, well inside the
+/// relay row's 50 s lease. A skipped follower's card is a minute late, never lost.
+export const followerBudgetMs = 25_000;
+
+/// The order a tick works through followers when it might run out of time: by id, starting from
+/// the first one the last short tick didn't reach (`cursor`), wrapping round. However the ticks go
+/// (some short, some skipped, followers coming and going), everyone gets a turn.
+export function followerOrder<F extends { id: string }>(all: F[], cursor: string | null | undefined): F[] {
+  const sorted = [...all].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const start = cursor == null ? 0 : sorted.findIndex((f) => f.id >= cursor);
+  return start <= 0 ? sorted : [...sorted.slice(start), ...sorted.slice(0, start)];
+}
 
 // MARK: - State
 
@@ -64,6 +76,8 @@ export interface Work {
   lastCard: { activityId: string; card: CardState; pushedAt: number } | null;
   /// The newest card, whether or not the owner has a Live Activity: what followers see.
   latestCard: { card: CardState; at: number } | null;
+  /// The first follower the last tick ran out of time for (`followerOrder`). Missing on old rows.
+  followerCursor?: string | null;
 }
 
 export interface RelayRow {
@@ -155,6 +169,8 @@ export interface EngineConfig {
   criticalAlerts: boolean;
   /// Share links and followers. Without it the relay serves only the owner.
   shares?: ShareStore;
+  /// Overrides `followerBudgetMs` (tests).
+  followerBudgetMs?: number;
 }
 
 export interface CreateShareRequest {
@@ -354,7 +370,7 @@ export class RelayEngine {
         }
         await this.updateActivity(row, result.card, result.notices.length > 0, now);
         if (result.card) w.latestCard = { card: result.card, at: now };
-        await this.updateFollowers(result.card, result.notices.length > 0, now);
+        await this.updateFollowers(w, result.card, result.notices.length > 0, now);
         return "done";
       });
     } finally {
@@ -451,7 +467,7 @@ export class RelayEngine {
   /// Each follower's Lock Screen card gets the same card as the owner's, by the same rules:
   /// resent when it changes or every 10 minutes, replaced before iOS's 8-hour limit, and taken
   /// down when the share expires.
-  private async updateFollowers(card: CardState | null, urgent: boolean, now: number) {
+  private async updateFollowers(w: Work, card: CardState | null, urgent: boolean, now: number) {
     const shares = this.config.shares;
     if (!shares || !this.sender) return;
     let all: Follower[];
@@ -478,8 +494,17 @@ export class RelayEngine {
         console.error("follower", f.id, e);
       }
     };
-    for (let i = 0; i < all.length; i += followerConcurrency) {
-      await Promise.all(all.slice(i, i + followerConcurrency).map(one));
+    const budget = this.config.followerBudgetMs ?? followerBudgetMs;
+    const started = Date.now();
+    const order = followerOrder(all, w.followerCursor);
+    w.followerCursor = null;
+    for (let i = 0; i < order.length; i += followerConcurrency) {
+      if (i > 0 && Date.now() - started >= budget) {
+        console.warn(`followers: ${order.length - i} left for the next tick`);
+        w.followerCursor = order[i].id;
+        break;
+      }
+      await Promise.all(order.slice(i, i + followerConcurrency).map(one));
     }
     try {
       await shares.deleteFollowers(ended);

@@ -98,15 +98,16 @@ final class FollowStore: ObservableObject {
     }
 
     func remove(_ follow: Follow) async {
+        // Recorded with the removal, before anything waits, so a quit part-way through still
+        // retries on the next launch. The token is kept until the server has let go of this
+        // phone (so it doesn't keep a follower slot, or get pushes).
+        if !pendingUnfollows.contains(follow.id) { pendingUnfollows.append(follow.id) }
         follows.removeAll { $0.id == follow.id }
         snapshots[follow.id] = nil
         errors[follow.id] = nil
         ended.remove(follow.id)
         save()
         await endActivities(for: follow.id)
-        // The token is kept until the server has let go of this phone (so it doesn't keep a
-        // follower slot, or get pushes), retrying on later launches if need be.
-        if !pendingUnfollows.contains(follow.id) { pendingUnfollows.append(follow.id) }
         await retryUnfollows()
     }
 
@@ -129,9 +130,14 @@ final class FollowStore: ObservableObject {
             } catch {
                 continue
             }
-            // Followed again while this was in flight: keep the token.
-            if !follows.contains(where: { $0.id == id }) { Keychain.delete("follow.\(id)") }
             pendingUnfollows.removeAll { $0 == id }
+            if follows.contains(where: { $0.id == id }) {
+                // Followed again while this was in flight, so the unfollow may have landed after
+                // the new registration: register again, and keep the token.
+                await register(id)
+            } else {
+                Keychain.delete("follow.\(id)")
+            }
         }
     }
 
@@ -281,6 +287,11 @@ final class FollowStore: ObservableObject {
         r.apnsEnvironment = apnsEnvironment
         r.pushToStartToken = pushToStartToken
         r.liveActivityEnabled = follows.first { $0.id == id }?.liveActivity ?? true
+        // The card already on the Lock Screen, if any, so a fresh registration keeps it live.
+        if let a = activities(for: id).last, let token = a.pushToken {
+            r.activityID = a.id
+            r.activityToken = token.hexString
+        }
         await send(r, to: id)
     }
 

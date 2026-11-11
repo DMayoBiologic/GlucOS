@@ -145,6 +145,9 @@ targets:
       - target: GlucOSiOSWidget
         embed: true
         codeSign: true
+      - target: GlucOSMessages
+        embed: true
+        codeSign: true
     info:
       path: Sources/iOS/Info.plist
       properties:
@@ -224,6 +227,55 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "Apple Development"
         ENABLE_HARDENED_RUNTIME: NO
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+
+  # The Messages app: GlucOS in the Messages "+" drawer. It sends a live bubble that shows the
+  # reading and keeps updating in the chat for anyone with GlucOS, and falls back to a picture
+  # and the web link for everyone else. See docs/Sharing.md.
+  GlucOSMessages:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.2"
+    sources:
+      - path: Sources/iOSMessages
+        excludes: ["Info.plist", "*.entitlements"]
+      - path: Sources/Shared
+      - path: Sources/Core
+      - path: Sources/Engine
+      - path: Sources/App/Keychain.swift
+      - path: Sources/App/Logbook/LogbookModels.swift
+      - path: Sources/iOS/RelayClient.swift
+      - path: Sources/iOS/Sharing/ShareClient.swift
+    info:
+      path: Sources/iOSMessages/Info.plist
+      properties:
+        CFBundleDisplayName: GlucOS
+        CFBundleName: GlucOSMessages
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.message-payload-provider
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).MessagesViewController
+        # The same relay the app uses, baked in by the release workflow (see the app's Info.plist).
+        GlucOSRelayURL: $(GLUCOS_RELAY_URL)
+        GlucOSRelaySecret: $(GLUCOS_RELAY_SECRET)
+    entitlements:
+      path: Sources/iOSMessages/GlucOSMessages.entitlements
+      properties:
+        com.apple.security.application-groups: [group.au.com.declanmayo.glucos]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: au.com.declanmayo.glucos.ios.messages
+        PRODUCT_NAME: GlucOSMessages
+        SDKROOT: iphoneos
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: "iMessage App Icon"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        ENABLE_HARDENED_RUNTIME: NO
+        GLUCOS_RELAY_URL: ""
+        GLUCOS_RELAY_SECRET: ""
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
 
 schemes:

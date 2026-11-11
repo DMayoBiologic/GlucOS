@@ -212,8 +212,9 @@
       $("offline").hidden = true;
       render();
     } catch {
-      // Keep the last reading on screen (it goes stale and says so by itself), and say why.
-      $("offline").hidden = !snap;
+      // Keep the last reading on screen (it goes stale and says so by itself), and say why. With
+      // nothing loaded yet, say so too rather than showing an empty page.
+      $("offline").hidden = false;
     }
   }
 
