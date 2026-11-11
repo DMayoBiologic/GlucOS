@@ -100,6 +100,10 @@ export class PostgresStore implements Store {
         pruneReadings: async (before) => {
           await sql`delete from glucos.readings where at < to_timestamp(${before})`;
         },
+        ownsLease: async (lease) => {
+          const rs = await sql`select tick_lease_until::text = ${lease} as ok from glucos.relay where id = 1`;
+          return rs.length > 0 && rs[0].ok === true;
+        },
       };
 
       const result = await fn(tx);

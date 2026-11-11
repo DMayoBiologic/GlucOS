@@ -94,6 +94,8 @@ export interface Tx {
   addReadings(rs: Reading[]): Promise<void>;
   clearReadings(): Promise<void>;
   pruneReadings(before: number): Promise<void>;
+  /// Whether this tick's lease is still the current one (no later tick has claimed the relay).
+  ownsLease(lease: string): Promise<boolean>;
 }
 
 export interface Store {
@@ -254,7 +256,7 @@ export class RelayEngine {
 
   // MARK: Tick
 
-  async tick(): Promise<"done" | "busy" | "no account" | "account changed"> {
+  async tick(): Promise<"done" | "busy" | "no account" | "account changed" | "superseded"> {
     const started = this.clock();
     const lease = await this.store.claimTick(started, 50);
     if (lease === null) return "busy";
@@ -275,6 +277,8 @@ export class RelayEngine {
       return await this.store.transaction(async (tx) => {
         const row = tx.row;
         if (row.accountGeneration !== before.generation) return "account changed";
+        // Overran its lease and a later tick took over: its reading and pushes would be stale.
+        if (!(await tx.ownsLease(lease))) return "superseded";
         const now = this.clock();
         const w = row.work;
         if (fetched) {

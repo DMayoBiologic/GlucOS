@@ -35,6 +35,7 @@ class MemoryStore implements Store {
         },
         clearReadings: () => { this.readings = []; return Promise.resolve(); },
         pruneReadings: (before) => { this.readings = this.readings.filter((r) => r.t >= before); return Promise.resolve(); },
+        ownsLease: (lease) => Promise.resolve(this.lease === lease),
       };
       const result = await fn(tx);
       this.row = row;
@@ -273,4 +274,15 @@ Deno.test("health needs no secret; everything else does", async () => {
   const denied = await handle(new Request("https://x.supabase.co/relay/v1/status"));
   assertEquals(denied.status, 401);
   await denied.body?.cancel();
+});
+
+Deno.test("a tick that overran its lease leaves the newer tick's state alone", async () => {
+  const t = await registered();
+  t.fetcher.mgdl = 62;
+  // While this tick waits on LibreLinkUp its lease lapses and another tick claims the relay.
+  t.fetcher.duringFetch = () => { t.store.lease = "a later tick"; return Promise.resolve(); };
+  assertEquals(await t.engine.tick(), "superseded");
+  assertEquals(t.store.lease, "a later tick");
+  assertEquals(t.sender.sent, []);
+  assertEquals((await t.engine.status()).lastReadingAt, undefined);
 });
