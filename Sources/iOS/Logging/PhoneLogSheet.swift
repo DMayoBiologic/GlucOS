@@ -29,6 +29,8 @@ struct PhoneLogSheet: View {
     @State private var insulinName: String
     /// Typing an insulin that isn't in Settings → Your insulins.
     @State private var typesInsulin = false
+    /// The injection site filled in automatically, until the user picks another.
+    @State private var autoSite: InjectionSite?
     @State private var injectionSite: InjectionSite?
     @State private var carbsText: String
     @State private var food: String
@@ -199,6 +201,19 @@ struct PhoneLogSheet: View {
             startDose()
             focusFirstField()
         }
+        .onChange(of: logbook.insulins) { _, _ in
+            // The list can arrive by sync after the sheet opened.
+            guard isNew, !typesInsulin, insulinName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let p = logbook.preferredInsulin(viaPump: viaPump) else { return }
+            kind = p.kind
+            insulinName = p.name
+        }
+        .onChange(of: time) { _, newTime in
+            // Keep an automatic site in step with the dose time; a site the user picked stays.
+            guard isNew, !viaPump, injectionSite == autoSite else { return }
+            autoSite = logbook.suggestedInjectionSite(at: newTime)
+            injectionSite = autoSite
+        }
         .onChange(of: kind) { old, new in
             // Picking another type while a saved insulin of the old type is selected.
             if let saved = logbook.savedInsulin(named: insulinName), saved.kind == old, saved.kind != new {
@@ -365,7 +380,8 @@ struct PhoneLogSheet: View {
         let name = insulinName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return false }
         guard let saved = logbook.savedInsulin(named: name) else { return true }
-        return !insulinChoices.contains(saved)
+        // An older dose whose type differs from the saved insulin's shows its own type.
+        return saved.kind != kind || !insulinChoices.contains(saved)
     }
 
     private func pick(_ insulin: SavedInsulin) {
@@ -384,7 +400,10 @@ struct PhoneLogSheet: View {
             insulinName = p.name
             typesInsulin = false
         }
-        if !viaPump, injectionSite == nil { injectionSite = logbook.leastRecentInjectionSite }
+        if !viaPump, injectionSite == nil {
+            autoSite = logbook.suggestedInjectionSite(at: time)
+            injectionSite = autoSite
+        }
     }
 
     // MARK: Parts
@@ -444,7 +463,8 @@ struct PhoneLogSheet: View {
                             }
                             Button {
                                 typesInsulin = true
-                                insulinName = ""
+                                // An edited dose keeps its name until the user changes it.
+                                if isNew { insulinName = "" }
                                 Haptics.tap()
                             } label: {
                                 Label("Other", systemImage: "pencil")
@@ -480,7 +500,7 @@ struct PhoneLogSheet: View {
                 }
                 .dsFont(.callout)
             } else {
-                PhoneInjectionSitePicker(selection: $injectionSite)
+                PhoneInjectionSitePicker(selection: $injectionSite, at: time)
             }
         }
     }
@@ -957,11 +977,13 @@ private struct PhoneAmountField: View {
 /// days says so, to help with rotation.
 private struct PhoneInjectionSitePicker: View {
     @Binding var selection: InjectionSite?
+    /// When the dose is: only injections before it count.
+    var at: Date = .distantFuture
     @EnvironmentObject var logbook: LogbookStore
 
     var body: some View {
-        let last = logbook.lastInjectionBySite
-        let suggested = logbook.leastRecentInjectionSite
+        let last = logbook.lastInjectionBySite(before: at)
+        let suggested = SiteRotation.suggestion(lastUse: last)
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Injection site").dsFont(.label).foregroundStyle(.secondary)

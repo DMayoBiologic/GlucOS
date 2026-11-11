@@ -112,6 +112,20 @@ final class InsulinLibraryTests: XCTestCase {
         XCTAssertNil(state.pending[id])
     }
 
+    func testTheSameInsulinUnderTwoIDsEndsUpOnceEverywhere() {
+        let a = SavedInsulin(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, name: "Fiasp", kind: .ultraRapid)
+        let b = SavedInsulin(id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!, name: "fiasp", kind: .ultraRapid)
+        func record(_ i: SavedInsulin, rev: Int64) -> LogbookRecord {
+            LogbookRecord(id: i.id, kind: "insulin", payload: LogbookMerge.json(i), deleted: false, modified: 10, rev: rev)
+        }
+        var first = LogbookContents(insulins: [a]), second = LogbookContents(insulins: [b])
+        var s1 = LogbookSyncState(userID: "u1"), s2 = LogbookSyncState(userID: "u1")
+        LogbookMerge.apply([record(b, rev: 1)], to: &first, state: &s1)
+        LogbookMerge.apply([record(a, rev: 2)], to: &second, state: &s2)
+        XCTAssertEqual(first.insulins, [a])
+        XCTAssertEqual(second.insulins, [a])
+    }
+
     // MARK: Site rotation
 
     func testSuggestsTheSiteUsedLongestAgoInAreasInUse() {

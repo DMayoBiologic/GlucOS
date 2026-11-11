@@ -269,7 +269,15 @@ enum LogbookMerge {
         switch kind {
         case .insulin:
             guard let i = decode(SavedInsulin.self, from: payload) else { return false }
-            if let at = c.insulins.firstIndex(where: { $0.id == i.id }) { c.insulins[at] = i } else { c.insulins.append(i) }
+            if let at = c.insulins.firstIndex(where: { $0.id == i.id }) {
+                c.insulins[at] = i
+            } else if let other = c.insulins.firstIndex(where: { $0.key == i.key }) {
+                // The same insulin saved under two ids (e.g. renamed on one device while the other
+                // added the new name). Every device keeps the one with the smaller id.
+                if i.id.uuidString < c.insulins[other].id.uuidString { c.insulins[other] = i }
+            } else {
+                c.insulins.append(i)
+            }
         case .dose:
             guard let d = decode(InsulinDose.self, from: payload) else { return false }
             insertSorted(d, into: &c.doses)

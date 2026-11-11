@@ -95,7 +95,12 @@ final class LogbookStore: ObservableObject {
     /// Adds the entry, or replaces the one with the same id.
     func save(_ entry: LogEntry) {
         var entry = entry
-        if case .dose(let d) = entry { entry = .dose(rememberInsulin(of: d)) }
+        if case .dose(let d) = entry {
+            // Only a new name is added to the list: editing an old dose's note mustn't bring back
+            // an insulin the user deleted.
+            let before = doses.first { $0.id == d.id }
+            entry = .dose(rememberInsulin(of: d, addIfMissing: before.map { InsulinLibrary.key($0.name) != InsulinLibrary.key(d.name) } ?? true))
+        }
         upsert(entry)
         touch(entry.id, kind: entry.recordKind)
         persist()
@@ -222,13 +227,13 @@ final class LogbookStore: ObservableObject {
 
     /// A dose logged by hand: written with its insulin's saved spelling, and a name that isn't
     /// saved yet is added to the list so it's one tap next time.
-    private func rememberInsulin(of dose: InsulinDose) -> InsulinDose {
+    private func rememberInsulin(of dose: InsulinDose, addIfMissing: Bool) -> InsulinDose {
         var d = dose
         d.name = d.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !d.name.isEmpty else { return d }
         if let saved = savedInsulin(named: d.name) {
             d.name = saved.name
-        } else {
+        } else if addIfMissing {
             var new = SavedInsulin(name: d.name, kind: d.kind)
             // Renamed insulins keep their old id, so a new name can land on a taken one.
             if insulins.contains(where: { $0.id == new.id }) { new.id = UUID() }
@@ -398,12 +403,20 @@ final class LogbookStore: ObservableObject {
     }
 
     /// Most recent injection at each site (injections only), for rotation.
-    var lastInjectionBySite: [InjectionSite: Date] {
+    var lastInjectionBySite: [InjectionSite: Date] { lastInjectionBySite(before: .distantFuture) }
+
+    /// Same, counting only injections before `date` (for a dose logged at an earlier time).
+    func lastInjectionBySite(before date: Date) -> [InjectionSite: Date] {
         var out: [InjectionSite: Date] = [:]
-        for d in doses where !d.viaPump {
+        for d in doses where !d.viaPump && d.timestamp < date {
             if let s = d.site { out[s] = d.timestamp }
         }
         return out
+    }
+
+    /// The site to suggest for an injection at `date`.
+    func suggestedInjectionSite(at date: Date) -> InjectionSite? {
+        SiteRotation.suggestion(lastUse: lastInjectionBySite(before: date))
     }
 
     var lastInjectionSite: InjectionSite? {
