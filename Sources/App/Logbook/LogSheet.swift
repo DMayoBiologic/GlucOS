@@ -217,6 +217,7 @@ struct LogSheet: View {
         }
         .onChange(of: time) { _, _ in dropSuggestionIfStale() }
         .onChange(of: includeFood) { _, _ in dropSuggestionIfStale() }
+        .onChange(of: includeInsulin) { _, _ in dropSuggestionIfStale() }
         .sheet(isPresented: $showsFoodPicker) {
             FoodPickerView(onAdd: { item in addItem(item) }, onClose: { showsFoodPicker = false })
                 .environmentObject(logbook)
@@ -731,6 +732,11 @@ struct LogSheet: View {
 
     private func commit() {
         guard canSave else { return }
+        // Checked again here: the confirm step can sit open past the calculator's window.
+        if showsInsulin && includeInsulin && usedSuggestion != nil && !suggestionStillApplies {
+            dropSuggestionIfStale()
+            return
+        }
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
         let logsInsulin = showsInsulin && includeInsulin
         let logsFood = showsFood && includeFood

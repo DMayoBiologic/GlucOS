@@ -788,6 +788,11 @@ struct PhoneLogSheet: View {
 
     private func commit() {
         guard canSave else { return }
+        // Checked again here: the confirm step can sit open past the calculator's window.
+        if includes(.insulin) && usedSuggestion != nil && !suggestionStillApplies {
+            dropSuggestionIfStale()
+            return
+        }
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
         let logsInsulin = includes(.insulin)
         let logsFood = includes(.food)
