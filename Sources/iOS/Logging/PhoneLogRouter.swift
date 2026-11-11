@@ -34,11 +34,16 @@ final class PhoneLogRouter: ObservableObject {
         request = PhoneLogRequest(target: .edit(entry))
     }
 
-    /// `glucos://log`, `glucos://log/food`, `glucos://log?part=insulin`. True when the URL was a log link.
+    /// `glucos://log`, `glucos://log/food`, `glucos://log?part=insulin`; `glucos://log/wake` logs a
+    /// wake-up straight away. True when the URL was a log link.
     @discardableResult
     func handle(_ url: URL) -> Bool {
         guard url.scheme == "glucos", url.host == "log" else { return false }
         let fromPath = url.pathComponents.dropFirst().first
+        if fromPath == "wake" {
+            PhoneWakeLogger.shared.quickLog()
+            return true
+        }
         let fromQuery = URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "part" }?.value
         open((fromPath ?? fromQuery).flatMap(PhoneLogPart.init(rawValue:)))

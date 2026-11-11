@@ -224,7 +224,7 @@ struct LogInsights {
     static func tags(around start: Date, through end: Date, in contexts: [ContextEvent]) -> Set<ContextTag> {
         var out = Set<ContextTag>()
         for c in contexts where c.timestamp <= end {
-            for tag in c.tags where tag != .hypoTreatment && c.timestamp >= start.addingTimeInterval(-tag.reach) {
+            for tag in c.tags where tag != .hypoTreatment && tag.affectsResponses && c.timestamp >= start.addingTimeInterval(-tag.reach) {
                 out.insert(tag)
             }
         }

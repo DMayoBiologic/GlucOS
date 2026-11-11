@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             forEventClass: AEEventClass(kInternetEventClass),
             andEventID: AEEventID(kAEGetURL)
         )
+        // The first use of the Mac each morning is offered as the wake-up time.
+        MacWakeWatcher.shared.start()
     }
 
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {

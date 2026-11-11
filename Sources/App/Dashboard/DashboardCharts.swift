@@ -111,7 +111,7 @@ struct TrendChart: View {
             switch e.kind {
             case .bolus, .basal: return showInsulin
             case .food: return showFood
-            case .context: return showContext
+            case .context, .wake: return showContext
             case .siteChange: return showSites
             }
         }
@@ -569,10 +569,23 @@ private struct EventMarks: ChartContent {
         let insulin = events.filter { $0.kind == .bolus || $0.kind == .basal }
         let food = events.filter { $0.kind == .food || $0.kind == .context }
         let siteChanges = events.filter { $0.kind == .siteChange }
+        let wakes = events.filter { $0.kind == .wake }
         ForEach(siteChanges) { e in
             RuleMark(x: .value("Time", e.date))
                 .foregroundStyle(ChartEvent.Kind.siteChange.color.opacity(0.55))
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
+        // A wake-up marks the start of the morning: a faint line with a sunrise at the top.
+        ForEach(wakes) { e in
+            RuleMark(x: .value("Time", e.date))
+                .foregroundStyle(ChartEvent.Kind.wake.color.opacity(0.45))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                .annotation(position: .top, spacing: 0) {
+                    Image(systemName: ChartEvent.Kind.wake.systemImage)
+                        .dsFont(.caption)
+                        .foregroundStyle(ChartEvent.Kind.wake.color)
+                        .accessibilityLabel("Woke up")
+                }
         }
         ForEach(insulin) { e in
             PointMark(x: .value("Time", e.date), y: .value("Glucose", insulinY))
@@ -1034,7 +1047,7 @@ extension GlucoseAnalytics {
 /// A logged dose, meal or site change, ready to plot.
 struct ChartEvent: Identifiable, Hashable {
     enum Kind: Hashable {
-        case bolus, basal, food, siteChange, context
+        case bolus, basal, food, siteChange, context, wake
 
         var color: Color {
             switch self {
@@ -1042,7 +1055,7 @@ struct ChartEvent: Identifiable, Hashable {
             case .basal: return Palette.brand
             case .food: return Palette.food
             case .siteChange: return Palette.site
-            case .context: return Palette.context
+            case .context, .wake: return Palette.context
             }
         }
 
@@ -1052,6 +1065,7 @@ struct ChartEvent: Identifiable, Hashable {
             case .food: return "fork.knife"
             case .siteChange: return "arrow.triangle.2.circlepath"
             case .context: return "tag"
+            case .wake: return ContextTag.wokeUp.systemImage
             }
         }
 
@@ -1062,6 +1076,7 @@ struct ChartEvent: Identifiable, Hashable {
             case .food: return "Food"
             case .siteChange: return "Site change"
             case .context: return "Context"
+            case .wake: return ContextTag.wokeUp.title
             }
         }
     }
@@ -1080,7 +1095,7 @@ struct ChartEventLegend: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            ForEach([ChartEvent.Kind.bolus, .basal, .food, .siteChange, .context].filter { kinds.contains($0) }, id: \.self) { k in
+            ForEach([ChartEvent.Kind.bolus, .basal, .food, .siteChange, .context, .wake].filter { kinds.contains($0) }, id: \.self) { k in
                 Label(k.title, systemImage: k.systemImage)
                     .foregroundStyle(k.color)
             }

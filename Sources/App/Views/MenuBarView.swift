@@ -79,6 +79,9 @@ struct MenuBarView: View {
             }
             PopoverNotices(notices: notices)
                 .accessibilitySortPriority(3)
+            if PopoverWakePrompt.isRelevant(logbook: logbook) {
+                PopoverWakePrompt()
+            }
             if s.current != nil {
                 PopoverChartCard(showsShortcuts: commandKey.isHeld)
                 PopoverSummaryCard(expanded: detailsExpanded, showsShortcuts: commandKey.isHeld,

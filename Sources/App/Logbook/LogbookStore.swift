@@ -326,7 +326,7 @@ extension LogbookStore {
         }
         for c in contexts where domain.contains(c.timestamp) && !c.tags.isEmpty {
             let titles = c.sortedTags.map(\.title).joined(separator: ", ")
-            out.append(ChartEvent(id: c.id, date: c.timestamp, kind: .context,
+            out.append(ChartEvent(id: c.id, date: c.timestamp, kind: c.isWake ? .wake : .context,
                                   label: c.sortedTags.first?.title ?? "", detail: titles))
         }
         for s in siteChanges where domain.contains(s.timestamp) {

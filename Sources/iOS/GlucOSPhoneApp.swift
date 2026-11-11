@@ -19,6 +19,7 @@ struct GlucOSPhoneApp: App {
         store.logbook = logbook
         _store = StateObject(wrappedValue: store)
         _logbook = StateObject(wrappedValue: logbook)
+        PhoneWakeLogger.shared.logbook = logbook
         let sync = LogbookSyncService(logbook: logbook, settings: store.settings, device: "iPhone")
         _logbookSync = StateObject(wrappedValue: sync)
         let follows = FollowStore()
@@ -47,13 +48,18 @@ struct GlucOSPhoneApp: App {
                     if let token = FollowLink.token(from: url) {
                         Task { await follows.open(token: token) }
                     } else {
-                        // glucos://log opens the log sheet (Lock Screen widget, Dynamic Island, links).
+                        // glucos://log opens the log sheet (Lock Screen widget, Dynamic Island, links);
+                        // glucos://log/wake logs a wake-up.
                         PhoneLogRouter.shared.handle(url)
                         Task { await store.refresh() }
                     }
                 }
         }
-        .onChange(of: scenePhase) { _, phase in services.scenePhaseChanged(phase) }
+        .onChange(of: scenePhase) { _, phase in
+            services.scenePhaseChanged(phase)
+            // The first use of the morning is offered as the wake-up time.
+            if phase == .active { PhoneWakeLogger.shared.noteActive() }
+        }
     }
 }
 

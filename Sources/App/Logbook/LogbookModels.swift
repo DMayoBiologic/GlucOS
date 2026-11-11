@@ -173,6 +173,9 @@ struct SiteChange: Codable, Identifiable, Hashable {
 /// aside from the main insights (or shown on their own), so they don't skew the typical figures.
 enum ContextTag: String, CaseIterable, Identifiable, Codable {
     case exercise, illness, alcohol, stress, period, hypoTreatment, siteProblem
+    /// When the user woke up. A marker, not something that skews examples: GlucOS learns the
+    /// user's usual post-wake rise from it (`MorningPatternLearner`).
+    case wokeUp
 
     var id: String { rawValue }
 
@@ -185,6 +188,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .period: return "Period"
         case .hypoTreatment: return "Hypo treatment"
         case .siteProblem: return "Site or delivery problem"
+        case .wokeUp: return "Woke up"
         }
     }
 
@@ -197,6 +201,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .period: return "calendar.circle"
         case .hypoTreatment: return "cube"
         case .siteProblem: return "bandage"
+        case .wokeUp: return "sunrise"
         }
     }
 
@@ -209,6 +214,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .period: return "Insulin needs often shift across the menstrual cycle."
         case .hypoTreatment: return "Fast sugar taken for a low. Counted like food."
         case .siteProblem: return "A bent cannula, leak or bad site means insulin may not have gone in properly."
+        case .wokeUp: return "When you got up. Glucose often rises after waking; GlucOS learns how yours moves."
         }
     }
 
@@ -218,7 +224,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .exercise: return 6 * 3600
         case .alcohol: return 12 * 3600
         case .illness, .stress, .period: return 24 * 3600
-        case .hypoTreatment, .siteProblem: return 0
+        case .hypoTreatment, .siteProblem, .wokeUp: return 0
         }
     }
 
@@ -226,9 +232,13 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
     var isComparable: Bool {
         switch self {
         case .exercise, .illness, .alcohol, .stress, .period: return true
-        case .hypoTreatment, .siteProblem: return false
+        case .hypoTreatment, .siteProblem, .wokeUp: return false
         }
     }
+
+    /// Tags that change how glucose responds, so examples near them are set aside or segmented.
+    /// A wake-up only marks a time.
+    var affectsResponses: Bool { self != .wokeUp }
 }
 
 /// Context logged at a time, on its own or alongside a dose or meal.
@@ -240,6 +250,9 @@ struct ContextEvent: Codable, Identifiable, Hashable {
 
     /// Tags in a stable order for display.
     var sortedTags: [ContextTag] { ContextTag.allCases.filter(tags.contains) }
+
+    /// Marks when the user woke up.
+    var isWake: Bool { tags.contains(.wokeUp) }
 }
 
 /// One row in the logbook, whatever its type.

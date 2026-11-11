@@ -65,3 +65,53 @@ struct LogShortcutView: View {
         }
     }
 }
+
+/// A Lock Screen button that logs "Woke up" in one tap (`glucos://log/wake`). GlucOS opens, logs
+/// it (or says it's already logged) and offers Undo and Change.
+struct WakeShortcutWidget: Widget {
+    let kind = "au.com.declanmayo.glucos.wake"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: LogShortcutProvider()) { _ in
+            WakeShortcutView()
+                .containerBackground(for: .widget) { Color.clear }
+                .widgetURL(URL(string: "glucos://log/wake"))
+        }
+        .configurationDisplayName("Woke Up")
+        .description("Log when you wake up, so GlucOS can learn your mornings.")
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
+    }
+}
+
+struct WakeShortcutView: View {
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        switch family {
+        case .accessoryCircular:
+            ZStack {
+                AccessoryWidgetBackground()
+                VStack(spacing: 1) {
+                    Image(systemName: "sunrise.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Up")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+            }
+            .widgetAccentable()
+            .accessibilityLabel("Log wake-up in GlucOS")
+        default:
+            HStack(spacing: 8) {
+                Image(systemName: "sunrise.fill")
+                    .font(.system(size: 24, weight: .semibold))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Woke up").font(.headline)
+                    Text("Tap to log it").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .widgetAccentable()
+            .accessibilityElement(children: .combine)
+        }
+    }
+}

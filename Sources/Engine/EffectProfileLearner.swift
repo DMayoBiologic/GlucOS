@@ -140,7 +140,7 @@ enum EffectProfileLearner {
             .sorted { $0.meal.date < $1.meal.date }
         let untimedFood = (meals.filter { $0.carbs <= 0 }.map(\.timestamp)
             + contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)).sorted()
-        let tagged = contexts.filter { !$0.tags.subtracting([.hypoTreatment]).isEmpty }
+        let tagged = contexts.filter { c in c.tags.contains { $0 != .hypoTreatment && $0.affectsResponses } }
 
         // Start on a half-hour boundary.
         let startSeconds = (max(from, firstReading).timeIntervalSince1970 / interval).rounded(.up) * interval
@@ -160,7 +160,7 @@ enum EffectProfileLearner {
             // Exercise, illness, alcohol… or a delivery problem.
             if tagged.contains(where: { c in
                 c.tags.contains { tag in
-                    if tag == .hypoTreatment { return false }
+                    if tag == .hypoTreatment || !tag.affectsResponses { return false }
                     if tag == .siteProblem {
                         return c.timestamp >= t0.addingTimeInterval(-6 * 3600) && c.timestamp <= t1.addingTimeInterval(6 * 3600)
                     }

@@ -104,3 +104,29 @@ struct OutlookSummaryRow: View {
         }
     }
 }
+
+// MARK: - Mornings
+
+extension MorningConfidence {
+    var tone: Tone {
+        switch self {
+        case .high: return .success
+        case .moderate: return .info
+        case .low: return .neutral
+        }
+    }
+}
+
+enum MorningFormat {
+    /// "Includes your usual rise after waking (woke 6:41 am): about +1.2 mmol/L by the end of the
+    /// forecast. Moderate confidence."
+    static func todayLine(_ m: MorningAdjustmentSnapshot, unit: GlucoseUnit) -> String {
+        let woke = "woke \(ClockLabel.time(m.wokeAt))"
+        guard abs(m.addedMgdl) >= 1 else {
+            return "Includes your usual post-wake change (\(woke)), which is small from here. \(m.confidence.title)."
+        }
+        let sign = m.addedMgdl > 0 ? "+" : "−"
+        let kind = m.addedMgdl > 0 ? "rise" : "fall"
+        return "Includes your usual \(kind) after waking (\(woke)): about \(sign)\(unit.format(mgdl: abs(m.addedMgdl), withUnit: true)) by the end of the forecast. \(m.confidence.title)."
+    }
+}
