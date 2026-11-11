@@ -1,26 +1,105 @@
 import SwiftUI
 
-/// Sign in first; after that, the glucose screen. A phone that only follows other people's
-/// shared readings shows those instead.
+/// How this phone uses GlucOS, chosen on the welcome screen.
+enum PhoneMode: String {
+    /// Not chosen yet: the welcome screen.
+    case unset = ""
+    /// Wears a sensor: signs in with LibreLinkUp and gets the whole app.
+    case sensor
+    /// Only follows other people's shared readings: no account, no logging, no alerts of its own.
+    case follower
+}
+
+/// The welcome screen first (I wear a sensor / I'm following someone); then the glucose screen
+/// once signed in, or the people this phone follows.
 struct PhoneRootView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var follows: FollowStore
+    @AppStorage("phoneMode") private var mode: PhoneMode = .unset
 
     var body: some View {
         Group {
             if settings.hasCredentials {
                 PhoneHomeView()
-            } else if follows.isFollowing {
+            } else if mode == .follower || (mode == .unset && follows.isFollowing) {
+                // Opening a share link before choosing counts as choosing to follow.
                 FollowingHomeView()
+            } else if mode == .sensor {
+                NavigationStack { PhoneSignInView(onFollowInstead: { mode = .follower }) }
             } else {
-                NavigationStack { PhoneSignInView() }
+                PhoneWelcomeView(mode: $mode)
             }
         }
+        .animation(.default, value: mode)
         .alert(follows.notice ?? "", isPresented: Binding(get: { follows.notice != nil },
                                                           set: { if !$0 { follows.notice = nil } })) {
             Button("OK") { follows.notice = nil }
         }
+    }
+}
+
+/// The first screen of a new install: wearing a sensor, or following someone who does.
+struct PhoneWelcomeView: View {
+    @Binding var mode: PhoneMode
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.xl) {
+                VStack(alignment: .leading, spacing: DS.Space.sm) {
+                    Image(systemName: "drop.fill")
+                        .font(.system(size: 40, weight: .semibold))
+                        .foregroundStyle(Palette.brandGradient)
+                    Text("Welcome to GlucOS").dsFont(.title)
+                    Text("Live glucose on your Lock Screen, with alerts that reach you even when the app is closed.")
+                        .dsFont(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, DS.Space.xxxl)
+
+                choice(title: "I wear a sensor",
+                       detail: "Sign in with your LibreLinkUp follower account to see your readings, log insulin and food, get alerts, and share live with family.",
+                       systemImage: "sensor.tag.radiowaves.forward.fill") { mode = .sensor }
+                choice(title: "I'm following someone",
+                       detail: "No sensor or account needed. Open the GlucOS link someone sent you to see their glucose live, on your Lock Screen, with their alerts.",
+                       systemImage: "person.2.wave.2.fill") { mode = .follower }
+
+                Text("Not a medical device. Confirm readings and alerts with the sensor app before acting.")
+                    .dsFont(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, DS.Space.xl)
+            .padding(.bottom, DS.Space.xxl)
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
+        }
+        .background { PhoneBackdrop(tone: .glucose(.inRange)) }
+    }
+
+    private func choice(title: String, detail: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: DS.Space.md) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(Palette.brandGradient)
+                    .frame(width: 32)
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    Text(title).dsFont(.headline).foregroundStyle(.primary)
+                    Text(detail).dsFont(.callout).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            }
+            .padding(DS.Space.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background { DSSurface(style: .standard, radius: DS.Radius.card) }
+        }
+        .buttonStyle(PressScaleStyle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
 

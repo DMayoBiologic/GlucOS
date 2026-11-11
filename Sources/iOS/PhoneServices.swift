@@ -131,6 +131,7 @@ final class PhoneServices: ObservableObject {
     func deviceTokenArrived(_ token: String) {
         UserDefaults.standard.set(token, forKey: "apnsDeviceToken")
         pushRegistrationError = nil
+        follows?.deviceTokenArrived(token)
         Task { await syncRelay() }
     }
 
@@ -154,6 +155,7 @@ final class PhoneServices: ObservableObject {
 
     /// Sends the relay everything it needs, if anything changed since the last time.
     func syncRelay(force: Bool = false) async {
+        await claimRelayIfOwner()
         guard relaySettings.isConfigured else {
             relayStatus = nil
             relayError = nil
@@ -175,6 +177,30 @@ final class PhoneServices: ObservableObject {
         }
         guard force || r != lastRegistration || relayStatus == nil else { return }
         if await send(r) { lastRegistration = r }
+    }
+
+    /// The last claim tried: which login, when, and whether the relay said it isn't its account.
+    private var lastClaim: (login: String, at: Date, notOwner: Bool)?
+
+    /// The app doesn't carry the relay's secret, since anyone can install it from TestFlight. A
+    /// phone signed in to the same LibreLinkUp account the relay fetches with is the owner's, and
+    /// the relay gives it the secret. Anyone else's phone (a follower's, or someone with their own
+    /// sensor) never gets it, so it can't sign the owner's relay out or take it over.
+    private func claimRelayIfOwner() async {
+        let s = store.settings
+        guard !relaySettings.isConfigured, let url = relaySettings.url, s.hasCredentials else { return }
+        let login = "\(s.email.lowercased())\n\(s.password)"
+        if let last = lastClaim, last.login == login,
+           last.notOwner || Date().timeIntervalSince(last.at) < 5 * 60 { return }
+        switch await RelayClient.claim(baseURL: url, email: s.email, password: s.password) {
+        case .secret(let secret):
+            lastClaim = nil
+            relaySettings.secret = secret
+        case .notOwner:
+            lastClaim = (login, Date(), true)
+        case .unavailable:
+            lastClaim = (login, Date(), false)
+        }
     }
 
     @discardableResult

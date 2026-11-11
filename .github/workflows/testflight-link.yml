@@ -1,0 +1,32 @@
+name: TestFlight public link
+
+# Apple only lets the external group's public link turn on once a build has passed Beta App
+# Review, which happens hours after the release that submitted it. This checks every few hours
+# and switches it on, then prints the link in the run summary. Once it's on, each run is a quick
+# no-op. See docs/TestFlight.md.
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  link:
+    runs-on: ubuntu-latest
+    env:
+      KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.KEY_P8 != ''
+        with:
+          persist-credentials: false
+      - name: Turn on the public link
+        if: env.KEY_P8 != ''
+        run: |
+          pip install --quiet 'pyjwt[crypto]==2.10.1'
+          python3 scripts/testflight_external.py --link-only

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GlucOS privacy</title>
+<meta name="description" content="What GlucOS stores, where, and how to remove it.">
+<meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<!-- The privacy policy linked from TestFlight's test information and the app's Settings. Keep it
+     in step with what the app, the relay and the share function actually do (docs/Sharing.md,
+     docs/LogbookSync.md, docs/iOS.md). -->
+<style>
+  :root { --bg: #f2f2f7; --card: #ffffff; --text: #1c1c1e; --muted: #6e6e73; --line: rgba(60,60,67,.14); --brand: #2563EB; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b1220; --card: #141c2e; --text: #f5f5f7; --muted: #a1a1aa; --line: rgba(255,255,255,.10); --brand: #60A5FA; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    padding: max(24px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom));
+  }
+  main { max-width: 680px; margin: 0 auto; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 8px 0 4px; }
+  h2 { font-size: 18px; margin: 28px 0 8px; }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 4px 18px 14px; margin-top: 16px; }
+  ul { padding-left: 20px; margin: 8px 0; }
+  li { margin: 6px 0; }
+  a { color: var(--brand); }
+</style>
+</head>
+<body>
+<main>
+  <h1>GlucOS privacy</h1>
+  <p class="muted">Updated 11 November 2026</p>
+
+  <p>GlucOS is a personal project, not a company. It shows glucose readings from a FreeStyle Libre
+  sensor through Abbott's LibreLinkUp service. It has no ads and no analytics, and it never sells
+  or shares your data with anyone for marketing.</p>
+
+  <section>
+    <h2>If you wear a sensor</h2>
+    <ul>
+      <li><strong>Your LibreLinkUp login</strong> stays in your iPhone's Keychain. GlucOS uses it to
+      fetch your readings from LibreLinkUp.</li>
+      <li><strong>Readings</strong> are kept on your devices for up to 90 days so charts and
+      time-in-range work.</li>
+      <li><strong>Logbook sync.</strong> Insulin, food, site changes and events you log are stored in
+      the GlucOS database (Supabase, in the cloud) so they sync between your Mac and iPhone. Your
+      login is checked with Abbott once to set this up and isn't kept. Each person can only reach
+      their own entries.</li>
+      <li><strong>Push service.</strong> Only on the developer's own iPhone, a server checks
+      LibreLinkUp every minute and sends alerts and Lock Screen updates through Apple Push
+      Notifications. It keeps that one account's login encrypted and up to 90 days of its
+      readings. Other people's logins are never sent to it.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Sharing and following</h2>
+    <ul>
+      <li>A <strong>share link</strong> lets anyone who has it see the sharer's current reading,
+      trend and last 3 hours. The database keeps only a fingerprint (hash) of the link, not the
+      link itself. Links can expire, and the sharer can stop one at any time.</li>
+      <li>If you <strong>follow</strong> someone, your iPhone sends the share service a random
+      install ID and Apple push tokens, so their reading can stay on your Lock Screen and their
+      alerts can reach you. You don't need an account, and no name, email or phone number is
+      collected. Stopping following deletes this.</li>
+      <li>Opening a link in a browser sends the link only to the GlucOS share service, never to the
+      web server that hosts the page.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Apple and TestFlight</h2>
+    <p>If you test GlucOS through TestFlight, Apple shares with the developer what TestFlight
+    always does: your name or email as you joined, crash reports and any feedback you send. See
+    Apple's TestFlight terms for details.</p>
+  </section>
+
+  <section>
+    <h2>Removing your data</h2>
+    <ul>
+      <li>Sign out in Settings, or delete the app, to remove your login and readings from your phone.</li>
+      <li>Stop sharing a link, or stop following someone, to delete its records straight away.</li>
+      <li>To have your synced logbook deleted, open an issue on
+      <a href="https://github.com/DMayoBiologic/GlucOS/issues">GitHub</a> or reply to the TestFlight
+      feedback. It's deleted within 30 days.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Not a medical device</h2>
+    <p>GlucOS is not a medical device and doesn't give treatment advice. Readings and alerts can be
+    delayed or missed. Always confirm with your sensor app or meter before acting.</p>
+  </section>
+</main>
+</body>
+</html>

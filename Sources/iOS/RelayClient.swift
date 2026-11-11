@@ -1,7 +1,10 @@
 import Foundation
 
-/// Where the push relay is and the secret it wants. Defaults come from the build (the release
-/// workflow bakes in the repo's RELAY_URL and RELAY_SECRET), and can be changed in Settings.
+/// Where the push relay is and the secret it wants. The address comes from the build (the release
+/// workflow bakes in the repo's RELAY_URL). The secret never does, because anyone with the public
+/// TestFlight link can install the app: the owner's phone claims it from the relay by signing in
+/// with the LibreLinkUp account the relay uses (`PhoneServices.claimRelayIfOwner`), or it's typed
+/// in Settings. Either way it can be changed in Settings.
 ///
 /// The app also copies its settings into the app group, so the Messages app (which can't read
 /// the app's Keychain or defaults) makes share links with the same relay. The relay secret is in
@@ -19,7 +22,9 @@ final class RelaySettings: ObservableObject {
         }
     }
     var secret: String {
-        get { Keychain.get("relaySecret") ?? group.string(forKey: "relaySecret") ?? Self.builtIn("GlucOSRelaySecret") ?? "" }
+        // Never built into the app: anyone with the TestFlight link can install it. The owner's
+        // phone claims it from the relay (`RelayClient.claim`), or it's typed in Settings.
+        get { Keychain.get("relaySecret") ?? group.string(forKey: "relaySecret") ?? "" }
         set {
             if newValue.isEmpty {
                 Keychain.delete("relaySecret")
@@ -86,6 +91,30 @@ struct RelayClient {
         cfg.timeoutIntervalForRequest = 15
         return URLSession(configuration: cfg)
     }()
+
+    enum ClaimResult {
+        case secret(String)
+        /// Signed in to a different LibreLinkUp account than the relay's: this isn't the owner's phone.
+        case notOwner
+        /// Try again later (too many tries, no account on the relay yet, offline).
+        case unavailable
+    }
+
+    /// The relay's secret, for a phone signed in to the LibreLinkUp account the relay fetches with.
+    static func claim(baseURL: URL, email: String, password: String) async -> ClaimResult {
+        var req = URLRequest(url: baseURL.appendingPathComponent("v1/claim"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["email": email, "password": password])
+        guard let (data, resp) = try? await session.data(for: req) else { return .unavailable }
+        switch (resp as? HTTPURLResponse)?.statusCode ?? 0 {
+        case 200:
+            let secret = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["secret"] as? String
+            return secret.map { .secret($0) } ?? .unavailable
+        case 403: return .notOwner
+        default: return .unavailable
+        }
+    }
 
     func register(_ registration: RelayRegistration) async throws -> RelayStatus {
         try await call("v1/register", method: "POST", body: try JSONEncoder().encode(registration))

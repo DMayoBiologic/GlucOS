@@ -69,6 +69,10 @@ struct FollowRegistration: Codable, Hashable {
     var activityToken: String?
     var endedActivityID: String?
     var liveActivityEnabled: Bool?
+    /// The phone's APNs device token, for the owner's alerts.
+    var deviceToken: String?
+    /// Send this phone the owner's glucose alerts.
+    var alertsEnabled: Bool?
 
     init(installation: String) { self.installation = installation }
 }
@@ -78,6 +82,8 @@ struct FollowStatus: Codable, Hashable {
     var label: String
     var expiresAt: Double?
     var liveActivityEnabled: Bool
+    /// Missing from relays older than follower alerts.
+    var alertsEnabled: Bool?
 }
 
 /// How long a new share link lasts.

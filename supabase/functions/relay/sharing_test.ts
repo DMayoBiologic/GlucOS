@@ -352,3 +352,65 @@ Deno.test("share expiry is kept between 10 minutes and 90 days", async () => {
   assertEquals((await t.engine.createShare({ expiresIn: 1 })).share.expiresAt, t.clock() + 600);
   assertEquals((await t.engine.createShare({ expiresIn: 1e9 })).share.expiresAt, t.clock() + 90 * 86_400);
 });
+
+Deno.test("a follower who wants alerts gets the owner's low alert, named for them", async () => {
+  const t = setup();
+  const { token, share: s } = await t.engine.createShare({ label: "Declan" });
+  (await share(t, "/v1/follow", token, { installation: "phone-1234", deviceToken: "aaaabbbbccccdddd" })).body?.cancel();
+  (await share(t, "/v1/follow", token, {
+    installation: "phone-5678", deviceToken: "1111222233334444", alertsEnabled: false,
+  })).body?.cancel();
+  assertEquals(t.shares.rows.map((f) => f.alertsEnabled), [true, false]);
+
+  // In range: no alerts.
+  await t.engine.tick();
+  assertEquals(t.sent.filter((p) => p.type === "alert"), []);
+
+  t.setMgdl(60);
+  t.advance(60);
+  await t.engine.tick();
+  const alerts = t.sent.filter((p) => p.type === "alert");
+  assertEquals(alerts.map((p) => p.deviceToken), ["aaaabbbbccccdddd"]);
+  const aps = alerts[0].payload.aps as Record<string, Record<string, string> | string>;
+  assert((aps.alert as Record<string, string>).title.startsWith("Declan: "));
+  assertEquals(aps["thread-id"], `glucos.follow.${s.id}`);
+  assertEquals(alerts[0].payload.followID, s.id);
+
+  // Switched off later: no more.
+  (await share(t, "/v1/follow", token, { installation: "phone-1234", alertsEnabled: false })).body?.cancel();
+  assertEquals(t.shares.rows[0].deviceToken, "aaaabbbbccccdddd");
+  t.sent.length = 0;
+  t.setMgdl(40);
+  t.advance(3600);
+  await t.engine.tick();
+  assertEquals(t.sent.filter((p) => p.type === "alert"), []);
+});
+
+Deno.test("an urgent low tells the follower to check on them", async () => {
+  const t = setup();
+  const { token } = await t.engine.createShare({ label: "Sam" });
+  (await share(t, "/v1/follow", token, { installation: "phone-1234", deviceToken: "aaaabbbbccccdddd" })).body?.cancel();
+  t.setMgdl(45);
+  await t.engine.tick();
+  const urgent = t.sent.find((p) => p.type === "alert" && p.payload.kind === "urgentLow");
+  assert(urgent);
+  const alert = (urgent.payload.aps as Record<string, Record<string, string>>).alert;
+  assert(alert.title.startsWith("Sam: URGENT LOW"));
+  assert(alert.body.endsWith("Check on Sam now."), alert.body);
+});
+
+Deno.test("a follower's invalid device token is forgotten, and the relay's own save keeps a new one", async () => {
+  const t = setup();
+  const { token } = await t.engine.createShare({});
+  (await share(t, "/v1/follow", token, {
+    installation: "phone-1234", deviceToken: "aaaabbbbccccdddd", activityID: "F1", activityToken: "abcdef0123456789",
+  })).body?.cancel();
+  t.results["aaaabbbbccccdddd"] = { kind: "tokenInvalid", reason: "Unregistered" };
+  t.setMgdl(60);
+  await t.engine.tick();
+  assertEquals(t.shares.rows[0].deviceToken, null);
+  // The card still updated, and the relay's save of it didn't bring the old token back.
+  assert(t.sent.some((p) => p.deviceToken === "abcdef0123456789"));
+  (await share(t, "/v1/follow", token, { installation: "phone-1234", deviceToken: "eeeeffff00001111" })).body?.cancel();
+  assertEquals(t.shares.rows[0].deviceToken, "eeeeffff00001111");
+});

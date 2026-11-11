@@ -5,7 +5,7 @@
 //
 //   GET  /health                              → "ok"
 //   GET  /v1/snapshot                         → ShareSnapshot   (the web view, and the app)
-//   POST /v1/follow     FollowRegistration    → FollowStatus    (a follower phone's push tokens)
+//   POST /v1/follow     FollowRegistration    → FollowStatus    (a follower phone's push tokens, alert switch)
 //   POST /v1/unfollow   {installation}        → {ok}
 //
 // Browsers call it from the web view on Vercel, so it answers CORS preflights. JWT
@@ -33,6 +33,7 @@ export interface FollowStatus {
   label: string;
   expiresAt: number | null;
   liveActivityEnabled: boolean;
+  alertsEnabled: boolean;
 }
 
 const cors = {
@@ -105,10 +106,13 @@ export async function handle(
     }
     if (id(body.endedActivityID)) clean.endedActivityID = body.endedActivityID;
     if (typeof body.liveActivityEnabled === "boolean") clean.liveActivityEnabled = body.liveActivityEnabled;
+    if (hex(body.deviceToken)) clean.deviceToken = body.deviceToken;
+    if (typeof body.alertsEnabled === "boolean") clean.alertsEnabled = body.alertsEnabled;
     const f = await s.registerFollower(share.id, clean, now);
     if (!f) return json({ error: "This share already has as many followers as it can." }, 409);
     const status: FollowStatus = {
       followID: share.id, label: share.label, expiresAt: share.expiresAt, liveActivityEnabled: f.liveActivityEnabled,
+      alertsEnabled: f.alertsEnabled,
     };
     return json(status);
   }

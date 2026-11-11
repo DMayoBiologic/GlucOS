@@ -204,6 +204,9 @@ struct PhoneFollowingCard: View {
                         Toggle("On Lock Screen", isOn: Binding(
                             get: { follow.liveActivity },
                             set: { on in Task { await follows.setLiveActivity(on, for: follow) } }))
+                        Toggle("Alerts", isOn: Binding(
+                            get: { follow.alerts },
+                            set: { on in Task { await follows.setAlerts(on, for: follow) } }))
                         Button("Stop Following", role: .destructive) { Task { await follows.remove(follow) } }
                     } label: {
                         Image(systemName: "ellipsis.circle").font(.body)
@@ -284,16 +287,29 @@ struct AddFollowView: View {
     }
 }
 
-/// The home screen for a phone that only follows other people (no LibreLinkUp account of its own).
+/// The home screen for a phone that only follows other people (no sensor or LibreLinkUp account
+/// of its own): their cards, nothing else. No logging, no alerts of its own; their alerts come
+/// from the relay for each person followed.
 struct FollowingHomeView: View {
     @EnvironmentObject var follows: FollowStore
+    @EnvironmentObject var store: GlucoseStore
+    @Environment(\.openURL) private var openURL
     @State private var showsAdd = false
-    @State private var showsSignIn = false
+    @State private var showsSettings = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: DS.Space.lg) {
+                    if store.notificationsBlocked && follows.follows.contains(where: \.alerts) {
+                        StatusBanner(severity: .critical, title: "Notifications are off for GlucOS",
+                                     message: "Alerts for the people you follow can't reach you.",
+                                     action: BannerAction(title: "Turn On") { openURL(AlertManager.notificationSettingsURL) },
+                                     density: .compact)
+                    }
+                    if follows.follows.isEmpty {
+                        FollowEmptyState { showsAdd = true }
+                    }
                     ForEach(follows.follows) { PhoneFollowingCard(follow: $0) }
                     Text("Not a medical device. Readings can be delayed; confirm with the sensor app before acting.")
                         .dsFont(.caption)
@@ -307,22 +323,138 @@ struct FollowingHomeView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .refreshable { await follows.refresh(canStart: true) }
+            .task { await store.checkNotificationPermission() }
             .navigationTitle("Following")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showsSettings = true } label: { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Follow Someone…", systemImage: "plus") { showsAdd = true }
-                        Button("Sign In With LibreLinkUp…", systemImage: "drop.fill") { showsSignIn = true }
-                    } label: {
-                        Image(systemName: "plus.circle")
-                    }
-                    .accessibilityLabel("Add")
+                    Button { showsAdd = true } label: { Image(systemName: "plus.circle") }
+                        .accessibilityLabel("Follow someone")
                 }
             }
             .sheet(isPresented: $showsAdd) { NavigationStack { AddFollowView() } }
-            .sheet(isPresented: $showsSignIn) { NavigationStack { PhoneSignInView() } }
+            .sheet(isPresented: $showsSettings) { NavigationStack { FollowerSettingsView() } }
         }
+    }
+}
+
+/// Before the first follow: how to get a link, and an example of what following looks like.
+private struct FollowEmptyState: View {
+    let paste: () -> Void
+    @State private var showsExample = false
+
+    var body: some View {
+        VStack(spacing: DS.Space.lg) {
+            explainer
+            if showsExample {
+                ExampleFollowCard()
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    private var explainer: some View {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            Image(systemName: "person.2.wave.2.fill")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(Palette.brandGradient)
+            Text("Follow someone's glucose").dsFont(.sectionTitle)
+            Text("Ask them to send you a link from GlucOS: the Share button on their iPhone, or GlucOS in the Messages + menu. Tap the link in Messages and choose Open in GlucOS. Their reading goes on your Lock Screen, and you'll get their low and high alerts.")
+                .dsFont(.callout)
+                .foregroundStyle(.secondary)
+            Button(action: paste) {
+                Label("Paste a Link", systemImage: "doc.on.clipboard")
+                    .dsFont(.headline)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            Button(showsExample ? "Hide Example" : "See an Example") {
+                withAnimation { showsExample.toggle() }
+            }
+            .dsFont(.callout)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(DS.Space.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background { DSSurface(style: .standard, radius: DS.Radius.card) }
+        .padding(.top, DS.Space.lg)
+    }
+}
+
+/// Made-up readings showing what a followed person's card looks like. Nothing is fetched.
+private struct ExampleFollowCard: View {
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let card = Self.card(now: context.date)
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                HStack {
+                    Eyebrow(title: "Example", systemImage: "person.fill")
+                    Spacer(minLength: 0)
+                    RangeBadge(range: card.range, stale: false)
+                }
+                SharedReadingView(card: card, now: context.date)
+                Text("Example readings, not a real person's.")
+                    .dsFont(.caption).foregroundStyle(.secondary)
+            }
+            .padding(DS.Space.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background { DSSurface(style: .tinted(.glucose(card.range)), radius: DS.Radius.card) }
+            .accessibilityElement(children: .contain)
+        }
+    }
+
+    static func card(now: Date) -> GlucoseActivityState {
+        let steps = Int(GlucoseActivityState.historyHours * 12)
+        let history: [Int?] = (0...steps).map { i in
+            Int(118 + 34 * sin(Double(i + 10) / 7.0) - Double(i) * 0.4)
+        }
+        let last = Double(history.last!!)
+        let previous = Double(history[history.count - 2]!)
+        return GlucoseActivityState(mgdl: last, trend: 3, readingAt: now.timeIntervalSince1970 - 60,
+                                    deltaMgdl: last - previous, unit: GlucoseUnit.mmol.rawValue,
+                                    lowMgdl: 70, highMgdl: 180, history: history)
+    }
+}
+
+/// Settings for a phone that only follows: who it follows, notifications, and switching to
+/// wearing a sensor.
+struct FollowerSettingsView: View {
+    @EnvironmentObject var store: GlucoseStore
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @AppStorage("phoneMode") private var mode: PhoneMode = .unset
+    @State private var showsSignIn = false
+
+    var body: some View {
+        Form {
+            FollowingSettingsSection()
+            Section {
+                Button("Notification Settings", systemImage: "bell.badge") { openURL(AlertManager.notificationSettingsURL) }
+            } footer: {
+                Text("Alerts for the people you follow come as time-sensitive notifications. Allow them in Focus modes you use at night.")
+            }
+            Section {
+                Button("I Wear a Sensor Too", systemImage: "drop.fill") { showsSignIn = true }
+            } footer: {
+                Text("Sign in with LibreLinkUp to see your own readings, log, and get your own alerts. You'll keep following everyone here.")
+            }
+            Section {
+                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
+                Link("Privacy", destination: URL(string: "https://gluc-os-seven.vercel.app/privacy/")!)
+                Text("Not a medical device. Readings and alerts can be delayed or missed; confirm with the sensor app before acting.")
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        .sheet(isPresented: $showsSignIn) { NavigationStack { PhoneSignInView() } }
     }
 }
 
@@ -334,13 +466,18 @@ struct FollowingSettingsSection: View {
     var body: some View {
         Section {
             ForEach(follows.follows) { f in
-                Toggle(isOn: Binding(get: { f.liveActivity },
-                                     set: { on in Task { await follows.setLiveActivity(on, for: f) } })) {
-                    VStack(alignment: .leading) {
-                        Text(f.label)
-                        Text(follows.ended.contains(f.id) ? "Sharing ended" : "On Lock Screen")
-                            .dsFont(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    HStack {
+                        Text(f.label).dsFont(.headline)
+                        Spacer()
+                        if follows.ended.contains(f.id) {
+                            Text("Sharing ended").dsFont(.caption).foregroundStyle(.secondary)
+                        }
                     }
+                    Toggle("On Lock Screen", isOn: Binding(get: { f.liveActivity },
+                                                           set: { on in Task { await follows.setLiveActivity(on, for: f) } }))
+                    Toggle("Alerts", isOn: Binding(get: { f.alerts },
+                                                   set: { on in Task { await follows.setAlerts(on, for: f) } }))
                 }
                 .swipeActions {
                     Button("Stop Following", role: .destructive) { Task { await follows.remove(f) } }
@@ -350,7 +487,7 @@ struct FollowingSettingsSection: View {
         } header: {
             Text("Following")
         } footer: {
-            Text("Readings people have shared with you. Swipe to stop following.")
+            Text("Readings people have shared with you. Alerts are their lows, highs and missing data, sent even when GlucOS is closed. Swipe to stop following.")
         }
         .sheet(isPresented: $showsAdd) { NavigationStack { AddFollowView() } }
     }

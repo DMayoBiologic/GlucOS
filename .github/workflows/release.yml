@@ -18,8 +18,11 @@ name: Release
 # secrets exist:
 #   iPhone → TestFlight:  APPLE_TEAM_ID + the App Store Connect API key secrets above
 #                         (the key needs the Admin role so Xcode can manage signing)
-#                         RELAY_SECRET, baked into the build with the relay's address
-#   Optional variable:    RELAY_URL (default the Supabase project's relay function)
+#   Optional variable:    RELAY_URL (default the Supabase project's relay function), baked into
+#                         the build. The relay's secret never is: the owner's phone claims it.
+#   iPhone → external testers (public TestFlight link): the same API key. Optional variables
+#                         TESTFLIGHT_CONTACT_FIRST_NAME/LAST_NAME/EMAIL/PHONE fill in Beta App
+#                         Review's contact details if App Store Connect doesn't have them yet.
 # The push relay itself is in supabase/ and deploys from main through the Supabase GitHub
 # integration (migrations and edge functions), not from this workflow.
 
@@ -242,7 +245,6 @@ jobs:
       KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
-      RELAY_SECRET: ${{ secrets.RELAY_SECRET }}
       RELAY_URL: ${{ vars.RELAY_URL }}
     steps:
       - name: Check secrets
@@ -273,11 +275,9 @@ jobs:
           brew install xcodegen
           xcodegen generate --spec project.yml
           echo "$KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          # Only the relay's address goes in the build, never its secret: anyone with the public
+          # TestFlight link can install this. The owner's phone claims the secret from the relay.
           URL="${RELAY_URL:-https://aqlbadbyjuoruwnwyfrc.supabase.co/functions/v1/relay}"
-          if [ -z "$RELAY_SECRET" ]; then
-            URL=""
-            echo "::notice::RELAY_SECRET is not set, so this iPhone build doesn't use the push relay (see docs/iOS.md)."
-          fi
           set -o pipefail
           xcodebuild -project GlucOS.xcodeproj -scheme GlucOSiOS -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/GlucOS.xcarchive" \
@@ -287,7 +287,7 @@ jobs:
             DEVELOPMENT_TEAM="$TEAM_ID" \
             MARKETING_VERSION="${{ needs.release.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
-            GLUCOS_RELAY_URL="$URL" GLUCOS_RELAY_SECRET="$RELAY_SECRET" \
+            GLUCOS_RELAY_URL="$URL" \
             archive 2>&1 | tee archive.log | grep -E "error:|ARCHIVE|Signing" || true
           grep -q "ARCHIVE SUCCEEDED" archive.log || { echo "::error::iOS archive failed"; grep -E "error:" archive.log | sort -u; exit 1; }
 
@@ -311,3 +311,44 @@ jobs:
             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER"
           rm -f "$RUNNER_TEMP/AuthKey.p8"
           echo "Uploaded GlucOS ${{ needs.release.outputs.version }} (${{ github.run_number }}) to App Store Connect; TestFlight has it once Apple finishes processing."
+
+  # The same build to external testers: anyone with the public TestFlight link. Sets up the
+  # "Public" group and its link, the test information and the build's notes, then submits the
+  # build for Beta App Review. Apple approves it (usually within a day for the first build of a
+  # version, often minutes after that) and TestFlight offers it to the group. On Ubuntu, because
+  # most of the time is waiting for App Store Connect to finish processing the upload.
+  testflight-external:
+    needs: [release, ios]
+    runs-on: ubuntu-latest
+    env:
+      KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+      APP_VERSION: ${{ needs.release.outputs.version }}
+      BUILD_NUMBER: ${{ github.run_number }}
+      CONTACT_FIRST_NAME: ${{ vars.TESTFLIGHT_CONTACT_FIRST_NAME }}
+      CONTACT_LAST_NAME: ${{ vars.TESTFLIGHT_CONTACT_LAST_NAME }}
+      CONTACT_EMAIL: ${{ vars.TESTFLIGHT_CONTACT_EMAIL }}
+      CONTACT_PHONE: ${{ vars.TESTFLIGHT_CONTACT_PHONE }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.KEY_P8 != ''
+        with:
+          persist-credentials: false
+          fetch-depth: 50
+          fetch-tags: true
+      - name: Release notes for testers
+        if: env.KEY_P8 != ''
+        # The PR titles merged since the last release, without bump markers.
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          RANGE=${PREV:+$PREV..}HEAD
+          git log --format='- %s' "$RANGE" 2>/dev/null | head -12 \
+            | sed -E 's/ ?\[(minor|major|skip release)\]//g; s/ \(#[0-9]+\)$//' > "$RUNNER_TEMP/whats_new.txt" || true
+          [ -s "$RUNNER_TEMP/whats_new.txt" ] || git log -1 --format='- %s' > "$RUNNER_TEMP/whats_new.txt"
+          cat "$RUNNER_TEMP/whats_new.txt"
+      - name: Ship to external testers
+        if: env.KEY_P8 != ''
+        run: |
+          pip install --quiet 'pyjwt[crypto]==2.10.1'
+          WHATS_NEW_FILE="$RUNNER_TEMP/whats_new.txt" python3 scripts/testflight_external.py

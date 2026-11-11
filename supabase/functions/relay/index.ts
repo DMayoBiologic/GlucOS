@@ -3,6 +3,7 @@
 //
 //   GET  /health                           → "ok"          (no secret)
 //   GET  /v1/status                        → RelayStatus
+//   POST /v1/claim      {email, password}  → {secret}      (no secret: the owner's LibreLinkUp login)
 //   POST /v1/register   RelayRegistration  → RelayStatus
 //   POST /v1/test                          → RelayStatus   (sends a test alert push)
 //   POST /v1/tick                                          (pg_cron, every minute)
@@ -18,19 +19,12 @@
 // optionally APNS_BUNDLE_ID (default au.com.declanmayo.glucos.ios) and APNS_CRITICAL_ALERTS=true.
 
 import { APNsSender } from "./apns.ts";
-import { type CreateShareRequest, RelayEngine, type RelayRegistration, ShareError } from "./engine.ts";
+import { constantTimeEqual, type CreateShareRequest, RelayEngine, type RelayRegistration, ShareError } from "./engine.ts";
 import { LibreLinkUpFetcher } from "./libre.ts";
 import { connect, PostgresStore } from "./store.ts";
 import { PostgresShareStore } from "./sharing.ts";
 
 const env = (k: string) => Deno.env.get(k)?.trim() || undefined;
-
-function constantTimeEqual(a: string, b: string): boolean {
-  const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
-  let diff = x.length ^ y.length;
-  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
-  return diff === 0;
-}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -69,6 +63,17 @@ export async function handle(req: Request): Promise<Response> {
       || constantTimeEqual(req.headers.get("authorization") ?? "", `Bearer ${secret}`);
     if (!ok) return json({ error: "unauthorized" }, 401);
     return json({ result: await engine.tick() });
+  }
+
+  if (path === "/v1/claim" && req.method === "POST") {
+    const body = await req.json().catch(() => null);
+    const result = await services().engine.claim(body?.email, body?.password);
+    switch (result) {
+      case "ok": return json({ secret });
+      case "locked": return json({ error: "Too many tries. Wait 15 minutes." }, 429);
+      case "no account": return json({ error: "This relay isn't signed in yet." }, 404);
+      default: return json({ error: "That isn't the account this relay uses." }, 403);
+    }
   }
 
   if (!constantTimeEqual(req.headers.get("authorization") ?? "", `Bearer ${secret}`)) {

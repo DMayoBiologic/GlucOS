@@ -4,7 +4,7 @@
 // edge function starts fresh every minute.
 
 import {
-  type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
+  type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
   type Display, learnCalibration, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
   type Sensor,
 } from "./core.ts";
@@ -43,6 +43,18 @@ export function followerOrder<F extends { id: string }>(all: F[], cursor: string
   return start <= 0 ? sorted : [...sorted.slice(start), ...sorted.slice(0, start)];
 }
 
+/// The owner's alerts that also go to followers who want them: about the glucose itself, not
+/// the owner's sensor or account.
+export const followerAlertKinds: ReadonlySet<AlertKind> = new Set<AlertKind>([
+  "urgentLow", "low", "high", "veryHigh", "rapidChange", "stale",
+  "predictedUrgentLow", "predictedLow", "predictedHigh", "predictedVeryHigh",
+]);
+
+/// Claiming the relay's secret with the LibreLinkUp login it fetches with: this many wrong tries
+/// in this window and claims are refused until it passes.
+export const claimLimit = 5;
+export const claimWindow = 15 * 60;
+
 // MARK: - State
 
 export interface RelayPrefs {
@@ -78,6 +90,8 @@ export interface Work {
   latestCard: { card: CardState; at: number } | null;
   /// The first follower the last tick ran out of time for (`followerOrder`). Missing on old rows.
   followerCursor?: string | null;
+  /// Wrong claims (`claim`) since `since`. Missing on old rows.
+  claimFailures?: { count: number; since: number } | null;
 }
 
 export interface RelayRow {
@@ -261,6 +275,33 @@ export class RelayEngine {
     });
   }
 
+  /// A phone signed in to the same LibreLinkUp account the relay fetches with is the owner's, so
+  /// it may have the relay secret: the app no longer carries it, because anyone can install it.
+  /// Wrong tries are limited, so this can't be used to guess the password.
+  claim(email: unknown, password: unknown): Promise<"ok" | "denied" | "locked" | "no account"> {
+    return this.store.transaction(async (tx) => {
+      const now = this.clock();
+      const w = tx.row.work;
+      let f = w.claimFailures ?? null;
+      if (f && now - f.since >= claimWindow) f = null;
+      if (f && f.count >= claimLimit) {
+        w.claimFailures = f;
+        return "locked";
+      }
+      const account = await tx.account();
+      if (!account) return "no account";
+      const ok = typeof email === "string" && typeof password === "string"
+        && email.trim().toLowerCase() === account.email.trim().toLowerCase()
+        && constantTimeEqual(password, account.password);
+      if (ok) {
+        w.claimFailures = null;
+        return "ok";
+      }
+      w.claimFailures = { count: (f?.count ?? 0) + 1, since: f?.since ?? now };
+      return "denied";
+    });
+  }
+
   status(): Promise<RelayStatus> {
     return this.store.transaction(async (tx) => this.statusOf(tx.row, (await tx.account()) !== null));
   }
@@ -370,7 +411,7 @@ export class RelayEngine {
         }
         await this.updateActivity(row, result.card, result.notices.length > 0, now);
         if (result.card) w.latestCard = { card: result.card, at: now };
-        await this.updateFollowers(w, result.card, result.notices.length > 0, now);
+        await this.updateFollowers(w, result.card, result.notices, now);
         return "done";
       });
     } finally {
@@ -467,7 +508,9 @@ export class RelayEngine {
   /// Each follower's Lock Screen card gets the same card as the owner's, by the same rules:
   /// resent when it changes or every 10 minutes, replaced before iOS's 8-hour limit, and taken
   /// down when the share expires.
-  private async updateFollowers(w: Work, card: CardState | null, urgent: boolean, now: number) {
+  private async updateFollowers(w: Work, card: CardState | null, notices: AlertNotice[], now: number) {
+    const urgent = notices.length > 0;
+    const forFollowers = notices.filter((n) => followerAlertKinds.has(n.kind));
     const shares = this.config.shares;
     if (!shares || !this.sender) return;
     let all: Follower[];
@@ -487,6 +530,7 @@ export class RelayEngine {
           ended.push(f.id);
           return;
         }
+        if (forFollowers.length && f.alertsEnabled && f.deviceToken) await this.alertFollower(f, forFollowers, now);
         if (!card || !f.liveActivityEnabled) return;
         const seen = { activityToken: f.activityToken, pushToStartToken: f.pushToStartToken };
         if (await this.updateFollower(f, card, urgent, now)) await shares.saveFollower(f, seen);
@@ -567,6 +611,22 @@ export class RelayEngine {
     return true;
   }
 
+  /// The owner's glucose alerts, on a follower's phone.
+  private async alertFollower(f: Follower, notices: AlertNotice[], now: number) {
+    const token = f.deviceToken!;
+    for (const n of notices) {
+      const result = await this.sender!.send({
+        deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
+        payload: payloads.followerAlert(n, f.label, f.shareId, this.config.criticalAlerts),
+        collapseId: `${noticeIdentifier(n)}.${f.shareId}`.slice(0, 64), expiration: now + 15 * 60, sandbox: f.sandbox,
+      });
+      if (result.kind === "tokenInvalid") {
+        await this.config.shares!.clearFollowerDeviceToken(f.id, token);
+        return;
+      }
+    }
+  }
+
   private async endFollower(f: Follower, now: number) {
     if (!this.sender || !f.activityToken) return;
     await this.sender.send({
@@ -595,6 +655,13 @@ export class RelayEngine {
     }
     return result;
   }
+}
+
+export function constantTimeEqual(a: string, b: string): boolean {
+  const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return diff === 0;
 }
 
 function normaliseAccount(a: Account): Account {
