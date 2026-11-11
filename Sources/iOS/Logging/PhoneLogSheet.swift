@@ -215,6 +215,9 @@ struct PhoneLogSheet: View {
             guard isNew, !viaPump, siteIsAutomatic else { return }
             autoSite = logbook.suggestedInjectionSite(at: newTime)
             injectionSite = autoSite
+            // With no suggestion the sheet shows "Not recorded", and a tap on it changes nothing
+            // the sheet can see, so stop following the time rather than override that choice.
+            if autoSite == nil { siteIsAutomatic = false }
         }
         .onChange(of: injectionSite) { _, site in
             // Any pick by hand (including "Not recorded") stops the site following the time.
