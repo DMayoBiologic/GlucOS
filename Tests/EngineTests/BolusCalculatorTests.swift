@@ -341,10 +341,12 @@ final class BolusCalculatorTests: XCTestCase {
     }
 
     func testUsedSuggestionFallsWhenItsReadingGoesStale() {
-        // Taken with a 14-minute-old reading; by the time it's logged the reading is 16 minutes old.
-        let used = suggest(carbs: 45, readings: steady(220, endingAgo: 14 * 60))
+        // The same reading, 20 seconds apart (inside the card's 30-second refresh), either side of
+        // the 15-minute freshness limit.
+        let used = suggest(carbs: 45, readings: steady(220, endingAgo: 15 * 60 - 10))
         XCTAssertGreaterThan(used.correctionUnits, 0)
-        let later = suggest(carbs: 45, readings: steady(220, endingAgo: 16 * 60))
+        let later = suggest(carbs: 45, readings: steady(220, endingAgo: 15 * 60 + 10))
+        XCTAssertEqual(later.correctionUnits, 0)
         XCTAssertFalse(used.stillStands(given: later))
     }
 }
