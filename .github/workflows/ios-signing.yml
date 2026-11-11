@@ -1,0 +1,83 @@
+name: iOS signing
+
+# Runs the iPhone release's archive and App Store signing on a pull request that touches them, so
+# a broken signing setup is caught before it reaches main (where it would stop TestFlight
+# releases). Exports the .ipa and checks its signature; nothing is uploaded. Also lists the team's
+# signing certificates. Skips itself on forks, which don't get the Apple secrets.
+#
+# Run it by hand with "revoke CI development certificates" ticked to clear out the Apple
+# Development certificates that releases made before scripts/sign_ios.sh (see that script).
+
+on:
+  pull_request:
+    paths:
+      - scripts/sign_ios.sh
+      - scripts/asc_certificates.py
+      - .github/workflows/release.yml
+      - .github/workflows/ios-signing.yml
+      - project.yml
+  workflow_dispatch:
+    inputs:
+      revoke_ci_development:
+        description: "Revoke the Apple Development certificates CI created (never Xcode, distribution or Developer ID ones)"
+        type: boolean
+        default: false
+
+jobs:
+  certificates:
+    runs-on: ubuntu-latest
+    env:
+      KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.KEY_P8 != ''
+        with:
+          persist-credentials: false
+      - name: Signing certificates
+        if: env.KEY_P8 != ''
+        env:
+          REVOKE: ${{ inputs.revoke_ci_development && '--revoke-ci-development' || '' }}
+        run: |
+          pip install --quiet 'pyjwt[crypto]==2.10.1'
+          python3 scripts/asc_certificates.py $REVOKE
+
+  sign:
+    needs: certificates
+    runs-on: macos-15
+    env:
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+    steps:
+      - name: Check secrets
+        id: check
+        run: |
+          if [ -z "$TEAM_ID" ] || [ -z "$KEY_P8" ] || [ -z "$KEY_ID" ] || [ -z "$ISSUER" ]; then
+            echo "::notice::No Apple secrets here (a fork?), so signing isn't checked."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          persist-credentials: false
+      - name: Use Xcode 26
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X" && xcodebuild -version
+      - name: Archive and sign
+        if: steps.check.outputs.ready == 'true'
+        env:
+          VERSION: 0.0.1
+          BUILD_NUMBER: ${{ github.run_number }}
+          RELAY_URL: https://example.invalid/relay
+          DESTINATION: export
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project.yml
+          scripts/sign_ios.sh

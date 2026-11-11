@@ -82,6 +82,12 @@ any SKU. Open **TestFlight** → **Internal Testing** → **+**, add yourself an
   Integrations → App Store Connect API → **+**, access **Admin**. Download the `.p8` (you only get
   one chance) and note the **Key ID** and **Issuer ID**. An existing Admin key (for example the
   one EAS uses) works too.
+
+  CI signs with Apple's cloud-managed distribution certificate through this key
+  (`scripts/sign_ios.sh`), so there's no certificate to export and no run ever creates one. The
+  **iOS signing** workflow checks this on pull requests that touch signing, lists the team's
+  certificates, and (run by hand with the box ticked) revokes the Apple Development certificates
+  that releases made before this.
 - **APNs key** (lets the relay push): developer.apple.com → Certificates, IDs & Profiles → **Keys**
   → **+** → tick **Apple Push Notifications service (APNs)**, environment **Sandbox & Production**.
   Download the `.p8` and note its **Key ID**. An existing APNs key for the team works too.

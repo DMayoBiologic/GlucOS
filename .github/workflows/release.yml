@@ -17,7 +17,7 @@ name: Release
 # release so it can never hold it up or break it. It skips itself with a notice until its
 # secrets exist:
 #   iPhone → TestFlight:  APPLE_TEAM_ID + the App Store Connect API key secrets above
-#                         (the key needs the Admin role so Xcode can manage signing)
+#                         (the key needs the Admin role: the build is cloud-signed, scripts/sign_ios.sh)
 #   Optional variable:    RELAY_URL (default the Supabase project's relay function), baked into
 #                         the build. The relay's secret never is: the owner's phone claims it.
 #   iPhone → external testers (public TestFlight link): the same API key. Optional variables
@@ -269,56 +269,20 @@ jobs:
           X=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
           sudo xcode-select -s "$X" && xcodebuild -version
 
-      - name: Archive
+      - name: Archive, sign and upload to TestFlight
         if: steps.check.outputs.ready == 'true'
+        # Signed with Apple's cloud-managed distribution certificate, so no run ever creates a
+        # certificate (scripts/sign_ios.sh). Only the relay's address goes in the build, never its
+        # secret: anyone with the public TestFlight link can install this. The owner's phone
+        # claims the secret from the relay.
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          DESTINATION: upload
         run: |
           brew install xcodegen
           xcodegen generate --spec project.yml
-          echo "$KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
-          # Only the relay's address goes in the build, never its secret: anyone with the public
-          # TestFlight link can install this. The owner's phone claims the secret from the relay.
-          URL="${RELAY_URL:-https://aqlbadbyjuoruwnwyfrc.supabase.co/functions/v1/relay}"
-          set -o pipefail
-          xcodebuild -project GlucOS.xcodeproj -scheme GlucOSiOS -configuration Release \
-            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/GlucOS.xcarchive" \
-            -derivedDataPath build-ios -skipPackagePluginValidation -skipMacroValidation \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER" \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            MARKETING_VERSION="${{ needs.release.outputs.version }}" \
-            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
-            GLUCOS_RELAY_URL="$URL" \
-            archive 2>&1 | tee archive.log | grep -E "error:|ARCHIVE|Signing" || true
-          if ! grep -q "ARCHIVE SUCCEEDED" archive.log; then
-            echo "::error::iOS archive failed"
-            grep -E "error:" archive.log | sort -u
-            # Apple's API can register an App ID but can't assign it an App Group.
-            if grep -q "application-groups entitlement" archive.log; then
-              echo "::error::An App ID is missing its App Group. Tick App Groups on it in the developer portal (docs/iOS.md, step 2)."
-            fi
-            exit 1
-          fi
-
-      - name: Upload to TestFlight
-        if: steps.check.outputs.ready == 'true'
-        run: |
-          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>method</key><string>app-store-connect</string>
-            <key>destination</key><string>upload</string>
-            <key>teamID</key><string>$TEAM_ID</string>
-            <key>signingStyle</key><string>automatic</string>
-            <key>manageAppVersionAndBuildNumber</key><false/>
-          </dict></plist>
-          PLIST
-          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/GlucOS.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER"
-          rm -f "$RUNNER_TEMP/AuthKey.p8"
-          echo "Uploaded GlucOS ${{ needs.release.outputs.version }} (${{ github.run_number }}) to App Store Connect; TestFlight has it once Apple finishes processing."
+          RELAY_URL="${RELAY_URL:-https://aqlbadbyjuoruwnwyfrc.supabase.co/functions/v1/relay}" scripts/sign_ios.sh
 
   # The same build to external testers: anyone with the public TestFlight link. Sets up the
   # "Public" group and its link, the test information and the build's notes, then submits the
