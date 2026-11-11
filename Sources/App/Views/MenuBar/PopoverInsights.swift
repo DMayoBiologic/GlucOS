@@ -1,5 +1,9 @@
 import Foundation
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
 // Derived values the popover and the status item show. Pure functions of the snapshot and the
 // on-disk archive, so they're cheap to recompute on every render.
@@ -161,8 +165,12 @@ extension GlucoseStore {
     @discardableResult
     func copyReadingToClipboard() -> Bool {
         guard let text = snapshot.clipboardSummary() else { return false }
+        #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
+        #endif
         return true
     }
 }

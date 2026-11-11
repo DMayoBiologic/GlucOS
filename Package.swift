@@ -7,7 +7,7 @@ import PackageDescription
 
 let package = Package(
     name: "GlucOSEngine",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v14), .iOS("17.2")],
     products: [
         .library(name: "GlucOSEngine", targets: ["GlucOSEngine"]),
     ],
@@ -26,9 +26,9 @@ let package = Package(
                 "Engine",
                 "Shared/GlucoseModels.swift",
                 "Shared/OutlookSnapshot.swift",
-                "Shared/AlertPlanner.swift",
+                "Core/AlertPlanner.swift",
                 "Shared/GlucoseActivityState.swift",
-                "Shared/RelayProtocol.swift",
+                "Core/RelayProtocol.swift",
                 "App/Logbook/LogbookModels.swift",
                 "App/LibreLinkUpClient.swift",
             ]

@@ -1,6 +1,7 @@
 import WidgetKit
 import SwiftUI
 
+#if os(macOS)
 @main
 struct GlucOSWidgetBundle: WidgetBundle {
     var body: some Widget {
@@ -9,6 +10,8 @@ struct GlucOSWidgetBundle: WidgetBundle {
         SensorWidget()
     }
 }
+#endif
+// The iPhone has its own bundle (Sources/iOSWidget) that adds the Live Activity.
 
 // MARK: - Widget
 

@@ -1,4 +1,5 @@
 # Regenerates the app icon PNGs: python3 scripts/make_app_icon.py Sources/App/Assets.xcassets/AppIcon.appiconset
+# iPhone (full-bleed square; iOS rounds it): python3 scripts/make_app_icon.py Sources/iOS/Assets.xcassets/AppIcon.appiconset --ios
 # Needs Pillow. Big Sur grid: 824 pt rounded body on a 1024 canvas, white drop with a CGM trace.
 import math, os, sys
 from PIL import Image, ImageDraw, ImageFilter
@@ -6,12 +7,13 @@ from PIL import Image, ImageDraw, ImageFilter
 S = 4096  # supersampled canvas; 1024 pt grid * 4
 k = S / 1024
 out_dir = sys.argv[1]
+IOS = "--ios" in sys.argv[2:]
 
 def lerp(a, b, t): return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
 # Big Sur grid: 824x824 body centred on a 1024 canvas, ~185 corner radius.
 body = (100*k, 100*k, 924*k, 924*k)
-radius = 185*k
+radius = 0 if IOS else 185*k
 
 # Background gradient (top-left teal → bottom-right deep blue).
 top, bot = (34, 197, 170), (24, 78, 168)
@@ -29,7 +31,8 @@ icon = Image.new("RGBA", (S, S), (0, 0, 0, 0))
 shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
 ImageDraw.Draw(shadow).rounded_rectangle((body[0], body[1] + 12*k, body[2], body[3] + 12*k), radius=radius, fill=(0, 0, 0, 90))
 shadow = shadow.filter(ImageFilter.GaussianBlur(14*k))
-icon.alpha_composite(shadow)
+if not IOS:
+    icon.alpha_composite(shadow)
 
 bg = grad.convert("RGBA"); bg.putalpha(mask)
 icon.alpha_composite(bg)
@@ -92,6 +95,12 @@ trace.putalpha(Image.composite(trace.getchannel("A"), Image.new("L", (S, S), 0),
 icon.alpha_composite(trace)
 
 os.makedirs(out_dir, exist_ok=True)
+if IOS:
+    # The body, edge to edge: iOS applies its own mask.
+    full = icon.crop(tuple(int(v) for v in body)).convert("RGB").resize((1024, 1024), Image.LANCZOS)
+    full.save(os.path.join(out_dir, "AppIcon-1024.png"))
+    print("ok")
+    sys.exit(0)
 for px in (16, 32, 64, 128, 256, 512, 1024):
     icon.resize((px, px), Image.LANCZOS).save(os.path.join(out_dir, f"icon_{px}.png"))
 print("ok")

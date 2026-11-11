@@ -1,10 +1,8 @@
 # Fly.io config for the GlucOS push relay. Deployed automatically on merge to main when the
 # FLY_API_TOKEN secret is set (see docs/iOS.md). Change `app` if the name is taken.
+# The app name is passed with -a by the workflow (FLY_APP_NAME, default glucos-relay-<owner>).
 app = "glucos-relay"
 primary_region = "syd"
-
-[build]
-  dockerfile = "Dockerfile"
 
 [env]
   DATA_DIR = "/data"

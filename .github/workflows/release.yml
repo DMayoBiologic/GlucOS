@@ -12,6 +12,14 @@ name: Release
 # Optional secrets:  MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD   (Developer ID Application, base64 .p12)
 #                    APPLE_API_KEY_ID, APPLE_API_ISSUER_ID, APPLE_API_KEY_P8   (App Store Connect API key → notarization)
 # Without the optional ones the app is ad-hoc signed; Sparkle still verifies updates with EdDSA.
+#
+# The same push also ships the iPhone app and the push relay (see docs/iOS.md). Both are separate
+# jobs after the Mac release, so they can never hold it up or break it, and each skips itself
+# with a notice until its secrets exist:
+#   iPhone → TestFlight:  APPLE_TEAM_ID + the App Store Connect API key secrets above
+#                         (the key needs the Admin role so Xcode can manage signing)
+#   Relay → Fly.io:       FLY_API_TOKEN, RELAY_SECRET, APNS_KEY_P8, APNS_KEY_ID, APPLE_TEAM_ID
+#   Optional variables:   FLY_APP_NAME (default glucos-relay-<owner>), RELAY_URL (default its fly.dev address)
 
 on:
   push:
@@ -59,6 +67,8 @@ jobs:
     # Releases only ever come from main, even when run by hand from another branch.
     if: needs.gate.outputs.skip != 'true' && github.ref == 'refs/heads/main'
     runs-on: macos-15
+    outputs:
+      version: ${{ steps.v.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -220,3 +230,126 @@ jobs:
               --target "$GITHUB_SHA" --title "GlucOS $V" --generate-notes --latest
           fi
           echo "Published https://github.com/${{ github.repository }}/releases/tag/v$V"
+
+  # iPhone app → App Store Connect → TestFlight, with the same version number as the Mac release.
+  ios:
+    needs: release
+    runs-on: macos-15
+    env:
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+      RELAY_SECRET: ${{ secrets.RELAY_SECRET }}
+      RELAY_URL: ${{ vars.RELAY_URL }}
+      FLY_APP: ${{ vars.FLY_APP_NAME }}
+    steps:
+      - name: Check secrets
+        id: check
+        run: |
+          if [ -z "$TEAM_ID" ] || [ -z "$KEY_P8" ] || [ -z "$KEY_ID" ] || [ -z "$ISSUER" ]; then
+            echo "::notice::iPhone app not uploaded: set APPLE_TEAM_ID, APPLE_API_KEY_ID, APPLE_API_ISSUER_ID and APPLE_API_KEY_P8 (see docs/iOS.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          persist-credentials: false
+
+      - name: Archive
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project.yml
+          echo "$KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          APP="${FLY_APP:-glucos-relay-$OWNER}"
+          URL="${RELAY_URL:-https://$APP.fly.dev}"
+          [ -n "$RELAY_SECRET" ] || URL=""
+          set -o pipefail
+          xcodebuild -project GlucOS.xcodeproj -scheme GlucOSiOS -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/GlucOS.xcarchive" \
+            -derivedDataPath build-ios -skipPackagePluginValidation -skipMacroValidation \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            MARKETING_VERSION="${{ needs.release.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            GLUCOS_RELAY_URL="$URL" GLUCOS_RELAY_SECRET="$RELAY_SECRET" \
+            archive 2>&1 | tee archive.log | grep -E "error:|ARCHIVE|Signing" || true
+          grep -q "ARCHIVE SUCCEEDED" archive.log || { echo "::error::iOS archive failed"; grep -E "error:" archive.log | sort -u; exit 1; }
+
+      - name: Upload to TestFlight
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/GlucOS.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER"
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
+          echo "Uploaded GlucOS ${{ needs.release.outputs.version }} (${{ github.run_number }}) to App Store Connect; TestFlight has it once Apple finishes processing."
+
+  # The push relay → Fly.io. Creates the app and its volume the first time.
+  relay:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: relay-deploy
+      cancel-in-progress: false
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      RELAY_SECRET: ${{ secrets.RELAY_SECRET }}
+      APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+      APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      FLY_APP: ${{ vars.FLY_APP_NAME }}
+    steps:
+      - name: Check secrets
+        id: check
+        run: |
+          if [ -z "$FLY_API_TOKEN" ] || [ -z "$RELAY_SECRET" ]; then
+            echo "::notice::Push relay not deployed: set FLY_API_TOKEN and RELAY_SECRET (see docs/iOS.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: steps.check.outputs.ready == 'true'
+
+      - name: Deploy
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          APP="${FLY_APP:-glucos-relay-$OWNER}"
+          flyctl status -a "$APP" >/dev/null 2>&1 || flyctl apps create "$APP"
+          flyctl volumes list -a "$APP" --json | grep -q '"glucos_data"' \
+            || flyctl volumes create glucos_data -a "$APP" --region syd --size 1 --yes
+          # Secrets live in GitHub; copy them over on every deploy so there's one place to change them.
+          printf 'RELAY_SECRET=%s\nAPNS_KEY_ID=%s\nAPPLE_TEAM_ID=%s\n' "$RELAY_SECRET" "$APNS_KEY_ID" "$TEAM_ID" > "$RUNNER_TEMP/env"
+          [ -n "$APNS_KEY_P8" ] && printf 'APNS_KEY_P8=%s\n' "$(printf '%s' "$APNS_KEY_P8" | awk '{printf "%s\\n", $0}')" >> "$RUNNER_TEMP/env"
+          flyctl secrets import --stage -a "$APP" < "$RUNNER_TEMP/env"
+          rm -f "$RUNNER_TEMP/env"
+          [ -n "$APNS_KEY_P8" ] || echo "::notice::Relay deployed without APNS_KEY_P8: it fetches but can't push until that secret is set."
+          flyctl deploy . --config Relay/fly.toml --dockerfile Relay/Dockerfile -a "$APP" --remote-only --ha=false
+          echo "Relay: https://$APP.fly.dev/health"

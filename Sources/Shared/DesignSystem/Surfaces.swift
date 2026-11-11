@@ -49,7 +49,7 @@ struct DSSurface: View {
             switch style {
             case .standard:
                 if reduceTransparency {
-                    shape.fill(Color(nsColor: .controlBackgroundColor))
+                    shape.fill(Palette.controlBackground)
                 } else {
                     shape.fill(.ultraThinMaterial)
                     shape.fill(Color.primary.opacity(0.035))
@@ -58,7 +58,7 @@ struct DSSurface: View {
                 shape.fill(Color.primary.opacity(increased ? 0.08 : 0.045))
             case .tinted(let tone):
                 if reduceTransparency {
-                    shape.fill(Color(nsColor: .controlBackgroundColor))
+                    shape.fill(Palette.controlBackground)
                 } else {
                     shape.fill(.regularMaterial)
                 }
@@ -66,7 +66,7 @@ struct DSSurface: View {
                                           startPoint: .leading, endPoint: .trailing))
             case .hero(let tone):
                 if reduceTransparency {
-                    shape.fill(Color(nsColor: .controlBackgroundColor))
+                    shape.fill(Palette.controlBackground)
                 } else {
                     shape.fill(.ultraThinMaterial)
                 }

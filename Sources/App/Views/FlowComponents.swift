@@ -431,7 +431,7 @@ struct ConnectionProblem: Equatable {
         if let u = error as? URLError {
             switch u.code {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .internationalRoamingOff:
-                self.init(title: "You're offline", advice: "GlucOS will reconnect as soon as your Mac is back online.",
+                self.init(title: "You're offline", advice: "GlucOS will reconnect as soon as you're back online.",
                           fix: .checkNetwork, systemImage: "wifi.slash")
                 return
             case .timedOut, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
