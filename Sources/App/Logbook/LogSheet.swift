@@ -63,6 +63,8 @@ struct LogSheet: View {
     @State private var showsBolusSettings = false
     /// The calculator suggestion the dose was filled from, if any.
     @State private var usedSuggestion: BolusSuggestion?
+    /// What the calculator says now, to check a used suggestion against.
+    @State private var liveSuggestion: BolusSuggestion?
     @State private var confirmingDose = false
     @FocusState private var focus: LogFieldFocus?
 
@@ -434,7 +436,11 @@ struct LogSheet: View {
                                         unitsText = LogFormat.number(s.units)
                                         usedSuggestion = s
                                     },
-                                    onSetUp: { showsBolusSettings = true })
+                                    onSetUp: { showsBolusSettings = true },
+                                    onUpdate: { live in
+                                        liveSuggestion = live
+                                        dropSuggestionIfStale()
+                                    })
             }
             if viaPump {
                 LabeledContent("Infusion site") {
@@ -697,10 +703,11 @@ struct LogSheet: View {
     private var calculatorCarbs: Double { showsFood && includeFood ? (carbs ?? 0) : 0 }
 
     /// A suggestion is only kept while it still describes this dose: a bolus logged now, for the
-    /// same carbs. Otherwise it's dropped, units and all, so it can't be stored against the wrong dose.
+    /// same carbs, that the calculator would still give (no new low, not now less). Otherwise it's dropped, units and all, so it can't be stored against the wrong dose.
     private var suggestionStillApplies: Bool {
         guard let s = usedSuggestion else { return false }
         return showsInsulin && includeInsulin && showsCalculator && abs(calculatorCarbs - s.carbs) < 0.001
+            && s.stillStands(given: liveSuggestion)
     }
 
     private func dropSuggestionIfStale() {

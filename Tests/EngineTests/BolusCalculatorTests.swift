@@ -322,4 +322,22 @@ final class BolusCalculatorTests: XCTestCase {
         let s = suggest(carbs: 60, readings: steady(10 * m), settings: settings(cf: 2 * m, target: 6 * m))
         XCTAssertEqual(s.units, 8)
     }
+
+    // MARK: A suggestion that was used
+
+    func testUsedSuggestionFallsWhenANewLowArrives() {
+        let used = suggest(carbs: 45, readings: steady(140))
+        XCTAssertTrue(used.stillStands(given: used))
+        XCTAssertFalse(used.stillStands(given: suggest(carbs: 45, readings: steady(60))))
+        XCTAssertFalse(used.stillStands(given: nil))
+    }
+
+    func testUsedSuggestionFallsWhenItWouldNowBeLess() {
+        let used = suggest(carbs: 45, readings: steady(180))
+        XCTAssertFalse(used.stillStands(given: suggest(carbs: 45, readings: steady(120))))
+        XCTAssertFalse(used.stillStands(given: suggest(carbs: 30, readings: steady(180))))
+        XCTAssertFalse(used.stillStands(given: suggest(carbs: 45, readings: steady(180), settings: settings(ratio: 15))))
+        XCTAssertTrue(used.stillStands(given: suggest(carbs: 45, readings: steady(200))))
+    }
 }
+

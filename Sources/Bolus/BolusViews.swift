@@ -25,6 +25,8 @@ struct BolusSuggestionCard: View {
     let carbs: Double
     let onUse: (BolusSuggestion) -> Void
     let onSetUp: () -> Void
+    /// What the calculator says now, each time that changes: nil when it can't give a dose.
+    var onUpdate: ((BolusSuggestion?) -> Void)? = nil
 
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var store: GlucoseStore
@@ -47,7 +49,10 @@ struct BolusSuggestionCard: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-            content(suggestion(at: context.date))
+            let s = suggestion(at: context.date)
+            let live = fingerPrickMissing ? nil : s
+            content(s)
+                .task(id: live.map { "\($0.units)|\($0.isBlocked)|\($0.carbs)" } ?? "none") { onUpdate?(live) }
         }
     }
 

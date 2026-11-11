@@ -248,6 +248,17 @@ struct BolusSuggestion: Hashable {
     var isBlocked: Bool { level == .stop }
 }
 
+extension BolusSuggestion {
+    /// Whether a suggestion the user took still stands, given what the calculator says now (nil when
+    /// it can't say, e.g. a finger-prick box ticked with no number). It falls the moment the calculator
+    /// would block, the carbs differ, or it would now suggest less, e.g. after a new low reading or a
+    /// settings change. A small rise as insulin on board wears off doesn't undo it.
+    func stillStands(given live: BolusSuggestion?) -> Bool {
+        guard let live, !isBlocked, !live.isBlocked, abs(live.carbs - carbs) < 0.001 else { return false }
+        return live.units + 1e-6 >= units
+    }
+}
+
 // MARK: - Calculator
 
 enum BolusCalculator {
