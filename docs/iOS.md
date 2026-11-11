@@ -65,11 +65,11 @@ At <https://developer.apple.com/account/resources/identifiers/list>:
 2. **App IDs** → **+** → App → bundle ID `au.com.declanmayo.glucos.ios`. Tick **App Groups**
    (choose the group above), **Push Notifications** and **Time Sensitive Notifications**.
 3. **App IDs** → **+** → bundle ID `au.com.declanmayo.glucos.ios.widget`. Tick **App Groups**.
-4. **App IDs** → bundle ID `au.com.declanmayo.glucos.ios.messages` (the Messages app). The release
-   job's automatic signing registers the ID itself, but Apple's API can't assign an App Group, so open
-   the ID, tick **App Groups** and choose the group above. Without it the archive fails with "Provisioning
+4. **App IDs** → **+** → bundle ID `au.com.declanmayo.glucos.ios.messages` (the Messages app). Tick
+   **App Groups** and choose the group above. (If a release already registered the ID, just open it and
+   tick App Groups: Apple's API can't assign a group, so without this the archive fails with "Provisioning
    profile … doesn't match the entitlements file's value for the com.apple.security.application-groups
-   entitlement".
+   entitlement".)
 
 Then in App Store Connect (<https://appstoreconnect.apple.com/apps>) → **+** → **New App**:
 iOS, name "GlucOS" (any free name; it's never public), bundle ID `au.com.declanmayo.glucos.ios`,
