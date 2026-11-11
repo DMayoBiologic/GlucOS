@@ -167,12 +167,13 @@ struct PhoneSettingsView: View {
                 ForEach(TherapyType.allCases) { Text($0.title).tag($0) }
             }
             if settings.therapy.logsInsulin {
-                Picker(settings.therapy == .pump ? "Pump insulin" : "Usual mealtime insulin", selection: $settings.bolusInsulinKind) {
-                    ForEach(settings.therapy == .pump ? InsulinKind.pumpKinds : InsulinKind.allCases.filter(\.isBolus)) {
-                        Text($0.title).tag($0)
-                    }
+                // The two modifiers below carry into the screen: brand names, not words to correct.
+                NavigationLink {
+                    PhoneInsulinsScreen()
+                } label: {
+                    LabeledContent("Your insulins",
+                                   value: logbook.insulins.isEmpty ? "Add" : logbook.insulins.map(\.name).joined(separator: ", "))
                 }
-                TextField("Brand name", text: $settings.bolusInsulinName, prompt: Text(settings.bolusInsulinKind.examples))
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
             }

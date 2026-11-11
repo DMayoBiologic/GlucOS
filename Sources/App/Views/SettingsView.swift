@@ -612,21 +612,7 @@ private struct LoggingSettingsTab: View {
             }
 
             if settings.therapy.logsInsulin {
-                Section {
-                    Picker("Type", selection: $settings.bolusInsulinKind) {
-                        ForEach(settings.therapy == .pump ? InsulinKind.pumpKinds : InsulinKind.allCases.filter(\.isBolus)) {
-                            Text($0.title).tag($0)
-                        }
-                    }
-                    TextField("Name", text: $settings.bolusInsulinName, prompt: Text(settings.bolusInsulinKind.examples))
-                    if settings.therapy == .injections {
-                        TextField("Long-acting", text: $settings.basalInsulinName, prompt: Text(InsulinKind.long.examples))
-                    }
-                } header: {
-                    Text(settings.therapy == .pump ? "Insulin in Your Pump" : "Your Insulins")
-                } footer: {
-                    Text("Pre-filled when you log a dose.").foregroundStyle(.secondary)
-                }
+                InsulinListSection()
             }
 
             Section {

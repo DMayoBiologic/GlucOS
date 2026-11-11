@@ -9,6 +9,9 @@ import Combine
 /// (logbook-sync.json) until it has been pushed, and `applyRemote` takes in other devices' changes.
 @MainActor
 final class LogbookStore: ObservableObject {
+    /// The user's insulins, in their order, picked from when logging a dose. Kept in
+    /// insulins.json next to logbook.json.
+    @Published private(set) var insulins: [SavedInsulin] = []
     /// Each oldest → newest.
     @Published private(set) var doses: [InsulinDose] = []
     @Published private(set) var meals: [MealEntry] = []
@@ -47,6 +50,8 @@ final class LogbookStore: ObservableObject {
     private static let writeQueue = DispatchQueue(label: "au.com.declanmayo.glucos.logbook", qos: .utility)
 
     init() {
+        loadInsulins()
+        defer { discoverInsulins() }
         if let url = Self.syncURL, let data = try? Data(contentsOf: url),
            let state = try? JSONDecoder().decode(LogbookSyncState.self, from: data) {
             syncState = state
@@ -89,6 +94,8 @@ final class LogbookStore: ObservableObject {
 
     /// Adds the entry, or replaces the one with the same id.
     func save(_ entry: LogEntry) {
+        var entry = entry
+        if case .dose(let d) = entry { entry = .dose(rememberInsulin(of: d)) }
         upsert(entry)
         touch(entry.id, kind: entry.recordKind)
         persist()
@@ -142,6 +149,146 @@ final class LogbookStore: ObservableObject {
         }
     }
 
+    // MARK: Insulins
+
+    /// What syncs: the logbook plus the user's insulins.
+    var syncContents: LogbookContents {
+        var c = contents
+        c.insulins = insulins
+        return c
+    }
+
+    /// Adds the insulin, or replaces the one with the same id.
+    func saveInsulin(_ insulin: SavedInsulin) {
+        var i = insulin
+        i.name = i.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !i.name.isEmpty else { return }
+        if let at = insulins.firstIndex(where: { $0.id == i.id }) { insulins[at] = i } else { insulins.append(i) }
+        UserDefaults.standard.set(true, forKey: Self.insulinsSetUpKey)
+        touch(i.id, kind: .insulin)
+        persistInsulins()
+        persistSyncState()
+        localChanges.send()
+    }
+
+    func deleteInsulin(id: UUID) {
+        guard insulins.contains(where: { $0.id == id }) else { return }
+        insulins.removeAll { $0.id == id }
+        touch(id, kind: .insulin, deleted: true)
+        persistInsulins()
+        persistSyncState()
+        localChanges.send()
+    }
+
+    func moveInsulins(from source: IndexSet, to destination: Int) {
+        insulins.move(fromOffsets: source, toOffset: destination)
+        // Order is kept by position in the list, so push them all.
+        for i in insulins { touch(i.id, kind: .insulin) }
+        persistInsulins()
+        persistSyncState()
+        localChanges.send()
+    }
+
+    /// The saved insulin a new dose starts with (see `InsulinLibrary.preferred`).
+    func preferredInsulin(viaPump: Bool) -> SavedInsulin? {
+        InsulinLibrary.preferred(in: insulins, doses: doses, viaPump: viaPump)
+    }
+
+    /// The saved insulin `name` refers to, however it's spelled.
+    func savedInsulin(named name: String) -> SavedInsulin? { InsulinLibrary.match(name, in: insulins) }
+
+    /// Logged doses and presets whose insulin is spelled differently from the saved name.
+    var insulinRespellingCount: Int {
+        InsulinLibrary.respellings(doses, library: insulins).count
+            + InsulinLibrary.respellings(presets, library: insulins).count
+    }
+
+    /// Writes every logged dose and preset with its insulin's saved spelling ("Novorapid" →
+    /// "NovoRapid"). Only the name changes. Returns how many entries changed.
+    @discardableResult
+    func normaliseInsulinNames() -> Int {
+        let doseNames = InsulinLibrary.respellings(doses, library: insulins)
+        let presetNames = InsulinLibrary.respellings(presets, library: insulins)
+        guard !doseNames.isEmpty || !presetNames.isEmpty else { return 0 }
+        for (i, d) in doses.enumerated() {
+            if let name = doseNames[d.id] { doses[i].name = name; touch(d.id, kind: .dose) }
+        }
+        for (i, p) in presets.enumerated() {
+            if let name = presetNames[p.id] { presets[i].insulinName = name; touch(p.id, kind: .preset) }
+        }
+        persist()
+        return doseNames.count + presetNames.count
+    }
+
+    /// A dose logged by hand: written with its insulin's saved spelling, and a name that isn't
+    /// saved yet is added to the list so it's one tap next time.
+    private func rememberInsulin(of dose: InsulinDose) -> InsulinDose {
+        var d = dose
+        d.name = d.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !d.name.isEmpty else { return d }
+        if let saved = savedInsulin(named: d.name) {
+            d.name = saved.name
+        } else {
+            var new = SavedInsulin(name: d.name, kind: d.kind)
+            // Renamed insulins keep their old id, so a new name can land on a taken one.
+            if insulins.contains(where: { $0.id == new.id }) { new.id = UUID() }
+            saveInsulin(new)
+        }
+        return d
+    }
+
+    /// Set once the list has had insulins in it on this device, after which nothing is added
+    /// to it on its own (beyond names typed when logging).
+    private static let insulinsSetUpKey = "insulinLibrarySetUp"
+
+    /// The first time, fills the list from insulins already logged and the names from the old
+    /// Settings fields. These go up as older than anything on the server, so an insulin the user
+    /// already deleted on another device stays deleted.
+    private func discoverInsulins() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.insulinsSetUpKey) else { return }
+        guard insulins.isEmpty else { defaults.set(true, forKey: Self.insulinsSetUpKey); return }
+        var named: [(name: String, kind: InsulinKind)] = []
+        let bolusKind = InsulinKind(rawValue: defaults.string(forKey: "bolusInsulinKind") ?? "") ?? .rapid
+        if let n = defaults.string(forKey: "bolusInsulinName") { named.append((n, bolusKind)) }
+        if let n = defaults.string(forKey: "basalInsulinName") { named.append((n, .long)) }
+        let found = InsulinLibrary.discovered(from: doses, named: named, excluding: insulins)
+        guard !found.isEmpty else { return }
+        insulins = found
+        for i in found where syncState.pending[i.id] == nil {
+            syncState.pending[i.id] = LogbookPendingChange(kind: LogbookRecordKind.insulin.rawValue,
+                                                           modified: LogbookMerge.adoptedModified, deleted: false)
+        }
+        defaults.set(true, forKey: Self.insulinsSetUpKey)
+        persistInsulins()
+        persistSyncState()
+        localChanges.send()
+    }
+
+    private static var insulinsURL: URL? {
+        SharedStore.containerURL?.appendingPathComponent("insulins.json")
+    }
+
+    private func loadInsulins() {
+        guard let url = Self.insulinsURL, let data = try? Data(contentsOf: url),
+              let list = try? JSONDecoder().decode([SavedInsulin].self, from: data) else { return }
+        insulins = list
+    }
+
+    private func persistInsulins() {
+        guard let url = Self.insulinsURL else { return }
+        let list = insulins
+        Self.writeQueue.async {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            do {
+                try encoder.encode(list).write(to: url, options: .atomic)
+            } catch {
+                NSLog("GlucOS: failed to save insulins: \(error)")
+            }
+        }
+    }
+
     // MARK: Presets
 
     func savePreset(_ preset: LogPreset) {
@@ -181,16 +328,17 @@ final class LogbookStore: ObservableObject {
     /// Replaces the sync bookkeeping (after a push, or when starting with an account).
     func updateSyncState(_ change: (inout LogbookSyncState, LogbookContents) -> Void) {
         let before = syncState
-        change(&syncState, contents)
+        change(&syncState, syncContents)
         if syncState != before { persistSyncState() }
     }
 
     /// Takes in changes pulled from the server.
     func applyRemote(_ records: [LogbookRecord]) {
         guard !records.isEmpty else { return }
-        var c = contents
+        var c = syncContents
         let changed = LogbookMerge.apply(records, to: &c, state: &syncState)
         if changed {
+            if c.insulins != insulins { insulins = c.insulins; persistInsulins() }
             if c.doses != doses { doses = c.doses }
             if c.meals != meals { meals = c.meals }
             if c.siteChanges != siteChanges { siteChanges = c.siteChanges }
@@ -200,6 +348,7 @@ final class LogbookStore: ObservableObject {
             let ids = Set(records.filter(\.deleted).map(\.id))
             if !ids.isEmpty { lastDeleted.removeAll { ids.contains($0.id) } }
             persist(notify: false)
+            discoverInsulins()
         } else {
             persistSyncState()
         }
@@ -263,13 +412,7 @@ final class LogbookStore: ObservableObject {
 
     /// The injection site used longest ago (never-used sites first), within the areas the user
     /// has used before. A rotation hint only; nil until there are injections with a site.
-    var leastRecentInjectionSite: InjectionSite? {
-        let last = lastInjectionBySite
-        guard !last.isEmpty else { return nil }
-        let usedAreas = Set(last.keys.map(\.area))
-        let candidates = InjectionSite.allCases.filter { $0 != .other && usedAreas.contains($0.area) }
-        return candidates.min { (last[$0] ?? .distantPast) < (last[$1] ?? .distantPast) }
-    }
+    var leastRecentInjectionSite: InjectionSite? { SiteRotation.suggestion(lastUse: lastInjectionBySite) }
 
     /// The most recent bolus (pump or injection), for "same as last time".
     var lastBolus: InsulinDose? { doses.last { $0.kind.isBolus } }

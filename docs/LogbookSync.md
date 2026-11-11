@@ -11,7 +11,7 @@ LibreLinkUp account they already use.
   seconds after a change, every minute while the app runs, when the iPhone app comes to the
   foreground and during its background refreshes. What's waiting to go up is in
   `logbook-sync.json` next to the logbook.
-- **Records.** One row per entry in `glucos.logbook`: its id, kind (`dose`, `meal`, `siteChange`,
+- **Records.** One row per entry in `glucos.logbook`: its id, kind (`insulin`, `dose`, `meal`, `siteChange`,
   `context`, `preset`), the entry as JSON (the same encoding as `logbook.json`), when it was last
   changed, and a server change counter (`rev`). Devices pull everything above the last counter they
   saw, and everything from the start every 12 hours.

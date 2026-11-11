@@ -138,6 +138,9 @@ targets:
       - path: Sources/App/Logbook/LogbookSync.swift
       - path: Sources/App/Logbook/LogbookSyncClient.swift
       - path: Sources/App/Logbook/LogbookSyncService.swift
+      - path: Sources/App/Logbook/InsulinLibrary.swift
+      - path: Sources/App/Logbook/InsulinSettingsView.swift
+      - path: Sources/App/Logbook/SiteRotation.swift
       - path: Sources/App/Outlook/OutlookStore.swift
       - path: Sources/App/Views/FlowComponents.swift
       - path: Sources/App/Views/MenuBar/PopoverInsights.swift
