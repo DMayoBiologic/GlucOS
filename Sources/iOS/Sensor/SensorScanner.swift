@@ -105,6 +105,9 @@ final class SensorScanner: NSObject {
                 do {
                     let encrypted = try await readFRAM(tag)
                     fram = LibreFRAM(decrypted: try Libre2.decryptFRAM(uid: uid, patchInfo: info.raw, fram: encrypted))
+                    if fram == nil {
+                        problem = "The sensor's data decoded but didn't make sense, so GlucOS can't show it. Try again in a minute."
+                    }
                 } catch Libre2.CryptoError.badCRC {
                     problem = "The sensor's data didn't pass its checksum after decoding, so GlucOS can't read this sensor."
                 } catch {
