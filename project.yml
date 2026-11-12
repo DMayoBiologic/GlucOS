@@ -181,6 +181,8 @@ targets:
         # never in the app (anyone with a TestFlight link can install it): the owner's phone
         # claims it from the relay with the LibreLinkUp login the relay uses (RelaySettings).
         GlucOSRelayURL: $(GLUCOS_RELAY_URL)
+        # Settings › Identify sensor reads the Libre sensor's type and serial with one tap.
+        NFCReaderUsageDescription: GlucOS reads your sensor's type and serial number when you tap it.
     entitlements:
       path: Sources/iOS/GlucOS.entitlements
       properties:
@@ -188,6 +190,8 @@ targets:
         aps-environment: development
         com.apple.security.application-groups: [group.au.com.declanmayo.glucos]
         com.apple.developer.usernotifications.time-sensitive: true
+        # NFC Tag Reading, for Settings › Identify sensor (ISO 15693 tags).
+        com.apple.developer.nfc.readersession.formats: [TAG]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: au.com.declanmayo.glucos.ios

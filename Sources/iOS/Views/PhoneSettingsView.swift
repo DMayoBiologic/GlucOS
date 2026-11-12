@@ -156,6 +156,7 @@ struct PhoneSettingsView: View {
             LabeledContent("Region", value: LibreRegion.all.first { $0.id == settings.region }?.name ?? settings.region)
             LabeledContent("Status", value: store.statusLine)
             Button("Sign Out", role: .destructive) { store.signOut() }
+            NavigationLink("Identify sensor") { SensorScanView() }
         }
     }
 
