@@ -125,7 +125,7 @@ final class SensorScanner: NSObject {
                     detail = Self.describe(error)
                 }
                 if info.isGen2, fram == nil, detail != nil {
-                    let probe = await probeGen2Read(tag)
+                    let probe = try await probeGen2Read(tag)
                     // Gen2 sensors answer the ID command and then stop answering plain reads, which
                     // iOS reports as a lost connection, so a wobble can't be told apart here.
                     problem = "The sensor stopped answering when GlucOS asked for its memory, which is what Gen2 sensors do. If you held the phone still, it's locked."
@@ -245,12 +245,13 @@ final class SensorScanner: NSObject {
     /// Gen2 sensors answer Abbott's own read command (A1 21) instead of plain reads once a session
     /// is authenticated. GlucOS can't authenticate, but the sensor's answer to an unauthenticated
     /// request is worth reporting: it says whether the memory is locked or the command unknown.
-    private func probeGen2Read(_ tag: NFCISO15693Tag) async -> String {
+    private func probeGen2Read(_ tag: NFCISO15693Tag) async throws -> String {
         do {
             let reply = try await tag.customCommand(requestFlags: .highDataRate, customCommandCode: 0xA1,
                                                     customRequestParameters: Data([0x21, 0x00, 0x02]))
             return "A1 21 replied \(reply.count) bytes: " + reply.map { String(format: "%02X", $0) }.joined(separator: " ")
         } catch {
+            if Self.sessionOver(error) { throw error }
             return "A1 21 " + Self.describe(error)
         }
     }
@@ -259,6 +260,7 @@ final class SensorScanner: NSObject {
     private static func sessionOver(_ error: Error) -> Bool {
         guard let code = (error as? NFCReaderError)?.code else { return false }
         return code == .readerSessionInvalidationErrorSessionTimeout
+            || code == .readerTransceiveErrorSessionInvalidated
             || code == .readerSessionInvalidationErrorSessionTerminatedUnexpectedly
             || code == .readerSessionInvalidationErrorUserCanceled
     }
