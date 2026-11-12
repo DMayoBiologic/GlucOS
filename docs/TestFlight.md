@@ -12,7 +12,7 @@ sensor** or **I'm following someone**; followers need no sensor or account (docs
 ## What CI does
 
 `scripts/testflight_external.py` runs in the release workflow's `testflight-external` job after
-the upload, and every 3 hours from `testflight-link.yml`. It is idempotent:
+the upload, and every hour from `testflight-link.yml`. It is idempotent:
 
 1. Creates the external group **Public** if it's missing.
 2. Fills in the test information testers see: description, privacy policy

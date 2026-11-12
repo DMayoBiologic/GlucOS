@@ -1,13 +1,14 @@
 name: TestFlight public link
 
 # Apple only lets the external group's public link turn on once a build has passed Beta App
-# Review, which happens hours after the release that submitted it. This checks every few hours
+# Review, which happens hours after the release that submitted it. This checks every hour
 # and switches it on, then prints the link in the run summary. Once it's on, each run is a quick
 # no-op. See docs/TestFlight.md.
 
 on:
   schedule:
-    - cron: "17 */3 * * *"
+    # GitHub drops many scheduled runs (this went 18 hours without one), so ask hourly.
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
