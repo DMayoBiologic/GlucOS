@@ -57,6 +57,8 @@ struct GlucOSPhoneApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             services.scenePhaseChanged(phase)
+            // Error reports saved while offline go out when the app comes back.
+            if phase == .active { Task { await Diagnostics.shared.flush() } }
             // The first use of the morning is offered as the wake-up time.
             if phase == .active { PhoneWakeLogger.shared.noteActive() }
         }

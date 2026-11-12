@@ -33,6 +33,7 @@ let package = Package(
                 "App/Logbook/InsulinLibrary.swift",
                 "App/Logbook/SiteRotation.swift",
                 "Core/ShareProtocol.swift",
+                "Core/Diagnostics.swift",
                 "Core/LibrePatchInfo.swift",
                 "Core/Libre/Libre2.swift",
                 "Core/Libre/LibreCalibrationTables.swift",

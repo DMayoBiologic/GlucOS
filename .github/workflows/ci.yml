@@ -99,7 +99,7 @@ jobs:
             done
           done
       - name: Type-check
-        run: deno check supabase/functions/relay/index.ts supabase/functions/account/index.ts supabase/functions/share/index.ts
+        run: deno check supabase/functions/relay/index.ts supabase/functions/account/index.ts supabase/functions/share/index.ts supabase/functions/diagnostics/index.ts
       - name: Edge function tests
         env:
           GLUCOS_TEST_DB_URL: postgres://postgres:postgres@127.0.0.1:54329/postgres

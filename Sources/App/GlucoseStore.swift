@@ -154,6 +154,10 @@ final class GlucoseStore: ObservableObject {
             snapshot.lastError = error.localizedDescription
             connectionProblem = ConnectionProblem(error)
             statusLine = "Error: \(error.localizedDescription)"
+            if connectionProblem?.isWorthReporting == true {
+                Diagnostics.shared.report(feature: ConnectionProblem.diagnosticFeature, step: "fetch", error: error,
+                                          context: ["region": settings.region, "clientVersion": settings.clientVersion])
+            }
             publish()
         }
         alerts.evaluate(snapshot, settings: settings)
