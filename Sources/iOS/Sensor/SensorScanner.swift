@@ -112,6 +112,8 @@ final class SensorScanner: NSObject {
                 }
                 if mode == .takeOverBluetooth {
                     guard fram != nil else { throw SensorScanError.failed(problem ?? "Couldn't read the sensor.") }
+                    // A newer scan replaced this one: don't move the stream for a request that's gone.
+                    guard self.session === session else { return }
                     let params = Libre2.enableStreamingParameters(uid: uid, patchInfo: info.raw)
                     let reply = try await tag.customCommand(requestFlags: .highDataRate, customCommandCode: 0xA1,
                                                             customRequestParameters: Data(params))

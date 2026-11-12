@@ -8,9 +8,11 @@ public enum LibreReadings {
     static func readings(fram: LibreFRAM, readAt: Date) -> [GlucoseReading] {
         let cal = fram.calibration
         let trendPoints = cal.points(fram.trend)
-        let newestTrendMinute = trendPoints.map(\.minute).max() ?? Int.min
         // History points older than the trend window; the trend covers the rest more finely.
-        let historyPoints = cal.points(fram.history).filter { $0.minute < newestTrendMinute - 15 }
+        var historyPoints = cal.points(fram.history)
+        if let newestTrendMinute = trendPoints.map(\.minute).max() {
+            historyPoints = historyPoints.filter { $0.minute < newestTrendMinute - 15 }
+        }
         return build(points: historyPoints + trendPoints, age: fram.age, at: readAt)
     }
 
@@ -60,13 +62,13 @@ public enum LibreReadings {
 
     /// Pairs each reading with the LinkUp reading closest in time (within `tolerance`).
     static func agreement(_ ours: [GlucoseReading], linkUp: [GlucoseReading], tolerance: TimeInterval = 150) -> Agreement? {
-        let reference = linkUp.sorted { $0.timestamp < $1.timestamp }
+        let reference = linkUp.filter { $0.mgdl > 0 }
         guard !reference.isEmpty else { return nil }
         var diffs: [(Double, Double)] = []
         for r in ours {
             guard let match = reference.min(by: {
                 abs($0.timestamp.timeIntervalSince(r.timestamp)) < abs($1.timestamp.timeIntervalSince(r.timestamp))
-            }), abs(match.timestamp.timeIntervalSince(r.timestamp)) <= tolerance, match.mgdl > 0 else { continue }
+            }), abs(match.timestamp.timeIntervalSince(r.timestamp)) <= tolerance else { continue }
             diffs.append((r.mgdl - match.mgdl, match.mgdl))
         }
         guard !diffs.isEmpty else { return nil }

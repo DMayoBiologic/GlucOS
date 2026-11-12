@@ -31,7 +31,7 @@ struct SensorScanView: View {
             }
 
             if let r = result {
-                if let current = r.readings.last { readingSection(r, current: current) }
+                if r.fram != nil || !r.readings.isEmpty { readingSection(r, current: r.readings.last) }
                 if let problem = r.decodeProblem {
                     Section { Text(problem).foregroundStyle(.orange) }
                 }
@@ -57,16 +57,21 @@ struct SensorScanView: View {
 
     // MARK: Sections
 
-    private func readingSection(_ r: SensorScanResult, current: GlucoseReading) -> some View {
+    private func readingSection(_ r: SensorScanResult, current: GlucoseReading?) -> some View {
         Section {
-            HStack(alignment: .firstTextBaseline) {
-                Text(settings.unit.format(mgdl: current.mgdl))
-                    .font(.system(size: 44, weight: .semibold, design: .rounded))
-                Text(settings.unit.label).foregroundStyle(.secondary)
-                Spacer()
-                Image(systemName: current.trend.systemImage)
-                    .font(.title2)
-                    .accessibilityLabel(current.trend.description)
+            if let current {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(settings.unit.format(mgdl: current.mgdl))
+                        .font(.system(size: 44, weight: .semibold, design: .rounded))
+                    Text(settings.unit.label).foregroundStyle(.secondary)
+                    Spacer()
+                    Image(systemName: current.trend.systemImage)
+                        .font(.title2)
+                        .accessibilityLabel(current.trend.description)
+                }
+            } else {
+                Text("The sensor has no glucose to show yet (warming up, or a temporary sensor error).")
+                    .foregroundStyle(.secondary)
             }
             if let fram = r.fram {
                 LabeledContent("Sensor age", value: Self.days(fram.age))

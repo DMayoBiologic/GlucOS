@@ -119,3 +119,26 @@ final class LibreReadingsTests: XCTestCase {
         XCTAssertNil(LibreReadings.agreement(ours, linkUp: []))
     }
 }
+
+final class LibreRobustnessTests: XCTestCase {
+    typealias V = Libre2Vectors
+
+    func testOutOfRangeRingCursorIsRejected() throws {
+        var plain = try Libre2.decryptFRAM(uid: V.uid1, patchInfo: V.info1, fram: V.fram1)
+        // Bump the history cursor past its 32 slots and fix the body's CRC so only the cursor is wrong.
+        plain[24 + 3] = 33
+        let crc = LibreCRC.crc16(Array(plain[26..<320]), seed: 0xffff)
+        plain[24] = UInt8(crc >> 8)
+        plain[25] = UInt8(crc & 0xff)
+        XCTAssertTrue(LibreFRAM.hasValidCRCs(plain))
+        XCTAssertNil(LibreFRAM(decrypted: plain))
+    }
+
+    func testAgreementSkipsInvalidNearestReference() {
+        let t = Date(timeIntervalSince1970: 0)
+        let ours = [GlucoseReading(timestamp: t, mgdl: 100, trend: .flat)]
+        let linkUp = [GlucoseReading(timestamp: t.addingTimeInterval(10), mgdl: 0, trend: .flat),
+                      GlucoseReading(timestamp: t.addingTimeInterval(50), mgdl: 100, trend: .flat)]
+        XCTAssertEqual(LibreReadings.agreement(ours, linkUp: linkUp)?.pairs, 1)
+    }
+}

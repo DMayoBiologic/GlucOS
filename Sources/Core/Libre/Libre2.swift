@@ -284,7 +284,9 @@ public struct LibreFRAM: Equatable, Sendable {
     public let bytes: [UInt8]
 
     public init?(decrypted bytes: [UInt8]) {
-        guard bytes.count == Libre2.framSize, Self.hasValidCRCs(bytes) else { return nil }
+        guard bytes.count == Libre2.framSize, Self.hasValidCRCs(bytes),
+              // The ring cursors index 16 trend and 32 history records; anything else would read past them.
+              bytes[24 + 2] < 16, bytes[24 + 3] < 32 else { return nil }
         self.bytes = bytes
     }
 
