@@ -126,9 +126,9 @@ final class SensorScanner: NSObject {
                 }
                 if info.isGen2, fram == nil, detail != nil {
                     let probe = try await probeGen2Read(tag)
-                    // Gen2 sensors answer the ID command and then stop answering plain reads, which
-                    // iOS reports as a lost connection, so a wobble can't be told apart here.
-                    problem = "The sensor stopped answering when GlucOS asked for its memory, which is what Gen2 sensors do. If you held the phone still, it's locked."
+                    // Gen2 sensors answer the ID command but refuse plain reads, with ISO 0x01 ("command
+                    // not supported") or by dropping the connection.
+                    problem = "The sensor refused GlucOS's memory read, which is what Gen2 sensors do. Their memory only opens to Abbott's own app."
                     detail = [detail, probe].compactMap { $0 }.joined(separator: "; ")
                 }
                 if let problem {
@@ -249,18 +249,30 @@ final class SensorScanner: NSObject {
         return out
     }
 
-    /// Gen2 sensors answer Abbott's own read command (A1 21) instead of plain reads once a session
-    /// is authenticated. GlucOS can't authenticate, but the sensor's answer to an unauthenticated
-    /// request is worth reporting: it says whether the memory is locked or the command unknown.
+    /// What a Gen2 sensor answers without Abbott's key. GlucOS can't authenticate, so this only
+    /// records which commands the sensor accepts and what it says, for the Details line and the
+    /// error report. Every command here only reads: none activates, writes, resets or moves the
+    /// Bluetooth stream (those are A0, A1 1E, A2–A4, B1/B2/B4, never sent here).
     private func probeGen2Read(_ tag: NFCISO15693Tag) async throws -> String {
-        do {
-            let reply = try await tag.customCommand(requestFlags: .highDataRate, customCommandCode: 0xA1,
-                                                    customRequestParameters: Data([0x21, 0x00, 0x02]))
-            return "A1 21 replied \(reply.count) bytes: " + reply.map { String(format: "%02X", $0) }.joined(separator: " ")
-        } catch {
-            if Self.sessionOver(error) { throw error }
-            return "A1 21 " + Self.describe(error)
+        let probes: [(name: String, code: Int, params: [UInt8])] = [
+            ("A1 22 attribute", 0xA1, [0x22]),
+            ("A1 20 challenge", 0xA1, [0x20]),
+            ("A1 21 read", 0xA1, [0x21, 0x00, 0x02]),
+            ("B0 read block", 0xB0, [0x00, 0x00]),
+            ("B3 read blocks", 0xB3, [0x00, 0x00, 0x02]),
+        ]
+        var out = [String]()
+        for p in probes {
+            do {
+                let reply = try await tag.customCommand(requestFlags: .highDataRate, customCommandCode: p.code,
+                                                        customRequestParameters: Data(p.params))
+                out.append("\(p.name): \(reply.count) bytes " + reply.map { String(format: "%02X", $0) }.joined())
+            } catch {
+                if Self.sessionOver(error) { throw error }
+                out.append("\(p.name): " + Self.describe(error))
+            }
         }
+        return out.joined(separator: "; ")
     }
 
     /// The reader session has ended (timed out or was closed), so no further command can work.
