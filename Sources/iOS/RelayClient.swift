@@ -124,6 +124,10 @@ struct RelayClient {
 
     func sendTest() async throws -> RelayStatus { try await call("v1/test", method: "POST") }
 
+    func upload(_ readings: RelayReadings) async throws -> RelayStatus {
+        try await call("v1/readings", method: "POST", body: try JSONEncoder().encode(readings))
+    }
+
     // MARK: Sharing (ShareProtocol.swift)
 
     func shares() async throws -> [ShareInfo] { try await call("v1/shares", method: "GET") }

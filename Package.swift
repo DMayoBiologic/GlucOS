@@ -37,6 +37,7 @@ let package = Package(
                 "Core/Libre/Libre2.swift",
                 "Core/Libre/LibreCalibrationTables.swift",
                 "Core/Libre/LibreReadings.swift",
+                "Core/Libre/LibreDirect.swift",
                 "App/Logbook/LogbookModels.swift",
                 "App/Logbook/FoodModels.swift",
                 "Food/FoodDatabase.swift",

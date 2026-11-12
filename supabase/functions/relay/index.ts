@@ -6,6 +6,7 @@
 //   POST /v1/claim      {email, password}  → {secret}      (no secret: the owner's LibreLinkUp login)
 //   POST /v1/register   RelayRegistration  → RelayStatus
 //   POST /v1/test                          → RelayStatus   (sends a test alert push)
+//   POST /v1/readings   {readings}         → RelayStatus   (the phone's own sensor readings)
 //   POST /v1/tick                                          (pg_cron, every minute)
 //   GET  /v1/shares                        → Share[]       (the owner's live share links)
 //   POST /v1/shares     CreateShareRequest → CreatedShare
@@ -82,6 +83,11 @@ export async function handle(req: Request): Promise<Response> {
   const { engine } = services();
   if (path === "/v1/status" && req.method === "GET") return json(await engine.status());
   if (path === "/v1/test" && req.method === "POST") return json(await engine.sendTest());
+  if (path === "/v1/readings" && req.method === "POST") {
+    const body = await req.json().catch(() => null);
+    if (!Array.isArray(body?.readings)) return json({ error: "bad request" }, 400);
+    return json(await engine.addPhoneReadings(body));
+  }
   if (path.startsWith("/v1/shares")) {
     try {
       if (path === "/v1/shares" && req.method === "GET") return json(await engine.listShares());

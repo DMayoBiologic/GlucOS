@@ -6,6 +6,7 @@ import SwiftUI
 struct SensorScanView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var direct: DirectSensorService
     @State private var scanner = SensorScanner()
     @State private var result: SensorScanResult?
     @State private var error: String?
@@ -145,7 +146,10 @@ struct SensorScanView: View {
         error = nil
         defer { scanning = false }
         do {
-            result = try await scanner.scan(.read)
+            let r = try await scanner.scan(.read)
+            result = r
+            // Reading the sensor live: the tap fills in anything missed in the last 8 hours.
+            direct.backfill(r)
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription
@@ -178,7 +182,9 @@ struct SensorScanView: View {
             return "This sensor's readings aren't encrypted, so GlucOS could read them with a tap."
         case .encryptedKnown:
             return r.fram != nil
-                ? "GlucOS decoded this sensor itself. A live Bluetooth feed would take the connection from LibreLink, which stops its alarms and LinkUp sharing. GlucOS keeps using LinkUp for now."
+                ? (direct.sensor?.uid == r.uid
+                   ? "GlucOS has this sensor's Bluetooth. This read filled in the last 8 hours."
+                   : "GlucOS decoded this sensor itself. Settings › Live from sensor can take its Bluetooth from LibreLink for a reading every minute, which stops LibreLink's alarms and LinkUp sharing.")
                 : "Readings are encrypted, but open-source apps can decode them. A live Bluetooth feed would take the connection from LibreLink, which stops its alarms and LinkUp sharing."
         case .none:
             return "There's no known way to read this sensor on iPhone without Abbott's app. GlucOS keeps using LinkUp."

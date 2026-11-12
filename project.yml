@@ -172,7 +172,8 @@ targets:
         # Lock Screen card, updated by the push relay about once a minute.
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
-        UIBackgroundModes: [fetch, remote-notification]
+        # bluetooth-central: Settings › Live from sensor gets a reading from the sensor every minute.
+        UIBackgroundModes: [fetch, remote-notification, bluetooth-central]
         BGTaskSchedulerPermittedIdentifiers: [au.com.declanmayo.glucos.refresh]
         CFBundleURLTypes:
           - CFBundleURLName: au.com.declanmayo.glucos
@@ -183,6 +184,7 @@ targets:
         GlucOSRelayURL: $(GLUCOS_RELAY_URL)
         # Settings › Read sensor reads the Libre sensor's type and last 8 hours with one tap.
         NFCReaderUsageDescription: GlucOS reads your sensor's type and recent readings when you tap it.
+        NSBluetoothAlwaysUsageDescription: GlucOS connects to your Libre sensor to get a reading every minute, when you turn on Live from sensor.
     entitlements:
       path: Sources/iOS/GlucOS.entitlements
       properties:

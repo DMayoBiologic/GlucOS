@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import SwiftUI
 import BackgroundTasks
+import UIKit
 
 /// The iPhone-only work around `GlucoseStore`: the Lock Screen Live Activity, the push relay and
 /// background refresh. The store itself (fetching, history, forecast, alerts) is the same one the
@@ -13,6 +14,8 @@ final class PhoneServices: ObservableObject {
 
     let store: GlucoseStore
     let liveActivity = LiveActivityController()
+    /// Readings straight from the sensor over Bluetooth, once the person has taken it over.
+    let directSensor = DirectSensorService()
     let relaySettings = RelaySettings.shared
     /// Brings in doses and food logged on the Mac, which the forecast here uses.
     var logbookSync: LogbookSyncService?
@@ -55,9 +58,24 @@ final class PhoneServices: ObservableObject {
         // Checked at delivery time: the relay's last status counts only while it's recent
         // (`isDeliveringAlerts` wants a fetch in the last 5 minutes), so if the relay goes quiet
         // the phone starts alerting by itself again.
+        // Reading the sensor directly, the phone has the newest readings and always alerts itself
+        // (the relay stands down for the owner while the phone's uploads keep coming).
         store.alerts.deliversLocally = { [weak self] in
-            !(self?.relayStatus?.isDeliveringAlerts() ?? false)
+            guard let self else { return true }
+            return self.directSensor.isEnabled || !(self.relayStatus?.isDeliveringAlerts() ?? false)
         }
+        directSensor.alertsEnabled = { [weak store] in store?.settings.alertsEnabled ?? true }
+        directSensor.onReadings = { [weak self] readings in
+            guard let self else { return }
+            self.store.ingest(readings)
+            Task { await self.uploadSensorReadings(readings) }
+        }
+        directSensor.$sensor
+            .map { $0 != nil }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in Task { @MainActor in await self?.syncRelay() } }
+            .store(in: &cancellables)
         store.onPublish = { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -169,6 +187,7 @@ final class PhoneServices: ObservableObject {
         r.apnsEnvironment = apnsEnvironment
         r.display = .init(unit: s.unit.rawValue, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl)
         r.alerts = s.alertPreferences
+        r.phoneDeliversAlerts = directSensor.isEnabled
         if s.hasCredentials {
             r.account = .init(email: s.email, password: s.password, region: s.region,
                               clientVersion: s.clientVersion, sensorLifetimeDays: s.sensorLifetimeDays)
@@ -231,6 +250,16 @@ final class PhoneServices: ObservableObject {
     private func refreshRelayStatusIfDue() async {
         guard relaySettings.isConfigured, Date().timeIntervalSince(lastStatusCheck) >= 60 else { return }
         await refreshRelayStatus()
+    }
+
+    /// Sends the sensor's readings to the relay, which puts them on the Lock Screen card and
+    /// followers' phones (LinkUp has none while GlucOS has the sensor). Often runs in the
+    /// background, woken by a Bluetooth packet, so it asks iOS for the time to finish.
+    private func uploadSensorReadings(_ readings: [GlucoseReading]) async {
+        guard let client = relaySettings.client, !readings.isEmpty else { return }
+        let task = UIApplication.shared.beginBackgroundTask(withName: "glucos.upload")
+        defer { if task != .invalid { UIApplication.shared.endBackgroundTask(task) } }
+        do { apply(try await client.upload(RelayReadings(readings))) } catch { relayError = error.localizedDescription }
     }
 
     func sendRelayTest() async {

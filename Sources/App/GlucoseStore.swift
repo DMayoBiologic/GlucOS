@@ -137,8 +137,12 @@ final class GlucoseStore: ObservableObject {
             let r = try await client.fetch(credentials: creds)
             guard !accountChanged() else { return }
             var s = snapshot
-            s.current = r.current
-            s.history = r.history
+            // Readings the phone took from the sensor itself stay when they're newer than LinkUp's
+            // (LibreLink stops uploading once GlucOS has the sensor's Bluetooth).
+            let merged = ReadingTimeline.afterFetch(linkUpCurrent: r.current, linkUpHistory: r.history,
+                                                    previousCurrent: s.current, previousHistory: s.history)
+            s.current = merged.current
+            s.history = merged.history
             s.sensor = r.sensor
             s.fetchedAt = Date()
             s.lastError = nil
@@ -159,6 +163,24 @@ final class GlucoseStore: ObservableObject {
         alerts.evaluate(snapshot, settings: settings)
         alerts.evaluatePrediction(snapshot, forecast: outlook.outlook?.glucoseForecast, settings: settings)
         await checkNotificationPermission()
+    }
+
+    /// Readings read from the sensor itself (Bluetooth every minute, or an NFC tap's 8 hours), on
+    /// the iPhone while GlucOS has the sensor's Bluetooth. They join LinkUp's: the newest reading
+    /// becomes current, and the widgets, Live Activity, forecast and alerts all update.
+    func ingest(_ readings: [GlucoseReading], now: Date = Date()) {
+        guard !readings.isEmpty else { return }
+        var s = snapshot
+        let merged = ReadingTimeline.union(s.history + [s.current].compactMap { $0 } + readings, now: now)
+        s.current = merged.current
+        s.history = merged.history
+        s.fetchedAt = now
+        snapshot = s
+        record(GlucoseSnapshot(current: nil, history: readings))
+        refreshOutlook(now: now)
+        applySettings()
+        alerts.evaluate(snapshot, settings: settings, now: now)
+        alerts.evaluatePrediction(snapshot, forecast: outlook.outlook?.glucoseForecast, settings: settings, now: now)
     }
 
     /// Saves the account, signs in from scratch and fetches once. Returns the problem, or nil
