@@ -14,6 +14,8 @@ struct SensorScanResult {
     let fram: LibreFRAM?
     /// Why `fram` is nil for a sensor that should decode (read cut short, checksum failed).
     let decodeProblem: String?
+    /// Technical detail behind `decodeProblem` (which block, which NFC error), for a bug report.
+    let decodeDetail: String?
     /// Set when the scan switched the sensor's Bluetooth stream to this phone.
     let bluetoothAddress: String?
 
@@ -99,6 +101,7 @@ final class SensorScanner: NSObject {
 
             var fram: LibreFRAM?
             var problem: String?
+            var detail: String?
             var address: String?
             if mode != .identify, info.directAccess == .encryptedKnown, info.raw.count == 6 {
                 session.alertMessage = "Reading…"
@@ -110,11 +113,18 @@ final class SensorScanner: NSObject {
                     }
                 } catch Libre2.CryptoError.badCRC {
                     problem = "The sensor's data didn't pass its checksum after decoding, so GlucOS can't read this sensor."
+                } catch let e as FRAMReadError {
+                    problem = "The read was cut short. Hold the phone still against the sensor and try again."
+                    detail = e.detail
                 } catch {
                     problem = "The read was cut short. Hold the phone still against the sensor and try again."
+                    detail = Self.describe(error)
                 }
                 if mode == .takeOverBluetooth {
-                    guard fram != nil else { throw SensorScanError.failed(problem ?? "Couldn't read the sensor.") }
+                    guard fram != nil else {
+                        throw SensorScanError.failed([problem ?? "Couldn't read the sensor.", detail.map { "Details: \($0)" }]
+                            .compactMap { $0 }.joined(separator: "\n\n"))
+                    }
                     // A newer scan replaced this one: don't move the stream for a request that's gone.
                     guard self.session === session else { return }
                     let params = Libre2.enableStreamingParameters(uid: uid, patchInfo: info.raw)
@@ -129,7 +139,7 @@ final class SensorScanner: NSObject {
 
             guard self.session === session else { return }
             let result = SensorScanResult(patchInfo: info, serial: serial, scannedAt: Date(), uid: uid,
-                                          fram: fram, decodeProblem: problem, bluetoothAddress: address)
+                                          fram: fram, decodeProblem: problem, decodeDetail: detail, bluetoothAddress: address)
             session.alertMessage = fram != nil ? "Read your sensor." : (info.family == .unknown ? "Read an unrecognised sensor." : info.family.rawValue)
             session.invalidate()
             finish(.success(result))
@@ -140,21 +150,87 @@ final class SensorScanner: NSObject {
         }
     }
 
-    /// The 43 eight-byte FRAM blocks, three at a time (what Libre sensors accept per request).
+    /// Why the memory read stopped: the first block that couldn't be read, and every way it was tried.
+    struct FRAMReadError: Error {
+        let block: Int
+        let attempts: [String]
+        var detail: String { "block \(block): " + attempts.joined(separator: "; ") }
+    }
+
+    /// The 43 eight-byte FRAM blocks.
+    ///
+    /// Sensors and iPhones differ in what they accept, so each step falls back: three blocks at a
+    /// time without the address flag (the same flags as the patch-info command, which works),
+    /// then with it, then one block at a time. Each is retried once, since a tap often wobbles.
     private func readFRAM(_ tag: NFCISO15693Tag) async throws -> [UInt8] {
         var out = [UInt8]()
         var block = 0
+        var attempts = [String]()
         while block < Libre2.framBlocks {
             let count = min(3, Libre2.framBlocks - block)
-            let blocks = try await tag.readMultipleBlocks(requestFlags: [.highDataRate, .address],
-                                                          blockRange: NSRange(location: block, length: count))
-            guard blocks.count == count, blocks.allSatisfy({ $0.count == 8 }) else {
-                throw SensorScanError.failed("short read")
+            var got: [Data]?
+            attempts.removeAll()
+            outer: for flags in Self.multiFlags {
+                for _ in 0..<2 {
+                    do {
+                        let blocks = try await tag.readMultipleBlocks(requestFlags: flags,
+                                                                      blockRange: NSRange(location: block, length: count))
+                        if blocks.count == count, blocks.allSatisfy({ $0.count == 8 }) {
+                            got = blocks
+                            break outer
+                        }
+                        attempts.append("multi\(Self.name(flags)) got \(blocks.map(\.count))")
+                    } catch {
+                        attempts.append("multi\(Self.name(flags)) " + Self.describe(error))
+                        if Self.connectionLost(error) { throw FRAMReadError(block: block, attempts: attempts) }
+                    }
+                }
             }
-            blocks.forEach { out += [UInt8]($0) }
+            if got == nil {
+                // One block at a time.
+                var singles = [Data]()
+                for b in block..<(block + count) {
+                    var data: Data?
+                    for _ in 0..<2 where data == nil {
+                        do {
+                            let d = try await tag.readSingleBlock(requestFlags: .highDataRate, blockNumber: UInt8(b))
+                            if d.count == 8 { data = d } else { attempts.append("single \(b) got \(d.count)") }
+                        } catch {
+                            attempts.append("single \(b) " + Self.describe(error))
+                            if Self.connectionLost(error) { throw FRAMReadError(block: b, attempts: attempts) }
+                        }
+                    }
+                    guard let data else { throw FRAMReadError(block: b, attempts: attempts) }
+                    singles.append(data)
+                }
+                got = singles
+            }
+            got?.forEach { out += [UInt8]($0) }
             block += count
         }
         return out
+    }
+
+    private static let multiFlags: [NFCISO15693RequestFlag] = [[.highDataRate], [.highDataRate, .address]]
+
+    private static func name(_ flags: NFCISO15693RequestFlag) -> String {
+        flags.contains(.address) ? "(addr)" : ""
+    }
+
+    private static func connectionLost(_ error: Error) -> Bool {
+        (error as? NFCReaderError)?.code == .readerTransceiveErrorTagConnectionLost
+            || (error as? NFCReaderError)?.code == .readerSessionInvalidationErrorSessionTimeout
+    }
+
+    /// An NFC error as "NFC 102 (Tag response error), ISO 0x0F", or the error's own text.
+    static func describe(_ error: Error) -> String {
+        let ns = error as NSError
+        var s = ns.domain == NFCErrorDomain ? "NFC \(ns.code)" : "\(ns.domain) \(ns.code)"
+        s += " (\(ns.localizedDescription))"
+        if let iso = ns.userInfo[NFCISO15693TagResponseErrorKey] as? NSNumber {
+            s += String(format: ", ISO 0x%02X", iso.intValue)
+        }
+        return s
     }
     #endif
 }

@@ -27,13 +27,21 @@ struct SensorScanView: View {
             }
 
             if let error {
-                Section { Text(error).foregroundStyle(.red) }
+                Section { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             }
 
             if let r = result {
                 if r.fram != nil || !r.readings.isEmpty { readingSection(r, current: r.readings.last) }
                 if let problem = r.decodeProblem {
-                    Section { Text(problem).foregroundStyle(.orange) }
+                    Section {
+                        Text(problem).foregroundStyle(.orange)
+                    } footer: {
+                        if let detail = r.decodeDetail {
+                            Text("Details: \(detail)")
+                                .font(.system(.caption2, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                    }
                 }
                 if !r.readings.isEmpty { comparisonSection(r.readings) }
                 Section("Sensor") {
