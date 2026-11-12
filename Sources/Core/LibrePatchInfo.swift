@@ -68,6 +68,9 @@ public struct LibrePatchInfo: Equatable, Sendable {
         }
     }
 
+    /// True for Gen2-security Libre 2 sensors, whose memory and Bluetooth are locked to Abbott's apps.
+    public var isGen2: Bool { family == .libre2Gen2 || family == .libre2PlusGen2 }
+
     /// Days of wear, where known.
     public var lifetimeDays: Int? {
         switch family {
@@ -80,7 +83,7 @@ public struct LibrePatchInfo: Equatable, Sendable {
     // Known 6-byte headers (from DiaBLE):
     //   Libre 2+ EU: C6 09 31 01 / 7F 0E 31 01    Libre 2 EU: 7F 0E 30 01
     //   Libre 2+ US: 2C 0A 3A 02                  Libre 2+ LatAm: 2B 0A 3A 08
-    //   Libre 2 RU (Gen2): 2B 0A 39 08
+    //   Libre 2 RU (Gen2): 2B 0A 39 08            Libre 2+ AU (Gen2): 7F 0E 3A 04
     static func family(for b: [UInt8]) -> Family {
         if b.count == 24 {
             // Libre 3 family: byte 12 is the product type (4 = Libre 3, 9 = Lingo), bytes 4–5 the
@@ -97,7 +100,10 @@ public struct LibrePatchInfo: Equatable, Sendable {
         case 0x70: return .librePro
         case 0x9D, 0xC5: return .libre2
         case 0xC6: return .libre2Plus
-        case 0x7F: return revision > 0 ? .libre2Plus : .libre2
+        // DiaBLE's rule: in a Libre 2 header the low nibble of byte 2 is the security revision, and 9
+        // or more means Gen2 security (US 2C 0A 3A 02 is Gen2). A 7F 0E 3A 04 Libre 2 Plus from
+        // Australia drops the NFC connection on the first memory read, as a Gen2 sensor does.
+        case 0x7F: return revision >= 9 ? .libre2PlusGen2 : revision > 0 ? .libre2Plus : .libre2
         case 0x2C: return .libre2PlusGen2
         case 0x2B: return revision > 9 ? .libre2PlusGen2 : .libre2Gen2
         case 0x76: return .libre2Gen2
