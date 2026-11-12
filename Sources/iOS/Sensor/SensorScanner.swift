@@ -103,7 +103,9 @@ final class SensorScanner: NSObject {
             var problem: String?
             var detail: String?
             var address: String?
-            if mode != .identify, info.directAccess == .encryptedKnown, info.raw.count == 6 {
+            // Gen2 sensors are tried too: the generation rule comes from DiaBLE and hasn't been
+            // checked on every sensor, so a plain read that works still gets decoded.
+            if mode != .identify, info.directAccess == .encryptedKnown || info.isGen2, info.raw.count == 6 {
                 session.alertMessage = "Reading…"
                 do {
                     let encrypted = try await readFRAM(tag)
@@ -119,6 +121,11 @@ final class SensorScanner: NSObject {
                 } catch {
                     problem = "The read was cut short. Hold the phone still against the sensor and try again."
                     detail = Self.describe(error)
+                }
+                if info.isGen2, fram == nil, detail != nil {
+                    let probe = await probeGen2Read(tag)
+                    problem = "The sensor refused the memory read, as Gen2 sensors do."
+                    detail = [detail, probe].compactMap { $0 }.joined(separator: "; ")
                 }
                 if mode == .takeOverBluetooth {
                     guard fram != nil else {
@@ -159,49 +166,70 @@ final class SensorScanner: NSObject {
 
     /// The 43 eight-byte FRAM blocks.
     ///
-    /// Sensors and iPhones differ in what they accept, so each step falls back: three blocks at a
-    /// time without the address flag (the same flags as the patch-info command, which works),
-    /// then with it, then one block at a time. Each is retried once, since a tap often wobbles.
+    /// Follows DiaBLE: three blocks at a time with only the high-data-rate flag, and on any error,
+    /// including "tag connection lost", wait 250 ms and send the same read again, up to five times
+    /// in all. A dropped connection on a wobbly tap usually comes back on the next command. Only
+    /// then does it try the address flag and single blocks. It stops early only when the session
+    /// itself has ended.
     private func readFRAM(_ tag: NFCISO15693Tag) async throws -> [UInt8] {
         var out = [UInt8]()
         var block = 0
         var attempts = [String]()
+        var retries = 0
+        let maxRetries = 5
+
+        func note(_ what: String, _ error: Error) throws {
+            attempts.append(what + " " + Self.describe(error))
+            if Self.sessionOver(error) { throw FRAMReadError(block: block, attempts: attempts) }
+        }
+
         while block < Libre2.framBlocks {
             let count = min(3, Libre2.framBlocks - block)
             var got: [Data]?
-            attempts.removeAll()
-            outer: for flags in Self.multiFlags {
-                for _ in 0..<2 {
-                    do {
-                        let blocks = try await tag.readMultipleBlocks(requestFlags: flags,
-                                                                      blockRange: NSRange(location: block, length: count))
-                        if blocks.count == count, blocks.allSatisfy({ $0.count == 8 }) {
-                            got = blocks
-                            break outer
-                        }
-                        attempts.append("multi\(Self.name(flags)) got \(blocks.map(\.count))")
-                    } catch {
-                        attempts.append("multi\(Self.name(flags)) " + Self.describe(error))
-                        if Self.connectionLost(error) { throw FRAMReadError(block: block, attempts: attempts) }
+            // Plain multi-block reads, retried.
+            while got == nil, retries <= maxRetries {
+                if retries > 0 { try? await Task.sleep(nanoseconds: 250_000_000) }
+                do {
+                    let blocks = try await tag.readMultipleBlocks(requestFlags: .highDataRate,
+                                                                  blockRange: NSRange(location: block, length: count))
+                    if blocks.count == count, blocks.allSatisfy({ $0.count == 8 }) {
+                        got = blocks
+                    } else {
+                        attempts.append("multi got \(blocks.map(\.count))")
+                        retries += 1
                     }
+                } catch {
+                    try note("multi", error)
+                    retries += 1
+                }
+            }
+            // Then once with the address flag, then block by block.
+            if got == nil {
+                do {
+                    let blocks = try await tag.readMultipleBlocks(requestFlags: [.highDataRate, .address],
+                                                                  blockRange: NSRange(location: block, length: count))
+                    if blocks.count == count, blocks.allSatisfy({ $0.count == 8 }) { got = blocks }
+                    else { attempts.append("multi(addr) got \(blocks.map(\.count))") }
+                } catch {
+                    try note("multi(addr)", error)
                 }
             }
             if got == nil {
-                // One block at a time.
                 var singles = [Data]()
                 for b in block..<(block + count) {
-                    var data: Data?
-                    for _ in 0..<2 where data == nil {
-                        do {
-                            let d = try await tag.readSingleBlock(requestFlags: .highDataRate, blockNumber: UInt8(b))
-                            if d.count == 8 { data = d } else { attempts.append("single \(b) got \(d.count)") }
-                        } catch {
-                            attempts.append("single \(b) " + Self.describe(error))
-                            if Self.connectionLost(error) { throw FRAMReadError(block: b, attempts: attempts) }
+                    do {
+                        let d = try await tag.readSingleBlock(requestFlags: .highDataRate, blockNumber: UInt8(b))
+                        guard d.count == 8 else {
+                            attempts.append("single \(b) got \(d.count)")
+                            throw FRAMReadError(block: b, attempts: attempts)
                         }
+                        singles.append(d)
+                    } catch let e as FRAMReadError {
+                        throw e
+                    } catch {
+                        try note("single \(b)", error)
+                        throw FRAMReadError(block: b, attempts: attempts)
                     }
-                    guard let data else { throw FRAMReadError(block: b, attempts: attempts) }
-                    singles.append(data)
                 }
                 got = singles
             }
@@ -211,15 +239,25 @@ final class SensorScanner: NSObject {
         return out
     }
 
-    private static let multiFlags: [NFCISO15693RequestFlag] = [[.highDataRate], [.highDataRate, .address]]
-
-    private static func name(_ flags: NFCISO15693RequestFlag) -> String {
-        flags.contains(.address) ? "(addr)" : ""
+    /// Gen2 sensors answer Abbott's own read command (A1 21) instead of plain reads once a session
+    /// is authenticated. GlucOS can't authenticate, but the sensor's answer to an unauthenticated
+    /// request is worth reporting: it says whether the memory is locked or the command unknown.
+    private func probeGen2Read(_ tag: NFCISO15693Tag) async -> String {
+        do {
+            let reply = try await tag.customCommand(requestFlags: .highDataRate, customCommandCode: 0xA1,
+                                                    customRequestParameters: Data([0x21, 0x00, 0x02]))
+            return "A1 21 replied \(reply.count) bytes"
+        } catch {
+            return "A1 21 " + Self.describe(error)
+        }
     }
 
-    private static func connectionLost(_ error: Error) -> Bool {
-        (error as? NFCReaderError)?.code == .readerTransceiveErrorTagConnectionLost
-            || (error as? NFCReaderError)?.code == .readerSessionInvalidationErrorSessionTimeout
+    /// The reader session has ended (timed out or was closed), so no further command can work.
+    private static func sessionOver(_ error: Error) -> Bool {
+        guard let code = (error as? NFCReaderError)?.code else { return false }
+        return code == .readerSessionInvalidationErrorSessionTimeout
+            || code == .readerSessionInvalidationErrorSessionTerminatedUnexpectedly
+            || code == .readerSessionInvalidationErrorUserCanceled
     }
 
     /// An NFC error as "NFC 102 (Tag response error), ISO 0x0F", or the error's own text.
