@@ -51,7 +51,9 @@ REVIEW_NOTES = """GlucOS is a companion viewer for FreeStyle Libre continuous gl
 
 To review without a sensor: on the first screen choose "I'm following someone", then tap "See an Example" to see a followed person's live card with example readings. Real follow links come from another GlucOS user (Share button, or GlucOS in the Messages + menu) and open https://gluc-os-seven.vercel.app/share/ with the app installed.
 
-"I wear a sensor" needs a LibreLinkUp follower account linked to a real sensor, so no demo account can be provided. Alerts and Lock Screen updates are sent by the developer's own push service (Supabase) using APNs."""
+"I wear a sensor" needs a LibreLinkUp follower account linked to a real sensor, so no demo account can be provided. Alerts and Lock Screen updates are sent by the developer's own push service (Supabase) using APNs.
+
+Optional sensor features (Settings): "Read sensor" uses NFC (Core NFC, ISO 15693) to read the wearer's own FreeStyle Libre sensor and shows its type and recent readings; reading changes nothing on the sensor. "Live from sensor" is off by default: after a screen explaining that Abbott's LibreLink app will stop receiving readings and its alarms will stop, the user taps their sensor and GlucOS receives readings from it over Bluetooth (background mode bluetooth-central), with its own alerts. Both need a physical Libre 2 or 2 Plus sensor, so they can't be tried without one."""
 
 warnings = []
 

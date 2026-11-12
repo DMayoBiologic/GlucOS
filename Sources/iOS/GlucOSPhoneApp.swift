@@ -38,6 +38,7 @@ struct GlucOSPhoneApp: App {
                 .environmentObject(store)
                 .environmentObject(logbook)
                 .environmentObject(services)
+                .environmentObject(services.directSensor)
                 .environmentObject(logbookSync)
                 .environmentObject(store.settings)
                 .environmentObject(follows)

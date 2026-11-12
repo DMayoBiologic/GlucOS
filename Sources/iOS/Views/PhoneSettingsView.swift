@@ -111,6 +111,7 @@ struct PhoneSettingsView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var services: PhoneServices
+    @EnvironmentObject var directSensor: DirectSensorService
     @EnvironmentObject var logbookSync: LogbookSyncService
     @EnvironmentObject var logbook: LogbookStore
     @ObservedObject private var relay = RelaySettings.shared
@@ -157,6 +158,11 @@ struct PhoneSettingsView: View {
             LabeledContent("Status", value: store.statusLine)
             Button("Sign Out", role: .destructive) { store.signOut() }
             NavigationLink("Read sensor") { SensorScanView() }
+            NavigationLink {
+                DirectSensorView()
+            } label: {
+                LabeledContent("Live from sensor", value: directSensor.isEnabled ? "On" : "Off")
+            }
         }
     }
 

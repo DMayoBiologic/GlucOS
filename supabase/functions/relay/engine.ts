@@ -64,6 +64,8 @@ export interface RelayPrefs {
   liveActivityEnabled: boolean;
   display: Display;
   alerts: AlertPreferences;
+  /// The phone reads the sensor itself and alerts locally (missing on old rows).
+  phoneDeliversAlerts?: boolean;
 }
 
 export interface ActivityRecord {
@@ -92,6 +94,8 @@ export interface Work {
   followerCursor?: string | null;
   /// Wrong claims (`claim`) since `since`. Missing on old rows.
   claimFailures?: { count: number; since: number } | null;
+  /// When the phone last sent readings it read from the sensor itself. Missing on old rows.
+  lastPhoneReadingAt?: number | null;
 }
 
 export interface RelayRow {
@@ -158,7 +162,18 @@ export interface RelayRegistration {
   signedOut?: boolean;
   display?: Display;
   alerts?: AlertPreferences;
+  phoneDeliversAlerts?: boolean;
 }
+
+/// Readings the phone read from the sensor itself (POST /v1/readings).
+export interface PhoneReadings {
+  readings: Reading[];
+}
+
+/// While the phone has sent readings this recently, it is the one alerting the owner.
+export const phoneAlertWindow = 5 * 60;
+/// Most readings taken in one upload (a day of minutes, with room to spare).
+export const maxPhoneReadings = 2000;
 
 export interface RelayStatus {
   version: string;
@@ -174,6 +189,7 @@ export interface RelayStatus {
   activityStartedAt?: number;
   liveActivityEnabled: boolean;
   alertsEnabled: boolean;
+  lastPhoneReadingAt?: number;
 }
 
 // MARK: - Engine
@@ -226,6 +242,7 @@ export class RelayEngine {
       if (r.apnsEnvironment !== undefined) row.prefs.sandbox = r.apnsEnvironment === "sandbox";
       if (r.display) row.prefs.display = r.display;
       if (r.alerts) row.prefs.alerts = { ...defaultAlertPreferences(), ...r.alerts };
+      if (r.phoneDeliversAlerts !== undefined) row.prefs.phoneDeliversAlerts = r.phoneDeliversAlerts;
 
       if (r.signedOut === true) {
         row.accountGeneration += 1;
@@ -302,6 +319,30 @@ export class RelayEngine {
     });
   }
 
+  /// Readings the phone took from the sensor over Bluetooth, while LibreLink (and so LinkUp) has
+  /// none. They go in with LinkUp's, and the newest becomes the current reading, so the next tick
+  /// updates the Lock Screen card and followers as usual. Bad entries are dropped, not refused.
+  addPhoneReadings(body: unknown): Promise<RelayStatus> {
+    return this.store.transaction(async (tx) => {
+      const now = this.clock();
+      const w = tx.row.work;
+      const list = (body as PhoneReadings | null)?.readings;
+      const valid = (Array.isArray(list) ? list.slice(-maxPhoneReadings) : []).filter((r): r is Reading =>
+        typeof r === "object" && r !== null
+        && typeof r.t === "number" && Number.isFinite(r.t) && r.t > now - 86_400 && r.t < now + 300
+        && typeof r.mgdl === "number" && Number.isFinite(r.mgdl) && r.mgdl >= 20 && r.mgdl <= 600
+        && Number.isInteger(r.trend) && r.trend >= 0 && r.trend <= 5
+      ).map((r) => ({ t: r.t, mgdl: r.mgdl, trend: r.trend }));
+      if (valid.length) {
+        await tx.addReadings(valid);
+        const newest = valid.reduce((a, b) => (b.t > a.t ? b : a));
+        if (!w.current || newest.t > w.current.t) w.current = newest;
+        w.lastPhoneReadingAt = now;
+      }
+      return this.statusOf(tx.row, (await tx.account()) !== null);
+    });
+  }
+
   status(): Promise<RelayStatus> {
     return this.store.transaction(async (tx) => this.statusOf(tx.row, (await tx.account()) !== null));
   }
@@ -332,6 +373,7 @@ export class RelayEngine {
       alertsEnabled: row.prefs.alerts.enabled,
     };
     if (w.lastFetchAt !== null) s.lastFetchAt = w.lastFetchAt;
+    if (w.lastPhoneReadingAt != null) s.lastPhoneReadingAt = w.lastPhoneReadingAt;
     if (w.current) s.lastReadingAt = w.current.t;
     if (w.lastError !== null) s.lastError = w.lastError;
     if (w.lastPushAt !== null) s.lastPushAt = w.lastPushAt;
@@ -376,7 +418,9 @@ export class RelayEngine {
           const incoming = [...fetched.result.history];
           if (fetched.result.current) incoming.push(fetched.result.current);
           await tx.addReadings(incoming);
-          if (fetched.result.current) w.current = fetched.result.current;
+          // The phone's own sensor readings are newer while LibreLink isn't uploading.
+          const c = fetched.result.current;
+          if (c && (!w.current || c.t >= w.current.t)) w.current = c;
           if (fetched.result.sensor) w.sensor = fetched.result.sensor;
           w.lastError = null;
         } else {
@@ -400,7 +444,11 @@ export class RelayEngine {
         });
 
         const token = row.prefs.deviceToken;
-        if (token) {
+        // A phone reading the sensor itself alerts locally; pushing too would alert twice. If its
+        // readings stop, the relay alerts again (with whatever LinkUp has, or "no recent data").
+        const phoneAlerting = row.prefs.phoneDeliversAlerts === true && w.lastPhoneReadingAt != null
+          && now - w.lastPhoneReadingAt < phoneAlertWindow;
+        if (token && !phoneAlerting) {
           for (const n of result.notices) {
             await this.push(row, {
               deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,

@@ -14,7 +14,8 @@ struct SensorScanResult {
     let fram: LibreFRAM?
     /// Why `fram` is nil for a sensor that should decode (read cut short, checksum failed).
     let decodeProblem: String?
-    /// Set when the scan switched the sensor's Bluetooth stream to this phone.
+    /// Set when the scan switched the sensor's Bluetooth stream to this phone: its Bluetooth
+    /// address, upper-case hex with no separators.
     let bluetoothAddress: String?
 
     /// Current reading plus the last 8 hours, oldest first.
@@ -120,8 +121,10 @@ final class SensorScanner: NSObject {
                     let params = Libre2.enableStreamingParameters(uid: uid, patchInfo: info.raw)
                     let reply = try await tag.customCommand(requestFlags: .highDataRate, customCommandCode: 0xA1,
                                                             customRequestParameters: Data(params))
-                    guard reply.count == 6 else { throw SensorScanError.cannotStream }
-                    address = reply.reversed().map { String(format: "%02X", $0) }.joined(separator: ":")
+                    guard let mac = DirectSensor.macAddress(fromEnableReply: [UInt8](reply)) else {
+                        throw SensorScanError.cannotStream
+                    }
+                    address = mac
                 }
             } else if mode == .takeOverBluetooth {
                 throw SensorScanError.cannotStream
@@ -130,7 +133,7 @@ final class SensorScanner: NSObject {
             guard self.session === session else { return }
             let result = SensorScanResult(patchInfo: info, serial: serial, scannedAt: Date(), uid: uid,
                                           fram: fram, decodeProblem: problem, bluetoothAddress: address)
-            session.alertMessage = fram != nil ? "Read your sensor." : (info.family == .unknown ? "Read an unrecognised sensor." : info.family.rawValue)
+            session.alertMessage = address != nil ? "Connected to your sensor." : fram != nil ? "Read your sensor." : (info.family == .unknown ? "Read an unrecognised sensor." : info.family.rawValue)
             session.invalidate()
             finish(.success(result))
         } catch {

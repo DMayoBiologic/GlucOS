@@ -306,3 +306,42 @@ Deno.test("a relay without an account can't be claimed", async () => {
   const t = setup();
   assertEquals(await t.engine.claim("a@b.c", "x"), "no account");
 });
+
+Deno.test("phone sensor readings become current and the phone takes over the owner's alerts", async () => {
+  const t = await registered();
+  await t.engine.register({ phoneDeliversAlerts: true, activityID: "A1", activityToken: "act" });
+  // LibreLink lost the sensor: LinkUp's newest is 20 minutes old.
+  t.fetcher.mgdl = 62;
+  t.fetcher.readingAt = t.clock() - 20 * 60;
+  const status = await t.engine.addPhoneReadings({
+    readings: [
+      { t: t.clock() - 60, mgdl: 60, trend: 2 },
+      { t: t.clock() - 30, mgdl: 58, trend: 2 },
+      { t: t.clock() + 99_999, mgdl: 58, trend: 2 }, // dropped: in the future
+      { t: t.clock() - 20, mgdl: "x", trend: 2 }, // dropped: not a number
+    ],
+  });
+  assertEquals(status.lastPhoneReadingAt, t.clock());
+  assertEquals(status.lastReadingAt, t.clock() - 30);
+  assertEquals(t.store.readings.filter((r) => r.t > t.clock() - 120).length, 2);
+  await t.engine.tick();
+  assertEquals(t.store.row.work.current?.mgdl, 58);
+  // The card shows the phone's reading; the owner gets no push, the phone alerts by itself.
+  assert(t.sender.sent.some((p) => p.type === "liveactivity"));
+  assertEquals(t.sender.sent.filter((p) => p.type === "alert").length, 0);
+
+  // The phone goes quiet and LinkUp has nothing newer: after 5 minutes the relay alerts the
+  // owner itself, starting with the missing data.
+  t.sender.sent = [];
+  t.advance(6 * 60);
+  await t.engine.tick();
+  const alerts = t.sender.sent.filter((p) => p.type === "alert");
+  assertEquals(alerts.map((p) => p.collapseId), ["glucos.stale"]);
+});
+
+Deno.test("readings upload needs the secret and a list", async () => {
+  Deno.env.set("RELAY_SECRET", "s3cret");
+  const res = await handle(new Request("https://x/relay/v1/readings", { method: "POST", body: "{}" }));
+  assertEquals(res.status, 401);
+  await res.body?.cancel();
+});

@@ -7,6 +7,7 @@ import Foundation
 //   POST /v1/register   RelayRegistration  → RelayStatus   (send only what changed)
 //   GET  /v1/status                        → RelayStatus
 //   POST /v1/test                          → RelayStatus   (sends a test alert push)
+//   POST /v1/readings   RelayReadings      → RelayStatus   (readings the phone read from the sensor)
 //   GET  /health                           → "ok"          (no secret, for the host's health check)
 
 /// What the phone tells the relay. Every field is optional: nil means "unchanged".
@@ -30,6 +31,9 @@ struct RelayRegistration: Codable, Hashable {
     var signedOut: Bool?
     var display: Display?
     var alerts: AlertPreferences?
+    /// The phone reads the sensor over Bluetooth and alerts by itself, so the relay doesn't push
+    /// the owner's alerts while the phone's readings keep arriving. Followers are alerted as usual.
+    var phoneDeliversAlerts: Bool?
 
     struct Account: Codable, Hashable {
         var email: String
@@ -65,11 +69,30 @@ struct RelayStatus: Codable, Hashable {
     var activityStartedAt: Double?
     var liveActivityEnabled: Bool
     var alertsEnabled: Bool
+    /// When the relay last got readings the phone read from the sensor.
+    var lastPhoneReadingAt: Double?
 
     /// The relay is fetching and has a way to reach the phone, so the phone can leave alerts to it.
     func isDeliveringAlerts(at now: Date = Date()) -> Bool {
         guard hasAccount, hasDeviceToken, alertsEnabled, lastError == nil,
               let fetched = lastFetchAt else { return false }
         return now.timeIntervalSince1970 - fetched < 5 * 60
+    }
+}
+
+/// Readings the phone read from the sensor itself, for the Lock Screen card and followers while
+/// LibreLink (and so LibreLinkUp) has none.
+struct RelayReadings: Codable, Hashable {
+    struct Reading: Codable, Hashable {
+        /// Seconds since 1970.
+        var t: Double
+        var mgdl: Double
+        /// `Trend.rawValue`.
+        var trend: Int
+    }
+    var readings: [Reading]
+
+    init(_ readings: [GlucoseReading]) {
+        self.readings = readings.map { .init(t: $0.timestamp.timeIntervalSince1970, mgdl: $0.mgdl, trend: $0.trend.rawValue) }
     }
 }

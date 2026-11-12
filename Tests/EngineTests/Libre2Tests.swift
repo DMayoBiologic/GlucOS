@@ -142,3 +142,103 @@ final class LibreRobustnessTests: XCTestCase {
         XCTAssertEqual(LibreReadings.agreement(ours, linkUp: linkUp)?.pairs, 1)
     }
 }
+
+final class LibreDirectTests: XCTestCase {
+    typealias V = Libre2Vectors
+
+    private func sensor(uid: [UInt8] = V.uid3) throws -> DirectSensor {
+        let fram = try XCTUnwrap(LibreFRAM(decrypted: Libre2.decryptFRAM(uid: V.uid1, patchInfo: V.info1, fram: V.fram1)))
+        return DirectSensor(uid: uid, patchInfo: V.info1, serial: nil, macAddress: "a4:b7:c9:02:3f:8d",
+                            calibration: fram.calibration, maxLife: fram.maxLife, takenOverAt: Date(timeIntervalSince1970: 0))
+    }
+
+    func testMacAddressAndAdvertisementMatching() throws {
+        XCTAssertEqual(DirectSensor.macAddress(fromEnableReply: [0x8d, 0x3f, 0x02, 0xc9, 0xb7, 0xa4]), "A4B7C9023F8D")
+        XCTAssertNil(DirectSensor.macAddress(fromEnableReply: [1, 2, 3]))
+        let s = try sensor()
+        XCTAssertEqual(s.macAddress, "A4B7C9023F8D")
+        XCTAssertTrue(s.isAdvertisement(name: "A4B7C9023F8D", manufacturerData: nil))
+        XCTAssertFalse(s.isAdvertisement(name: "A4B7C9023F8E", manufacturerData: nil))
+        // Older sensors: bytes 2…7 of the manufacturer data are the tag identifier without its 07 E0.
+        let m = Data([0x00, 0x00] + Array(V.uid3[0..<6]))
+        XCTAssertTrue(s.isAdvertisement(name: "ABBOTT3MH0000000", manufacturerData: m))
+        XCTAssertFalse(s.isAdvertisement(name: nil, manufacturerData: Data([0, 0, 1, 2, 3, 4, 5, 6])))
+    }
+
+    func testEachConnectionUsesTheNextUnlockPayload() throws {
+        var s = try sensor()
+        let first = s.nextUnlockPayload()
+        let second = s.nextUnlockPayload()
+        XCTAssertEqual(s.unlockCount, 2)
+        XCTAssertEqual(first, Libre2.streamingUnlockPayload(uid: V.uid3, patchInfo: V.info1, unlockCount: 1))
+        XCTAssertNotEqual(first, second)
+    }
+
+    func testPacketFromAnotherSensorIsRejected() throws {
+        let s = try sensor(uid: V.uid1)
+        XCTAssertThrowsError(try s.readings(packet: V.ble3, receivedAt: Date())) {
+            XCTAssertEqual($0 as? DirectSensor.PacketError, .badPacket)
+        }
+    }
+
+    func testPacketDecodesToReadings() throws {
+        let s = try sensor()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        do {
+            let (r, age) = try s.readings(packet: V.ble3, receivedAt: now)
+            XCTAssertGreaterThan(age, 0)
+            XCTAssertEqual(r.map(\.timestamp), r.map(\.timestamp).sorted())
+            XCTAssertLessThanOrEqual(r.last?.timestamp ?? now, now)
+        } catch DirectSensor.PacketError.noReadings {
+            // Another sensor's calibration can put every value outside 40–500; decoding still worked.
+        }
+    }
+
+    func testAssemblerJoinsChunksAndDropsStaleOnes() {
+        var a = LibreBLEAssembler()
+        let t = Date(timeIntervalSince1970: 0)
+        XCTAssertNil(a.append(Array(V.ble3[0..<20]), at: t))
+        XCTAssertNil(a.append(Array(V.ble3[20..<38]), at: t.addingTimeInterval(1)))
+        XCTAssertEqual(a.append(Array(V.ble3[38..<46]), at: t.addingTimeInterval(2)), V.ble3)
+        // A chunk left over from a broken packet doesn't poison the next one.
+        XCTAssertNil(a.append(Array(V.ble3[0..<20]), at: t.addingTimeInterval(10)))
+        XCTAssertNil(a.append(Array(V.ble3[0..<20]), at: t.addingTimeInterval(30)))
+        XCTAssertNil(a.append(Array(V.ble3[20..<38]), at: t.addingTimeInterval(31)))
+        XCTAssertEqual(a.append(Array(V.ble3[38..<46]), at: t.addingTimeInterval(32)), V.ble3)
+    }
+
+    private func r(_ minutesAgo: Double, _ mgdl: Double, now: Date) -> GlucoseReading {
+        GlucoseReading(timestamp: now.addingTimeInterval(-minutesAgo * 60), mgdl: mgdl, trend: .flat)
+    }
+
+    func testUnionKeepsRecentMinutesAndThinsOlderOnes() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let minutes = (0..<120).map { r(Double($0), 100 + Double($0), now: now) }
+        let u = ReadingTimeline.union(minutes, now: now)
+        XCTAssertEqual(u.current?.mgdl, 100)
+        XCTAssertEqual(u.history.map(\.timestamp), u.history.map(\.timestamp).sorted())
+        let recent = u.history.filter { now.timeIntervalSince($0.timestamp) <= 20 * 60 }
+        XCTAssertEqual(recent.count, 20)
+        let older = u.history.filter { now.timeIntervalSince($0.timestamp) > 20 * 60 }
+        XCTAssertLessThanOrEqual(older.count, 21)
+        XCTAssertGreaterThanOrEqual(older.count, 19)
+        // Same minute: the later one in the list wins.
+        XCTAssertEqual(ReadingTimeline.union([r(0, 100, now: now), r(0, 120, now: now)], now: now).current?.mgdl, 120)
+    }
+
+    func testAFetchKeepsNewerSensorReadings() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let linkUpHistory = [r(60, 100, now: now), r(45, 105, now: now)]
+        let linkUpCurrent = r(30, 110, now: now)
+        // Nothing newer: LinkUp's answer stands as it is.
+        let plain = ReadingTimeline.afterFetch(linkUpCurrent: linkUpCurrent, linkUpHistory: linkUpHistory,
+                                               previousCurrent: r(31, 109, now: now), previousHistory: [], now: now)
+        XCTAssertEqual(plain.current, linkUpCurrent)
+        XCTAssertEqual(plain.history, linkUpHistory)
+        // The sensor kept going after LibreLink lost it.
+        let mixed = ReadingTimeline.afterFetch(linkUpCurrent: linkUpCurrent, linkUpHistory: linkUpHistory,
+                                               previousCurrent: r(1, 130, now: now), previousHistory: [r(2, 128, now: now)], now: now)
+        XCTAssertEqual(mixed.current?.mgdl, 130)
+        XCTAssertEqual(mixed.history.map(\.mgdl), [100, 105, 110, 128])
+    }
+}
