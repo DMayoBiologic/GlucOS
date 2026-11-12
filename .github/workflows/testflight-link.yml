@@ -9,6 +9,13 @@ on:
   schedule:
     # GitHub drops many scheduled runs (this went 18 hours without one), so ask hourly.
     - cron: "17 * * * *"
+  # And straight away when this check or its script changes, so a fix reaches Apple without
+  # waiting for the schedule.
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/testflight-link.yml
+      - scripts/testflight_external.py
   workflow_dispatch:
 
 permissions:
