@@ -27,6 +27,9 @@ final class LogbookSyncService: ObservableObject {
         }
     }
 
+    /// Scored forecasts to send along with each sync, so accuracy can be followed over time.
+    weak var forecastLedger: ForecastLedgerStore?
+
     /// Entries waiting to be pushed.
     var pendingCount: Int { logbook.syncState.pending.count }
 
@@ -216,6 +219,29 @@ final class LogbookSyncService: ObservableObject {
             try await client.push(out, session: s)
             logbook.updateSyncState { state, _ in LogbookMerge.pushed(out, state: &state) }
             if out.count < 500 { break }
+        }
+        await uploadForecasts(s)
+    }
+
+    nonisolated static let forecastDiagnosticFeature = "forecast.upload"
+
+    /// Sends settled forecasts. A failure here never fails the logbook sync; they wait for the next one.
+    private func uploadForecasts(_ s: LogbookSyncSession) async {
+        guard let ledger = forecastLedger else { return }
+        for _ in 0..<5 {
+            let out = ledger.pendingUpload()
+            guard !out.isEmpty else { return }
+            do {
+                try await client.pushForecasts(out, session: s)
+                ledger.markUploaded(out)
+            } catch {
+                if !DiagnosticEvent.isNoise(error) {
+                    Diagnostics.shared.report(DiagnosticEvent(feature: Self.forecastDiagnosticFeature, step: "push",
+                                                              error: error, message: Self.describe(error)))
+                }
+                return
+            }
+            if out.count < 200 { return }
         }
     }
 

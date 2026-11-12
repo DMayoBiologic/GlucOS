@@ -75,6 +75,20 @@ enum ForecastLimitation: Hashable {
         }
     }
 
+    /// A short stable name, for the forecast log.
+    var code: String {
+        switch self {
+        case .insulinNotLearned: return "insulinNotLearned"
+        case .carbsNotLearned: return "carbsNotLearned"
+        case .uncountedFood: return "uncountedFood"
+        case .deliveryProblem: return "deliveryProblem"
+        case .context(let tag): return "context:\(tag.rawValue)"
+        case .rapidChange: return "rapidChange"
+        case .backgroundInsulin: return "backgroundInsulin"
+        case .uncalibrated: return "uncalibrated"
+        }
+    }
+
     /// Limitations that force a trend-only forecast.
     var forcesTrendOnly: Bool {
         switch self {
@@ -105,6 +119,23 @@ struct GlucoseForecast: Hashable {
     func firstAbove(_ mgdl: Double) -> Date? { samples.first { $0.mgdl > mgdl }?.date }
 }
 
+/// The forecast's own timing, tuned to the user once their history shows a different setting
+/// forecasts better (`ForecastTuner`). The standard values are Loop's.
+struct ForecastTuning: Hashable, Codable {
+    /// How long the recent trend takes to hand over to the modelled effects (or to level).
+    var trendFade: TimeInterval = GlucoseForecaster.trendFade
+    /// How far back the trend is measured.
+    var trendWindow: TimeInterval = GlucoseForecaster.trendWindow
+
+    static let standard = ForecastTuning()
+    var isStandard: Bool { self == .standard }
+
+    /// "eases off over 20 min, from the last 15 min of readings".
+    var summary: String {
+        "the trend eases off over \(Int(trendFade / 60)) min, measured over the last \(Int(trendWindow / 60)) min of readings"
+    }
+}
+
 struct ForecastInputs {
     var readings: GlucoseSeries
     var doses: [InsulinDose]
@@ -114,10 +145,13 @@ struct ForecastInputs {
     var calibration: ForecastCalibration?
     /// The user's usual post-wake change. Pass it only once it's usable (`isUsable`).
     var morning: MorningPattern?
+    /// Trend timing. Standard until the user's history shows something else forecasts better.
+    var tuning: ForecastTuning
     var now: Date
 
     init(readings: GlucoseSeries, doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
-         profile: EffectProfile, calibration: ForecastCalibration? = nil, morning: MorningPattern? = nil, now: Date) {
+         profile: EffectProfile, calibration: ForecastCalibration? = nil, morning: MorningPattern? = nil,
+         tuning: ForecastTuning = .standard, now: Date) {
         self.readings = readings
         self.doses = doses
         self.meals = meals
@@ -125,6 +159,7 @@ struct ForecastInputs {
         self.profile = profile
         self.calibration = calibration
         self.morning = morning
+        self.tuning = tuning
         self.now = now
     }
 }
@@ -150,7 +185,7 @@ enum GlucoseForecaster {
         let age = input.now.timeIntervalSince(latest.timestamp)
         guard age <= GlucoseSnapshot.staleAfter else { return .failure(.init(.stale(age: age))) }
         guard sensorRange.contains(latest.mgdl) else { return .failure(.init(.outOfSensorRange)) }
-        guard let trend = trend(input.readings, at: latest.timestamp) else {
+        guard let trend = trend(input.readings, at: latest.timestamp, window: input.tuning.trendWindow) else {
             return .failure(.init(.notEnoughRecentReadings))
         }
 
@@ -219,6 +254,7 @@ enum GlucoseForecaster {
 
         // Integrate the rate minute by minute.
         let widen = activeTags.isEmpty ? 1.0 : 1.5
+        let fade = max(60, input.tuning.trendFade)
         var samples: [ForecastSample] = []
         var g = latest.mgdl
         var minute = 0.0
@@ -243,7 +279,7 @@ enum GlucoseForecaster {
         while minute < totalMinutes {
             // Midpoint rule over each minute.
             let mid = minute + 0.5
-            let w = max(0, 1 - mid * 60 / trendFade)
+            let w = max(0, 1 - mid * 60 / fade)
             let at = t0.addingTimeInterval(mid * 60)
             let fromMorning = (1 - w) * morningRate(at: at)
             let rate = w * trend + (1 - w) * modelRate(at: at) + fromMorning
@@ -266,10 +302,11 @@ enum GlucoseForecaster {
                                         morning: morning))
     }
 
-    /// Slope of the readings in the 20 minutes up to `date`, mg/dL per minute. Needs at least
-    /// two readings at least 9 minutes apart; falls back to nothing rather than guess from the arrow.
-    static func trend(_ series: GlucoseSeries, at date: Date) -> Double? {
-        let recent = series.slice(from: date.addingTimeInterval(-trendWindow), through: date)
+    /// Slope of the readings in the `window` (normally 20 minutes) up to `date`, mg/dL per minute.
+    /// Needs at least two readings at least 9 minutes apart; falls back to nothing rather than
+    /// guess from the arrow.
+    static func trend(_ series: GlucoseSeries, at date: Date, window: TimeInterval = trendWindow) -> Double? {
+        let recent = series.slice(from: date.addingTimeInterval(-max(window, 10 * 60)), through: date)
         guard let first = recent.first, let last = recent.last,
               last.timestamp.timeIntervalSince(first.timestamp) >= 9 * 60 else { return nil }
         let x = recent.map { $0.timestamp.timeIntervalSince(date) / 60 }

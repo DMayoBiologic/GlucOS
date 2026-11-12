@@ -14,6 +14,7 @@ struct GlucOSApp: App {
         let logbook = LogbookStore()
         store.logbook = logbook
         let sync = LogbookSyncService(logbook: logbook, settings: store.settings, device: "Mac")
+        sync.forecastLedger = store.outlook.ledger
         _store = StateObject(wrappedValue: store)
         _logbook = StateObject(wrappedValue: logbook)
         _logbookSync = StateObject(wrappedValue: sync)

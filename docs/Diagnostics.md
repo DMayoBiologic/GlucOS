@@ -13,6 +13,7 @@ to the GlucOS Supabase project, so problems show up without screenshots.
 | `linkup.fetch` | `fetch` | LibreLinkUp gave an unexpected reply, a changed response, or wants a newer client version (not wrong passwords, rate limits, outages or being offline) | `ClientError <n>`, `URLError <n>` |
 | `logbook.sync` | `sync`, `sign-in` | Logbook sync failed (not a refused LibreLinkUp login or being offline) | `HTTP <status>`, `session-expired`, `session-refused`, `bad-response` |
 | `relay` | `register`, `status` | The iPhone couldn't register with or read the push relay | `RelayError <n>`, `URLError <n>` |
+| `forecast.upload` | `push` | Scored forecasts couldn't be sent to the sync server (they wait for the next sync) | `HTTP <status>`, `URLError <n>` |
 
 Each report also has the person-facing `message`, a technical `detail`, a `context` object (for
 sensor problems: `sensor`, `region`, `patchInfo`, `mode`; for LinkUp: `region`, `clientVersion`),
