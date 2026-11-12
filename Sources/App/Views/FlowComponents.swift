@@ -446,6 +446,19 @@ struct ConnectionProblem: Equatable {
     }
 }
 
+extension ConnectionProblem {
+    static let diagnosticFeature = "linkup.fetch"
+
+    /// Sent as an error report automatically: problems that may be GlucOS's to fix (an unexpected
+    /// reply, a changed response, a new client version), not a wrong password or being offline.
+    var isWorthReporting: Bool {
+        switch fix {
+        case .retry, .updateClientVersion: return true
+        case .checkCredentials, .useLibreLinkUpApp, .checkNetwork, .waitAndRetry: return false
+        }
+    }
+}
+
 /// A connection problem as a themed status banner: what's wrong, what to do, and where GlucOS
 /// can fix it, a one-click button.
 struct ConnectionProblemView: View {

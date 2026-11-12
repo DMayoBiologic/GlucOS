@@ -27,7 +27,10 @@ struct SensorScanView: View {
             }
 
             if let error {
-                Section { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+                Section {
+                    Text(error).foregroundStyle(.red).textSelection(.enabled)
+                    SendReportButton(feature: SensorScanner.feature, step: "scan", message: error).id(error)
+                }
             }
 
             if let r = result {
@@ -35,6 +38,7 @@ struct SensorScanView: View {
                 if let problem = r.decodeProblem {
                     Section {
                         Text(problem).foregroundStyle(.orange)
+                        if let report = r.diagnostic { SendReportButton(event: report).id(r.scannedAt) }
                     } footer: {
                         if let detail = r.decodeDetail {
                             Text("Details: \(detail)")

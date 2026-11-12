@@ -213,6 +213,7 @@ final class PhoneServices: ObservableObject {
             return true
         } catch {
             relayError = error.localizedDescription
+            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "register", error: error)
             relayStatus = nil
             return false
         }
@@ -223,6 +224,7 @@ final class PhoneServices: ObservableObject {
         lastStatusCheck = Date()
         do { apply(try await client.status()) } catch {
             relayError = error.localizedDescription
+            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "status", error: error)
             relayStatus = nil
         }
     }
@@ -232,6 +234,8 @@ final class PhoneServices: ObservableObject {
         guard relaySettings.isConfigured, Date().timeIntervalSince(lastStatusCheck) >= 60 else { return }
         await refreshRelayStatus()
     }
+
+    nonisolated static let relayDiagnosticFeature = "relay"
 
     func sendRelayTest() async {
         guard let client = relaySettings.client else { return }

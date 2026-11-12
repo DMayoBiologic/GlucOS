@@ -448,6 +448,7 @@ struct FollowerSettingsView: View {
             } footer: {
                 Text("Sign in with LibreLinkUp to see your own readings, log, and get your own alerts. You'll keep following everyone here.")
             }
+            DiagnosticsSettingsSection()
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
                 Link("Privacy", destination: URL(string: "https://gluc-os-seven.vercel.app/privacy/")!)

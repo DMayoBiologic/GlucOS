@@ -164,7 +164,8 @@ Sources/iOS/             iPhone app: cards, settings, Live Activity controller, 
 Sources/iOSWidget/       iPhone widget extension: Live Activity (Lock Screen + Dynamic Island), Lock Screen widgets
 supabase/                push relay: a Supabase edge function run every minute by pg_cron (LibreLinkUp → alerts +
                          Live Activity via APNs), its Postgres tables, and the parity fixtures shared with Swift;
-                         logbook sync: the `account` sign-in function and the logbook table (docs/LogbookSync.md)
+                         logbook sync: the `account` sign-in function and the logbook table (docs/LogbookSync.md);
+                         error reports from the apps: the `diagnostics` function and table (docs/Diagnostics.md)
 scripts/make_app_icon.py regenerates the app icon PNGs (Pillow)
 .github/workflows/       ci.yml (compile check), release.yml (merge to main → release + appcast)
 ```

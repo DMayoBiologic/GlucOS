@@ -160,6 +160,8 @@ final class LogbookSyncService: ObservableObject {
                 syncAgain = true
             } else {
                 status = .failed("The sync server isn't accepting this device's sign-in. Retrying later.")
+                Diagnostics.shared.report(DiagnosticEvent(feature: Self.diagnosticFeature, step: "sign-in", code: "session-refused",
+                                                          message: "The sync server isn't accepting this device's sign-in."))
                 nextSignInAttempt = Date().addingTimeInterval(15 * 60)
                 lastSignInError = "The sync server isn't accepting this device's sign-in. Retrying later."
             }
@@ -167,7 +169,27 @@ final class LogbookSyncService: ObservableObject {
             return
         } catch {
             status = .failed(Self.describe(error))
+            Self.report(error)
         }
+    }
+
+    nonisolated static let diagnosticFeature = "logbook.sync"
+
+    /// An error report for a failed sync, unless it's LibreLinkUp refusing the login (the person's
+    /// to fix), a sign-in still backing off from an earlier failure (already reported), or offline.
+    private static func report(_ error: Error) {
+        guard !DiagnosticEvent.isNoise(error) else { return }
+        var e = DiagnosticEvent(feature: diagnosticFeature, step: "sync", error: error, message: describe(error))
+        if let sync = error as? LogbookSyncClient.SyncError {
+            switch sync {
+            case .loginRejected: return
+            case .http(0, _): return
+            case .http(let code, _): e.code = "HTTP \(code)"
+            case .sessionExpired: e.code = "session-expired"
+            case .badResponse: e.code = "bad-response"
+            }
+        }
+        Diagnostics.shared.report(e)
     }
 
     /// Pull what changed elsewhere, then push what changed here.

@@ -131,6 +131,10 @@ final class SensorScanner: NSObject {
                     problem = "The sensor stopped answering when GlucOS asked for its memory, which is what Gen2 sensors do. If you held the phone still, it's locked."
                     detail = [detail, probe].compactMap { $0 }.joined(separator: "; ")
                 }
+                if let problem {
+                    Diagnostics.shared.report(Self.diagnostic(patchInfo: info, problem: problem, detail: detail,
+                                                              mode: mode))
+                }
                 if mode == .takeOverBluetooth {
                     guard fram != nil else {
                         throw SensorScanError.failed([problem ?? "Couldn't read the sensor.", detail.map { "Details: \($0)" }]
@@ -156,6 +160,9 @@ final class SensorScanner: NSObject {
             finish(.success(result))
         } catch {
             guard self.session === session else { return }
+            if !DiagnosticEvent.isNoise(error) {
+                Diagnostics.shared.report(Self.diagnostic(step: "scan", error: error, patchInfo: nil, mode: mode))
+            }
             session.invalidate(errorMessage: "Couldn't read the sensor. Try again and hold still.")
             finish(.failure(error as? SensorScanError ?? SensorScanError.failed(error.localizedDescription)))
         }
@@ -290,6 +297,9 @@ extension SensorScanner: NFCTagReaderSessionDelegate {
             if nfc?.code == .readerSessionInvalidationErrorUserCanceled {
                 self.finish(.failure(CancellationError()))
             } else {
+                if nfc?.code != .readerSessionInvalidationErrorSessionTimeout {
+                    Diagnostics.shared.report(Self.diagnostic(step: "session", error: error, patchInfo: nil, mode: self.mode))
+                }
                 self.finish(.failure(SensorScanError.failed(error.localizedDescription)))
             }
         }

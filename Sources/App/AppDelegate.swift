@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Error reports saved while offline (see Diagnostics).
+        Task { await Diagnostics.shared.flush() }
         // Registered after SwiftUI's own setup so this handler is the one that receives URL events.
         NSAppleEventManager.shared().setEventHandler(
             self,

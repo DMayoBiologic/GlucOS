@@ -75,6 +75,17 @@
   </section>
 
   <section>
+    <h2>Error reports</h2>
+    <p>When something fails, like reading the sensor, fetching from LibreLinkUp or syncing, the app
+    sends a short error report so the problem can be fixed. A report says what failed and the error
+    code, the app and OS versions, the device model (like "iPhone17,1") and a random install ID,
+    and for sensor problems the sensor type and region. It never includes glucose readings,
+    logbook entries, your login, email or the sensor's serial number. Reports are kept for 180 days.
+    Turn them off in Settings › Diagnostics. The <em>Send Report</em> button under an error sends
+    one report, with a note if you add one, even when automatic reports are off.</p>
+  </section>
+
+  <section>
     <h2>Apple and TestFlight</h2>
     <p>If you test GlucOS through TestFlight, Apple shares with the developer what TestFlight
     always does: your name or email as you joined, crash reports and any feedback you send. See
