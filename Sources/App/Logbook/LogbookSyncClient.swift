@@ -102,6 +102,15 @@ struct LogbookSyncClient {
         try Self.check(code, data)
     }
 
+    /// Sends scored forecasts, so accuracy can be followed across devices and over time. The
+    /// server keeps one row per forecast; sending one again replaces it.
+    func pushForecasts(_ records: [ForecastRecord], session s: LogbookSyncSession) async throws {
+        struct Body: Encodable { let entries: [ForecastUpload] }
+        let (data, code) = try await send(path: "rest/v1/rpc/forecast_push", body: Body(entries: records.map(ForecastUpload.init)),
+                                          token: s.accessToken)
+        try Self.check(code, data)
+    }
+
     // MARK: HTTP
 
     private static func check(_ code: Int, _ data: Data) throws {
@@ -128,5 +137,43 @@ struct LogbookSyncClient {
         req.httpBody = try JSONEncoder().encode(body)
         let (data, resp) = try await session.data(for: req)
         return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+}
+
+/// A scored forecast as `forecast_push` takes it: Unix seconds, mg/dL, snake_case keys.
+struct ForecastUpload: Encodable, Equatable {
+    struct Point: Encodable, Equatable {
+        let minutes: Int
+        let mgdl: Double
+        let lower: Double
+        let upper: Double
+        let actual: Double?
+        let after_log: Bool
+    }
+    let id: UUID
+    let issued: Double
+    let device: String
+    let basis: String
+    let start_mgdl: Double
+    let trend: Double
+    let points: [Point]
+    let limitations: [String]
+    let calibrated: Bool
+    let tuned: Bool
+    let morning: Bool
+
+    init(_ r: ForecastRecord) {
+        id = r.id
+        issued = r.issuedAt.timeIntervalSince1970
+        device = r.device
+        basis = r.basis.rawValue
+        start_mgdl = r.startMgdl
+        trend = r.trendPerMinute
+        points = r.points.map { Point(minutes: $0.minutes, mgdl: $0.mgdl, lower: $0.lower, upper: $0.upper,
+                                      actual: $0.actual, after_log: $0.afterLog) }
+        limitations = r.limitations
+        calibrated = r.calibrated
+        tuned = r.tuned
+        morning = r.morning
     }
 }

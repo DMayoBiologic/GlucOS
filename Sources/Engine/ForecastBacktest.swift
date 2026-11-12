@@ -27,6 +27,8 @@ struct ForecastCalibration: Hashable, Codable {
     var byBasis: [ForecastBasis: [HorizonStats]]
     var origins: Int
     var computedAt: Date
+    /// The trend timing the figures were measured with (and the forecast uses).
+    var tuning: ForecastTuning = .standard
 
     static let horizons = [15, 30, 45, 60, 90, 120, 150, 180]
     static let minimumSamples = 30
@@ -89,25 +91,52 @@ enum ForecastBacktest {
     /// Forecast origins are at least this far apart.
     static let spacing: TimeInterval = 30 * 60
 
+    /// One replayed forecast point compared with what happened.
+    struct Check: Hashable {
+        let origin: Date
+        let basis: ForecastBasis
+        let minutes: Int
+        /// actual − forecast, mg/dL.
+        let residual: Double
+        /// actual − starting reading, mg/dL: the error of assuming no change.
+        let naive: Double
+    }
+
     static func run(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
                     profile: EffectProfile, days: Int = 30, now: Date = Date(),
-                    profileAt: ((Date) -> EffectProfile)? = nil) -> ForecastCalibration {
+                    profileAt: ((Date) -> EffectProfile)? = nil, tuning: ForecastTuning = .standard) -> ForecastCalibration {
+        let c = checks(readings: readings, doses: doses, meals: meals, contexts: contexts, profile: profile,
+                       days: days, now: now, profileAt: profileAt, tuning: tuning)
+        return calibration(from: c.checks, origins: c.origins, now: now)
+    }
+
+    /// Replays a forecast every half hour over the last `days`, using only what was known at
+    /// the time, and compares each checked horizon with the reading that followed. Points with
+    /// food, insulin or context logged before them are left out.
+    static func checks(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
+                       profile: EffectProfile, days: Int = 30, now: Date = Date(),
+                       profileAt: ((Date) -> EffectProfile)? = nil,
+                       tuning: ForecastTuning = .standard) -> (checks: [Check], origins: Int) {
         let series = GlucoseSeries(readings)
         let start = now.addingTimeInterval(-Double(days) * 86_400)
         let maxH = TimeInterval((ForecastCalibration.horizons.max() ?? 180) * 60)
         let doseTimes = doses.map(\.timestamp).sorted()
         let mealTimes = (meals.map(\.timestamp) + contexts.map(\.timestamp)).sorted()
 
-        var residuals: [ForecastBasis: [Int: [Double]]] = [:]
-        var naive: [ForecastBasis: [Int: [Double]]] = [:]
+        var out: [Check] = []
         var origins = 0
         var lastOrigin = Date.distantPast
         for r in series.readings where r.timestamp >= start && r.timestamp.addingTimeInterval(15 * 60) <= now {
             guard r.timestamp.timeIntervalSince(lastOrigin) >= spacing else { continue }
-            let input = ForecastInputs(readings: series.upTo(r.timestamp), doses: doses.filter { $0.timestamp <= r.timestamp },
+            // The forecast only looks at the last few readings, so the last hour is enough (and
+            // far cheaper than everything up to this point).
+            let recent = GlucoseSeries(Array(series.slice(from: r.timestamp.addingTimeInterval(-3600), through: r.timestamp)),
+                                       sorted: true)
+            let input = ForecastInputs(readings: recent, doses: doses.filter { $0.timestamp <= r.timestamp },
                                        meals: meals.filter { $0.timestamp <= r.timestamp },
                                        contexts: contexts.filter { $0.timestamp <= r.timestamp },
-                                       profile: profileAt?(r.timestamp) ?? profile, calibration: nil, now: r.timestamp)
+                                       profile: profileAt?(r.timestamp) ?? profile, calibration: nil,
+                                       tuning: tuning, now: r.timestamp)
             guard case .success(let f) = GlucoseForecaster.forecast(input, maxHorizon: maxH) else { continue }
             lastOrigin = r.timestamp
             origins += 1
@@ -119,20 +148,24 @@ enum ForecastBacktest {
                       let actual = series.value(at: target),
                       let predicted = f.samples.first(where: { abs($0.date.timeIntervalSince(target)) < 30 })?.mgdl
                 else { continue }
-                residuals[f.basis, default: [:]][h, default: []].append(actual - predicted)
-                naive[f.basis, default: [:]][h, default: []].append(actual - f.startMgdl)
+                out.append(Check(origin: r.timestamp, basis: f.basis, minutes: h,
+                                 residual: actual - predicted, naive: actual - f.startMgdl))
             }
         }
+        return (out, origins)
+    }
 
+    static func calibration(from checks: [Check], origins: Int, now: Date) -> ForecastCalibration {
         var byBasis: [ForecastBasis: [HorizonStats]] = [:]
-        for (basis, perHorizon) in residuals {
+        for (basis, ofBasis) in Dictionary(grouping: checks, by: \.basis) {
+            let perHorizon = Dictionary(grouping: ofBasis, by: \.minutes)
             byBasis[basis] = ForecastCalibration.horizons.compactMap { h -> HorizonStats? in
-                guard let res = perHorizon[h], !res.isEmpty else { return nil }
+                guard let cs = perHorizon[h], !cs.isEmpty else { return nil }
+                let res = cs.map(\.residual)
                 let sorted = res.sorted()
-                let nv = naive[basis]?[h] ?? []
                 return HorizonStats(minutes: h, samples: res.count,
                                     meanAbsoluteError: res.map(abs).reduce(0, +) / Double(res.count),
-                                    naiveError: nv.isEmpty ? .infinity : nv.map(abs).reduce(0, +) / Double(nv.count),
+                                    naiveError: cs.map { abs($0.naive) }.reduce(0, +) / Double(cs.count),
                                     bias: res.reduce(0, +) / Double(res.count),
                                     lower: EngineMath.quantile(sorted, 0.1), upper: EngineMath.quantile(sorted, 0.9))
             }

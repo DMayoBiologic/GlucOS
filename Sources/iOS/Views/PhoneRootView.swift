@@ -123,6 +123,7 @@ struct PhoneHomeView: View {
                     PhoneOnBoardCard()
                     PhoneChartCard()
                     PhoneMorningCard(outlook: store.outlook)
+                    PhoneForecastAccuracyCard(outlook: store.outlook)
                     PhoneLogbookCard()
                     PhoneGlanceCard()
                     if let sensor = store.snapshot.sensor {

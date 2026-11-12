@@ -21,6 +21,7 @@ struct GlucOSPhoneApp: App {
         _logbook = StateObject(wrappedValue: logbook)
         PhoneWakeLogger.shared.logbook = logbook
         let sync = LogbookSyncService(logbook: logbook, settings: store.settings, device: "iPhone")
+        sync.forecastLedger = store.outlook.ledger
         _logbookSync = StateObject(wrappedValue: sync)
         let follows = FollowStore()
         _follows = StateObject(wrappedValue: follows)

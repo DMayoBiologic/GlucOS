@@ -68,8 +68,10 @@ struct OutlookSection: View {
                 if let o = outlook {
                     InsulinActivityCard(insulin: o.insulin, carbs: o.carbs, now: now, onLog: onLog)
                 }
-                AccuracyCard(calibration: model.calibration, unit: unit)
+                AccuracyCard(calibration: model.calibration, tuning: model.tuning, unit: unit)
             }
+
+            ShownForecastsCard(ledger: outlookStore.ledger, unit: unit)
 
             CardGrid(minColumnWidth: 360, maxColumns: 2, spacing: layout.gutter) {
                 LearntEffectsCard(profile: model.profile, unit: unit)
@@ -254,6 +256,7 @@ private struct ActivityChart: View {
 
 private struct AccuracyCard: View {
     let calibration: ForecastCalibration?
+    let tuning: ForecastTuningResult
     let unit: GlucoseUnit
 
     var body: some View {
@@ -298,6 +301,59 @@ private struct AccuracyCard: View {
                 EmptyStateView(systemImage: "scope", title: "Not Checked Yet",
                                message: "Once there's a few days of readings, GlucOS replays its forecasts against what happened and uses that to set the range and how far ahead to look.")
             }
+            Label(ForecastAccuracyText.tuningLine(tuning), systemImage: "dial.medium")
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .dashboardCard()
+    }
+}
+
+/// The forecasts GlucOS actually showed, checked against the readings that followed.
+private struct ShownForecastsCard: View {
+    @ObservedObject var ledger: ForecastLedgerStore
+    let unit: GlucoseUnit
+
+    var body: some View {
+        let week = ledger.lastWeek
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            SectionHeader("Forecasts You Were Shown", systemImage: "checkmark.seal",
+                          subtitle: "Each forecast on this \(ForecastLedgerStore.device) checked against the reading that followed (last 7 days)")
+            if week.all.isEmpty {
+                EmptyStateView(systemImage: "checkmark.seal", title: "Checking Has Started",
+                               message: "GlucOS now keeps each forecast it shows and checks it against your readings. The first results appear here 15 minutes after a forecast.")
+            } else {
+                Grid(alignment: .leading, horizontalSpacing: DS.Space.lg, verticalSpacing: DS.Space.xs) {
+                    GridRow {
+                        Text("Ahead").foregroundStyle(.secondary)
+                        Text("Nothing logged").foregroundStyle(.secondary)
+                        Text("All").foregroundStyle(.secondary)
+                        Text("Inside range").foregroundStyle(.secondary)
+                        Text("Checks").foregroundStyle(.secondary)
+                    }
+                    .dsFont(.caption)
+                    ForEach(week.all.filter { [15, 30, 60, 120].contains($0.minutes) }, id: \.minutes) { h in
+                        GridRow {
+                            Text("\(h.minutes) min")
+                            Text(week.clean(at: h.minutes).map { "±\(unit.format(mgdl: $0.meanAbsoluteError))" } ?? "–")
+                                .fontWeight(.semibold)
+                            Text("±\(unit.format(mgdl: h.meanAbsoluteError))").foregroundStyle(.secondary)
+                            Text("\(Int((h.insideRange * 100).rounded()))%").foregroundStyle(.secondary)
+                            Text("\(h.checks)").foregroundStyle(.secondary)
+                        }
+                        .dsFont(.callout)
+                        .monospacedDigit()
+                    }
+                }
+                if let line = ForecastAccuracyText.trendLine(lastWeek: week, before: ledger.weeksBefore, unit: unit) {
+                    Text(line).dsFont(.callout).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Text("\"Nothing logged\" leaves out forecasts where food, insulin or an event came afterwards, because a forecast assumes nothing new happens. The range aims to hold about 8 in 10 readings.")
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .dashboardCard()
     }

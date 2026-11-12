@@ -11,6 +11,8 @@ final class OutlookStore: ObservableObject {
     @Published private(set) var outlook: Outlook?
     @Published private(set) var model: OutlookModel = .empty
     @Published private(set) var isLearning = false
+    /// The forecasts this device showed, scored against what happened.
+    let ledger = ForecastLedgerStore()
 
     /// Relearn at least this often, so new history counts.
     static let relearnInterval: TimeInterval = 3 * 3600
@@ -31,7 +33,16 @@ final class OutlookStore: ObservableObject {
         let o = OutlookEngine.outlook(readings: recent, doses: logbook?.doses ?? [], meals: logbook?.meals ?? [],
                                       contexts: logbook?.contexts ?? [], model: model, now: now)
         outlook = o
+        ledger.update(forecast: o.glucoseForecast, tuned: model.tuning.isTuned, archive: archive,
+                      current: snapshot.current, logTimes: Self.logTimes(logbook), now: now)
         return o
+    }
+
+    /// When anything that changes glucose was logged. A wake-up isn't one: the forecast models it.
+    private static func logTimes(_ logbook: LogbookStore?) -> [Date] {
+        guard let logbook else { return [] }
+        return logbook.doses.map(\.timestamp) + logbook.meals.map(\.timestamp)
+            + logbook.contexts.filter { !$0.isWake }.map(\.timestamp)
     }
 
     /// Starts relearning in the background if the logs changed or the last run is old.

@@ -148,6 +148,7 @@ targets:
       - path: Sources/App/Logbook/InsulinSettingsView.swift
       - path: Sources/App/Logbook/SiteRotation.swift
       - path: Sources/App/Outlook/OutlookStore.swift
+      - path: Sources/App/Outlook/ForecastLedgerStore.swift
       - path: Sources/App/Views/FlowComponents.swift
       - path: Sources/App/Views/MenuBar/PopoverInsights.swift
     dependencies:
