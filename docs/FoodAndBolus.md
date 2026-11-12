@@ -2,8 +2,24 @@
 
 ## Food search
 
-The log sheet's **Search foods** (Mac and iPhone) finds foods and works out their carbs from a
-portion.
+The log sheet's **Search or describe your meal** (Mac and iPhone) turns what you ate into carbs
+without filling anything in by hand:
+
+- **Describe it.** "2 slices of toast and a banana", "200g rice, chicken curry", "can of coke".
+  `MealDescription` splits it into foods, reads each amount (numbers, words, fractions, grams/ml,
+  measures like slice/cup/large) and matches each food, your own foods first. Every match shows
+  its amount and carbs, with other matches one tap away, then **Add all**. A weight is never
+  invented for a solid food: if the measure said isn't one the food has, it asks how much. An
+  amount it had to assume is marked.
+- **Search it.** Everyday and overseas names ("fries", "oatmeal", "coke", "weetbix", "flat
+  white"), plurals, filler words and one-letter typos all find the food, and a plain word starts
+  on the everyday version ("rice" is cooked white rice). The **+** on a row adds the usual amount
+  (or the one used last time) in one tap; the name opens the portion to change it.
+- **Extending it.** New names go in `FoodAliases`, the everyday default for a word in
+  `FoodStaples` (both in `Sources/Food/FoodSearch.swift`). Another online food list is an
+  `OnlineFoodSource` added to `FoodSources.online` (`Sources/Food/OpenFoodFactsClient.swift`).
+
+Where the foods come from:
 
 - **Built-in list:** AUSNUT 2023 from Food Standards Australia New Zealand: 3,741 foods with
   9,000+ household measures (slice, cup, medium banana…). Carbs are *available carbohydrate
@@ -11,7 +27,7 @@ portion.
   [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the app credits FSANZ under the
   results. Bundled as `Sources/Food/ausnut-foods.json`, built by `scripts/food/build_ausnut.py`
   in the **Food data** workflow (run it by hand to pick up a new FSANZ release).
-- **Packaged products:** an optional online search of Open Food Facts (ODbL), Australian
+- **Packaged products:** looked up in Open Food Facts (ODbL) as you type a search, Australian
   products first. Only the search words are sent. Community data, so the app says to check the label.
 - **Your own foods:** name, carbs per serve and (optionally) the serve's weight.
 - **Favourites and recents:** star any food. Recents come from meals logged with foods.

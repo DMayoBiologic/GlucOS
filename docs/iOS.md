@@ -6,17 +6,23 @@ Island, and sends low/high alerts. It also has Lock Screen and Home Screen widge
 
 ## Logging on iPhone
 
-Tap **Log** (bottom right of the main screen) or one of the Insulin / Food / New site / Event
-buttons on the Logbook card. The log sheet records insulin (with injection site), food and carbs,
-pump site changes and events (exercise, unwell, alcohol, stress, period, hypo treatment, site
-problem) at one time, with presets, "same as last" and recent foods as one-tap quick adds. Tap
-an entry on the Logbook card to edit it; long-press to log it again or delete it (with Undo).
-Everything goes into the same logbook as the Mac and syncs both ways (docs/LogbookSync.md).
+The bar along the bottom has **Eating**, **Bolus** and **More**. The log sheet starts from the
+moment, "What's happening?": Eating, Bolus, Basal (injections), New site (pump), Woke up, Going to
+sleep, or Something else (exercise, unwell, alcohol, stress, period, hypo treatment, site
+problem). Each one opens the part it needs, and more than one can be on. Parts always appear in
+the same order, food first and then the dose for it, so the carbs run straight into the bolus
+calculator; "Next: bolus for 45 g" under the food carries on to the dose in one tap. Waking up
+and going to sleep need nothing more than the time. The Log button says what it will log ("Log
+45 g + 4 u") or what's still missing. Presets, "same as last" and recent foods are one-tap fills.
+Tap an entry on the Logbook card to edit it; long-press to log it again or delete it (with Undo).
+Everything goes into the same logbook as the Mac and syncs both ways (docs/LogbookSync.md). The
+rules both sheets share are in `Sources/App/Logbook/LogFlow.swift`.
 
 Other ways in, all of which open the log sheet: the **Log** Lock Screen widget, the **Log**
 button in the expanded Dynamic Island, the "Log in GlucOS" App Shortcut (Siri, Spotlight,
 Shortcuts, the Action button), and `glucos://log` (or `glucos://log/insulin|food|site|event`).
-None of them ever fill in an amount: GlucOS records what you enter and never suggests a dose.
+None of them ever fill in an amount: GlucOS records what you enter, and only the bolus calculator
+suggests a dose.
 
 ```
 LibreLinkUp ──► push relay (Supabase edge function, every minute) ──APNs──► iPhone: alerts + Lock Screen card

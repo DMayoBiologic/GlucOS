@@ -1,8 +1,11 @@
 import SwiftUI
 import UIKit
 
-/// Logs insulin, food, a pump site change and events (exercise, illness, a hypo…) on iPhone, all
-/// at one time, into the same `LogbookStore` the Mac uses, so it syncs both ways.
+/// Logs what's happening on iPhone, into the same `LogbookStore` the Mac uses, so it syncs both
+/// ways. It starts from the moment ("What's happening?": eating, a bolus, a basal dose, waking up,
+/// going to sleep, something else) rather than a type of record, and each moment opens the part of
+/// the entry it needs. Parts are always shown in the order of `LogFlow`: food first, then the dose
+/// for it, so the carbs run straight into the bolus calculator below.
 ///
 /// Same rules as the Mac log sheet: what it asks for follows the therapy type, and it records what
 /// the user enters. Presets and "same as last" only repeat numbers the user typed themselves. The
@@ -48,6 +51,9 @@ struct PhoneLogSheet: View {
     @State private var showsTimePicker = false
     @State private var mealItems: [MealItem]
     @State private var showsFoodPicker = false
+    /// What the food picker opens with: empty, or the meal as typed in the food card.
+    @State private var foodQuery = ""
+    @State private var showsNote: Bool
     @State private var showsBolusSettings = false
     /// The calculator suggestion the dose was filled from, if any.
     @State private var usedSuggestion: BolusSuggestion?
@@ -81,11 +87,8 @@ struct PhoneLogSheet: View {
         switch target {
         case .new(let start):
             startPart = start
-            if let start {
-                parts = [start]
-            } else {
-                parts = s.therapy.logsInsulin ? [.insulin] : [.food]
-            }
+            // Opened for one thing (the log bar, a widget) it starts there; otherwise it asks.
+            if let start { parts = [start] }
         case .edit(let entry):
             time = entry.timestamp
             editingID = entry.id
@@ -142,6 +145,7 @@ struct PhoneLogSheet: View {
         _tags = State(initialValue: tags)
         _note = State(initialValue: note)
         _mealItems = State(initialValue: items)
+        _showsNote = State(initialValue: !note.isEmpty)
     }
 
     private var isNew: Bool { editing == nil }
@@ -149,38 +153,50 @@ struct PhoneLogSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.Space.lg) {
-                    if needsTherapy {
-                        PhoneTherapyPicker()
-                    } else {
-                        whenCard
-                        if isNew { quickAdd }
-                        if isNew { partTiles }
-                        if includes(.insulin) { insulinCard.transition(.opacity.combined(with: .move(edge: .top))) }
-                        if includes(.food) { foodCard.transition(.opacity.combined(with: .move(edge: .top))) }
-                        if includes(.site) { siteCard.transition(.opacity.combined(with: .move(edge: .top))) }
-                        if includes(.event) { eventCard.transition(.opacity.combined(with: .move(edge: .top))) }
-                        noteCard
-                        if isNew { presetCard }
-                        Label("GlucOS records what you enter. Only the bolus calculator suggests a dose, from your own settings.", systemImage: "info.circle")
-                            .dsFont(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, DS.Space.xs)
-                        if !isNew {
-                            Button(role: .destructive) { confirmingDelete = true } label: {
-                                Label("Delete Entry", systemImage: "trash")
-                                    .frame(maxWidth: .infinity)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DS.Space.lg) {
+                        if needsTherapy {
+                            PhoneTherapyPicker()
+                        } else {
+                            if isNew { momentPicker }
+                            whenCard
+                            if isNew { quickAdd }
+                            ForEach(shownParts) { part in
+                                bridge(before: part)
+                                card(for: part)
+                                    .id(part)
+                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                bridge(after: part)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.large)
+                            extras
+                            Label("GlucOS records what you enter. Only the bolus calculator suggests a dose, from your own settings.", systemImage: "info.circle")
+                                .dsFont(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, DS.Space.xs)
+                            if !isNew {
+                                Button(role: .destructive) { confirmingDelete = true } label: {
+                                    Label("Delete Entry", systemImage: "trash")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.large)
+                            }
                         }
                     }
+                    .padding(.horizontal, DS.Space.lg)
+                    .padding(.top, DS.Space.sm)
+                    .padding(.bottom, DS.Space.xxl)
+                    .animation(DSMotion.standard.animation, value: parts)
+                    .animation(DSMotion.quick.animation, value: tags)
                 }
-                .padding(.horizontal, DS.Space.lg)
-                .padding(.top, DS.Space.sm)
-                .padding(.bottom, DS.Space.xxl)
-                .animation(DSMotion.standard.animation, value: parts)
+                .onChange(of: parts) { old, new in
+                    // Bring the part that was just opened into view.
+                    guard isNew, let part = LogFlow.focusPart(from: old, to: new, available: availableParts) else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        withAnimation(DSMotion.standard.animation) { proxy.scrollTo(part, anchor: .top) }
+                    }
+                }
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Color(uiColor: .systemGroupedBackground))
@@ -210,11 +226,7 @@ struct PhoneLogSheet: View {
             // has it, otherwise start from that therapy's default.
             guard isNew else { return }
             viaPump = therapy == .pump
-            if let start, availableParts.contains(start) {
-                parts = [start]
-            } else {
-                parts = therapy.logsInsulin ? [.insulin] : [.food]
-            }
+            if let start, availableParts.contains(start) { parts = [start] } else { parts = [] }
             kind = settings.bolusInsulinKind
             insulinName = settings.bolusInsulinName
             startDose()
@@ -254,8 +266,12 @@ struct PhoneLogSheet: View {
         .onChange(of: time) { _, _ in dropSuggestionIfStale() }
         .onChange(of: parts) { _, _ in dropSuggestionIfStale() }
         .sheet(isPresented: $showsFoodPicker) {
-            FoodPickerView(onAdd: { item in addItem(item) }, onClose: { showsFoodPicker = false })
-                .environmentObject(logbook)
+            FoodPickerView(initialQuery: foodQuery, onAdd: { item in addItem(item) }, onClose: {
+                // The meal typed in the food card is now its foods: don't also keep it as a name.
+                if !mealItems.isEmpty, !foodQuery.isEmpty, foodText == foodQuery { food = "" }
+                showsFoodPicker = false
+            })
+            .environmentObject(logbook)
         }
         .sheet(isPresented: $showsBolusSettings) {
             NavigationStack {
@@ -311,21 +327,16 @@ struct PhoneLogSheet: View {
 
     private static let offsets = [0, 15, 30, 60, 120]
 
+    /// One row: the time, then one-tap offsets. "Other" opens the full date and time.
     private var whenCard: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            HStack(alignment: .firstTextBaseline) {
-                Eyebrow(title: "When", systemImage: "clock")
-                Button {
-                    withAnimation(DSMotion.quick.animation) { showsTimePicker.toggle() }
-                } label: {
-                    Text(timeSummary)
-                        .dsFont(.headline)
-                        .monospacedDigit()
-                }
-                .accessibilityHint("Pick another time")
-            }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: DS.Space.xs + 2) {
+                    Label(timeSummary, systemImage: "clock")
+                        .dsFont(.headline)
+                        .monospacedDigit()
+                        .padding(.trailing, DS.Space.xs)
+                        .accessibilityLabel("Time, \(timeSummary)")
                     ForEach(Self.offsets, id: \.self) { minutes in
                         Button(minutes == 0 ? "Now" : minutes < 60 ? "\(minutes) min ago" : "\(minutes / 60) h ago") {
                             time = Date().addingTimeInterval(-Double(minutes) * 60)
@@ -337,6 +348,7 @@ struct PhoneLogSheet: View {
                         Label("Other", systemImage: "calendar")
                     }
                     .buttonStyle(ChipButtonStyle(selected: showsTimePicker || !Self.offsets.contains(where: isOffset)))
+                    .accessibilityHint("Pick another time")
                 }
                 .padding(.vertical, 1)
             }
@@ -348,7 +360,7 @@ struct PhoneLogSheet: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dsCard(.standard, padding: DS.Space.lg)
+        .dsCard(.standard, padding: DS.Space.md)
     }
 
     private var timeSummary: String {
@@ -362,17 +374,14 @@ struct PhoneLogSheet: View {
 
     // MARK: Quick add
 
-    /// Presets, the last bolus and recent foods: one tap fills the form with numbers the user
-    /// logged before.
+    /// The user's presets: one tap fills the form with what they saved. (The last dose and recent
+    /// foods are offered inside the dose and food cards, where they belong.)
     @ViewBuilder
     private var quickAdd: some View {
         let presets = logbook.presets
-        let lastBolus = settings.therapy.logsInsulin ? logbook.lastBolus : nil
-        let foods = logbook.recentFoods(limit: 4)
-        if !presets.isEmpty || lastBolus != nil || !foods.isEmpty {
+        if !presets.isEmpty {
             VStack(alignment: .leading, spacing: DS.Space.sm) {
-                Eyebrow(title: "Quick add", systemImage: "bolt.fill",
-                        trailing: presets.isEmpty ? "Save a preset below" : nil)
+                Eyebrow(title: "Your presets", systemImage: "bolt.fill")
                     .padding(.horizontal, DS.Space.xs)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: DS.Space.sm) {
@@ -380,16 +389,6 @@ struct PhoneLogSheet: View {
                             QuickAddTile(title: p.name, detail: p.summary, systemImage: p.systemImage,
                                          tint: p.hasInsulin ? Palette.insulin : p.hasFood ? Palette.food : Palette.context,
                                          selected: appliedPresetID == p.id) { apply(p) }
-                        }
-                        if let d = lastBolus {
-                            QuickAddTile(title: "Same as last", detail: "\(LogFormat.units(d.units)) \(d.displayName)",
-                                         systemImage: "arrow.uturn.backward", tint: Palette.insulin,
-                                         selected: false) { applyLast(d) }
-                        }
-                        ForEach(foods) { f in
-                            QuickAddTile(title: f.food, detail: f.carbs > 0 ? "\(LogFormat.grams(f.carbs)) carbs" : "Food",
-                                         systemImage: "fork.knife", tint: Palette.food,
-                                         selected: includes(.food) && foodText.caseInsensitiveCompare(f.food) == .orderedSame) { apply(f) }
                         }
                     }
                     .padding(.horizontal, DS.Space.xs)
@@ -412,7 +411,8 @@ struct PhoneLogSheet: View {
         carbsText = (p.carbs ?? 0) > 0 ? LogFormat.number(p.carbs ?? 0) : ""
         food = p.food
         tags = p.tags
-        if !p.tags.isEmpty { next.insert(.event) }
+        // Waking up and going to sleep show on their own tiles; anything else opens its card.
+        if p.tags.contains(where: { !$0.isMoment }) { next.insert(.event) }
         parts = next
         Haptics.tap()
     }
@@ -434,8 +434,12 @@ struct PhoneLogSheet: View {
 
     // MARK: Insulin
 
-    /// Saved insulins this dose can be logged with.
-    private var insulinChoices: [SavedInsulin] { InsulinLibrary.choices(logbook.insulins, viaPump: viaPump) }
+    /// Saved insulins this dose can be logged with. A new dose shows the ones for the moment that
+    /// was picked: mealtime insulins for a bolus, background ones for a basal dose.
+    private var insulinChoices: [SavedInsulin] {
+        let all = InsulinLibrary.choices(logbook.insulins, viaPump: viaPump)
+        return isNew ? all.filter { $0.kind.isBolus == kind.isBolus } : all
+    }
 
     /// Show the type chips and name field: nothing saved yet, "Other" tapped, or a name (from an
     /// older entry or preset) that isn't in the list.
@@ -457,12 +461,19 @@ struct PhoneLogSheet: View {
 
     /// A new entry starts on the user's usual insulin and, for an injection, the site used
     /// longest ago. Both are one tap to change.
-    private func startDose() {
+    private func startDose(bolus: Bool = true) {
         guard isNew else { return }
-        if let p = logbook.preferredInsulin(viaPump: viaPump) {
+        // Going from a bolus to a basal dose (or back): the amount typed was for the other one.
+        if kind.isBolus != bolus { unitsText = "" }
+        let preferred = bolus ? logbook.preferredInsulin(viaPump: viaPump)
+            : InsulinLibrary.preferredBasal(in: logbook.insulins, doses: logbook.doses)
+        if let p = preferred, p.kind.isBolus == bolus {
             kind = p.kind
             insulinName = p.name
             typesInsulin = false
+        } else if kind.isBolus != bolus {
+            kind = bolus ? .rapid : .long
+            insulinName = settings.defaultInsulinName(for: kind)
         }
         if !viaPump, injectionSite == nil {
             autoSite = logbook.suggestedInjectionSite(at: time)
@@ -473,42 +484,161 @@ struct PhoneLogSheet: View {
 
     // MARK: Parts
 
-    private var availableParts: [PhoneLogPart] {
-        var out: [PhoneLogPart] = []
-        if settings.therapy.logsInsulin { out.append(.insulin) }
-        out.append(.food)
-        if settings.therapy == .pump { out.append(.site) }
-        out.append(.event)
-        return out
+    private var availableParts: [LogPart] {
+        LogFlow.parts(logsInsulin: settings.therapy.logsInsulin, pump: settings.therapy == .pump)
     }
 
-    private func includes(_ part: PhoneLogPart) -> Bool {
+    private func includes(_ part: LogPart) -> Bool {
         if let editing { return editing == part }
         return parts.contains(part) && availableParts.contains(part)
     }
 
-    private var partTiles: some View {
-        HStack(spacing: DS.Space.sm) {
-            ForEach(availableParts) { part in
-                PartTile(title: part.title(pump: viaPump), systemImage: part.systemImage, tint: part.tint,
-                         isOn: parts.contains(part)) {
-                    if parts.contains(part) { parts.remove(part) } else { parts.insert(part) }
-                    Haptics.tap()
-                    if parts.contains(part) {
-                        if part == .insulin { focus = .units } else if part == .food { focus = .carbs }
-                    }
+    /// The parts on screen, in flow order: food always sits above the dose for it.
+    private var shownParts: [LogPart] {
+        if let editing { return [editing] }
+        return LogFlow.ordered(parts, available: availableParts)
+    }
+
+    @ViewBuilder
+    private func card(for part: LogPart) -> some View {
+        switch part {
+        case .food: foodCard
+        case .insulin: insulinCard
+        case .site: siteCard
+        case .event: eventCard
+        }
+    }
+
+    // MARK: Moments
+
+    private var moments: [LogMoment] {
+        LogFlow.moments(logsInsulin: settings.therapy.logsInsulin, pump: settings.therapy == .pump)
+    }
+
+    private func isOn(_ moment: LogMoment) -> Bool {
+        LogFlow.isOn(moment, parts: Set(shownParts), mealtimeDose: kind.isBolus, tags: tags)
+    }
+
+    private func tint(_ moment: LogMoment) -> Color {
+        switch moment {
+        case .eating: return Palette.food
+        case .bolus, .basal: return Palette.insulin
+        case .newSite: return Palette.site
+        case .wokeUp, .bedtime, .other: return Palette.context
+        }
+    }
+
+    /// "What's happening?": the moments to pick from. More than one can be on (eating and a bolus).
+    private var momentPicker: some View {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            Text("What's happening?")
+                .dsFont(.title)
+                .padding(.horizontal, DS.Space.xs)
+                .accessibilityAddTraits(.isHeader)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.Space.sm), count: 3), spacing: DS.Space.sm) {
+                ForEach(moments) { m in
+                    PartTile(title: m.title, systemImage: m.systemImage, tint: tint(m), isOn: isOn(m)) { toggle(m) }
+                        .accessibilityHint(m.detail)
                 }
             }
         }
     }
 
+    private func toggle(_ moment: LogMoment) {
+        Haptics.tap()
+        switch moment {
+        case .eating:
+            if parts.contains(.food) { parts.remove(.food) } else { parts.insert(.food) }
+        case .bolus, .basal:
+            if isOn(moment) {
+                parts.remove(.insulin)
+            } else {
+                startDose(bolus: moment == .bolus)
+                parts.insert(.insulin)
+            }
+        case .newSite:
+            if parts.contains(.site) { parts.remove(.site) } else { parts.insert(.site) }
+        case .other:
+            if parts.contains(.event) {
+                parts.remove(.event)
+                tags = tags.filter(\.isMoment)
+            } else {
+                parts.insert(.event)
+            }
+        case .wokeUp, .bedtime:
+            if let tag = moment.tag { tags = LogFlow.toggling(tag, in: tags) }
+        }
+    }
+
+    // MARK: Next step
+
+    private var nextStep: LogNextStep? {
+        guard isNew else { return nil }
+        return LogFlow.nextStep(picked: parts, available: availableParts, carbs: foodValid ? (carbs ?? 0) : 0,
+                                mealtimeDose: kind.isBolus)
+    }
+
+    /// Above the dose when there's no food: one tap adds the food part (where it belongs, above).
+    @ViewBuilder
+    private func bridge(before part: LogPart) -> some View {
+        if part == .insulin, nextStep == .addFood {
+            BridgeButton(title: "Eating with this? Add the food", systemImage: "fork.knife", tint: Palette.food) {
+                parts.insert(.food)
+                Haptics.tap()
+            }
+        }
+    }
+
+    /// Under the food once it has carbs: one tap carries on to the dose for it.
+    @ViewBuilder
+    private func bridge(after part: LogPart) -> some View {
+        if part == .food, case .addInsulin(let grams)? = nextStep {
+            BridgeButton(title: "Next: bolus for \(LogFormat.grams(grams))", systemImage: "syringe", tint: Palette.insulin) {
+                startDose(bolus: true)
+                parts.insert(.insulin)
+                focus = nil
+                Haptics.tap()
+            }
+        }
+    }
+
+    /// The last dose of the kind being logged, to repeat in one tap.
+    private var lastDose: InsulinDose? {
+        kind.isBolus ? logbook.lastBolus : logbook.doses.last { !$0.kind.isBolus }
+    }
+
+    /// The calculator leads the dose card once it's set up; until then it waits at the bottom.
+    @ViewBuilder
+    private var calculatorCard: some View {
+        BolusSuggestionCard(carbs: calculatorCarbs,
+                            onUse: { s in
+                                unitsText = LogFormat.number(s.units)
+                                usedSuggestion = s
+                                Haptics.tap()
+                            },
+                            onSetUp: { showsBolusSettings = true },
+                            onUpdate: { live, recompute in
+                                liveSuggestion = live
+                                recomputeSuggestion = recompute
+                                dropSuggestionIfStale()
+                            })
+    }
+
     private var insulinCard: some View {
-        PhoneLogPanel(part: .insulin, title: viaPump ? "Bolus" : "Insulin") {
+        PhoneLogPanel(part: .insulin, title: isNew ? (kind.isBolus ? "Bolus" : "Basal") : (viaPump ? "Bolus" : "Insulin")) {
+            if showsCalculator && logbook.bolusSettings != nil { calculatorCard }
             PhoneAmountField(title: "Units", text: $unitsText, unitLabel: "units",
                              step: InsulinLibrary.step(for: logbook.savedInsulin(named: insulinName), viaPump: viaPump),
                              range: LogLimits.units, tint: Palette.insulin,
                              focus: $focus, focusValue: .units)
             if let problem = unitsProblem { FieldProblem(text: problem) }
+            if isNew, unitsText.isEmpty, let d = lastDose {
+                Button { applyLast(d) } label: {
+                    Label("Same as last: \(LogFormat.units(d.units)) \(d.displayName)", systemImage: "arrow.uturn.backward")
+                }
+                .buttonStyle(ChipButtonStyle(tint: Palette.insulin))
+                .accessibilityHint("Fills in the amount you logged \(d.timestamp.formatted(.relative(presentation: .named)))")
+            }
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 Text("Insulin").dsFont(.label).foregroundStyle(.secondary)
                 let choices = insulinChoices
@@ -559,20 +689,6 @@ struct PhoneLogSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if showsCalculator {
-                BolusSuggestionCard(carbs: calculatorCarbs,
-                                    onUse: { s in
-                                        unitsText = LogFormat.number(s.units)
-                                        usedSuggestion = s
-                                        Haptics.tap()
-                                    },
-                                    onSetUp: { showsBolusSettings = true },
-                                    onUpdate: { live, recompute in
-                                        liveSuggestion = live
-                                        recomputeSuggestion = recompute
-                                        dropSuggestionIfStale()
-                                    })
-            }
             if viaPump {
                 LabeledContent("Infusion site") {
                     Text(pumpSiteText).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
@@ -581,6 +697,7 @@ struct PhoneLogSheet: View {
             } else {
                 PhoneInjectionSitePicker(selection: $injectionSite, at: time)
             }
+            if showsCalculator && logbook.bolusSettings == nil { calculatorCard }
         }
     }
 
@@ -592,30 +709,71 @@ struct PhoneLogSheet: View {
     private static let carbChips = [10, 15, 20, 30, 45, 60]
 
     private var foodCard: some View {
-        PhoneLogPanel(part: .food, title: "Food") {
-            Button { showsFoodPicker = true } label: {
-                Label(mealItems.isEmpty ? "Search foods" : "Add another food", systemImage: "magnifyingglass")
-                    .frame(maxWidth: .infinity)
+        PhoneLogPanel(part: .food, title: isNew ? "What are you eating?" : "Food") {
+            // Looks like a search box; opens the full search, where a whole meal can be described.
+            Button { foodQuery = ""; showsFoodPicker = true } label: {
+                HStack(spacing: DS.Space.sm) {
+                    Image(systemName: "magnifyingglass")
+                    Text(mealItems.isEmpty ? "Search or describe your meal" : "Add another food")
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").imageScale(.small)
+                }
+                .dsFont(.callout)
+                .foregroundStyle(Palette.food)
+                .padding(.horizontal, DS.Space.md)
+                .padding(.vertical, DS.Space.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Palette.food.opacity(0.12), in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
             }
-            .buttonStyle(.ds(.tinted(.custom(Palette.food))))
+            .buttonStyle(PressScaleStyle())
+            .accessibilityHint("Finds foods and works out their carbs")
+            let recent = isNew && mealItems.isEmpty && foodText.isEmpty ? logbook.recentFoods(limit: 6) : []
+            if !recent.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: DS.Space.xs + 2) {
+                        ForEach(recent) { f in
+                            Button { apply(f) } label: {
+                                Label(f.carbs > 0 ? "\(f.food) · \(LogFormat.grams(f.carbs))" : f.food, systemImage: "clock.arrow.circlepath")
+                            }
+                            .buttonStyle(ChipButtonStyle(tint: Palette.food))
+                            .accessibilityHint("Fills in what you logged last time")
+                        }
+                    }
+                    .padding(.vertical, 1)
+                }
+            }
             if !mealItems.isEmpty { mealItemList }
             PhoneAmountField(title: "Carbs", text: $carbsText, unitLabel: "g carbs",
                              step: 5, range: LogLimits.carbs, tint: Palette.food,
                              focus: $focus, focusValue: .carbs)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: DS.Space.xs + 2) {
-                    ForEach(Self.carbChips, id: \.self) { g in
-                        Button("\(g) g") { carbsText = "\(g)"; Haptics.tap() }
-                            .buttonStyle(ChipButtonStyle(selected: carbs == Double(g), tint: Palette.food))
+            if mealItems.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: DS.Space.xs + 2) {
+                        ForEach(Self.carbChips, id: \.self) { g in
+                            Button("\(g) g") { carbsText = "\(g)"; Haptics.tap() }
+                                .buttonStyle(ChipButtonStyle(selected: carbs == Double(g), tint: Palette.food))
+                        }
                     }
+                    .padding(.vertical, 1)
                 }
-                .padding(.vertical, 1)
             }
             if let problem = foodProblem { FieldProblem(text: problem) }
-            TextField("What you ate", text: $food, prompt: Text("What you ate, e.g. toast and a banana"))
+            TextField("What you ate", text: $food, prompt: Text(mealItems.isEmpty ? "Or just name it, e.g. toast and a banana" : "Name this meal (optional)"))
                 .textFieldStyle(.roundedBorder)
                 .focused($focus, equals: .food)
                 .submitLabel(.done)
+            if mealItems.isEmpty && foodText.count >= 3 {
+                Button {
+                    foodQuery = foodText
+                    focus = nil
+                    showsFoodPicker = true
+                } label: {
+                    Label("Find the carbs in \u{201C}\(foodText)\u{201D}", systemImage: "sparkle.magnifyingglass")
+                        .lineLimit(1)
+                }
+                .buttonStyle(ChipButtonStyle(tint: Palette.food))
+            }
             let suggestions = logbook.recentFoods(matching: foodText, limit: 6)
                 .filter { $0.food.caseInsensitiveCompare(foodText) != .orderedSame }
             if !foodText.isEmpty && !suggestions.isEmpty {
@@ -690,14 +848,16 @@ struct PhoneLogSheet: View {
         }
     }
 
+    /// A new entry leaves out waking up and going to sleep: those are tiles of their own.
     private var tagChoices: [ContextTag] {
-        settings.therapy.logsInsulin || tags.contains(.siteProblem)
+        let all = settings.therapy.logsInsulin || tags.contains(.siteProblem)
             ? ContextTag.allCases
             : ContextTag.allCases.filter { $0 != .siteProblem }
+        return isNew ? all.filter { !$0.isMoment } : all
     }
 
     private var eventCard: some View {
-        PhoneLogPanel(part: .event, title: isNew ? "What's going on?" : "Event") {
+        PhoneLogPanel(part: .event, title: isNew ? "What else is going on?" : "Event") {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.Space.sm), GridItem(.flexible())],
                       alignment: .leading, spacing: DS.Space.sm) {
                 ForEach(tagChoices) { t in
@@ -712,7 +872,7 @@ struct PhoneLogSheet: View {
                     .accessibilityHint(t.help)
                 }
             }
-            if let t = tags.count == 1 ? tags.first : nil {
+            if let t = tags.filter({ !$0.isMoment || !isNew }).count == 1 ? tags.first(where: { !$0.isMoment || !isNew }) : nil {
                 Text(t.help).dsFont(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -723,31 +883,43 @@ struct PhoneLogSheet: View {
         }
     }
 
-    private var noteCard: some View {
-        TextField("Note", text: $note, prompt: Text("Add a note (optional)"), axis: .vertical)
-            .lineLimit(1...4)
-            .dsFont(.body)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .dsCard(.standard, padding: DS.Space.lg)
-    }
-
-    private var presetCard: some View {
+    /// A note and "save as preset": out of the way until asked for.
+    private var extras: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Toggle(isOn: $savesAsPreset.animation(DSMotion.quick.animation)) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Save as preset").dsFont(.headline)
-                    Text("Keep this combination as a one-tap quick add.").dsFont(.caption).foregroundStyle(.secondary)
+            if isNew {
+                HStack(spacing: DS.Space.xs + 2) {
+                    Button {
+                        withAnimation(DSMotion.quick.animation) { showsNote.toggle() }
+                    } label: {
+                        Label("Note", systemImage: "square.and.pencil")
+                    }
+                    .buttonStyle(ChipButtonStyle(selected: showsNote || !note.isEmpty))
+                    Button {
+                        withAnimation(DSMotion.quick.animation) { savesAsPreset.toggle() }
+                    } label: {
+                        Label("Save as preset", systemImage: "bolt")
+                    }
+                    .buttonStyle(ChipButtonStyle(selected: savesAsPreset))
+                    .disabled(!canSave || !hasPresetContent)
+                    .accessibilityHint("Keeps this combination as a one-tap quick add")
+                    Spacer(minLength: 0)
                 }
             }
-            .tint(Palette.brand)
-            .disabled(!canSave || !hasPresetContent)
-            if savesAsPreset {
+            if showsNote || !note.isEmpty || !isNew {
+                TextField("Note", text: $note, prompt: Text("Add a note (optional)"), axis: .vertical)
+                    .lineLimit(1...4)
+                    .dsFont(.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .dsCard(.standard, padding: DS.Space.lg)
+            }
+            if isNew && savesAsPreset {
                 TextField("Preset name", text: $presetName, prompt: Text(defaultPresetName))
-                    .textFieldStyle(.roundedBorder)
+                    .dsFont(.body)
                     .focused($focus, equals: .presetName)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .dsCard(.standard, padding: DS.Space.lg)
             }
         }
-        .dsCard(.standard, padding: DS.Space.lg)
     }
 
     // MARK: Save bar
@@ -755,8 +927,8 @@ struct PhoneLogSheet: View {
     private var saveBar: some View {
         Button { save() } label: {
             HStack(spacing: DS.Space.sm) {
-                Image(systemName: "checkmark.circle.fill")
-                Text(saveSummary).lineLimit(1).minimumScaleFactor(0.8)
+                if canSave { Image(systemName: "checkmark.circle.fill") }
+                Text(canSave ? saveSummary : (missing ?? saveSummary)).lineLimit(1).minimumScaleFactor(0.8)
             }
             .dsFont(.headline)
             .frame(maxWidth: .infinity)
@@ -774,17 +946,21 @@ struct PhoneLogSheet: View {
         .animation(DSMotion.quick.animation, value: canSave)
     }
 
-    /// "Log 4 u + 45 g", "Log Exercise", "Save".
+    /// "Log 45 g + 4 u", "Log Woke up", "Save".
     private var saveSummary: String {
         guard isNew else { return "Save" }
-        var bits: [String] = []
-        if includes(.insulin), let units { bits.append(LogFormat.units(units)) }
-        if includes(.food), foodValid, let carbs { bits.append(carbs > 0 ? LogFormat.grams(carbs) : (foodText.isEmpty ? "food" : foodText)) }
-        if includes(.site) { bits.append("new site") }
-        if includes(.event), !tags.isEmpty {
-            bits.append(tags.count == 1 ? (tags.first?.title ?? "") : "\(tags.count) events")
-        }
-        return bits.isEmpty ? "Log" : "Log " + bits.joined(separator: " + ")
+        return LogFlow.summary(carbs: includes(.food) && foodValid ? carbs : nil,
+                               foodName: foodText.isEmpty ? (mealItems.first?.name ?? "") : foodText,
+                               units: includes(.insulin) ? units : nil,
+                               newSite: includes(.site),
+                               events: ContextTag.allCases.filter(tags.contains).map(\.title))
+    }
+
+    /// What the entry still needs, shown on the Log button while it can't be logged.
+    private var missing: String? {
+        guard isNew else { return nil }
+        return LogFlow.missing(picked: parts, available: availableParts, foodValid: foodValid,
+                               unitsValid: units != nil, hasEvents: !tags.isEmpty)
     }
 
     // MARK: Values
@@ -834,14 +1010,15 @@ struct PhoneLogSheet: View {
             (includes(.insulin), units != nil),
             (includes(.food), foodValid),
             (includes(.site), true),
-            (includes(.event), !tags.isEmpty),
+            // Waking up or going to sleep is an entry without the card being open.
+            (includes(.event) || (isNew && !tags.isEmpty), !tags.isEmpty),
         ].filter { $0.0 }
         return !checks.isEmpty && checks.allSatisfy { $0.1 }
     }
 
     /// A preset needs something to fill in: a site change on its own isn't one.
     private var hasPresetContent: Bool {
-        includes(.insulin) || includes(.food) || (includes(.event) && !tags.isEmpty)
+        includes(.insulin) || includes(.food) || !tags.isEmpty
     }
 
     private var pumpSiteText: String {
@@ -858,10 +1035,12 @@ struct PhoneLogSheet: View {
     }
 
     private func focusFirstField() {
-        guard editing == nil || editing == .insulin || editing == .food else { return }
+        // Opened straight on a dose, the number pad comes up. Food leaves the keyboard down so the
+        // search and recent foods are in view.
+        guard isNew, start == .insulin else { return }
         // Sheets take focus a beat after appearing.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-            if includes(.insulin) && unitsText.isEmpty { focus = .units } else if includes(.food) && carbsText.isEmpty && editing == nil { focus = .carbs }
+            if includes(.insulin) && unitsText.isEmpty && logbook.bolusSettings == nil { focus = .units }
         }
     }
 
@@ -933,12 +1112,12 @@ struct PhoneLogSheet: View {
         if includes(.site) {
             logbook.save(.siteChange(SiteChange(id: siteID, timestamp: time, site: newSite, note: trimmedNote)))
         }
-        if includes(.event), !tags.isEmpty {
+        if isNew || includes(.event), !tags.isEmpty {
             logbook.save(.context(ContextEvent(id: contextID, timestamp: time, tags: tags, note: trimmedNote)))
         }
         if isNew && savesAsPreset && hasPresetContent {
             let name = presetName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let logsTags = includes(.event)
+            let logsTags = !tags.isEmpty
             logbook.savePreset(LogPreset(name: name.isEmpty ? defaultPresetName : name,
                                          units: logsInsulin ? units : nil,
                                          kind: logsInsulin ? kind : nil,
@@ -955,15 +1134,6 @@ struct PhoneLogSheet: View {
 // MARK: - Part styling
 
 extension PhoneLogPart {
-    func title(pump: Bool) -> String {
-        switch self {
-        case .insulin: return pump ? "Bolus" : "Insulin"
-        case .food: return "Food"
-        case .site: return "New site"
-        case .event: return "Event"
-        }
-    }
-
     var systemImage: String {
         switch self {
         case .insulin: return "syringe"
@@ -990,7 +1160,39 @@ enum Haptics {
 
 // MARK: - Building blocks
 
-/// A large tile that turns one part of the entry on or off.
+/// A dashed "next step" row between cards: adds the part that naturally comes next.
+private struct BridgeButton: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: DS.Space.sm) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(title).dsFont(.headline).lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+                Image(systemName: "plus.circle.fill")
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, DS.Space.lg)
+            .padding(.vertical, DS.Space.md)
+            .frame(maxWidth: .infinity)
+            .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .strokeBorder(tint.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        }
+        .buttonStyle(PressScaleStyle())
+        .transition(.opacity)
+    }
+}
+
+/// A large tile for one moment ("Eating", "Bolus", "Woke up"), on or off.
 private struct PartTile: View {
     let title: String
     let systemImage: String
@@ -1011,12 +1213,14 @@ private struct PartTile: View {
                 }
                 Text(title)
                     .dsFont(.label)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.85)
                     .foregroundStyle(isOn ? AnyShapeStyle(tint) : AnyShapeStyle(Color.primary))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, DS.Space.md)
+            .frame(maxWidth: .infinity, minHeight: 78)
+            .padding(.vertical, DS.Space.sm)
+            .padding(.horizontal, DS.Space.xs)
             .background {
                 RoundedRectangle(cornerRadius: DS.Radius.tile, style: .continuous)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
@@ -1165,42 +1369,70 @@ private struct PhoneInjectionSitePicker: View {
     /// When the dose is: only injections before it count.
     var at: Date = .distantFuture
     @EnvironmentObject var logbook: LogbookStore
+    /// Folded to one line (the site, already picked) until tapped.
+    @State private var expanded = false
 
     var body: some View {
         let last = logbook.lastInjectionBySite(before: at)
         let suggested = SiteRotation.suggestion(lastUse: last)
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Injection site").dsFont(.label).foregroundStyle(.secondary)
-                Spacer()
-                if let suggested {
-                    if selection == suggested {
-                        Label("Suggested: not used for longest", systemImage: "sparkle")
-                            .dsFont(.caption)
-                            .foregroundStyle(Palette.insulin)
+            Button {
+                withAnimation(DSMotion.quick.animation) { expanded.toggle() }
+                Haptics.tap()
+            } label: {
+                HStack(spacing: DS.Space.sm) {
+                    Text("Injection site").dsFont(.label).foregroundStyle(.secondary)
+                    Spacer(minLength: DS.Space.sm)
+                    if let selection, selection == suggested {
+                        Image(systemName: "sparkle").imageScale(.small).foregroundStyle(Palette.insulin)
+                    }
+                    Text(selection?.title ?? "Not recorded")
+                        .dsFont(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Injection site, \(selection?.title ?? "not recorded")")
+            .accessibilityHint(expanded ? "Hides the other sites" : "Shows the other sites")
+            if !expanded, let selection, selection == suggested {
+                Text("Suggested: the site you've gone longest without using. Tap to change.")
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if expanded {
+                if let suggested, selection != suggested {
+                    Button { selection = suggested; Haptics.tap() } label: {
+                        Label("Use \(suggested.title)", systemImage: "sparkle")
                             .lineLimit(1)
-                    } else {
-                        Button { selection = suggested; Haptics.tap() } label: {
-                            Label("Use \(suggested.title)", systemImage: "sparkle")
-                                .lineLimit(1)
+                    }
+                    .dsFont(.caption)
+                    .foregroundStyle(Palette.insulin)
+                    .accessibilityHint("The site you've gone longest without using")
+                }
+                Grid(alignment: .leading, horizontalSpacing: DS.Space.sm, verticalSpacing: DS.Space.sm) {
+                    ForEach([BodyArea.abdomen, .arm, .thigh, .hip]) { area in
+                        GridRow {
+                            Text(area.title)
+                                .dsFont(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 84, alignment: .leading)
+                            ForEach(InjectionSite.allCases.filter { $0.area == area }) { s in
+                                siteButton(s, last: last[s], suggested: s == suggested)
+                            }
                         }
-                        .dsFont(.caption)
-                        .foregroundStyle(Palette.insulin)
-                        .accessibilityHint("The site you've gone longest without using")
                     }
                 }
-            }
-            Grid(alignment: .leading, horizontalSpacing: DS.Space.sm, verticalSpacing: DS.Space.sm) {
-                ForEach([BodyArea.abdomen, .arm, .thigh, .hip]) { area in
-                    GridRow {
-                        Text(area.title)
-                            .dsFont(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 84, alignment: .leading)
-                        ForEach(InjectionSite.allCases.filter { $0.area == area }) { s in
-                            siteButton(s, last: last[s], suggested: s == suggested)
-                        }
-                    }
+                HStack(spacing: DS.Space.xs + 2) {
+                    Button("Other") { selection = selection == .other ? nil : .other }
+                        .buttonStyle(ChipButtonStyle(selected: selection == .other, tint: Palette.insulin))
+                    Button("Not recorded") { selection = nil }
+                        .buttonStyle(ChipButtonStyle(selected: selection == nil, tint: Palette.insulin))
                 }
             }
             if let recent = SiteRotation.recentUse(of: selection, lastUse: last) {
@@ -1209,12 +1441,6 @@ private struct PhoneInjectionSitePicker: View {
                     .dsFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: DS.Space.xs + 2) {
-                Button("Other") { selection = selection == .other ? nil : .other }
-                    .buttonStyle(ChipButtonStyle(selected: selection == .other, tint: Palette.insulin))
-                Button("Not recorded") { selection = nil }
-                    .buttonStyle(ChipButtonStyle(selected: selection == nil, tint: Palette.insulin))
             }
         }
     }
