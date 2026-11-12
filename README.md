@@ -91,9 +91,10 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   glucose by day of infusion-site wear (pump); and injection-site rotation (injections).
   These are observations, not advice. GlucOS never suggests or calculates a dose, and the
   "drop per unit" is not a correction factor. Talk to your care team before changing anything.
-- **Logging** (⌘L, from the popover or dashboard) opens a quick-log window: tap Insulin / Food /
-  New site, use the time chips (Now, 15 min ago…) and the ± steppers or carb chips. **Quick add**
-  offers your presets, "same as last" bolus and recent foods. Tick **Save as preset** to keep a
+- **Logging** (⌘L, from the popover or dashboard) opens a quick-log window that asks **What's
+  happening?**: Eating, Bolus, Basal, Woke up, Going to sleep, Something else (⌘1–⌘6). Each opens
+  the part it needs, food always above the dose for it. Describe a meal in words ("2 slices of
+  toast and a banana") or search, and the carbs are worked out. Tick **Save as preset** to keep a
   combination; manage presets in **Settings → Logging**. In **Dashboard → Logbook** you can filter,
   search, edit, "Log Again Now", and undo a delete (⌘Z).
 - **Colour-coded menu bar icon** (Settings → General, off by default): tints the drop green/orange/red by

@@ -1,7 +1,44 @@
 import Foundation
 
-/// Searches Open Food Facts for packaged products, only when the user asks. Sends just the words
-/// typed; nothing about the user.
+/// Somewhere packaged and branded foods can be looked up online. To search another food list as
+/// well, write one of these for it and add it to `FoodSources.online`: the food picker shows its
+/// results with the rest.
+protocol OnlineFoodSource: Sendable {
+    /// Shown with its results, as the list's licence asks.
+    var attribution: String { get }
+    /// Foods matching what was typed. Send only the words typed, nothing about the user.
+    func search(_ query: String) async throws -> [FoodItem]
+}
+
+struct OpenFoodFactsSource: OnlineFoodSource {
+    var attribution: String { OpenFoodFacts.attribution }
+    func search(_ query: String) async throws -> [FoodItem] { try await OpenFoodFactsClient.search(query) }
+}
+
+enum FoodSources {
+    static let online: [any OnlineFoodSource] = [OpenFoodFactsSource()]
+
+    /// Every online list's matches, one food per id. Fails only when every list failed.
+    static func searchOnline(_ query: String) async throws -> [FoodItem] {
+        var out: [FoodItem] = []
+        var seen = Set<String>()
+        var failure: Error?
+        var answered = false
+        for source in online {
+            do {
+                for item in try await source.search(query) where seen.insert(item.id).inserted { out.append(item) }
+                answered = true
+            } catch {
+                failure = error
+            }
+        }
+        if !answered, let failure { throw failure }
+        return out
+    }
+}
+
+/// Searches Open Food Facts for packaged products as the user types a search in the food picker.
+/// Sends just the words typed; nothing about the user.
 enum OpenFoodFactsClient {
     static func search(_ query: String) async throws -> [FoodItem] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)

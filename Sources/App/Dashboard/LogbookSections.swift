@@ -54,7 +54,7 @@ struct LogbookSection: View {
                                message: logbook.isEmpty
                                    ? "Log insulin, food and site changes with the + button or ⌘L. Save the things you log often as presets for one-tap entry next time."
                                    : "Pick a longer period in the toolbar to see older entries, or log something new.",
-                               actionTitle: "Log Insulin or Food…", action: { open(.new) })
+                               actionTitle: "Log…", action: { open(.new) })
                     .frame(maxHeight: .infinity)
             } else {
                 totals(inRange)
@@ -345,7 +345,7 @@ struct InsightsSection: View {
     }
 
     private var logButton: some View {
-        Button("Log Insulin or Food…", action: onLog)
+        Button("Log…", action: onLog)
             .buttonStyle(.ds(.primary))
             .fixedSize()
     }

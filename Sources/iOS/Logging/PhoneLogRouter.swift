@@ -1,11 +1,7 @@
 import Foundation
 
-/// The parts of a log entry the iPhone log sheet can start on.
-enum PhoneLogPart: String, CaseIterable, Identifiable {
-    case insulin, food, site, event
-
-    var id: String { rawValue }
-}
+/// The parts of a log entry the iPhone log sheet can start on (shared with the Mac: `LogFlow`).
+typealias PhoneLogPart = LogPart
 
 /// What the iPhone log sheet opens for.
 enum PhoneLogTarget {

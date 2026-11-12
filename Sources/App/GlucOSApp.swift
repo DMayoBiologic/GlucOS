@@ -62,7 +62,7 @@ struct GlucOSApp: App {
         .defaultPosition(.center)
 
         // Quick log from the menu bar, without opening the dashboard.
-        Window("Log Insulin or Food", id: LogWindow.id) {
+        Window("Log", id: LogWindow.id) {
             LogWindow()
                 .environmentObject(logbook)
                 .environmentObject(store)

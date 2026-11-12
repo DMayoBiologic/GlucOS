@@ -331,7 +331,7 @@ struct DashboardView: View {
 
         ToolbarItemGroup(placement: .primaryAction) {
             Button { logSheet = .new } label: {
-                Label("Log Insulin or Food…", systemImage: "plus")
+                Label("Log…", systemImage: "plus")
             }
             .keyboardShortcut("l")
             .help("Log insulin, food or a site change (⌘L)")

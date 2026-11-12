@@ -76,6 +76,17 @@ enum InsulinLibrary {
         return options.first { $0.kind.isBolus } ?? options.first
     }
 
+    /// The background insulin a basal dose starts with: the one logged most recently, otherwise
+    /// the first long-acting (or other non-mealtime) insulin saved. Pumps don't log basal doses.
+    static func preferredBasal(in library: [SavedInsulin], doses: [InsulinDose]) -> SavedInsulin? {
+        let options = library.filter { !$0.kind.isBolus }
+        guard !options.isEmpty else { return nil }
+        for d in doses.reversed() where !d.kind.isBolus && !d.viaPump {
+            if let m = match(d.name, in: options) { return m }
+        }
+        return options.first { $0.kind == .long } ?? options.first
+    }
+
     /// Insulins the user has already logged (or named in the old Settings fields) that aren't
     /// saved yet, each with its most used spelling and kind. Used to fill the list the first time.
     static func discovered(from doses: [InsulinDose], named extra: [(name: String, kind: InsulinKind)] = [],

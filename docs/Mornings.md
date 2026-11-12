@@ -17,7 +17,8 @@ Mac and the iPhone like every other entry. No new record kind or migration was n
 - **Shortcuts, Siri and the Action button**: "I'm up in GlucOS" (`LogWakeIntent`). Works as a
   Personal Automation when an alarm is stopped.
 - **Mac popover**: the same "Woke up at …?" prompt, under the notices.
-- **Anywhere**: the log sheet's Event section has a Woke up chip, for logging or fixing a past one.
+- **Anywhere**: **Woke up** is one of the log sheet's moments (and **Going to sleep** marks the
+  other end of the night, tag `bedtime`), for logging or fixing a past one.
 
 ### The suggested time
 

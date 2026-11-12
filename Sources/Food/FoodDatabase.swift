@@ -6,8 +6,12 @@ import Foundation
 // - Built in: AUSNUT 2023, © Food Standards Australia New Zealand, licensed CC BY 4.0. Bundled as
 //   `ausnut-foods.json`, made by scripts/food/build_ausnut.py (see .github/workflows/food-data.yml).
 //   Carbs are available carbohydrate without sugar alcohols, which is what carb counting uses.
-// - Packaged products: searched online in Open Food Facts (ODbL), when the user asks.
+// - Packaged products: searched online in Open Food Facts (ODbL) as the user types a search.
+//   More online lists can be added as an `OnlineFoodSource` (OpenFoodFactsClient.swift).
 // - The user's own foods and favourites, synced with the logbook (`SavedFood`).
+//
+// Searching understands everyday names, plurals and typos (FoodSearch.swift), and a whole meal can
+// be typed in words and read into foods with amounts (MealDescription.swift).
 //
 // Plain Foundation so `swift test` covers it.
 
@@ -66,39 +70,66 @@ struct FoodDatabase {
 
     func food(id: String) -> FoodItem? { foods.first { $0.id == id } }
 
-    /// Foods whose name has a word starting with every word typed, best matches first.
+    /// Foods matching what was typed, best first. Everyday names, plurals and filler words are
+    /// understood (`FoodSearch`, `FoodAliases`). When little matches exactly, it looks again more
+    /// loosely: a wrong letter is forgiven and one word may go unmatched.
     func search(_ query: String, limit: Int = 40) -> [FoodItem] {
-        let terms = Self.words(query)
+        let terms = FoodSearch.terms(query)
         guard !terms.isEmpty else { return [] }
-        var scored: [(Double, Int)] = []
-        for (i, words) in index.enumerated() {
-            if let s = Self.score(terms: terms, words: words, name: foods[i].name) { scored.append((s, i)) }
+        var picked = ranked(terms, loose: false, limit: limit)
+        if picked.count < min(limit, 5) {
+            let seen = Set(picked)
+            picked += ranked(terms, loose: true, limit: limit - picked.count, skipping: seen)
         }
-        scored.sort { $0.0 != $1.0 ? $0.0 > $1.0 : foods[$0.1].name.count < foods[$1.1].name.count }
-        return scored.prefix(limit).map { foods[$0.1] }
+        return picked.map { foods[$0] }
     }
 
-    static func score(terms: [String], words: [String], name: String) -> Double? {
-        var total = 0.0
-        for (n, t) in terms.enumerated() {
-            let singular = t.count > 3 && t.hasSuffix("s") ? String(t.dropLast()) : t
-            var best = 0.0
-            for (position, w) in words.enumerated() {
-                var s = 0.0
-                if w == t || w == singular { s = 3 } else if w.hasPrefix(t) || w.hasPrefix(singular) { s = 2 } else { continue }
-                // Words early in the name ("Banana, …") say what the food is.
-                if position == 0 { s += n == 0 ? 3 : 1 } else if position < 3 { s += 0.5 }
-                best = max(best, s)
+    /// The foods matching terms already read by `FoodSearch.terms`, strictly or loosely.
+    func matches(_ terms: [String], loose: Bool, limit: Int) -> [FoodItem] {
+        guard !terms.isEmpty else { return [] }
+        return ranked(terms, loose: loose, limit: limit).map { foods[$0] }
+    }
+
+    private func ranked(_ terms: [String], loose: Bool, limit: Int, skipping: Set<Int> = []) -> [Int] {
+        var scored: [(Double, Int)] = []
+        let staple = FoodStaples.id(for: terms)
+        for (i, words) in index.enumerated() where !skipping.contains(i) {
+            if foods[i].id == staple {
+                scored.append((100, i))
+            } else if let s = Self.score(terms: terms, words: words, name: foods[i].name, loose: loose) {
+                scored.append((s, i))
             }
-            if best == 0 { return nil }
+        }
+        scored.sort { $0.0 != $1.0 ? $0.0 > $1.0 : foods[$0.1].name.count < foods[$1.1].name.count }
+        return scored.prefix(limit).map(\.1)
+    }
+
+    /// How well a food's name words match the typed terms (from `FoodSearch.terms`), or nil when
+    /// they don't. Every term must match, by itself or through an alias; with `loose`, small typos
+    /// count and a search of two or more words may leave one unmatched.
+    static func score(terms: [String], words: [String], name: String, loose: Bool = false) -> Double? {
+        var total = 0.0
+        var missed = 0
+        for (n, t) in terms.enumerated() {
+            var best = FoodSearch.match(t, words: words, first: n == 0, loose: loose)
+            for alias in FoodAliases.words[t] ?? [] {
+                let parts = alias.map { FoodSearch.match($0, words: words, first: n == 0, loose: false) }
+                if parts.contains(0) { continue }
+                best = max(best, (parts.max() ?? 0) - 0.3)
+            }
+            if best == 0 {
+                missed += 1
+                if !loose || terms.count < 2 || missed > 1 { return nil }
+                total -= 2
+            }
             total += best
         }
+        if missed == terms.count { return nil }
         // Prefer plain, everyday entries over long qualified ones.
         total -= Double(words.count) * 0.08
         let lower = name.lowercased()
-        if lower.contains("not further defined") { total += 0.4 }
-        if lower.contains("raw") || lower.contains("cooked") || lower.contains("boiled") { total += 0.1 }
-        return total
+        if lower.contains("not further defined") { total += 0.6 }
+        return total + FoodSearch.prior(words: words, terms: terms)
     }
 
     /// Lowercased words without accents or punctuation.

@@ -14,8 +14,11 @@ enum LogSheetTarget: Identifiable {
     }
 }
 
-/// Logs insulin, food and (on a pump) a site change, all at one time. What it asks for follows
-/// the therapy type in Settings. It records what the user enters: presets and "same as last" only
+/// Logs what's happening. It starts from the moment ("What's happening?": eating, a bolus, a
+/// basal dose, waking up, going to sleep, something else) rather than a type of record, and each
+/// moment opens the part of the entry it needs, always in the order of `LogFlow`: food first, then
+/// the dose for it, so the carbs run straight into the bolus calculator below. What it offers
+/// follows the therapy type in Settings. It records what the user enters: presets and "same as last" only
 /// ever repeat numbers the user typed themselves. The one suggested amount is the bolus
 /// calculator's, from the user's confirmed settings, and logging it asks for confirmation.
 ///
@@ -40,9 +43,8 @@ struct LogSheet: View {
     private let contextID: UUID
 
     @State private var time: Date
-    @State private var includeInsulin: Bool
-    @State private var includeFood: Bool
-    @State private var includeSiteChange: Bool
+    /// The parts of the entry that are open. Shown in `LogFlow` order whatever order they were picked in.
+    @State private var parts: Set<LogPart>
     @State private var viaPump: Bool
     @State private var unitsText: String
     @State private var kind: InsulinKind
@@ -59,13 +61,14 @@ struct LogSheet: View {
     @State private var newSite: InjectionSite
     @State private var tags: Set<ContextTag>
     @State private var note: String
-    @State private var showsTagPicker: Bool
     @State private var appliedPresetID: UUID?
     @State private var savesAsPreset = false
     @State private var presetName = ""
     @State private var confirmingDelete = false
     @State private var mealItems: [MealItem]
     @State private var showsFoodPicker = false
+    /// What the food picker opens with: empty, or the meal as typed in the food panel.
+    @State private var foodQuery = ""
     @State private var showsBolusSettings = false
     /// The calculator suggestion the dose was filled from, if any.
     @State private var usedSuggestion: BolusSuggestion?
@@ -82,9 +85,8 @@ struct LogSheet: View {
         var editingID: UUID?
         var doseID = UUID(), mealID = UUID(), siteID = UUID(), contextID = UUID()
         var time = Date()
-        var includeInsulin = s.therapy.logsInsulin
-        var includeFood = !s.therapy.logsInsulin
-        var includeSiteChange = false
+        // A new entry starts by asking what's happening; an edit shows its one part.
+        var parts = Set<LogPart>()
         var viaPump = s.therapy == .pump
         var unitsText = ""
         var kind = s.bolusInsulinKind
@@ -100,13 +102,11 @@ struct LogSheet: View {
         if case .edit(let entry) = target {
             time = entry.timestamp
             editingID = entry.id
-            includeInsulin = false
-            includeFood = false
             switch entry {
             case .dose(let d):
                 editing = .dose
                 doseID = d.id
-                includeInsulin = true
+                parts = [.insulin]
                 viaPump = d.viaPump
                 unitsText = LogFormat.number(d.units)
                 kind = d.kind
@@ -116,7 +116,7 @@ struct LogSheet: View {
             case .meal(let m):
                 editing = .meal
                 mealID = m.id
-                includeFood = true
+                parts = [.food]
                 carbsText = m.carbs > 0 ? LogFormat.number(m.carbs) : ""
                 food = m.food
                 note = m.note
@@ -126,12 +126,13 @@ struct LogSheet: View {
             case .siteChange(let c):
                 editing = .siteChange
                 siteID = c.id
-                includeSiteChange = true
+                parts = [.site]
                 newSite = c.site
                 note = c.note
             case .context(let c):
                 editing = .context
                 contextID = c.id
+                parts = [.event]
                 tags = c.tags
                 note = c.note
             }
@@ -145,9 +146,7 @@ struct LogSheet: View {
         self.siteID = siteID
         self.contextID = contextID
         _time = State(initialValue: time)
-        _includeInsulin = State(initialValue: includeInsulin)
-        _includeFood = State(initialValue: includeFood)
-        _includeSiteChange = State(initialValue: includeSiteChange)
+        _parts = State(initialValue: parts)
         _viaPump = State(initialValue: viaPump)
         _unitsText = State(initialValue: unitsText)
         _kind = State(initialValue: kind)
@@ -158,7 +157,6 @@ struct LogSheet: View {
         _newSite = State(initialValue: newSite)
         _tags = State(initialValue: tags)
         _note = State(initialValue: note)
-        _showsTagPicker = State(initialValue: editing == .context || !tags.isEmpty)
         _mealItems = State(initialValue: items)
     }
 
@@ -177,27 +175,38 @@ struct LogSheet: View {
             } else {
                 header
                 Divider()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if editing == nil { quickAdd }
-                        if editing == nil { partPicker }
-                        if showsInsulin && includeInsulin { insulinPanel }
-                        if showsFood && includeFood { foodPanel }
-                        if showsSiteChange && includeSiteChange { siteChangePanel }
-                        if showsTags { tagsPanel }
-                        TextField("Note", text: $note, prompt: Text("Add a note (optional)"), axis: .vertical)
-                            .lineLimit(1...3)
-                            .textFieldStyle(.roundedBorder)
-                        Label("GlucOS records what you enter. Only the bolus calculator suggests a dose, from your own settings.", systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 2)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            if isNew { momentPicker }
+                            if isNew { quickAdd }
+                            ForEach(shownParts) { part in
+                                bridge(before: part)
+                                panel(for: part)
+                                    .id(part)
+                                    .transition(.opacity)
+                                bridge(after: part)
+                            }
+                            TextField("Note", text: $note, prompt: Text("Add a note (optional)"), axis: .vertical)
+                                .lineLimit(1...3)
+                                .textFieldStyle(.roundedBorder)
+                            Label("GlucOS records what you enter. Only the bolus calculator suggests a dose, from your own settings.", systemImage: "info.circle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 2)
+                        }
+                        .padding(16)
+                        .animation(.smooth(duration: 0.2), value: parts)
+                        .animation(.smooth(duration: 0.2), value: tags)
                     }
-                    .padding(16)
-                    .animation(.smooth(duration: 0.2), value: includeInsulin)
-                    .animation(.smooth(duration: 0.2), value: includeFood)
-                    .animation(.smooth(duration: 0.2), value: includeSiteChange)
-                    .animation(.smooth(duration: 0.2), value: showsTagPicker)
+                    .onChange(of: parts) { old, new in
+                        // Bring the part that was just opened into view and put the cursor in it.
+                        guard isNew, let part = LogFlow.focusPart(from: old, to: new, available: availableParts) else { return }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            withAnimation(.smooth(duration: 0.25)) { proxy.scrollTo(part, anchor: .top) }
+                            if part == .insulin { focus = .units } else if part == .food { focus = .carbs }
+                        }
+                    }
                 }
                 // Grows and shrinks with the window (or sheet), scrolling when there's more form than
                 // room, instead of a fixed height that clips on small displays.
@@ -212,8 +221,7 @@ struct LogSheet: View {
             // Picked in the setup step above: start from that therapy's defaults.
             guard editing == nil else { return }
             viaPump = therapy == .pump
-            includeInsulin = therapy.logsInsulin
-            includeFood = !therapy.logsInsulin
+            parts = []
             kind = settings.bolusInsulinKind
             insulinName = settings.bolusInsulinName
             startDose()
@@ -250,11 +258,14 @@ struct LogSheet: View {
             dropSuggestionIfStale()
         }
         .onChange(of: time) { _, _ in dropSuggestionIfStale() }
-        .onChange(of: includeFood) { _, _ in dropSuggestionIfStale() }
-        .onChange(of: includeInsulin) { _, _ in dropSuggestionIfStale() }
+        .onChange(of: parts) { _, _ in dropSuggestionIfStale() }
         .sheet(isPresented: $showsFoodPicker) {
-            FoodPickerView(onAdd: { item in addItem(item) }, onClose: { showsFoodPicker = false })
-                .environmentObject(logbook)
+            FoodPickerView(initialQuery: foodQuery, onAdd: { item in addItem(item) }, onClose: {
+                // The meal typed in the food panel is now its foods: don't also keep it as a name.
+                if !mealItems.isEmpty, !foodQuery.isEmpty, foodText == foodQuery { food = "" }
+                showsFoodPicker = false
+            })
+            .environmentObject(logbook)
         }
         .sheet(isPresented: $showsBolusSettings) {
             BolusSettingsEditor(current: logbook.bolusSettings) { showsBolusSettings = false }
@@ -299,7 +310,7 @@ struct LogSheet: View {
         case .dose: return viaPump ? "Edit Bolus" : "Edit Insulin"
         case .meal: return "Edit Food"
         case .siteChange: return "Edit Site Change"
-        case .context: return "Edit Context"
+        case .context: return "Edit Event"
         }
     }
 
@@ -336,19 +347,14 @@ struct LogSheet: View {
 
     // MARK: Quick add
 
-    private var recentFoods: [RecentFood] { logbook.recentFoods(limit: 4) }
-
-    /// Presets, the last bolus and recent foods: one tap fills the form with numbers the user
-    /// logged before.
+    /// The user's presets: one click fills the form with what they saved. (The last dose and
+    /// recent foods are offered inside the dose and food panels, where they belong.)
     @ViewBuilder
     private var quickAdd: some View {
         let presets = logbook.presets
-        let lastBolus = settings.therapy.logsInsulin ? logbook.lastBolus : nil
-        let foods = recentFoods
-        if !presets.isEmpty || lastBolus != nil || !foods.isEmpty {
+        if !presets.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Eyebrow(title: "Quick add", systemImage: "bolt.fill",
-                        trailing: presets.isEmpty ? "save a preset below" : nil)
+                Eyebrow(title: "Your presets", systemImage: "bolt.fill")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(presets) { p in
@@ -362,19 +368,6 @@ struct LogSheet: View {
                             .buttonStyle(ChipButtonStyle(selected: appliedPresetID == p.id))
                             .help("Fill in \(p.name)")
                         }
-                        if let d = lastBolus {
-                            Button { applyLast(d) } label: {
-                                Label("Same as last: \(LogFormat.units(d.units))", systemImage: "arrow.uturn.backward")
-                            }
-                            .buttonStyle(ChipButtonStyle())
-                            .help("\(LogFormat.units(d.units)) \(d.displayName), \(d.timestamp.formatted(.relative(presentation: .named)))")
-                        }
-                        ForEach(foods) { f in
-                            Button { apply(f) } label: {
-                                Label(f.carbs > 0 ? "\(f.food) · \(LogFormat.grams(f.carbs))" : f.food, systemImage: "fork.knife")
-                            }
-                            .buttonStyle(ChipButtonStyle(selected: includeFood && foodText.caseInsensitiveCompare(f.food) == .orderedSame))
-                        }
                     }
                     .padding(.vertical, 1)
                 }
@@ -384,23 +377,24 @@ struct LogSheet: View {
 
     private func apply(_ p: LogPreset) {
         appliedPresetID = p.id
-        if showsInsulin {
-            includeInsulin = p.hasInsulin
-            if let u = p.units {
-                unitsText = LogFormat.number(u)
-                if let k = p.kind, !viaPump || InsulinKind.pumpKinds.contains(k) { kind = k }
-                if !p.insulinName.isEmpty { insulinName = p.insulinName }
-            }
+        var next = parts.subtracting([.insulin, .food, .event])
+        if settings.therapy.logsInsulin, let u = p.units {
+            next.insert(.insulin)
+            unitsText = LogFormat.number(u)
+            if let k = p.kind, !viaPump || InsulinKind.pumpKinds.contains(k) { kind = k }
+            if !p.insulinName.isEmpty { insulinName = p.insulinName }
         }
-        includeFood = p.hasFood
+        if p.hasFood { next.insert(.food) }
         carbsText = (p.carbs ?? 0) > 0 ? LogFormat.number(p.carbs ?? 0) : ""
         food = p.food
         tags = p.tags
-        if !p.tags.isEmpty { showsTagPicker = true }
+        // Waking up and going to sleep show on their own tiles; anything else opens its panel.
+        if p.tags.contains(where: { !$0.isMoment }) { next.insert(.event) }
+        parts = next
     }
 
     private func applyLast(_ d: InsulinDose) {
-        includeInsulin = true
+        parts.insert(.insulin)
         unitsText = LogFormat.number(d.units)
         if !viaPump || InsulinKind.pumpKinds.contains(d.kind) { kind = d.kind }
         insulinName = d.name
@@ -408,15 +402,19 @@ struct LogSheet: View {
     }
 
     private func apply(_ f: RecentFood) {
-        includeFood = true
+        parts.insert(.food)
         food = f.food
         if f.carbs > 0 { carbsText = LogFormat.number(f.carbs) }
     }
 
     // MARK: Insulin
 
-    /// Saved insulins this dose can be logged with.
-    private var insulinChoices: [SavedInsulin] { InsulinLibrary.choices(logbook.insulins, viaPump: viaPump) }
+    /// Saved insulins this dose can be logged with. A new dose shows the ones for the moment that
+    /// was picked: mealtime insulins for a bolus, background ones for a basal dose.
+    private var insulinChoices: [SavedInsulin] {
+        let all = InsulinLibrary.choices(logbook.insulins, viaPump: viaPump)
+        return isNew ? all.filter { $0.kind.isBolus == kind.isBolus } : all
+    }
 
     /// Show the type picker and name field: nothing saved yet, "Other…" chosen, or a name (from
     /// an older entry or preset) that isn't in the list.
@@ -437,12 +435,19 @@ struct LogSheet: View {
 
     /// A new entry starts on the user's usual insulin and, for an injection, the site used
     /// longest ago. Both are one click to change.
-    private func startDose() {
-        guard editing == nil else { return }
-        if let p = logbook.preferredInsulin(viaPump: viaPump) {
+    private func startDose(bolus: Bool = true) {
+        guard isNew else { return }
+        // Going from a bolus to a basal dose (or back): the amount typed was for the other one.
+        if kind.isBolus != bolus { unitsText = "" }
+        let preferred = bolus ? logbook.preferredInsulin(viaPump: viaPump)
+            : InsulinLibrary.preferredBasal(in: logbook.insulins, doses: logbook.doses)
+        if let p = preferred, p.kind.isBolus == bolus {
             kind = p.kind
             insulinName = p.name
             typesInsulin = false
+        } else if kind.isBolus != bolus {
+            kind = bolus ? .rapid : .long
+            insulinName = settings.defaultInsulinName(for: kind)
         }
         if !viaPump, injectionSite == nil {
             autoSite = logbook.suggestedInjectionSite(at: time)
@@ -453,45 +458,204 @@ struct LogSheet: View {
 
     // MARK: Parts
 
-    private var showsInsulin: Bool { editing == .dose || (editing == nil && settings.therapy.logsInsulin) }
-    private var showsFood: Bool { editing == .meal || editing == nil }
-    private var showsSiteChange: Bool { editing == .siteChange || (editing == nil && settings.therapy == .pump) }
-    private var showsTags: Bool { editing == .context || editing == nil }
+    private var isNew: Bool { editing == nil }
+
+    private var editingPart: LogPart? {
+        switch editing {
+        case .none: return nil
+        case .dose: return .insulin
+        case .meal: return .food
+        case .siteChange: return .site
+        case .context: return .event
+        }
+    }
+
+    private var availableParts: [LogPart] {
+        LogFlow.parts(logsInsulin: settings.therapy.logsInsulin, pump: settings.therapy == .pump)
+    }
+
+    private func includes(_ part: LogPart) -> Bool {
+        if let editingPart { return editingPart == part }
+        return parts.contains(part) && availableParts.contains(part)
+    }
+
+    /// The parts on screen, in flow order: food always sits above the dose for it.
+    private var shownParts: [LogPart] {
+        if let editingPart { return [editingPart] }
+        return LogFlow.ordered(parts, available: availableParts)
+    }
+
+    @ViewBuilder
+    private func panel(for part: LogPart) -> some View {
+        switch part {
+        case .food: foodPanel
+        case .insulin: insulinPanel
+        case .site: siteChangePanel
+        case .event: tagsPanel
+        }
+    }
 
     private static let insulinTint = Palette.insulin
     private static let foodTint = Palette.food
     private static let siteTint = Palette.site
     private static let contextTint = Palette.context
 
-    private var partPicker: some View {
-        HStack(spacing: 8) {
-            if showsInsulin {
-                Toggle(isOn: $includeInsulin.animation(.smooth(duration: 0.2))) {
-                    Label(viaPump ? "Bolus" : "Insulin", systemImage: "syringe")
+    // MARK: Moments
+
+    private var moments: [LogMoment] {
+        LogFlow.moments(logsInsulin: settings.therapy.logsInsulin, pump: settings.therapy == .pump)
+    }
+
+    private func isOn(_ moment: LogMoment) -> Bool {
+        LogFlow.isOn(moment, parts: Set(shownParts), mealtimeDose: kind.isBolus, tags: tags)
+    }
+
+    private func tint(_ moment: LogMoment) -> Color {
+        switch moment {
+        case .eating: return Self.foodTint
+        case .bolus, .basal: return Self.insulinTint
+        case .newSite: return Self.siteTint
+        case .wokeUp, .bedtime, .other: return Self.contextTint
+        }
+    }
+
+    /// "What's happening?": the moments to pick from, ⌘1 onwards. More than one can be on.
+    private var momentPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("What's happening?")
+                .dsFont(.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                ForEach(Array(moments.enumerated()), id: \.element) { index, m in
+                    Toggle(isOn: Binding(get: { isOn(m) }, set: { _ in toggle(m) })) {
+                        Label(m.title, systemImage: m.systemImage)
+                    }
+                    .toggleStyle(TileToggleStyle(tint: tint(m)))
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+                    .help("\(m.detail) (⌘\(index + 1))")
                 }
-                .toggleStyle(TileToggleStyle(tint: Self.insulinTint))
-                .keyboardShortcut("1", modifiers: .command)
-            }
-            Toggle(isOn: $includeFood.animation(.smooth(duration: 0.2))) {
-                Label("Food", systemImage: "fork.knife")
-            }
-            .toggleStyle(TileToggleStyle(tint: Self.foodTint))
-            .keyboardShortcut("2", modifiers: .command)
-            if showsSiteChange {
-                Toggle(isOn: $includeSiteChange.animation(.smooth(duration: 0.2))) {
-                    Label("New site", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .toggleStyle(TileToggleStyle(tint: Self.siteTint))
-                .keyboardShortcut("3", modifiers: .command)
             }
         }
     }
 
+    private func toggle(_ moment: LogMoment) {
+        switch moment {
+        case .eating:
+            if parts.contains(.food) { parts.remove(.food) } else { parts.insert(.food) }
+        case .bolus, .basal:
+            if isOn(moment) {
+                parts.remove(.insulin)
+            } else {
+                let wasOpen = parts.contains(.insulin)
+                startDose(bolus: moment == .bolus)
+                parts.insert(.insulin)
+                if wasOpen { focus = .units }
+            }
+        case .newSite:
+            if parts.contains(.site) { parts.remove(.site) } else { parts.insert(.site) }
+        case .other:
+            if parts.contains(.event) {
+                parts.remove(.event)
+                tags = tags.filter(\.isMoment)
+            } else {
+                parts.insert(.event)
+            }
+        case .wokeUp, .bedtime:
+            if let tag = moment.tag { tags = LogFlow.toggling(tag, in: tags) }
+        }
+    }
+
+    // MARK: Next step
+
+    private var nextStep: LogNextStep? {
+        guard isNew else { return nil }
+        return LogFlow.nextStep(picked: parts, available: availableParts, carbs: foodValid ? (carbs ?? 0) : 0,
+                                mealtimeDose: kind.isBolus)
+    }
+
+    /// Above the dose when there's no food: one click adds the food part (where it belongs, above).
+    @ViewBuilder
+    private func bridge(before part: LogPart) -> some View {
+        if part == .insulin, nextStep == .addFood {
+            bridgeButton("Eating with this? Add the food", systemImage: "fork.knife", tint: Self.foodTint) {
+                parts.insert(.food)
+            }
+        }
+    }
+
+    /// Under the food once it has carbs: one click carries on to the dose for it.
+    @ViewBuilder
+    private func bridge(after part: LogPart) -> some View {
+        if part == .food, case .addInsulin(let grams)? = nextStep {
+            bridgeButton("Next: bolus for \(LogFormat.grams(grams))", systemImage: "syringe", tint: Self.insulinTint) {
+                startDose(bolus: true)
+                parts.insert(.insulin)
+            }
+        }
+    }
+
+    private func bridgeButton(_ title: String, systemImage: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                Text(title).fontWeight(.semibold)
+                Spacer(minLength: 0)
+                Image(systemName: "plus.circle.fill")
+            }
+            .font(.callout)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity)
+            .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(tint.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .transition(.opacity)
+    }
+
+    /// The last dose of the kind being logged, to repeat in one click.
+    private var lastDose: InsulinDose? {
+        kind.isBolus ? logbook.lastBolus : logbook.doses.last { !$0.kind.isBolus }
+    }
+
+    /// The calculator leads the dose panel once it's set up; until then it waits at the bottom.
+    @ViewBuilder
+    private var calculatorCard: some View {
+        BolusSuggestionCard(carbs: calculatorCarbs,
+                            onUse: { s in
+                                unitsText = LogFormat.number(s.units)
+                                usedSuggestion = s
+                            },
+                            onSetUp: { showsBolusSettings = true },
+                            onUpdate: { live, recompute in
+                                liveSuggestion = live
+                                recomputeSuggestion = recompute
+                                dropSuggestionIfStale()
+                            })
+    }
+
     private var insulinPanel: some View {
-        FlowPanel(title: viaPump ? "Bolus" : "Insulin", systemImage: "syringe", tint: Self.insulinTint) {
-            NumberStepperField(title: "Units", text: $unitsText, unitLabel: "units",
+        FlowPanel(title: isNew ? (kind.isBolus ? "Bolus" : "Basal") : (viaPump ? "Bolus" : "Insulin"),
+                  systemImage: "syringe", tint: Self.insulinTint) {
+            if showsCalculator && logbook.bolusSettings != nil { calculatorCard }
+            HStack(spacing: 10) {
+                NumberStepperField(title: "Units", text: $unitsText, unitLabel: "units",
                                step: InsulinLibrary.step(for: logbook.savedInsulin(named: insulinName), viaPump: viaPump),
                                range: LogLimits.units, focus: $focus, focusValue: .units)
+                if isNew, unitsText.isEmpty, let d = lastDose {
+                    Button { applyLast(d) } label: {
+                        Label("Same as last: \(LogFormat.units(d.units))", systemImage: "arrow.uturn.backward")
+                    }
+                    .buttonStyle(ChipButtonStyle(tint: Self.insulinTint))
+                    .help("\(LogFormat.units(d.units)) \(d.displayName), \(d.timestamp.formatted(.relative(presentation: .named)))")
+                }
+                Spacer(minLength: 0)
+            }
             if let problem = unitsProblem { FieldProblem(text: problem) }
             VStack(alignment: .leading, spacing: 6) {
                 let choices = insulinChoices
@@ -509,7 +673,7 @@ struct LogSheet: View {
                             Button {
                                 typesInsulin = true
                                 // An edited dose keeps its name until the user changes it.
-                                if editing == nil { insulinName = "" }
+                                if isNew { insulinName = "" }
                             } label: {
                                 Label("Other…", systemImage: "pencil")
                             }
@@ -534,19 +698,6 @@ struct LogSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if showsCalculator {
-                BolusSuggestionCard(carbs: calculatorCarbs,
-                                    onUse: { s in
-                                        unitsText = LogFormat.number(s.units)
-                                        usedSuggestion = s
-                                    },
-                                    onSetUp: { showsBolusSettings = true },
-                                    onUpdate: { live, recompute in
-                                        liveSuggestion = live
-                                        recomputeSuggestion = recompute
-                                        dropSuggestionIfStale()
-                                    })
-            }
             if viaPump {
                 LabeledContent("Infusion site") {
                     Text(pumpSiteText).foregroundStyle(.secondary)
@@ -555,22 +706,51 @@ struct LogSheet: View {
             } else {
                 InjectionSitePicker(selection: $injectionSite, at: time)
             }
+            if showsCalculator && logbook.bolusSettings == nil { calculatorCard }
         }
     }
 
     /// The calculator is for a mealtime or correction dose being logged now.
     private var showsCalculator: Bool {
-        editing == nil && kind.isBolus && abs(time.timeIntervalSinceNow) < 15 * 60
+        isNew && kind.isBolus && abs(time.timeIntervalSinceNow) < 15 * 60
     }
 
     private var foodPanel: some View {
-        FlowPanel(title: "Food", systemImage: "fork.knife", tint: Self.foodTint) {
-            HStack(spacing: 8) {
-                Button { showsFoodPicker = true } label: {
-                    Label(mealItems.isEmpty ? "Search foods…" : "Add another food…", systemImage: "magnifyingglass")
+        FlowPanel(title: isNew ? "What are you eating?" : "Food", systemImage: "fork.knife", tint: Self.foodTint) {
+            // Looks like a search box; opens the full search, where a whole meal can be described.
+            Button { foodQuery = ""; showsFoodPicker = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                    Text(mealItems.isEmpty ? "Search or describe your meal…" : "Add another food…")
+                    Spacer(minLength: 0)
+                    Text("⌘F").font(.caption).foregroundStyle(.secondary)
                 }
-                .keyboardShortcut("f", modifiers: .command)
-                Spacer(minLength: 0)
+                .font(.callout)
+                .foregroundStyle(Self.foodTint)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Self.foodTint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("f", modifiers: .command)
+            .help("Find foods and work out their carbs")
+            let recent = isNew && mealItems.isEmpty && foodText.isEmpty ? logbook.recentFoods(limit: 6) : []
+            if !recent.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(recent) { f in
+                            Button { apply(f) } label: {
+                                Label(f.carbs > 0 ? "\(f.food) · \(LogFormat.grams(f.carbs))" : f.food, systemImage: "clock.arrow.circlepath")
+                            }
+                            .buttonStyle(ChipButtonStyle(tint: Self.foodTint))
+                            .controlSize(.small)
+                            .help("Fill in what you logged last time")
+                        }
+                    }
+                    .padding(.vertical, 1)
+                }
             }
             if !mealItems.isEmpty { mealItemList }
             HStack(alignment: .center, spacing: 12) {
@@ -578,17 +758,31 @@ struct LogSheet: View {
                                    step: 5, range: LogLimits.carbs, focus: $focus, focusValue: .carbs)
                 Spacer(minLength: 0)
             }
-            HStack(spacing: 6) {
-                ForEach([10, 15, 20, 30, 45, 60], id: \.self) { g in
-                    Button("\(g) g") { carbsText = "\(g)" }
-                        .buttonStyle(ChipButtonStyle(selected: carbs == Double(g)))
-                        .controlSize(.small)
+            if mealItems.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach([10, 15, 20, 30, 45, 60], id: \.self) { g in
+                        Button("\(g) g") { carbsText = "\(g)" }
+                            .buttonStyle(ChipButtonStyle(selected: carbs == Double(g)))
+                            .controlSize(.small)
+                    }
                 }
             }
             if let problem = foodProblem { FieldProblem(text: problem) }
-            TextField("What you ate", text: $food, prompt: Text("What you ate, e.g. toast and a banana"))
-                .textFieldStyle(.roundedBorder)
-                .focused($focus, equals: .food)
+            HStack(spacing: 8) {
+                TextField("What you ate", text: $food, prompt: Text(mealItems.isEmpty ? "Or just name it, e.g. toast and a banana" : "Name this meal (optional)"))
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focus, equals: .food)
+                if mealItems.isEmpty && foodText.count >= 3 {
+                    Button {
+                        foodQuery = foodText
+                        showsFoodPicker = true
+                    } label: {
+                        Label("Find its carbs", systemImage: "sparkle.magnifyingglass")
+                    }
+                    .buttonStyle(ChipButtonStyle(tint: Self.foodTint))
+                    .help("Reads what you typed into foods with amounts and adds up the carbs")
+                }
+            }
             let suggestions = logbook.recentFoods(matching: foodText, limit: 6)
                 .filter { $0.food.caseInsensitiveCompare(foodText) != .orderedSame }
             if !foodText.isEmpty && !suggestions.isEmpty {
@@ -639,7 +833,7 @@ struct LogSheet: View {
         let followsItems = mealItems.isEmpty ? (carbs ?? 0) == 0 : abs((carbs ?? 0) - itemsTotal) < 0.05
         mealItems.append(item)
         if followsItems { carbsText = LogFormat.number(itemsTotal) }
-        includeFood = true
+        parts.insert(.food)
     }
 
     private func removeItem(_ item: MealItem) {
@@ -660,41 +854,31 @@ struct LogSheet: View {
         }
     }
 
+    /// A new entry leaves out waking up and going to sleep: those are tiles of their own.
     private var tagChoices: [ContextTag] {
-        settings.therapy.logsInsulin || tags.contains(.siteProblem)
+        let all = settings.therapy.logsInsulin || tags.contains(.siteProblem)
             ? ContextTag.allCases
             : ContextTag.allCases.filter { $0 != .siteProblem }
+        return isNew ? all.filter { !$0.isMoment } : all
     }
 
-    @ViewBuilder
     private var tagsPanel: some View {
-        if showsTagPicker {
-            FlowPanel(title: editing == .context ? "Context" : "Anything else going on?", systemImage: "tag",
-                      tint: Self.contextTint) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), alignment: .leading)], alignment: .leading, spacing: 6) {
-                    ForEach(tagChoices) { t in
-                        Button {
-                            if tags.contains(t) { tags.remove(t) } else { tags.insert(t) }
-                        } label: {
-                            Label(t.title, systemImage: t.systemImage)
-                        }
-                        .buttonStyle(ChipButtonStyle(selected: tags.contains(t), tint: Self.contextTint))
-                        .help(t.help)
+        FlowPanel(title: isNew ? "What else is going on?" : "Event", systemImage: "tag", tint: Self.contextTint) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), alignment: .leading)], alignment: .leading, spacing: 6) {
+                ForEach(tagChoices) { t in
+                    Button {
+                        if tags.contains(t) { tags.remove(t) } else { tags.insert(t) }
+                    } label: {
+                        Label(t.title, systemImage: t.systemImage)
                     }
+                    .buttonStyle(ChipButtonStyle(selected: tags.contains(t), tint: Self.contextTint))
+                    .help(t.help)
                 }
-                Text("Doses and meals around these are kept out of the typical figures in Insights, so they don't skew them.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-        } else {
-            Button {
-                showsTagPicker = true
-            } label: {
-                Label("Add context: exercise, illness, alcohol…", systemImage: "tag")
-            }
-            .buttonStyle(.link)
-            .font(.callout)
+            Text("Doses and meals around these are kept out of the typical figures in Insights, so they don't skew them.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -707,8 +891,8 @@ struct LogSheet: View {
             } else {
                 Toggle("Save as preset", isOn: $savesAsPreset.animation(.smooth(duration: 0.15)))
                     .toggleStyle(.checkbox)
-                    .disabled(!canSave)
-                    .help("Keep this combination as a one-tap quick add")
+                    .disabled(!canSave || !hasPresetContent)
+                    .help("Keep this combination as a one-click preset")
                 if savesAsPreset {
                     TextField("Preset name", text: $presetName, prompt: Text(defaultPresetName))
                         .textFieldStyle(.roundedBorder)
@@ -717,9 +901,15 @@ struct LogSheet: View {
                 }
             }
             Spacer()
+            if !canSave, let missing {
+                Text(missing)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             Button("Cancel", role: .cancel) { close() }
                 .keyboardShortcut(.cancelAction)
-            Button(editing == nil ? "Log" : "Save") { save() }
+            Button(canSave ? saveSummary : (isNew ? "Log" : "Save")) { save() }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSave)
         }
@@ -763,6 +953,28 @@ struct LogSheet: View {
 
     private var foodText: String { food.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    /// "Log 45 g + 4 u", "Log Woke up", "Save".
+    private var saveSummary: String {
+        guard isNew else { return "Save" }
+        return LogFlow.summary(carbs: includes(.food) && foodValid ? carbs : nil,
+                               foodName: foodText.isEmpty ? (mealItems.first?.name ?? "") : foodText,
+                               units: includes(.insulin) ? units : nil,
+                               newSite: includes(.site),
+                               events: ContextTag.allCases.filter(tags.contains).map(\.title))
+    }
+
+    /// What the entry still needs, shown beside the Log button while it can't be logged.
+    private var missing: String? {
+        guard isNew else { return nil }
+        return LogFlow.missing(picked: parts, available: availableParts, foodValid: foodValid,
+                               unitsValid: units != nil, hasEvents: !tags.isEmpty)
+    }
+
+    /// A preset needs something to fill in: a site change on its own isn't one.
+    private var hasPresetContent: Bool {
+        includes(.insulin) || includes(.food) || !tags.isEmpty
+    }
+
     private var insulinValid: Bool { units != nil }
     private var foodValid: Bool {
         guard let c = carbs else { return false }
@@ -770,33 +982,34 @@ struct LogSheet: View {
     }
 
     private var canSave: Bool {
-        let parts = [
-            (showsInsulin && includeInsulin, insulinValid),
-            (showsFood && includeFood, foodValid),
-            (showsSiteChange && includeSiteChange, true),
-            (showsTags && !tags.isEmpty, true),
+        let checks = [
+            (includes(.insulin), insulinValid),
+            (includes(.food), foodValid),
+            (includes(.site), true),
+            // Waking up or going to sleep is an entry without the panel being open.
+            (includes(.event) || (isNew && !tags.isEmpty), !tags.isEmpty),
         ].filter { $0.0 }
-        return !parts.isEmpty && parts.allSatisfy { $0.1 }
+        return !checks.isEmpty && checks.allSatisfy { $0.1 }
     }
 
     private var pumpSiteText: String {
-        if showsSiteChange && includeSiteChange { return "\(newSite.title) (new)" }
+        if includes(.site) { return "\(newSite.title) (new)" }
         guard let current = logbook.infusionSite(at: time) else { return "None logged yet" }
         return "\(current.site.title), since \(current.timestamp.formatted(.relative(presentation: .named)))"
     }
 
     private var defaultPresetName: String {
-        if showsFood && includeFood && !foodText.isEmpty { return foodText }
-        if showsInsulin && includeInsulin, let units { return "\(LogFormat.units(units)) \(kind.isBolus ? "bolus" : kind.title.lowercased())" }
-        if showsFood && includeFood, let carbs, carbs > 0 { return "\(LogFormat.grams(carbs)) carbs" }
+        if includes(.food) && !foodText.isEmpty { return foodText }
+        if includes(.insulin), let units { return "\(LogFormat.units(units)) \(kind.isBolus ? "bolus" : kind.title.lowercased())" }
+        if includes(.food), let carbs, carbs > 0 { return "\(LogFormat.grams(carbs)) carbs" }
         return ContextTag.allCases.first(where: tags.contains)?.title ?? "Preset"
     }
 
     private func focusFirstField() {
-        guard editing == nil || editing == .dose || editing == .meal else { return }
+        guard editing == .dose || editing == .meal else { return }
         // Sheets and new windows take focus a beat after appearing.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            if showsInsulin && includeInsulin { focus = .units } else if showsFood && includeFood { focus = .carbs }
+            focus = editing == .dose ? .units : .carbs
         }
     }
 
@@ -805,13 +1018,13 @@ struct LogSheet: View {
     }
 
     /// The carbs the calculator works from: none when the food isn't being logged.
-    private var calculatorCarbs: Double { showsFood && includeFood ? (carbs ?? 0) : 0 }
+    private var calculatorCarbs: Double { includes(.food) ? (carbs ?? 0) : 0 }
 
     /// A suggestion is only kept while it still describes this dose: a bolus logged now, for the
     /// same carbs, that the calculator would still give (no new low, not now less). Otherwise it's dropped, units and all, so it can't be stored against the wrong dose.
     private var suggestionStillApplies: Bool {
         guard let s = usedSuggestion else { return false }
-        return showsInsulin && includeInsulin && showsCalculator && abs(calculatorCarbs - s.carbs) < 0.001
+        return includes(.insulin) && showsCalculator && abs(calculatorCarbs - s.carbs) < 0.001
             && s.stillStands(given: liveSuggestion)
     }
 
@@ -830,11 +1043,11 @@ struct LogSheet: View {
     private func save() {
         guard canSave else { return }
         refreshLiveSuggestion()
-        if showsInsulin && includeInsulin && usedSuggestion != nil && !suggestionStillApplies {
+        if includes(.insulin) && usedSuggestion != nil && !suggestionStillApplies {
             dropSuggestionIfStale()
             return
         }
-        if showsInsulin && includeInsulin && usedSuggestion != nil {
+        if includes(.insulin) && usedSuggestion != nil {
             confirmingDose = true
         } else {
             commit()
@@ -845,13 +1058,13 @@ struct LogSheet: View {
         guard canSave else { return }
         // Checked again here: the confirm step can sit open past the calculator's window.
         refreshLiveSuggestion()
-        if showsInsulin && includeInsulin && usedSuggestion != nil && !suggestionStillApplies {
+        if includes(.insulin) && usedSuggestion != nil && !suggestionStillApplies {
             dropSuggestionIfStale()
             return
         }
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let logsInsulin = showsInsulin && includeInsulin
-        let logsFood = showsFood && includeFood
+        let logsInsulin = includes(.insulin)
+        let logsFood = includes(.food)
         let trimmedName = insulinName.trimmingCharacters(in: .whitespacesAndNewlines)
         if logsInsulin, let units {
             // An edited dose keeps its calculator record only while it's still the dose that was worked out.
@@ -870,13 +1083,13 @@ struct LogSheet: View {
             logbook.save(.meal(MealEntry(id: mealID, timestamp: time, carbs: carbs, food: described, note: trimmedNote,
                                          items: mealItems.isEmpty ? nil : mealItems)))
         }
-        if showsSiteChange && includeSiteChange {
+        if includes(.site) {
             logbook.save(.siteChange(SiteChange(id: siteID, timestamp: time, site: newSite, note: trimmedNote)))
         }
-        if showsTags && !tags.isEmpty {
+        if isNew || includes(.event), !tags.isEmpty {
             logbook.save(.context(ContextEvent(id: contextID, timestamp: time, tags: tags, note: trimmedNote)))
         }
-        if editing == nil && savesAsPreset {
+        if isNew && savesAsPreset && hasPresetContent {
             let name = presetName.trimmingCharacters(in: .whitespacesAndNewlines)
             logbook.savePreset(LogPreset(name: name.isEmpty ? defaultPresetName : name,
                                          units: logsInsulin ? units : nil,
@@ -899,41 +1112,65 @@ struct InjectionSitePicker: View {
     /// When the dose is: only injections before it count.
     var at: Date = .distantFuture
     @EnvironmentObject var logbook: LogbookStore
+    /// Folded to one line (the site, already picked) until clicked.
+    @State private var expanded = false
 
     var body: some View {
         let last = logbook.lastInjectionBySite(before: at)
         let suggested = SiteRotation.suggestion(lastUse: last)
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Injection site").font(.callout)
-                Spacer()
-                if let suggested {
-                    if selection == suggested {
-                        Label("Suggested: not used for longest", systemImage: "sparkle")
+            Button {
+                withAnimation(.smooth(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Injection site").font(.callout)
+                    Spacer(minLength: 8)
+                    if let selection, selection == suggested {
+                        Label("Suggested", systemImage: "sparkle")
                             .font(.caption)
                             .foregroundStyle(Palette.insulin)
-                    } else {
-                        Button { selection = suggested } label: {
-                            Label("Use \(suggested.title)", systemImage: "sparkle")
-                        }
-                        .buttonStyle(.link)
-                        .font(.caption)
-                        .help("The site you've gone longest without using")
                     }
+                    Text(selection?.title ?? "Not recorded")
+                        .font(.callout.weight(.semibold))
+                    Image(systemName: "chevron.down")
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
                 }
+                .contentShape(Rectangle())
             }
-            Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 6) {
-                ForEach([BodyArea.abdomen, .arm, .thigh, .hip]) { area in
-                    GridRow {
-                        Text(area.title)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 86, alignment: .leading)
-                        ForEach(InjectionSite.allCases.filter { $0.area == area }) { s in
-                            siteButton(s, last: last[s], suggested: s == suggested)
+            .buttonStyle(.plain)
+            .help(expanded ? "Hide the other sites" : "Pick another site. The suggested one is the site you've gone longest without using.")
+            .accessibilityLabel("Injection site, \(selection?.title ?? "not recorded")")
+            if expanded {
+                if let suggested, selection != suggested {
+                    Button { selection = suggested } label: {
+                        Label("Use \(suggested.title)", systemImage: "sparkle")
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .help("The site you've gone longest without using")
+                }
+                Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 6) {
+                    ForEach([BodyArea.abdomen, .arm, .thigh, .hip]) { area in
+                        GridRow {
+                            Text(area.title)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 86, alignment: .leading)
+                            ForEach(InjectionSite.allCases.filter { $0.area == area }) { s in
+                                siteButton(s, last: last[s], suggested: s == suggested)
+                            }
                         }
                     }
                 }
+                HStack(spacing: 6) {
+                    Button("Other") { selection = selection == .other ? nil : .other }
+                        .buttonStyle(ChipButtonStyle(selected: selection == .other))
+                    Button("Not recorded") { selection = nil }
+                        .buttonStyle(ChipButtonStyle(selected: selection == nil))
+                }
+                .controlSize(.small)
             }
             if let recent = SiteRotation.recentUse(of: selection, lastUse: last) {
                 Label("Used \(recent.formatted(.relative(presentation: .named))). Moving to a site you haven't used lately helps avoid lumps under the skin, where insulin absorbs unevenly.",
@@ -942,13 +1179,6 @@ struct InjectionSitePicker: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            HStack(spacing: 6) {
-                Button("Other") { selection = selection == .other ? nil : .other }
-                    .buttonStyle(ChipButtonStyle(selected: selection == .other))
-                Button("Not recorded") { selection = nil }
-                    .buttonStyle(ChipButtonStyle(selected: selection == nil))
-            }
-            .controlSize(.small)
         }
     }
 

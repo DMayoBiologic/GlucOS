@@ -114,18 +114,31 @@ struct PhoneLogbookCard: View {
     }
 }
 
-/// The bar along the bottom of the home screen: one tap to log each kind of entry. It sits in the
-/// safe area under the scroll view, so content scrolls up past it instead of hiding behind it.
+/// The bar along the bottom of the home screen: one tap for the two things logged most (eating,
+/// a bolus), and More for everything else (a basal dose, waking up, going to sleep, exercise…),
+/// which opens the log sheet on "What's happening?". It sits in the safe area under the scroll
+/// view, so content scrolls up past it instead of hiding behind it.
 struct PhoneLogBar: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var router: PhoneLogRouter
 
-    private var parts: [PhoneLogPart] {
-        var out: [PhoneLogPart] = []
-        if settings.therapy.logsInsulin || settings.therapy == .notSet { out.append(.insulin) }
-        out.append(.food)
-        if settings.therapy == .pump { out.append(.site) }
-        out.append(.event)
+    private struct Item: Identifiable {
+        let id: String
+        let title: String
+        let systemImage: String
+        let tint: Color
+        /// The part the sheet opens on, or nil to ask what's happening.
+        let part: LogPart?
+    }
+
+    private var items: [Item] {
+        var out = [Item(id: "eating", title: LogMoment.eating.title, systemImage: LogMoment.eating.systemImage,
+                        tint: Palette.food, part: .food)]
+        if settings.therapy.logsInsulin || settings.therapy == .notSet {
+            out.append(Item(id: "bolus", title: LogMoment.bolus.title, systemImage: LogMoment.bolus.systemImage,
+                            tint: Palette.insulin, part: .insulin))
+        }
+        out.append(Item(id: "more", title: "More", systemImage: "plus", tint: Palette.context, part: nil))
         return out
     }
 
@@ -134,18 +147,18 @@ struct PhoneLogBar: View {
             // "Woke up at 6:41?" in the morning, until it's logged or dismissed.
             PhoneWakeStrip()
             HStack(spacing: DS.Space.sm) {
-                ForEach(parts) { part in
-                    Button { router.open(part) } label: {
-                        Label(part.title(pump: settings.therapy == .pump), systemImage: part.systemImage)
+                ForEach(items) { item in
+                    Button { router.open(item.part) } label: {
+                        Label(item.title, systemImage: item.systemImage)
                             .labelStyle(LogBarLabelStyle())
-                            .foregroundStyle(part.tint)
+                            .foregroundStyle(item.tint)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, DS.Space.sm + 2)
-                            .background(part.tint.opacity(0.14), in: Capsule())
+                            .background(item.tint.opacity(0.14), in: Capsule())
                             .contentShape(Capsule())
                     }
                     .buttonStyle(PressScaleStyle())
-                    .accessibilityLabel("Log \(part.title(pump: settings.therapy == .pump))")
+                    .accessibilityLabel(item.part == nil ? "Log something else" : "Log \(item.title)")
                 }
             }
         }
