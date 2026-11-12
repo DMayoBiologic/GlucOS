@@ -1,21 +1,32 @@
 import SwiftUI
 
-/// Find a food and say how much: searches the built-in AUSNUT 2023 list and the user's own foods,
-/// shows favourites and recent picks before anything is typed, and can look up packaged products
-/// in Open Food Facts. Used by the log sheets on the Mac and the iPhone.
+/// Say what you ate and get its carbs. One box takes either a search ("banana", "fries") or a
+/// whole meal in words ("2 slices of toast and a banana"), which is read into foods with amounts
+/// (`MealDescription`). Favourites and recent picks show before anything is typed, each with a +
+/// that adds the usual amount in one tap, and packaged products are looked up online as you type.
+/// Used by the log sheets on the Mac and the iPhone.
 struct FoodPickerView: View {
     @EnvironmentObject var logbook: LogbookStore
 
+    /// What to start the box with, e.g. what was typed in the log sheet.
+    var initialQuery: String = ""
     /// Called with each food the user adds to the meal.
     let onAdd: (MealItem) -> Void
     let onClose: () -> Void
 
     @State private var query = ""
     @State private var selected: FoodItem?
+    /// The described food being adjusted in the portion view, if that's how it was opened.
+    @State private var adjusting: UUID?
     @State private var creating = false
+    @State private var hits: [FoodItem] = []
+    @State private var described: [DescribedFood] = []
+    /// Amounts the user set by hand for described foods.
+    @State private var adjusted: [UUID: MealItem] = [:]
     @State private var online: [FoodItem] = []
     @State private var onlineState: OnlineState = .idle
     @State private var added: [MealItem] = []
+    @FocusState private var searching: Bool
 
     enum OnlineState: Equatable { case idle, loading, done, failed }
 
@@ -27,12 +38,16 @@ struct FoodPickerView: View {
             Divider()
             if let selected {
                 FoodPortionView(food: selected, saved: logbook.savedFood(for: selected.id),
-                                onBack: { self.selected = nil }) { item in
-                    onAdd(item)
-                    added.append(item)
-                    logbook.notePortion(for: item.foodID, grams: item.grams, portion: item.portion)
+                                onBack: { self.selected = nil; adjusting = nil }) { item in
+                    if let id = adjusting {
+                        // Back to the described meal with this food's amount set.
+                        adjusted[id] = item
+                        adjusting = nil
+                    } else {
+                        add(item)
+                        query = ""
+                    }
                     self.selected = nil
-                    query = ""
                 }
             } else if creating {
                 CustomFoodForm(initialName: query, onCancel: { creating = false }) { food in
@@ -46,13 +61,18 @@ struct FoodPickerView: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 420, idealWidth: 480, minHeight: 460, idealHeight: 560)
+        .frame(minWidth: 440, idealWidth: 500, minHeight: 480, idealHeight: 600)
         #endif
+        .onAppear {
+            if query.isEmpty { query = initialQuery }
+            searching = true
+        }
+        .task(id: query) { await refresh() }
     }
 
     private var header: some View {
         HStack {
-            Text("Add food").dsFont(.sectionTitle)
+            Text("What did you eat?").dsFont(.sectionTitle)
             Spacer()
             if !added.isEmpty {
                 Text("\(added.count) added · \(LogFormat.grams(added.reduce(0) { $0 + $1.carbs }))")
@@ -60,7 +80,7 @@ struct FoodPickerView: View {
                     .foregroundStyle(.secondary)
             }
             Button("Done") { onClose() }
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(.cancelAction)
         }
         .padding(DS.Space.md)
     }
@@ -68,40 +88,67 @@ struct FoodPickerView: View {
     private var searchField: some View {
         HStack(spacing: DS.Space.sm) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Search foods", text: $query, prompt: Text("Search foods, e.g. banana, white bread"))
+            TextField("Search or describe", text: $query, prompt: Text("Search, or describe it: 2 toast and a banana"))
                 .textFieldStyle(.plain)
                 .autocorrectionDisabled()
-                .onSubmit { if searchHits.isEmpty { searchOnline() } }
+                .focused($searching)
+                .onSubmit(submit)
             if !query.isEmpty {
                 Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel("Clear search")
+                    .accessibilityLabel("Clear")
             }
         }
         .padding(DS.Space.sm + 2)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
         .padding(.horizontal, DS.Space.md)
         .padding(.vertical, DS.Space.sm)
-        .onChange(of: query) { _, _ in
-            online = []
-            onlineState = .idle
-        }
     }
 
     private var trimmed: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    private var savedHits: [FoodItem] {
-        let terms = FoodDatabase.words(trimmed)
-        return logbook.foods.map(\.food).filter { f in
-            FoodDatabase.score(terms: terms, words: FoodDatabase.words(f.name + " " + f.brand), name: f.name) != nil
+    /// The user's own foods and favourites, which rank ahead of the built-in list.
+    private var ownFoods: [FoodItem] { logbook.foods.map(\.food) }
+
+    /// Works the results out again a moment after typing stops: the described meal or the search
+    /// hits first, then packaged products from online.
+    private func refresh() async {
+        let q = trimmed
+        online = []
+        onlineState = .idle
+        guard !q.isEmpty else {
+            hits = []
+            described = []
+            adjusted = [:]
+            return
         }
+        try? await Task.sleep(for: .milliseconds(180))
+        guard !Task.isCancelled else { return }
+        if MealDescription.isDescription(q) {
+            described = MealDescription.parse(q, in: db, saved: ownFoods)
+            adjusted = [:]
+            hits = []
+            return
+        }
+        described = []
+        let own = FoodDatabase(foods: ownFoods, attribution: "").search(q, limit: 10)
+        let ids = Set(own.map(\.id))
+        hits = own + db.search(q, limit: 40).filter { !ids.contains($0.id) }
+        // Packaged and branded products, without being asked: once the typing has settled.
+        guard q.count >= 3 else { return }
+        try? await Task.sleep(for: .milliseconds(650))
+        guard !Task.isCancelled else { return }
+        await searchOnline(q)
     }
 
-    private var searchHits: [FoodItem] {
-        let saved = savedHits
-        let ids = Set(saved.map(\.id))
-        return saved + db.search(trimmed, limit: 40).filter { !ids.contains($0.id) }
+    /// Return adds the whole described meal, or opens the top hit.
+    private func submit() {
+        if !described.isEmpty {
+            if !readyItems.isEmpty { addDescribed() }
+        } else if let top = hits.first ?? online.first {
+            selected = top
+        }
     }
 
     /// Recent picks with their full portion lists where the food list has them.
@@ -123,26 +170,31 @@ struct FoodPickerView: View {
                 if !recent.isEmpty {
                     Section("Recent") { ForEach(recent) { row($0) } }
                 }
-                if favourites.isEmpty && recent.isEmpty {
-                    Section {
-                        Text("Search \(db.foods.count.formatted()) Australian foods, or add your own. Star a food to keep it here.")
+                Section {
+                    VStack(alignment: .leading, spacing: DS.Space.xs) {
+                        Label("Type a food, or the whole meal", systemImage: "text.bubble").dsFont(.headline)
+                        Text("\u{201C}2 slices of toast and a banana\u{201D}, \u{201C}200g rice, chicken curry\u{201D}, \u{201C}flat white\u{201D}. GlucOS finds each food and its carbs from \(db.foods.count.formatted()) Australian foods and packaged products. Tap + to add, or the name to change the amount.")
                             .dsFont(.callout)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    .padding(.vertical, DS.Space.xs)
                 }
+            } else if !described.isEmpty {
+                describedSection
             } else {
-                let hits = searchHits
                 if !hits.isEmpty {
                     Section("Foods") { ForEach(hits) { row($0) } }
                 }
                 Section("Packaged products") {
                     switch onlineState {
                     case .idle:
-                        Button { searchOnline() } label: {
-                            Label("Search Open Food Facts for \u{201C}\(trimmed)\u{201D}", systemImage: "globe")
+                        Button { Task { await searchOnline(trimmed) } } label: {
+                            Label("Search packaged products for \u{201C}\(trimmed)\u{201D}", systemImage: "globe")
                         }
                     case .loading:
-                        HStack(spacing: DS.Space.sm) { ProgressView().controlSize(.small); Text("Searching…") }
+                        HStack(spacing: DS.Space.sm) { ProgressView().controlSize(.small); Text("Looking up packaged products…") }
+                            .foregroundStyle(.secondary)
                     case .done:
                         if online.isEmpty {
                             Text("No packaged products found.").foregroundStyle(.secondary)
@@ -150,18 +202,22 @@ struct FoodPickerView: View {
                             ForEach(online) { row($0) }
                         }
                     case .failed:
-                        Button { searchOnline() } label: {
-                            Label("Couldn't reach Open Food Facts. Try again", systemImage: "arrow.clockwise")
+                        Button { Task { await searchOnline(trimmed) } } label: {
+                            Label("Couldn't reach the packaged food lists. Try again", systemImage: "arrow.clockwise")
                         }
                     }
                 }
             }
             Section {
-                Button { creating = true } label: { Label("Add your own food", systemImage: "plus.circle") }
+                Button { creating = true } label: {
+                    Label(trimmed.isEmpty ? "Add a food of your own" : "Can't find it? Add it as your own food", systemImage: "plus.circle")
+                }
             } footer: {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     Text("Food data: \(db.attribution.isEmpty ? "AUSNUT 2023, Food Standards Australia New Zealand, CC BY 4.0" : db.attribution). Carbs are available carbohydrate, so fibre isn't counted.")
-                    if onlineState == .done && !online.isEmpty { Text(OpenFoodFacts.attribution) }
+                    if onlineState == .done && !online.isEmpty {
+                        ForEach(FoodSources.online.map(\.attribution), id: \.self) { Text($0) }
+                    }
                 }
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
@@ -175,8 +231,135 @@ struct FoodPickerView: View {
         #endif
     }
 
+    // MARK: Described meal
+
+    private func item(for d: DescribedFood) -> MealItem? { adjusted[d.id] ?? d.item }
+
+    private var readyItems: [MealItem] { described.compactMap(item(for:)) }
+
+    @ViewBuilder
+    private var describedSection: some View {
+        let ready = readyItems
+        Section {
+            ForEach(described) { d in describedRow(d) }
+            Button { addDescribed() } label: {
+                Label(addAllTitle(ready), systemImage: "plus.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.ds(.primary, size: .large))
+            .disabled(ready.isEmpty)
+            #if os(iOS)
+            .listRowSeparator(.hidden)
+            #endif
+        } header: {
+            Text("Your meal")
+        } footer: {
+            Text("Matched from what you typed. Check each food and amount: tap one to change how much, or pick another match. Typical values, so check the packet when you have it.")
+        }
+    }
+
+    private func addAllTitle(_ ready: [MealItem]) -> String {
+        guard !ready.isEmpty else { return "Nothing to add yet" }
+        let total = (ready.reduce(0) { $0 + $1.carbs } * 10).rounded() / 10
+        let what = ready.count == 1 ? "it" : "all \(ready.count)"
+        return "Add \(what) · \(LogFormat.grams(total)) carbs"
+    }
+
+    private func describedRow(_ d: DescribedFood) -> some View {
+        HStack(spacing: DS.Space.sm) {
+            if let food = d.food {
+                let item = item(for: d)
+                Button {
+                    adjusting = d.id
+                    selected = food
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item?.name ?? food.displayName).dsFont(.body).foregroundStyle(.primary).lineLimit(2)
+                        if let item {
+                            Text(d.assumedAmount && adjusted[d.id] == nil ? "\(item.summary) · amount assumed, tap to change" : item.summary)
+                                .dsFont(.caption)
+                                .foregroundStyle(d.assumedAmount && adjusted[d.id] == nil ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(.secondary))
+                                .lineLimit(2)
+                        } else {
+                            Label("Tap to say how much", systemImage: "scalemass")
+                                .dsFont(.caption)
+                                .foregroundStyle(Tone.warning.textColor)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if !d.alternatives.isEmpty {
+                    Menu {
+                        ForEach(d.alternatives) { alt in
+                            Button(alt.displayName) { choose(alt, for: d) }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.left.arrow.right.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .accessibilityLabel("Pick another match for \(d.phrase)")
+                }
+            } else {
+                Button { query = MealDescription.read(d.phrase).food } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\u{201C}\(d.phrase)\u{201D}").dsFont(.body).foregroundStyle(.primary).lineLimit(2)
+                        Label("No match. Tap to search for it by itself, packaged products included", systemImage: "magnifyingglass")
+                            .dsFont(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func choose(_ food: FoodItem, for d: DescribedFood) {
+        guard let i = described.firstIndex(where: { $0.id == d.id }) else { return }
+        var next = d.choosing(food)
+        // Keep the other matches on offer, the old pick among them.
+        next.alternatives = ([d.food].compactMap { $0 } + d.alternatives).filter { $0.id != food.id }
+        described[i] = next
+        adjusted[d.id] = nil
+    }
+
+    private func addDescribed() {
+        let items = readyItems
+        guard !items.isEmpty else { return }
+        items.forEach(add)
+        // Anything left without an amount or a match stays in the box to finish.
+        let rest = described.filter { item(for: $0) == nil }.map(\.phrase)
+        if rest.isEmpty { onClose() } else { query = rest.joined(separator: ", ") }
+    }
+
+    // MARK: Rows
+
+    private func add(_ item: MealItem) {
+        onAdd(item)
+        added.append(item)
+        logbook.notePortion(for: item.foodID, grams: item.grams, portion: item.portion)
+    }
+
+    /// The amount + adds in one tap: what was used last time, otherwise the food's usual measure.
+    /// Nil when there's nothing to go on, so the amount is asked for.
+    private func quickItem(_ food: FoodItem) -> MealItem? {
+        if let saved = logbook.savedFood(for: food.id), let g = saved.lastGrams, g > 0 {
+            return MealItem(food: food, grams: g, portion: saved.lastPortion)
+        }
+        let a = MealDescription.amount(for: food, parsed: MealDescription.Parsed(food: food.name))
+        guard let g = a.grams, g > 0 else { return nil }
+        return MealItem(food: food, grams: g,
+                        portion: a.portion.map { FoodPortionMath.label(quantity: a.quantity, portion: $0) })
+    }
+
     private func row(_ food: FoodItem) -> some View {
         let favourite = logbook.savedFood(for: food.id)?.favourite ?? false
+        let quick = quickItem(food)
         return HStack(spacing: DS.Space.sm) {
             Button { selected = food } label: {
                 VStack(alignment: .leading, spacing: 2) {
@@ -193,6 +376,18 @@ struct FoodPickerView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(favourite ? "Remove from favourites" : "Add to favourites")
+            Button {
+                if let quick { add(quick) } else { selected = food }
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(Palette.food)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(quick.map { "Add \($0.summary)" } ?? "Choose an amount")
+            #if os(macOS)
+            .help(quick.map { "Add \($0.summary)" } ?? "Choose an amount")
+            #endif
         }
     }
 
@@ -208,20 +403,18 @@ struct FoodPickerView: View {
         return bits.joined(separator: " · ")
     }
 
-    private func searchOnline() {
-        let q = trimmed
+    private func searchOnline(_ q: String) async {
         guard q.count >= 2 else { return }
         onlineState = .loading
-        Task {
-            do {
-                let items = try await OpenFoodFactsClient.search(q)
-                guard q == trimmed else { return }
-                online = items
-                onlineState = .done
-            } catch {
-                guard q == trimmed else { return }
-                onlineState = .failed
-            }
+        do {
+            let items = try await FoodSources.searchOnline(q)
+            guard q == trimmed else { return }
+            let known = Set(hits.map(\.id))
+            online = items.filter { !known.contains($0.id) }
+            onlineState = .done
+        } catch {
+            guard q == trimmed, !Task.isCancelled else { return }
+            onlineState = .failed
         }
     }
 }

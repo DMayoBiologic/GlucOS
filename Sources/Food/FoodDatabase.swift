@@ -6,8 +6,12 @@ import Foundation
 // - Built in: AUSNUT 2023, © Food Standards Australia New Zealand, licensed CC BY 4.0. Bundled as
 //   `ausnut-foods.json`, made by scripts/food/build_ausnut.py (see .github/workflows/food-data.yml).
 //   Carbs are available carbohydrate without sugar alcohols, which is what carb counting uses.
-// - Packaged products: searched online in Open Food Facts (ODbL), when the user asks.
+// - Packaged products: searched online in Open Food Facts (ODbL) as the user types a search.
+//   More online lists can be added as an `OnlineFoodSource` (OpenFoodFactsClient.swift).
 // - The user's own foods and favourites, synced with the logbook (`SavedFood`).
+//
+// Searching understands everyday names, plurals and typos (FoodSearch.swift), and a whole meal can
+// be typed in words and read into foods with amounts (MealDescription.swift).
 //
 // Plain Foundation so `swift test` covers it.
 
