@@ -115,6 +115,8 @@ final class SensorScanner: NSObject {
                     }
                 } catch Libre2.CryptoError.badCRC {
                     problem = "The sensor's data didn't pass its checksum after decoding, so GlucOS can't read this sensor."
+                } catch let error where Self.sessionOver(error) {
+                    throw error
                 } catch let e as FRAMReadError {
                     problem = "The read was cut short. Hold the phone still against the sensor and try again."
                     detail = e.detail
@@ -124,7 +126,9 @@ final class SensorScanner: NSObject {
                 }
                 if info.isGen2, fram == nil, detail != nil {
                     let probe = await probeGen2Read(tag)
-                    problem = "The sensor refused the memory read, as Gen2 sensors do."
+                    // Gen2 sensors answer the ID command and then stop answering plain reads, which
+                    // iOS reports as a lost connection, so a wobble can't be told apart here.
+                    problem = "The sensor stopped answering when GlucOS asked for its memory, which is what Gen2 sensors do. If you held the phone still, it's locked."
                     detail = [detail, probe].compactMap { $0 }.joined(separator: "; ")
                 }
                 if mode == .takeOverBluetooth {
@@ -175,17 +179,18 @@ final class SensorScanner: NSObject {
         var out = [UInt8]()
         var block = 0
         var attempts = [String]()
-        var retries = 0
         let maxRetries = 5
 
+        // A session that has ended (cancelled, timed out) is passed up as it is, not as a short read.
         func note(_ what: String, _ error: Error) throws {
+            if Self.sessionOver(error) { throw error }
             attempts.append(what + " " + Self.describe(error))
-            if Self.sessionOver(error) { throw FRAMReadError(block: block, attempts: attempts) }
         }
 
         while block < Libre2.framBlocks {
             let count = min(3, Libre2.framBlocks - block)
             var got: [Data]?
+            var retries = 0
             // Plain multi-block reads, retried.
             while got == nil, retries <= maxRetries {
                 if retries > 0 { try? await Task.sleep(nanoseconds: 250_000_000) }
@@ -217,19 +222,17 @@ final class SensorScanner: NSObject {
             if got == nil {
                 var singles = [Data]()
                 for b in block..<(block + count) {
-                    do {
-                        let d = try await tag.readSingleBlock(requestFlags: .highDataRate, blockNumber: UInt8(b))
-                        guard d.count == 8 else {
-                            attempts.append("single \(b) got \(d.count)")
-                            throw FRAMReadError(block: b, attempts: attempts)
+                    var data: Data?
+                    for _ in 0..<2 where data == nil {
+                        do {
+                            let d = try await tag.readSingleBlock(requestFlags: .highDataRate, blockNumber: UInt8(b))
+                            if d.count == 8 { data = d } else { attempts.append("single \(b) got \(d.count)") }
+                        } catch {
+                            try note("single \(b)", error)
                         }
-                        singles.append(d)
-                    } catch let e as FRAMReadError {
-                        throw e
-                    } catch {
-                        try note("single \(b)", error)
-                        throw FRAMReadError(block: b, attempts: attempts)
                     }
+                    guard let data else { throw FRAMReadError(block: b, attempts: attempts) }
+                    singles.append(data)
                 }
                 got = singles
             }
@@ -246,7 +249,7 @@ final class SensorScanner: NSObject {
         do {
             let reply = try await tag.customCommand(requestFlags: .highDataRate, customCommandCode: 0xA1,
                                                     customRequestParameters: Data([0x21, 0x00, 0x02]))
-            return "A1 21 replied \(reply.count) bytes"
+            return "A1 21 replied \(reply.count) bytes: " + reply.map { String(format: "%02X", $0) }.joined(separator: " ")
         } catch {
             return "A1 21 " + Self.describe(error)
         }

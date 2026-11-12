@@ -181,6 +181,9 @@ struct SensorScanView: View {
                 ? "GlucOS decoded this sensor itself. A live Bluetooth feed would take the connection from LibreLink, which stops its alarms and LinkUp sharing. GlucOS keeps using LinkUp for now."
                 : "Readings are encrypted, but open-source apps can decode them. A live Bluetooth feed would take the connection from LibreLink, which stops its alarms and LinkUp sharing."
         case .none where r.patchInfo.isGen2:
+            if r.fram != nil {
+                return "GlucOS decoded this sensor itself, even though its header suggests Abbott's newer Gen2 security. GlucOS keeps using LinkUp for now."
+            }
             return "This sensor uses Abbott's newer Gen2 security, which locks its memory and Bluetooth to Abbott's apps. No open-source app can read it yet, so GlucOS keeps using LinkUp."
         case .none:
             return "There's no known way to read this sensor on iPhone without Abbott's app. GlucOS keeps using LinkUp."
