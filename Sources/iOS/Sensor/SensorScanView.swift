@@ -69,6 +69,8 @@ struct SensorScanView: View {
                         .font(.title2)
                         .accessibilityLabel(current.trend.description)
                 }
+                // Usually the minute of the tap; older when the last 16 minutes had nothing valid.
+                LabeledContent("Measured", value: current.timestamp.formatted(date: .omitted, time: .shortened))
             } else {
                 Text("The sensor has no glucose to show yet (warming up, or a temporary sensor error).")
                     .foregroundStyle(.secondary)
