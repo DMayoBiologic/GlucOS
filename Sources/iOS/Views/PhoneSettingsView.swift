@@ -131,6 +131,7 @@ struct PhoneSettingsView: View {
             sharingSection
             FollowingSettingsSection()
             relaySection
+            DiagnosticsSettingsSection()
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
                 Text("Personal use. Not a medical device. Confirm readings and alerts with your sensor app before acting.")
@@ -241,6 +242,10 @@ struct PhoneSettingsView: View {
                 }
                 Button("Sync Now") { logbookSync.requestSync() }
                     .disabled(logbookSync.status == .syncing || logbookSync.status == .needsAccount)
+                if logbookSync.isProblem {
+                    SendReportButton(feature: LogbookSyncService.diagnosticFeature, step: "sync", message: logbookSync.summary)
+                        .id(logbookSync.summary)
+                }
             }
         } header: {
             Text("Logbook")
@@ -333,6 +338,7 @@ struct PhoneSettingsView: View {
             if relay.isConfigured {
                 if let e = services.relayError {
                     Label(e, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Tone.warning.textColor)
+                    SendReportButton(feature: PhoneServices.relayDiagnosticFeature, step: "relay", message: e).id(e)
                 } else if let st = services.relayStatus {
                     LabeledContent("Fetching", value: st.lastFetchAt.map { PopoverFormat.ageAgo(Date().timeIntervalSince1970 - $0) } ?? "Not yet")
                     if let err = st.lastError { LabeledContent("LibreLinkUp", value: err) }
@@ -350,6 +356,19 @@ struct PhoneSettingsView: View {
             Text("Push relay")
         } footer: {
             Text("A small server of your own that checks LibreLinkUp every minute and pushes alerts and Lock Screen updates to this iPhone while it's locked. It receives your LibreLinkUp login so it can fetch for you. Signed in with the same LibreLinkUp account as the relay, this iPhone connects by itself. See docs/iOS.md to set one up.")
+        }
+    }
+}
+
+/// Settings › Diagnostics: automatic error reports on or off. Also in follower mode's settings.
+struct DiagnosticsSettingsSection: View {
+    var body: some View {
+        Section {
+            DiagnosticsToggle()
+        } header: {
+            Text("Diagnostics")
+        } footer: {
+            Text(DiagnosticsToggle.privacyNote)
         }
     }
 }

@@ -120,6 +120,10 @@ final class SensorScanner: NSObject {
                     problem = "The read was cut short. Hold the phone still against the sensor and try again."
                     detail = Self.describe(error)
                 }
+                if let problem {
+                    Diagnostics.shared.report(Self.diagnostic(patchInfo: info, problem: problem, detail: detail,
+                                                              mode: mode))
+                }
                 if mode == .takeOverBluetooth {
                     guard fram != nil else {
                         throw SensorScanError.failed([problem ?? "Couldn't read the sensor.", detail.map { "Details: \($0)" }]
@@ -145,6 +149,9 @@ final class SensorScanner: NSObject {
             finish(.success(result))
         } catch {
             guard self.session === session else { return }
+            if !DiagnosticEvent.isNoise(error) {
+                Diagnostics.shared.report(Self.diagnostic(step: "scan", error: error, patchInfo: nil, mode: mode))
+            }
             session.invalidate(errorMessage: "Couldn't read the sensor. Try again and hold still.")
             finish(.failure(error as? SensorScanError ?? SensorScanError.failed(error.localizedDescription)))
         }
@@ -247,6 +254,9 @@ extension SensorScanner: NFCTagReaderSessionDelegate {
             if nfc?.code == .readerSessionInvalidationErrorUserCanceled {
                 self.finish(.failure(CancellationError()))
             } else {
+                if nfc?.code != .readerSessionInvalidationErrorSessionTimeout {
+                    Diagnostics.shared.report(Self.diagnostic(step: "session", error: error, patchInfo: nil, mode: self.mode))
+                }
                 self.finish(.failure(SensorScanError.failed(error.localizedDescription)))
             }
         }

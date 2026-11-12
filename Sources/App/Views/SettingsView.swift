@@ -165,6 +165,11 @@ private struct AccountSettingsTab: View {
                 if let problem = store.connectionProblem, !signingIn {
                     ConnectionProblemView(problem: problem, compact: true) { store.apply($0) }
                         .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                    if problem.severity != .info {
+                        SendReportButton(feature: ConnectionProblem.diagnosticFeature, step: "fetch",
+                                         message: "\(problem.title): \(problem.advice)")
+                            .id(problem.title + problem.advice)
+                    }
                 }
             }
 
@@ -577,6 +582,10 @@ private struct LogbookSyncSection: View {
                 }
                 Button("Sync Now") { sync.requestSync() }
                     .disabled(sync.status == .syncing || sync.status == .needsAccount)
+                if sync.isProblem {
+                    SendReportButton(feature: LogbookSyncService.diagnosticFeature, step: "sync", message: sync.summary)
+                        .id(sync.summary)
+                }
             }
         } header: {
             Text("Sync")
@@ -752,7 +761,8 @@ private struct AdvancedSettingsTab: View {
                     }
                 }
             }
-            Section("Diagnostics") {
+            Section {
+                DiagnosticsToggle()
                 LabeledContent("Status", value: store.statusLine)
                 LabeledContent("Data folder") {
                     HStack {
@@ -769,6 +779,11 @@ private struct AdvancedSettingsTab: View {
                 LabeledContent("Session") {
                     Button("Reconnect") { store.reconnect() }
                 }
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text(DiagnosticsToggle.privacyNote)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

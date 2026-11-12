@@ -26,3 +26,10 @@ entrypoint = "./functions/account/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/share/index.ts"
+
+# Error reports from the apps (Sources/Core/Diagnostics.swift). Every install sends them without
+# signing in, so the gateway's JWT check is off; the function checks shape, size and rate itself.
+[functions.diagnostics]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/diagnostics/index.ts"
