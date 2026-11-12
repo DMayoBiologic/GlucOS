@@ -137,6 +137,7 @@ targets:
       - path: Sources/App/HistoryArchive.swift
       - path: Sources/App/Logbook/LogbookModels.swift
       - path: Sources/App/Logbook/FoodModels.swift
+      - path: Sources/App/Logbook/LogFlow.swift
       - path: Sources/Food
       - path: Sources/Bolus
       - path: Sources/App/Logbook/LogbookStore.swift
@@ -259,6 +260,7 @@ targets:
       - path: Sources/App/Keychain.swift
       - path: Sources/App/Logbook/LogbookModels.swift
       - path: Sources/App/Logbook/FoodModels.swift
+      - path: Sources/App/Logbook/LogFlow.swift
       - path: Sources/iOS/RelayClient.swift
       - path: Sources/iOS/Sharing/ShareClient.swift
     info:

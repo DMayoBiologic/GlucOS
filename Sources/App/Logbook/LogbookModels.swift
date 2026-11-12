@@ -183,6 +183,8 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
     /// When the user woke up. A marker, not something that skews examples: GlucOS learns the
     /// user's usual post-wake rise from it (`MorningPatternLearner`).
     case wokeUp
+    /// When the user went to bed. Like a wake-up, it only marks a time.
+    case bedtime
 
     var id: String { rawValue }
 
@@ -196,6 +198,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .hypoTreatment: return "Hypo treatment"
         case .siteProblem: return "Site or delivery problem"
         case .wokeUp: return "Woke up"
+        case .bedtime: return "Went to sleep"
         }
     }
 
@@ -209,6 +212,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .hypoTreatment: return "cube"
         case .siteProblem: return "bandage"
         case .wokeUp: return "sunrise"
+        case .bedtime: return "bed.double"
         }
     }
 
@@ -222,6 +226,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .hypoTreatment: return "Fast sugar taken for a low. Counted like food."
         case .siteProblem: return "A bent cannula, leak or bad site means insulin may not have gone in properly."
         case .wokeUp: return "When you got up. Glucose often rises after waking; GlucOS learns how yours moves."
+        case .bedtime: return "When you went to bed, so the night that follows can be told apart from the evening."
         }
     }
 
@@ -231,7 +236,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .exercise: return 6 * 3600
         case .alcohol: return 12 * 3600
         case .illness, .stress, .period: return 24 * 3600
-        case .hypoTreatment, .siteProblem, .wokeUp: return 0
+        case .hypoTreatment, .siteProblem, .wokeUp, .bedtime: return 0
         }
     }
 
@@ -239,13 +244,17 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
     var isComparable: Bool {
         switch self {
         case .exercise, .illness, .alcohol, .stress, .period: return true
-        case .hypoTreatment, .siteProblem, .wokeUp: return false
+        case .hypoTreatment, .siteProblem, .wokeUp, .bedtime: return false
         }
     }
 
     /// Tags that change how glucose responds, so examples near them are set aside or segmented.
-    /// A wake-up only marks a time.
-    var affectsResponses: Bool { self != .wokeUp }
+    /// Waking up and going to sleep only mark a time.
+    var affectsResponses: Bool { !isMoment }
+
+    /// Logged as a moment of its own from the log sheet ("Woke up", "Going to sleep"), rather than
+    /// picked from the list of things going on.
+    var isMoment: Bool { self == .wokeUp || self == .bedtime }
 }
 
 /// Context logged at a time, on its own or alongside a dose or meal.
@@ -260,6 +269,23 @@ struct ContextEvent: Codable, Identifiable, Hashable {
 
     /// Marks when the user woke up.
     var isWake: Bool { tags.contains(.wokeUp) }
+
+    init(id: UUID = UUID(), timestamp: Date, tags: Set<ContextTag>, note: String = "") {
+        self.id = id
+        self.timestamp = timestamp
+        self.tags = tags
+        self.note = note
+    }
+
+    /// A tag from a newer version of GlucOS is skipped rather than failing the whole entry (and,
+    /// in the logbook file, everything stored with it).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        timestamp = try c.decode(Date.self, forKey: .timestamp)
+        tags = Set(try c.decode([String].self, forKey: .tags).compactMap(ContextTag.init(rawValue:)))
+        note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+    }
 }
 
 /// One row in the logbook, whatever its type.
