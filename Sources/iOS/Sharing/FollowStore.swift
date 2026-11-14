@@ -1,5 +1,6 @@
 import ActivityKit
 import Foundation
+import UserNotifications
 
 /// Someone's live readings this phone follows, from a share link they sent.
 struct Follow: Codable, Hashable, Identifiable {
@@ -102,6 +103,8 @@ final class FollowStore: ObservableObject {
         pendingUnfollows.removeAll { $0 == follow.id }
         snapshots[follow.id] = snapshot
         save()
+        // Their alerts need notifications. Asks only the first time; a no-op once answered.
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
         await register(follow.id)
         await showActivity(for: follow, canStart: true)
         return follow

@@ -250,7 +250,8 @@ struct AddFollowView: View {
     var body: some View {
         Form {
             Section {
-                TextField("Share link", text: $text, prompt: Text("https://gluc-os-seven.vercel.app/share/#…"), axis: .vertical)
+                // Typing clears the last error; a paste that fails keeps its error showing.
+                TextField("Share link", text: Binding(get: { text }, set: { text = $0; error = nil }), prompt: Text("https://gluc-os-seven.vercel.app/share/#…"), axis: .vertical)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
@@ -282,7 +283,6 @@ struct AddFollowView: View {
         .navigationTitle("Follow Someone")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
-        .onChange(of: text) { _, _ in error = nil }
     }
 
     private func follow() {
