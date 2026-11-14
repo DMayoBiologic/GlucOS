@@ -79,10 +79,19 @@ final class PhoneServices: ObservableObject {
             }
         }
         liveActivity.onActivityEnded = { [weak self] id in
-            var r = RelayRegistration()
-            r.endedActivityID = id
-            Task { @MainActor in await self?.send(r) }
+            Task { @MainActor in
+                guard let self else { return }
+                var r = RelayRegistration()
+                r.endedActivityID = id
+                // Name the card that stays in the same request, so the relay moves to it at once.
+                if let current = self.liveActivity.currentRegistration, current.id != id {
+                    r.activityID = current.id
+                    r.activityToken = current.token
+                }
+                await self.send(r)
+            }
         }
+        liveActivity.relayActivityID = { [weak self] in self?.relayStatus?.activityID }
         liveActivity.startObserving()
 
         // Account, units, thresholds and alert switches go to the relay when they change.
@@ -167,6 +176,12 @@ final class PhoneServices: ObservableObject {
         r.pushToStartToken = pushToStartToken
         r.liveActivityEnabled = liveActivityEnabled
         r.apnsEnvironment = apnsEnvironment
+        // The card on the Lock Screen now, every time: a token upload lost to a timeout would
+        // otherwise leave the relay updating an older card (or starting a second one).
+        if liveActivityEnabled, let current = liveActivity.currentRegistration {
+            r.activityID = current.id
+            r.activityToken = current.token
+        }
         r.display = .init(unit: s.unit.rawValue, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl)
         r.alerts = s.alertPreferences
         if s.hasCredentials {
@@ -175,7 +190,8 @@ final class PhoneServices: ObservableObject {
         } else {
             r.signedOut = true
         }
-        guard force || r != lastRegistration || relayStatus == nil else { return }
+        let relayOnOtherCard = r.activityID != nil && relayStatus?.activityID != r.activityID
+        guard force || r != lastRegistration || relayStatus == nil || relayOnOtherCard else { return }
         if await send(r) { lastRegistration = r }
     }
 

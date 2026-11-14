@@ -2,7 +2,7 @@
 // Swift relay's tests.
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1";
 import { type PushRequest, type PushResult, type PushSender, importAPNsKey, payloads, providerToken } from "./apns.ts";
-import { claimWindow, newRow, type RelayRow, RelayEngine, type Store, type Tx, rotateAfter } from "./engine.ts";
+import { claimWindow, newRow, type RelayRow, RelayEngine, type Store, type Tx, rotateAfter, startRetry } from "./engine.ts";
 import type { Reading, Trend } from "./core.ts";
 import type { Account, FetchResult, GlucoseFetcher, LibreSession } from "./libre.ts";
 import { parseFactoryTimestamp } from "./libre.ts";
@@ -171,6 +171,66 @@ Deno.test("the activity is replaced before iOS's 8-hour limit", async () => {
   assertEquals(t.sender.sent.map((p) => p.deviceToken), ["act2"]);
 });
 
+Deno.test("a delivered start isn't sent again while the new card's registration is late", async () => {
+  const t = await registered();
+  await t.engine.register({ activityID: "A1", activityToken: "act" });
+  await t.engine.tick();
+  t.advance(rotateAfter + 60);
+  await t.engine.tick();
+  t.sender.sent = [];
+  // Two retry windows pass without the phone registering the card iOS started.
+  for (let i = 0; i < 3; i++) {
+    t.advance(startRetry + 60);
+    await t.engine.tick();
+  }
+  assertEquals(t.sender.sent.filter((p) => p.deviceToken === "p2s"), []);
+});
+
+Deno.test("a start APNs didn't take is tried again", async () => {
+  const t = await registered();
+  await t.engine.register({ activityID: "A1", activityToken: "act" });
+  await t.engine.tick();
+  t.sender.results["p2s"] = { kind: "failed", reason: "500 InternalServerError" };
+  t.advance(rotateAfter + 60);
+  await t.engine.tick();
+  t.sender.results = {};
+  t.advance(startRetry + 60);
+  await t.engine.tick();
+  assertEquals(t.sender.sent.filter((p) => p.deviceToken === "p2s").length, 2);
+});
+
+Deno.test("an ended card's late registration doesn't win it back", async () => {
+  const t = await registered();
+  await t.engine.register({ activityID: "A2", activityToken: "act2" });
+  // A1's token upload was stuck behind a timeout and lands after A2's. The phone keeps A2, ends
+  // A1 and names A2 in the same request: A2 is adopted again, A1 never.
+  await t.engine.register({ activityID: "A1", activityToken: "act" });
+  await t.engine.register({ endedActivityID: "A1", activityID: "A2", activityToken: "act2" });
+  await t.engine.register({ activityID: "A1", activityToken: "act" });
+  await t.engine.register({ endedActivityID: "A3" });
+  await t.engine.register({ activityID: "A3", activityToken: "act3" });
+  t.advance(60);
+  await t.engine.tick();
+  assertEquals(t.sender.sent.filter((p) => p.type === "liveactivity").map((p) => p.deviceToken), ["act2"]);
+
+  // The card the relay itself ended at the 8-hour limit stays ended too.
+  t.advance(rotateAfter + 60);
+  await t.engine.tick();
+  await t.engine.register({ activityID: "A2", activityToken: "act2" });
+  assertEquals((await t.engine.status()).activityID, undefined);
+});
+
+Deno.test("a card whose end push failed can be registered again", async () => {
+  const t = await registered();
+  await t.engine.register({ activityID: "A1", activityToken: "act" });
+  await t.engine.tick();
+  t.sender.results["act"] = { kind: "failed", reason: "500 InternalServerError" };
+  t.advance(rotateAfter + 60);
+  await t.engine.tick();
+  await t.engine.register({ activityID: "A1", activityToken: "act" });
+  assertEquals((await t.engine.status()).activityID, "A1");
+});
+
 Deno.test("a dismissed activity isn't restarted", async () => {
   const t = await registered();
   await t.engine.register({ activityID: "A1", activityToken: "act" });
@@ -218,7 +278,7 @@ Deno.test("status says the relay is delivering once it has fetched", async () =>
   assert(s.hasAccount && s.hasDeviceToken && s.alertsEnabled);
   assertEquals(s.lastFetchAt, t.clock());
   assertEquals(s.lastError, undefined);
-  assertEquals(s.version, "2.0.0");
+  assertEquals(s.version, "2.0.1");
 });
 
 Deno.test("the LibreLinkUp session is kept between ticks", async () => {

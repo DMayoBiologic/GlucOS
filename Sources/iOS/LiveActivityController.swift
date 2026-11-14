@@ -19,6 +19,8 @@ final class LiveActivityController: ObservableObject {
     var onActivityToken: ((_ activityID: String, _ token: String) -> Void)?
     var onPushToStartToken: ((String) -> Void)?
     var onActivityEnded: ((_ activityID: String) -> Void)?
+    /// The activity the relay last said it's updating (`RelayStatus.activityID`), if any.
+    var relayActivityID: (@MainActor () -> String?)?
 
     /// This controller looks after the owner's own card only. Cards following someone else's
     /// share (`followID` set) belong to `FollowStore`.
@@ -26,6 +28,9 @@ final class LiveActivityController: ObservableObject {
     private var ownActivities: [GlucoseActivity] { GlucoseActivity.activities.filter(LiveActivityController.isOwn) }
 
     private var tracked = Set<String>()
+    /// The latest update token of each running activity, so the relay can be told again about the
+    /// current one when an earlier upload was lost (`currentRegistration`).
+    private var tokens: [String: String] = [:]
     private var observers: [Task<Void, Never>] = []
     private var lastSent: GlucoseActivityState?
     private var requesting = false
@@ -49,10 +54,42 @@ final class LiveActivityController: ObservableObject {
             }
         })
         ownActivities.forEach(track)
+        Task { await endDuplicates() }
     }
 
+    nonisolated private static func isRunning(_ a: GlucoseActivity) -> Bool {
+        a.activityState == .active || a.activityState == .stale
+    }
+
+    /// The card to keep when there are several: the one the relay says it's updating, else the one
+    /// showing the newest reading (the one being updated). On a tie, the later one.
     private var current: GlucoseActivity? {
-        ownActivities.last { $0.activityState == .active || $0.activityState == .stale }
+        let running = ownActivities.filter(LiveActivityController.isRunning)
+        if let relayID = relayActivityID?(), let accepted = running.first(where: { $0.id == relayID }) {
+            return accepted
+        }
+        return running.enumerated()
+            .max { ($0.element.content.state.readingAt, $0.offset) < ($1.element.content.state.readingAt, $1.offset) }?
+            .element
+    }
+
+    /// The current activity and its update token, for the relay. Sent with every relay sync, so a
+    /// registration lost to a timeout heals instead of leaving the relay on an older card.
+    var currentRegistration: (id: String, token: String)? {
+        guard let a = current, let token = tokens[a.id] ?? a.pushToken?.hexString else { return nil }
+        return (a.id, token)
+    }
+
+    /// Only ever one GlucOS card. A second one turns up when the relay starts the next card while
+    /// the old one is still showing, or when a start went out twice: end all but the newest. Each
+    /// ended one reports itself through `onActivityEnded`, so the relay retires its token too.
+    private func endDuplicates() async {
+        guard let keep = current else { return }
+        for extra in ownActivities where LiveActivityController.isRunning(extra) && extra.id != keep.id {
+            track(extra)
+            await extra.end(nil, dismissalPolicy: .immediate)
+        }
+        refreshRunning()
     }
 
     private func track(_ activity: GlucoseActivity) {
@@ -60,7 +97,11 @@ final class LiveActivityController: ObservableObject {
         let id = activity.id
         Task { [weak self] in
             for await token in activity.pushTokenUpdates {
-                self?.onActivityToken?(id, token.hexString)
+                guard let self else { return }
+                self.tokens[id] = token.hexString
+                // An activity that's on its way out mustn't become the relay's card again.
+                guard self.current?.id == id else { continue }
+                self.onActivityToken?(id, token.hexString)
             }
         }
         Task { [weak self] in
@@ -68,12 +109,15 @@ final class LiveActivityController: ObservableObject {
                 guard let self else { return }
                 if state == .ended || state == .dismissed {
                     self.tracked.remove(id)
+                    self.tokens[id] = nil
                     self.onActivityEnded?(id)
                 }
                 self.refreshRunning()
             }
         }
         refreshRunning()
+        // A card the relay just started: the older one it replaces goes.
+        Task { [weak self] in await self?.endDuplicates() }
     }
 
     private func refreshRunning() {
@@ -86,12 +130,8 @@ final class LiveActivityController: ObservableObject {
         guard systemEnabled else { return }
         let content = ActivityContent(state: state, staleDate: state.staleDate,
                                       relevanceScore: state.range == .inRange ? 50 : 100)
-        // Only ever one GlucOS card.
-        let all = ownActivities.filter { $0.activityState == .active || $0.activityState == .stale }
-        for extra in all.dropLast() {
-            await extra.end(nil, dismissalPolicy: .immediate)
-        }
-        if let activity = all.last {
+        await endDuplicates()
+        if let activity = current {
             guard state != lastSent || activity.activityState == .stale else { return }
             await activity.update(content)
             lastSent = state
