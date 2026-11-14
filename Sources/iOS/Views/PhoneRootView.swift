@@ -111,13 +111,18 @@ struct PhoneHomeView: View {
     @EnvironmentObject var follows: FollowStore
     @EnvironmentObject var router: PhoneLogRouter
     @State private var showsSettings = false
+    @State private var settingsAnchor: PhoneSettingsView.Jump?
     @State private var showsSharing = false
+    @AppStorage(PhoneSetupView.pendingKey) private var setupPending = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: DS.Space.lg) {
-                    PhoneBanners(showsSettings: $showsSettings)
+                    PhoneBanners { anchor in
+                        settingsAnchor = anchor
+                        showsSettings = true
+                    }
                     // Cards assemble top to bottom on launch rather than popping in at once.
                     PhoneHeroCard().dsEntrance(0)
                     ForEach(follows.follows) { PhoneFollowingCard(follow: $0).dsEntrance(1) }
@@ -154,7 +159,7 @@ struct PhoneHomeView: View {
                         .accessibilityLabel("Share live readings")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showsSettings = true } label: { Image(systemName: "gearshape") }
+                    Button { settingsAnchor = nil; showsSettings = true } label: { Image(systemName: "gearshape") }
                         .accessibilityLabel("Settings")
                 }
             }
@@ -168,7 +173,7 @@ struct PhoneHomeView: View {
         // On the stack rather than its root, so the log sheet also opens over a pushed screen
         // (editing a row in the full logbook).
         .sheet(isPresented: $showsSettings) {
-            NavigationStack { PhoneSettingsView() }
+            NavigationStack { PhoneSettingsView(scrollTo: settingsAnchor) }
         }
         .sheet(isPresented: $showsSharing) {
             NavigationStack { PhoneSharingView() }
@@ -177,6 +182,8 @@ struct PhoneHomeView: View {
             // A log link arriving while Settings or Sharing is open: show the log sheet instead.
             if id != nil { showsSettings = false; showsSharing = false }
         }
+        // Right after the first sign-in: range, alerts and insulin, then home.
+        .sheet(isPresented: $setupPending) { PhoneSetupView() }
         .sheet(item: $router.request) { request in
             PhoneLogSheet(target: request.target)
                 .presentationDragIndicator(.visible)
@@ -206,7 +213,8 @@ struct PhoneBanners: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var services: PhoneServices
     @Environment(\.openURL) private var openURL
-    @Binding var showsSettings: Bool
+    /// Opens Settings at the section that fixes the problem.
+    let openSettings: (PhoneSettingsView.Jump?) -> Void
 
     var body: some View {
         VStack(spacing: DS.Space.sm) {
@@ -230,7 +238,7 @@ struct PhoneBanners: View {
             if !services.relaySettings.isConfigured && settings.alertsEnabled {
                 StatusBanner(severity: .info, title: "Alerts only while GlucOS is open",
                              message: "iPhone apps can't check in the background reliably. Connect the push relay for alerts and a live Lock Screen card at all times.",
-                             action: BannerAction(title: "Set Up") { showsSettings = true },
+                             action: BannerAction(title: "Set Up") { openSettings(.relay) },
                              density: .compact)
             } else if let error = services.relayError {
                 StatusBanner(severity: .warning, title: "Can't reach the push relay",

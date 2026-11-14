@@ -187,6 +187,7 @@ struct NewShareView: View {
 struct PhoneFollowingCard: View {
     @EnvironmentObject var follows: FollowStore
     let follow: Follow
+    @State private var confirmsStop = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 15)) { context in
@@ -207,7 +208,7 @@ struct PhoneFollowingCard: View {
                         Toggle("Alerts", isOn: Binding(
                             get: { follow.alerts },
                             set: { on in Task { await follows.setAlerts(on, for: follow) } }))
-                        Button("Stop Following", role: .destructive) { Task { await follows.remove(follow) } }
+                        Button("Stop Following…", role: .destructive) { confirmsStop = true }
                     } label: {
                         Image(systemName: "ellipsis.circle").font(.body)
                     }
@@ -230,6 +231,11 @@ struct PhoneFollowingCard: View {
             .background { DSSurface(style: .tinted(tone), radius: DS.Radius.card) }
             .accessibilityElement(children: .contain)
         }
+        .confirmationDialog("Stop following \(follow.label)?", isPresented: $confirmsStop, titleVisibility: .visible) {
+            Button("Stop Following", role: .destructive) { Task { await follows.remove(follow) } }
+        } message: {
+            Text("Their card and alerts go from this iPhone. To follow again you'll need a new link from them.")
+        }
     }
 }
 
@@ -248,30 +254,22 @@ struct AddFollowView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
-                Button("Paste", systemImage: "doc.on.clipboard") {
-                    text = UIPasteboard.general.url?.absoluteString ?? UIPasteboard.general.string ?? ""
+                // PasteButton reads the clipboard without iOS asking "Allow Paste?" every time, and a
+                // pasted link is followed straight away.
+                PasteButton(payloadType: String.self) { strings in
+                    guard let pasted = strings.first?.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+                    Task { @MainActor in
+                        text = pasted
+                        follow()
+                    }
                 }
+                .buttonBorderShape(.capsule)
             } footer: {
                 Text("Opening a GlucOS share link in Messages and tapping Open in GlucOS does this for you.")
             }
             if let error { Section { Text(error).foregroundStyle(Tone.warning.textColor) } }
             Section {
-                Button {
-                    guard let token = FollowLink.token(in: text) else {
-                        error = "That isn't a GlucOS share link."
-                        return
-                    }
-                    working = true
-                    Task {
-                        do {
-                            try await follows.add(token: token)
-                            dismiss()
-                        } catch {
-                            self.error = error.localizedDescription
-                        }
-                        working = false
-                    }
-                } label: {
+                Button(action: follow) {
                     HStack {
                         Text("Follow")
                         Spacer()
@@ -284,6 +282,27 @@ struct AddFollowView: View {
         .navigationTitle("Follow Someone")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        .onChange(of: text) { _, _ in error = nil }
+    }
+
+    private func follow() {
+        guard !working else { return }
+        guard let token = FollowLink.token(in: text) else {
+            error = "That isn't a GlucOS share link. Copy the whole link from Messages and try again."
+            return
+        }
+        working = true
+        error = nil
+        Task {
+            do {
+                try await follows.add(token: token)
+                Haptics.success()
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            working = false
+        }
     }
 }
 
@@ -367,7 +386,7 @@ private struct FollowEmptyState: View {
                 .dsFont(.callout)
                 .foregroundStyle(.secondary)
             Button(action: paste) {
-                Label("Paste a Link", systemImage: "doc.on.clipboard")
+                Label("Add a Link", systemImage: "link.badge.plus")
                     .dsFont(.headline)
                     .frame(maxWidth: .infinity)
             }

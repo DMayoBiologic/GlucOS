@@ -38,6 +38,13 @@ struct PhoneSignInView: View {
     @State private var region = "au"
     @State private var working = false
     @State private var problem: ConnectionProblem?
+    @FocusState private var focus: Field?
+
+    private enum Field { case email, password }
+
+    private var canSignIn: Bool {
+        !working && !email.trimmingCharacters(in: .whitespaces).isEmpty && !password.isEmpty
+    }
 
     var body: some View {
         Form {
@@ -60,8 +67,14 @@ struct PhoneSignInView: View {
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .focused($focus, equals: .email)
+                    .submitLabel(.next)
+                    .onSubmit { focus = .password }
                 SecureField("Password", text: $password)
                     .textContentType(.password)
+                    .focused($focus, equals: .password)
+                    .submitLabel(.go)
+                    .onSubmit { if canSignIn { signIn() } }
                 Picker("Region", selection: $region) {
                     ForEach(LibreRegion.all) { Text($0.name).tag($0.id) }
                 }
@@ -70,24 +83,14 @@ struct PhoneSignInView: View {
                 Section { ConnectionProblemView(problem: problem, compact: true) { store.apply($0) } }
             }
             Section {
-                Button {
-                    working = true
-                    Task {
-                        problem = await store.signIn(email: email, password: password, region: region)
-                        working = false
-                        if problem == nil {
-                            UserDefaults.standard.set(PhoneMode.sensor.rawValue, forKey: "phoneMode")
-                            if onFollowInstead == nil { dismiss() }
-                        }
-                    }
-                } label: {
+                Button(action: signIn) {
                     HStack {
-                        Text("Sign In")
+                        Text(working ? "Signing In…" : "Sign In")
                         Spacer()
                         if working { ProgressView() }
                     }
                 }
-                .disabled(working || email.isEmpty || password.isEmpty)
+                .disabled(!canSignIn)
             }
             if let onFollowInstead {
                 Section {
@@ -98,9 +101,29 @@ struct PhoneSignInView: View {
             }
         }
         .navigationTitle("Sign In")
+        .dsAnimation(.standard, value: problem)
         .onAppear {
             email = settings.email
             region = settings.region
+            focus = email.isEmpty ? .email : .password
+        }
+    }
+
+    private func signIn() {
+        guard canSignIn else { return }
+        focus = nil
+        working = true
+        problem = nil
+        Task {
+            problem = await store.signIn(email: email.trimmingCharacters(in: .whitespaces), password: password, region: region)
+            working = false
+            if problem == nil {
+                Haptics.success()
+                UserDefaults.standard.set(PhoneMode.sensor.rawValue, forKey: "phoneMode")
+                // The first sign-in on this iPhone carries on into a short setup.
+                PhoneSetupView.markPendingIfNew()
+                if onFollowInstead == nil { dismiss() }
+            }
         }
     }
 }
@@ -118,8 +141,30 @@ struct PhoneSettingsView: View {
     @Environment(\.openURL) private var openURL
     @State private var notificationsAllowed: Bool?
     @State private var relaySecret = ""
+    @State private var confirmsSignOut = false
+    /// Opens scrolled to this section (a banner's Set Up button lands on the relay, not the top).
+    var scrollTo: Jump?
+
+    enum Jump: Hashable { case alerts, relay }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            form
+                .task {
+                    guard let scrollTo else { return }
+                    // After the sheet has finished arriving, or the scroll is lost.
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    withAnimation(.smooth) { proxy.scrollTo(scrollTo, anchor: .top) }
+                }
+        }
+        .confirmationDialog("Sign out of LibreLinkUp?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) { store.signOut() }
+        } message: {
+            Text("Readings, alerts and the Lock Screen card stop on this iPhone until you sign in again. Your logbook stays.")
+        }
+    }
+
+    private var form: some View {
         Form {
             accountSection
             displaySection
@@ -156,7 +201,7 @@ struct PhoneSettingsView: View {
             LabeledContent("Account", value: settings.email)
             LabeledContent("Region", value: LibreRegion.all.first { $0.id == settings.region }?.name ?? settings.region)
             LabeledContent("Status", value: store.statusLine)
-            Button("Sign Out", role: .destructive) { store.signOut() }
+            Button("Sign Out…", role: .destructive) { confirmsSignOut = true }
             NavigationLink("Read sensor") { SensorScanView() }
         }
     }
@@ -286,6 +331,7 @@ struct PhoneSettingsView: View {
         } footer: {
             Text("Lows and very highs always alert while alerts are on; urgent lows repeat every 5 minutes. \(services.relayStatus?.isDeliveringAlerts() == true ? "Your push relay is sending these, so they arrive even when GlucOS is closed." : "Without the push relay, alerts can only come while GlucOS is open or briefly refreshing in the background.")")
         }
+        .id(Jump.alerts)
     }
 
     private var lockScreenSection: some View {
@@ -355,8 +401,9 @@ struct PhoneSettingsView: View {
         } header: {
             Text("Push relay")
         } footer: {
-            Text("A small server of your own that checks LibreLinkUp every minute and pushes alerts and Lock Screen updates to this iPhone while it's locked. It receives your LibreLinkUp login so it can fetch for you. Signed in with the same LibreLinkUp account as the relay, this iPhone connects by itself. See docs/iOS.md to set one up.")
+            Text("A small server of your own that checks LibreLinkUp every minute and pushes alerts and Lock Screen updates to this iPhone while it's locked. It receives your LibreLinkUp login so it can fetch for you. Signed in with the same LibreLinkUp account as the relay, this iPhone connects by itself.")
         }
+        .id(Jump.relay)
     }
 }
 

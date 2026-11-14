@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 /// First-run setup: what GlucOS is, signing in to LibreLinkUp, target range, alerts and how the
 /// user takes insulin. Opens by itself the first time GlucOS runs without an account, and from
@@ -40,8 +41,15 @@ struct OnboardingView: View {
     @State private var problem: ConnectionProblem?
     @State private var connected = false
 
+    @FocusState private var focus: Field?
+    private enum Field { case email, password }
+
     // Alerts step
     @State private var notificationsAllowed: Bool?
+
+    // Done step
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var loginNote: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -225,8 +233,11 @@ struct OnboardingView: View {
                     TextField("Email", text: $email, prompt: Text("Follower account email"))
                         .textContentType(.username)
                         .autocorrectionDisabled()
+                        .focused($focus, equals: .email)
+                        .onSubmit { focus = .password }
                     SecureField("Password", text: $password, prompt: Text("Password"))
                         .textContentType(.password)
+                        .focused($focus, equals: .password)
                         .onSubmit {
                             if !email.trimmingCharacters(in: .whitespaces).isEmpty && !password.isEmpty { signIn() }
                         }
@@ -253,13 +264,18 @@ struct OnboardingView: View {
                 FlowPanel {
                     FollowerAccountHelp()
                 }
-                Text("Your password is stored in the macOS Keychain and only ever sent to Abbott.")
+                Text("Your password is stored in the macOS Keychain. It goes to Abbott to sign in, and once to the GlucOS sync server so your logbook can sync with your iPhone, which doesn't keep it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .animation(.smooth(duration: 0.2), value: problem)
         .animation(.smooth(duration: 0.2), value: connected)
+        .task {
+            // Straight into typing, at the field that's still empty.
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if !connected { focus = email.isEmpty ? .email : .password }
+        }
     }
 
     private var connectedCard: some View {
@@ -328,6 +344,7 @@ struct OnboardingView: View {
                     .font(.headline)
                 if settings.alertsEnabled {
                     Toggle("Also alert when above \(settings.unit.format(mgdl: settings.highMgdl, withUnit: true))", isOn: $settings.alertOnHigh)
+                    Toggle("Predicted lows, up to \(settings.predictiveAlertMinutes) minutes ahead", isOn: $settings.alertOnPredictedLow)
                     Toggle("Rising or falling quickly", isOn: $settings.alertOnRapidChange)
                     Toggle("No data for more than 6 minutes", isOn: $settings.alertOnStale)
                     Toggle("Sensor expiring within 24 hours", isOn: $settings.alertOnSensorExpiry)
@@ -385,7 +402,7 @@ struct OnboardingView: View {
     private var therapy: some View {
         VStack(alignment: .leading, spacing: 18) {
             TherapySetupView()
-            Text("Optional. GlucOS only records what you log and never suggests a dose.")
+            Text("Optional. GlucOS records what you log. Only the bolus calculator suggests a dose, and only from settings you confirm.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -406,6 +423,42 @@ struct OnboardingView: View {
                 feature("gearshape.fill", Palette.stale, "Change anything later",
                         "Settings (⌘,) has your account, target range, alerts and logging options.")
             }
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Open GlucOS when you log in", isOn: Binding(get: { launchAtLogin }, set: { setLaunchAtLogin($0) }))
+                    .toggleStyle(.switch)
+                    .font(.headline)
+                Text(loginNote ?? "Recommended, so readings and alerts carry on after a restart.")
+                    .font(.callout)
+                    .foregroundStyle(loginNote == nil ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(Tone.warning.textColor))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .glassCard()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            if launchAtLogin { loginNote = nil }
+        }
+    }
+
+    /// Same rules as Settings → General → Launch at login.
+    private func setLaunchAtLogin(_ on: Bool) {
+        let service = SMAppService.mainApp
+        do {
+            if on {
+                if service.status == .requiresApproval {
+                    SMAppService.openSystemSettingsLoginItems()
+                    loginNote = "Allow GlucOS in System Settings → General → Login Items to finish turning this on."
+                } else if service.status != .enabled {
+                    try service.register()
+                    loginNote = nil
+                }
+            } else if service.status != .notRegistered {
+                try service.unregister()
+                loginNote = nil
+            }
+        } catch {
+            loginNote = error.localizedDescription
+        }
+        launchAtLogin = service.status == .enabled
     }
 }
