@@ -15,7 +15,8 @@ struct OnBoardNow {
         let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
         insulin = InsulinActivity.compute(doses: doses, at: now)
         background = BackgroundInsulinActivity.compute(doses: doses, at: now)
-        carbs = CarbActivity.compute(meals: meals, hypoTreatments: hypo, at: now)
+        // The same meal logged twice is counted once, as in the forecast.
+        carbs = CarbActivity.compute(meals: LogCleanup.mealsWithoutRepeats(meals), hypoTreatments: hypo, at: now)
     }
 
     /// People who don't take insulin only see carbs and the forecast, unless they logged some anyway.

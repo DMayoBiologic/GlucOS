@@ -111,12 +111,33 @@ struct GlucoseForecast: Hashable {
     let calibrated: Bool
     /// The post-wake adjustment included, if any.
     var morning: AppliedMorningAdjustment? = nil
+    /// How much the range was widened to match how this device's forecasts actually did.
+    var rangeScale: Double = 1
 
     var horizon: TimeInterval { samples.last.map { $0.date.timeIntervalSince(issuedAt) } ?? 0 }
 
     func firstBelow(_ mgdl: Double) -> Date? { samples.first { $0.mgdl < mgdl }?.date }
     func firstRangeBelow(_ mgdl: Double) -> Date? { samples.first { $0.lowerMgdl < mgdl }?.date }
     func firstAbove(_ mgdl: Double) -> Date? { samples.first { $0.mgdl > mgdl }?.date }
+}
+
+/// How much wider to draw the likely range, for each kind of forecast. The range is meant to
+/// hold 4 readings in 5; when the forecasts shown on this device have landed outside it more
+/// often than that, it's widened until it would have held them (`ForecastLedger.rangeScale`).
+/// Never narrowed: the backtest already sets the range, this only corrects it when it's too
+/// confident.
+struct ForecastRangeScale: Hashable, Codable {
+    var byBasis: [ForecastBasis: Double] = [:]
+    /// Shown forecast points the figures came from.
+    var checks: Int = 0
+
+    static let unchanged = ForecastRangeScale()
+    static let maximum = 2.5
+
+    func factor(for basis: ForecastBasis) -> Double { min(Self.maximum, max(1, byBasis[basis] ?? 1)) }
+    var isWidened: Bool { byBasis.values.contains { $0 > 1.005 } }
+    /// The largest widening in use.
+    var largest: Double { byBasis.values.max().map { min(Self.maximum, max(1, $0)) } ?? 1 }
 }
 
 /// The forecast's own timing, tuned to the user once their history shows a different setting
@@ -147,11 +168,13 @@ struct ForecastInputs {
     var morning: MorningPattern?
     /// Trend timing. Standard until the user's history shows something else forecasts better.
     var tuning: ForecastTuning
+    /// Range widening from this device's shown forecasts.
+    var rangeScale: ForecastRangeScale
     var now: Date
 
     init(readings: GlucoseSeries, doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
          profile: EffectProfile, calibration: ForecastCalibration? = nil, morning: MorningPattern? = nil,
-         tuning: ForecastTuning = .standard, now: Date) {
+         tuning: ForecastTuning = .standard, rangeScale: ForecastRangeScale = .unchanged, now: Date) {
         self.readings = readings
         self.doses = doses
         self.meals = meals
@@ -160,6 +183,7 @@ struct ForecastInputs {
         self.calibration = calibration
         self.morning = morning
         self.tuning = tuning
+        self.rangeScale = rangeScale
         self.now = now
     }
 }
@@ -253,7 +277,8 @@ enum GlucoseForecaster {
         if !calibrated && maxHorizon == nil { limitations.append(.uncalibrated) }
 
         // Integrate the rate minute by minute.
-        let widen = activeTags.isEmpty ? 1.0 : 1.5
+        let rangeScale = maxHorizon == nil ? input.rangeScale.factor(for: basis) : 1
+        let widen = (activeTags.isEmpty ? 1.0 : 1.5) * rangeScale
         let fade = max(60, input.tuning.trendFade)
         var samples: [ForecastSample] = []
         var g = latest.mgdl
@@ -299,7 +324,7 @@ enum GlucoseForecaster {
         }
         return .success(GlucoseForecast(issuedAt: t0, startMgdl: latest.mgdl, basis: basis, trendPerMinute: trend,
                                         samples: samples, limitations: limitations, calibrated: calibrated,
-                                        morning: morning))
+                                        morning: morning, rangeScale: rangeScale))
     }
 
     /// Slope of the readings in the `window` (normally 20 minutes) up to `date`, mg/dL per minute.

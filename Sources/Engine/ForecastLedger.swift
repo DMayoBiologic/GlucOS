@@ -44,6 +44,9 @@ struct ForecastRecord: Codable, Hashable, Identifiable {
     let tuned: Bool
     /// The post-wake adjustment was included.
     let morning: Bool
+    /// How much the range was widened when shown (`ForecastRangeScale`). Nil in records from
+    /// before widening existed, which were never widened.
+    var rangeScale: Double? = nil
     /// Every point has been scored (or its time has passed without a reading).
     var settled = false
     /// Sent to the sync server.
@@ -76,7 +79,8 @@ struct ForecastLedger: Codable, Equatable {
         records.append(ForecastRecord(id: UUID(), issuedAt: forecast.issuedAt, device: device, basis: forecast.basis,
                                       startMgdl: forecast.startMgdl, trendPerMinute: forecast.trendPerMinute,
                                       points: points, limitations: forecast.limitations.map(\.code),
-                                      calibrated: forecast.calibrated, tuned: tuned, morning: forecast.morning != nil))
+                                      calibrated: forecast.calibrated, tuned: tuned, morning: forecast.morning != nil,
+                                      rangeScale: forecast.rangeScale))
         return true
     }
 
@@ -131,6 +135,46 @@ struct ForecastLedger: Codable, Equatable {
     /// How the forecasts shown between `start` and `end` turned out.
     func accuracy(from start: Date, to end: Date) -> LiveAccuracy {
         LiveAccuracy(records.filter { $0.issuedAt >= start && $0.issuedAt < end })
+    }
+
+    /// Shown points needed before the range is widened, per kind of forecast (or all kinds
+    /// together when one kind has too few).
+    static let minimumForRange = 40
+    /// How far back shown forecasts count towards the range.
+    static let rangeWindow: TimeInterval = 14 * 86_400
+
+    /// How much wider the range needs to be to have held 4 in 5 of the readings that followed
+    /// the forecasts shown in the last 14 days (points with nothing logged in between). Each
+    /// point is measured against the range before any earlier widening, so the figure settles
+    /// rather than compounding. Points where the range was cut off at the sensor's limits are
+    /// left out.
+    func rangeScale(now: Date = Date()) -> ForecastRangeScale {
+        let from = now.addingTimeInterval(-Self.rangeWindow)
+        var ratios: [ForecastBasis: [Double]] = [:]
+        for r in records where r.issuedAt >= from && r.issuedAt <= now {
+            let shown = max(1, r.rangeScale ?? 1)
+            for p in r.points where !p.afterLog {
+                guard let actual = p.actual,
+                      p.lower > GlucoseForecaster.sensorRange.lowerBound - 0.5,
+                      p.upper < GlucoseForecaster.sensorRange.upperBound + 0.5 else { continue }
+                let above = (p.upper - p.mgdl) / shown, below = (p.mgdl - p.lower) / shown
+                guard above > 0.5, below > 0.5 else { continue }
+                let e = actual - p.mgdl
+                ratios[r.basis, default: []].append(e >= 0 ? e / above : -e / below)
+            }
+        }
+        func needed(_ xs: [Double]) -> Double {
+            min(ForecastRangeScale.maximum, max(1, EngineMath.quantile(xs.sorted(), 0.8)))
+        }
+        let pooled = ratios.values.flatMap { $0 }
+        guard pooled.count >= Self.minimumForRange else { return ForecastRangeScale(byBasis: [:], checks: pooled.count) }
+        let overall = needed(pooled)
+        var out: [ForecastBasis: Double] = [:]
+        for basis in ForecastBasis.allCases {
+            let xs = ratios[basis] ?? []
+            out[basis] = xs.count >= Self.minimumForRange ? needed(xs) : overall
+        }
+        return ForecastRangeScale(byBasis: out, checks: pooled.count)
     }
 
     private static func anyLog(in sorted: [Date], after start: Date, before end: Date) -> Bool {
@@ -210,6 +254,13 @@ enum ForecastAccuracyText {
             return "Trend timing: the standard one still forecasts you best, checked on \(t.checks) past forecast points."
         }
         return "Trend timing: standard for now. After \(ForecastTuner.minimumChecks) past forecast points GlucOS tries other timings and switches only if one is clearly better (\(t.checks) so far)."
+    }
+
+    /// Why the range is wider than the replay alone would make it. Nil when it isn't.
+    static func rangeLine(_ s: ForecastRangeScale) -> String? {
+        guard s.isWidened else { return nil }
+        let pct = Int(((s.largest - 1) * 100).rounded())
+        return "The likely range is drawn \(pct)% wider than the replay suggests, because readings landed outside it more than 1 time in 5 across the last \(s.checks) forecast points shown here."
     }
 
     /// "At 30 minutes ahead: ±0.8 mmol/L this week, ±1.0 in the 3 weeks before. Getting better."

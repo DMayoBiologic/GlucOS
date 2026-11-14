@@ -11,6 +11,9 @@ struct OutlookModel: Hashable {
     var morning: MorningPattern = .empty
     /// The trend timing tuned to this user's history, and how much it helped.
     var tuning: ForecastTuningResult = .untuned
+    /// How much wider the likely range is drawn, from how the forecasts shown on this device
+    /// actually did (`ForecastLedger.rangeScale`). Set by the app from its forecast log.
+    var rangeScale: ForecastRangeScale = .unchanged
 
     static let empty = OutlookModel(profile: .empty, calibration: nil, patterns: [], learnedAt: .distantPast)
 }
@@ -59,6 +62,7 @@ enum OutlookEngine {
     /// The slow part: effect profile, forecast accuracy and recurring patterns.
     static func learn(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
                       low: Double, high: Double, now: Date = Date(), calendar: Calendar = .current) -> OutlookModel {
+        let meals = LogCleanup.mealsWithoutRepeats(meals)
         let profile = EffectProfileLearner.learn(readings: readings, doses: doses, meals: meals, contexts: contexts,
                                                  low: low, now: now, calendar: calendar)
         // Each replayed forecast uses a profile fitted without the stretch it's checked against.
@@ -80,11 +84,12 @@ enum OutlookEngine {
     /// The quick part, run on every new reading. `readings` only needs the last hour or so.
     static func outlook(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
                         model: OutlookModel, now: Date = Date()) -> Outlook {
+        let meals = LogCleanup.mealsWithoutRepeats(meals)
         let series = GlucoseSeries(readings)
         let input = ForecastInputs(readings: series, doses: doses, meals: meals, contexts: contexts,
                                    profile: model.profile, calibration: model.calibration,
                                    morning: model.morning.isUsable ? model.morning : nil,
-                                   tuning: model.tuning.tuning, now: now)
+                                   tuning: model.tuning.tuning, rangeScale: model.rangeScale, now: now)
         let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
         return Outlook(at: now,
                        forecast: GlucoseForecaster.forecast(input),

@@ -59,6 +59,40 @@ select * from glucos.forecast_points order by issued_at desc limit 100;
   It is re-run with every relearn, so it can move again, or go back to the standard timing.
 - **Range and horizon** follow the replay, so they tighten as accuracy improves and widen if it
   slips.
-- **Mornings**: see [Mornings.md](Mornings.md).
+- **Range from what was shown**: the replay's range can be more confident than the forecasts
+  turn out to be live (and model forecasts use the cautious default until they're checked). Each
+  device checks the forecasts it actually showed (`ForecastLedger.rangeScale`): once there are 40
+  scored points from the last 14 days, it widens the range until it would have held 4 readings
+  in 5, per kind of forecast (or across both kinds while one has fewer than 40). It never narrows
+  the range and widens it at most 2.5 times. Each point is measured against its range before any
+  earlier widening, so the figure settles instead of compounding. The Outlook page says when the
+  range has been widened. The forecast line itself never moves.
+- **Short history**: the held-out profiles for the replay split the history there actually is into
+  5 stretches, so a new user's insulin-and-carb forecasts get checked (and given a measured range
+  and horizon) within days rather than after 30.
+
+## 4. The logbook as the engine sees it
+
+`LogCleanup.mealsWithoutRepeats` drops a meal that repeats one logged within the previous 45
+minutes: same food (same description, or the same foods picked from the list) and carbs within
+10%. The earliest entry is kept. This catches one meal logged on two devices, which otherwise
+doubles the carbs in the forecast and in "carbs on board" and halves the carb effect the learner
+fits. Meals without carbs are never merged. The logbook itself is never changed.
+
+Measured on 14 Nov 2026 by replaying the Swift engine over the readings and logbook on the server
+(3.8 days):
+
+| | Before | After |
+| --- | --- | --- |
+| Learnt insulin effect | 12.4 ± 4.6 mg/dL per unit, not reliable | 19.2 ± 4.7, reliable |
+| Learnt carb effect | 1.2 ± 0.6 mg/dL per gram, not reliable | 2.8 ± 0.8, reliable |
+| Forecast while insulin or carbs act | trend only, 30 min | insulin and carbs, checked, 60 min |
+| Error at 60 min while insulin or carbs act | not checked | ±30.7 mg/dL (no change: ±34.3) |
+
+One repeated breakfast was what kept both effects below the reliability bar. The forecasts shown
+on the Mac had landed inside their range 64–69% of the time at 30–60 minutes, against the 80% the
+range promises; the iPhone's trend forecasts 63–68%.
+
+Mornings: see [Mornings.md](Mornings.md).
 
 The push relay's Live Activity forecast is still the standard trend-only one.
