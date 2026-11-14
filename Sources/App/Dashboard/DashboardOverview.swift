@@ -65,9 +65,11 @@ struct OverviewSection: View {
                                    forecast: drawsForecast ? (snapshot.currentOutlook(at: context.date)?.forecast ?? []) : [],
                                    forecastBasis: snapshot.outlook?.basis)
                     }
-                    .id("\(data.range.rawValue)-\(data.isLive ? "live" : String(data.domain.upperBound.timeIntervalSince1970))")
+                    .id(data.periodKey)
                 }
             }
+            // A new period wipes in from the left (docs/Redesign.md §8.3).
+            .chartWipe(data.periodKey)
             // Room above for the header, and below for the top of the next row of cards.
             .frame(height: layout.chartHeight(reserving: (layout.widthClass == .compact ? 470 : 330) + (showsOnBoard ? 150 : 0)))
             .dashboardCard()
@@ -152,6 +154,8 @@ private struct OverviewHeader: View {
                              goal: "goal under 4%", periodNoun: noun,
                              help: "Share of readings below \(data.unit.format(mgdl: data.lowMgdl, withUnit: true)).")
             }
+            // The numbers roll to the new period's values (docs/Redesign.md §8.3).
+            .dsAnimation(.emphasized, value: data.periodKey)
         }
     }
 }
@@ -209,7 +213,7 @@ private struct CurrentReadingPanel: View {
         return VStack(alignment: .leading, spacing: DS.Space.md) {
             HStack(spacing: DS.Space.sm - 2) {
                 Eyebrow(title: isLive ? "Current reading" : "Now", systemImage: isLive ? nil : "clock")
-                if let range = snapshot.range, snapshot.current != nil { RangeBadge(range: range, stale: stale) }
+                if let range = snapshot.range, snapshot.current != nil { RangeBadgeSwap(range: range, stale: stale) }
             }
             if let cur = snapshot.current {
                 HStack(alignment: .center, spacing: DS.Space.lg) {
@@ -223,6 +227,7 @@ private struct CurrentReadingPanel: View {
                                 .contentTransition(.numericText(value: cur.mgdl))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.55)
+                                .staleStrike(stale)
                             Text(snapshot.unit.label)
                                 .dsFont(.unit)
                                 .foregroundStyle(.secondary)
@@ -264,7 +269,8 @@ private struct CurrentReadingPanel: View {
         // slowly while it's fresh. A window you look at, so it may move; never under Reduce Motion.
         .background {
             RangeField(tone: snapshot.displayTone(at: now),
-                       rapid: !stale && (snapshot.current?.trend.isRapid ?? false), live: isLive)
+                       rapid: !stale && (snapshot.current?.trend.isRapid ?? false), live: isLive,
+                       range: stale ? nil : snapshot.range)
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
         }
         .help(isLive ? "" : "This is your current reading. The numbers beside it are for the earlier period you're viewing.")

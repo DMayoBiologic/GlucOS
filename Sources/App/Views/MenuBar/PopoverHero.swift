@@ -69,7 +69,7 @@ struct PopoverHero: View {
             // it only sweeps to a new colour when the range changes.
             ZStack {
                 DSSurface(style: .hero(tone), radius: PopoverLayout.heroRadius)
-                RangeField(tone: tone, intensity: 0.8)
+                RangeField(tone: tone, intensity: 0.8, range: stale ? nil : s.range)
                     .clipShape(shape)
             }
         }
@@ -94,7 +94,7 @@ struct PopoverHero: View {
 
     private func statusRow(stale: Bool) -> some View {
         HStack(spacing: 6) {
-            if let range = s.range { RangeBadge(range: range, stale: stale) }
+            if let range = s.range { RangeBadgeSwap(range: range, stale: stale) }
             if let streak = s.rangeStreak(), streak.duration >= 5 * 60 {
                 Text("for \(streak.isOpenEnded ? "over " : "")\(PopoverFormat.streak(streak.duration))")
                     .dsFont(.label)
@@ -118,16 +118,8 @@ struct PopoverHero: View {
                 .monospacedDigit()
                 .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(numberStyle(tint)))
                 // A stale value is crossed through lightly, so it can't be read as current even in
-                // a quick glance or a screenshot.
-                .overlay(alignment: .center) {
-                    if stale {
-                        Capsule()
-                            .fill(Color.secondary.opacity(0.7))
-                            .frame(height: 3)
-                            .rotationEffect(.degrees(-8))
-                            .padding(.horizontal, -2)
-                    }
-                }
+                // a quick glance or a screenshot. The line draws across as the data goes stale.
+                .staleStrike(stale)
                 .contentTransition(.numericText(value: cur.mgdl))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
