@@ -11,7 +11,7 @@ struct PhoneInsightsRow: View {
             HStack(spacing: DS.Space.md) {
                 if let stats = store.glanceStats(.day) {
                     let unit = store.snapshot.unit
-                    TimeInRangeRing(stats: stats, lineWidth: 5, showsLabel: false)
+                    TimeInRangeRing(stats: stats, lineWidth: 5, showsLabel: false, drawsIn: true)
                         .frame(width: 40, height: 40)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text("Insights").dsFont(.label).foregroundStyle(.secondary)
@@ -56,10 +56,10 @@ struct PhoneInsightsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: DS.Space.lg) {
-                PhoneGlanceCard()
-                PhoneDaysCard()
-                PhoneMorningCard(outlook: store.outlook)
-                PhoneForecastAccuracyCard(outlook: store.outlook)
+                PhoneGlanceCard().dsEntrance(0)
+                PhoneDaysCard().dsEntrance(1)
+                PhoneMorningCard(outlook: store.outlook).dsEntrance(2)
+                PhoneForecastAccuracyCard(outlook: store.outlook).dsEntrance(3)
                 Text("Mornings and forecast accuracy appear once GlucOS has enough wake-ups and forecasts to report on.")
                     .dsFont(.caption)
                     .foregroundStyle(.tertiary)

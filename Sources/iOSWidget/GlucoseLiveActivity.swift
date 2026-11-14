@@ -24,6 +24,7 @@ struct GlucoseLiveActivity: Widget {
                         Text(state.valueText)
                             .font(.system(size: 40, weight: .bold, design: .rounded))
                             .monospacedDigit()
+                            .contentTransition(.numericText(value: state.mgdl))
                             .foregroundStyle(tint)
                             .strikethrough(stale, color: .secondary)
                             .minimumScaleFactor(0.6)
@@ -74,16 +75,19 @@ struct GlucoseLiveActivity: Widget {
                 Text(state.valueText)
                     .font(.system(.body, design: .rounded).weight(.bold))
                     .monospacedDigit()
+                    .contentTransition(.numericText(value: state.mgdl))
                     .foregroundStyle(tint)
                     .strikethrough(stale, color: .secondary)
             } compactTrailing: {
                 Image(systemName: stale ? "clock.badge.exclamationmark" : state.glucoseTrend.systemImage)
                     .font(.body.weight(.bold))
+                    .contentTransition(.symbolEffect(.replace))
                     .foregroundStyle(tint)
             } minimal: {
                 Text(state.valueText)
                     .font(.system(.caption, design: .rounded).weight(.bold))
                     .monospacedDigit()
+                    .contentTransition(.numericText(value: state.mgdl))
                     .foregroundStyle(tint)
                     .minimumScaleFactor(0.6)
             }
@@ -124,6 +128,7 @@ struct LockScreenGlucoseCard: View {
                         Text(state.valueText)
                             .font(.system(size: 46, weight: .bold, design: .rounded))
                             .monospacedDigit()
+                            .contentTransition(.numericText(value: state.mgdl))
                             .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
                             .strikethrough(stale, color: .secondary)
                             .lineLimit(1)
@@ -131,6 +136,7 @@ struct LockScreenGlucoseCard: View {
                         if !stale {
                             Image(systemName: state.glucoseTrend.systemImage)
                                 .font(.system(size: 22, weight: .heavy))
+                                .contentTransition(.symbolEffect(.replace))
                                 .foregroundStyle(tone.color)
                         }
                     }

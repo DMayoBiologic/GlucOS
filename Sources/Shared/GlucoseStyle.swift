@@ -108,6 +108,7 @@ struct TimeInRangeBar: View {
         .frame(height: height)
         .background(.quaternary, in: Capsule())
         .clipShape(Capsule())
+        .dsAnimation(.emphasized, value: stats.timeInRange)
         .accessibilityElement()
         .accessibilityLabel("Time in range")
         .accessibilityValue("\(Format.percent(stats.timeInRange)) in range, \(Format.percent(stats.timeBelowRange)) below, \(Format.percent(stats.timeAboveRange)) above")

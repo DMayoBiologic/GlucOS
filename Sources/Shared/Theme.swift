@@ -296,11 +296,34 @@ struct TrendDial: View {
                 Circle()
                     .strokeBorder(tint.opacity(0.35), lineWidth: 1)
                     .padding(-4)
+                RapidHalo(tint: tint)
             }
         }
         .frame(width: size, height: size)
         .accessibilityElement()
         .accessibilityLabel(trend.description)
+    }
+}
+
+/// A slow ring that swells out of the dial while glucose is changing fast, so a rapid rise or
+/// fall reads as urgent at a glance. Holds still (the plain outline above) under Reduce Motion
+/// and in widgets, where the first phase is what's drawn.
+private struct RapidHalo: View {
+    let tint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if !reduceMotion {
+            Circle()
+                .strokeBorder(tint.opacity(0.5), lineWidth: 1.5)
+                .padding(-4)
+                .phaseAnimator([false, true]) { content, out in
+                    content.scaleEffect(out ? 1.22 : 1).opacity(out ? 0 : 0.7)
+                } animation: { out in
+                    out ? .easeOut(duration: 1.8) : .linear(duration: 0.01)
+                }
+                .allowsHitTesting(false)
+        }
     }
 }
 
@@ -314,21 +337,30 @@ struct TimeInRangeRing: View {
     var lineWidth: CGFloat = 10
     var showsLabel: Bool = true
     var caption: String = "in range"
+    /// Sweeps the arcs in from 12 o'clock when the ring first appears. Off by default so a
+    /// widget (where nothing animates) never renders an empty ring.
+    var drawsIn: Bool = false
+    @State private var progress: Double = 1
 
-    init(stats: GlucoseStats, lineWidth: CGFloat = 10, showsLabel: Bool = true) {
+    init(stats: GlucoseStats, lineWidth: CGFloat = 10, showsLabel: Bool = true, drawsIn: Bool = false) {
         segments = [(stats.timeBelowRange, GlucoseRange.low.tint),
                     (stats.timeInRange, GlucoseRange.inRange.tint),
                     (stats.timeAboveRange, GlucoseRange.high.tint)]
         inRange = stats.timeInRange
         self.lineWidth = lineWidth
         self.showsLabel = showsLabel
+        self.drawsIn = drawsIn
+        _progress = State(initialValue: drawsIn ? 0 : 1)
     }
 
-    init(segments: [(fraction: Double, color: Color)], inRange: Double, lineWidth: CGFloat = 10, showsLabel: Bool = true) {
+    init(segments: [(fraction: Double, color: Color)], inRange: Double, lineWidth: CGFloat = 10,
+         showsLabel: Bool = true, drawsIn: Bool = false) {
         self.segments = segments
         self.inRange = inRange
         self.lineWidth = lineWidth
         self.showsLabel = showsLabel
+        self.drawsIn = drawsIn
+        _progress = State(initialValue: drawsIn ? 0 : 1)
     }
 
     private var arcs: [(start: Double, end: Double, color: Color)] {
@@ -353,7 +385,7 @@ struct TimeInRangeRing: View {
                 .stroke(Color.primary.opacity(0.07), lineWidth: lineWidth)
             ForEach(Array(arcs.enumerated()), id: \.offset) { _, arc in
                 Circle()
-                    .trim(from: arc.start, to: arc.end)
+                    .trim(from: arc.start * progress, to: arc.end * progress)
                     .stroke(arc.color.gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
@@ -362,6 +394,7 @@ struct TimeInRangeRing: View {
                     Text(Format.percent(inRange))
                         .font(.system(.title3, design: .rounded).weight(.bold))
                         .monospacedDigit()
+                        .contentTransition(.numericText(value: inRange))
                         .minimumScaleFactor(0.6)
                         .lineLimit(1)
                     Text(caption)
@@ -374,6 +407,9 @@ struct TimeInRangeRing: View {
             }
         }
         .padding(lineWidth / 2)
+        // A new period or new readings slide the arcs to their new lengths.
+        .dsAnimation(.emphasized, value: inRange)
+        .modifier(DrawIn(enabled: drawsIn, progress: $progress))
         .accessibilityElement()
         .accessibilityLabel("Time in range")
         .accessibilityValue("\(Format.percent(inRange)) in range")
@@ -387,16 +423,29 @@ struct ProgressRing: View {
     let fraction: Double
     var tint: Color
     var lineWidth: CGFloat = 4
+    /// Sweeps in from empty when it first appears (app screens only, never widgets).
+    var drawsIn: Bool = false
+    @State private var progress: Double
+
+    init(fraction: Double, tint: Color, lineWidth: CGFloat = 4, drawsIn: Bool = false) {
+        self.fraction = fraction
+        self.tint = tint
+        self.lineWidth = lineWidth
+        self.drawsIn = drawsIn
+        _progress = State(initialValue: drawsIn ? 0 : 1)
+    }
 
     var body: some View {
         ZStack {
             Circle().stroke(Color.primary.opacity(0.08), lineWidth: lineWidth)
             Circle()
-                .trim(from: 0, to: max(0.001, min(1, fraction)))
+                .trim(from: 0, to: max(0.001, min(1, fraction)) * progress)
                 .stroke(tint.gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .padding(lineWidth / 2)
+        .dsAnimation(.emphasized, value: fraction)
+        .modifier(DrawIn(enabled: drawsIn, progress: $progress))
     }
 }
 

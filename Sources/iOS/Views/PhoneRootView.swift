@@ -118,16 +118,17 @@ struct PhoneHomeView: View {
             ScrollView {
                 VStack(spacing: DS.Space.lg) {
                     PhoneBanners(showsSettings: $showsSettings)
-                    PhoneHeroCard()
-                    ForEach(follows.follows) { PhoneFollowingCard(follow: $0) }
-                    PhoneOnBoardCard()
-                    PhoneChartCard()
-                    PhoneLogbookCard()
+                    // Cards assemble top to bottom on launch rather than popping in at once.
+                    PhoneHeroCard().dsEntrance(0)
+                    ForEach(follows.follows) { PhoneFollowingCard(follow: $0).dsEntrance(1) }
+                    PhoneOnBoardCard().dsEntrance(1)
+                    PhoneChartCard().dsEntrance(2)
+                    PhoneLogbookCard().dsEntrance(3)
                     // Time in range, mornings and forecast accuracy live one tap away, so the
                     // logbook isn't pushed below three cards of statistics.
-                    PhoneInsightsRow()
+                    PhoneInsightsRow().dsEntrance(4)
                     if let sensor = store.snapshot.sensor {
-                        PhoneSensorCard(sensor: sensor)
+                        PhoneSensorCard(sensor: sensor).dsEntrance(5)
                     }
                     Text("Not a medical device. Confirm readings and alerts with your sensor app before acting.")
                         .dsFont(.caption)
