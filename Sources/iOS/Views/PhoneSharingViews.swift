@@ -487,6 +487,7 @@ struct FollowerSettingsView: View {
 struct FollowingSettingsSection: View {
     @EnvironmentObject var follows: FollowStore
     @State private var showsAdd = false
+    @State private var stopping: Follow?
 
     var body: some View {
         Section {
@@ -505,7 +506,7 @@ struct FollowingSettingsSection: View {
                                                    set: { on in Task { await follows.setAlerts(on, for: f) } }))
                 }
                 .swipeActions {
-                    Button("Stop Following", role: .destructive) { Task { await follows.remove(f) } }
+                    Button("Stop Following", role: .destructive) { stopping = f }
                 }
             }
             Button("Follow Someone…", systemImage: "plus") { showsAdd = true }
@@ -515,5 +516,12 @@ struct FollowingSettingsSection: View {
             Text("Readings people have shared with you. Alerts are their lows, highs and missing data, sent even when GlucOS is closed. Swipe to stop following.")
         }
         .sheet(isPresented: $showsAdd) { NavigationStack { AddFollowView() } }
+        .confirmationDialog("Stop following \(stopping?.label ?? "")?",
+                            isPresented: Binding(get: { stopping != nil }, set: { if !$0 { stopping = nil } }),
+                            titleVisibility: .visible, presenting: stopping) { f in
+            Button("Stop Following", role: .destructive) { Task { await follows.remove(f) } }
+        } message: { _ in
+            Text("Their card and alerts go from this iPhone. To follow again you'll need a new link from them.")
+        }
     }
 }

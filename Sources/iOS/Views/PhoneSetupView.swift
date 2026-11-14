@@ -66,7 +66,8 @@ struct PhoneSetupView: View {
                 }
             }
         }
-        .interactiveDismissDisabled(step != .done)
+        // Closed only by its buttons, so finishing is always recorded.
+        .interactiveDismissDisabled()
         .task(id: step) {
             if step == .alerts { notificationsAllowed = await AlertManager.notificationsAllowed() }
         }

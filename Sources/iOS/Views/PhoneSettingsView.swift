@@ -114,14 +114,15 @@ struct PhoneSignInView: View {
         focus = nil
         working = true
         problem = nil
+        // Before the result: if the account is saved but the first fetch fails, home still
+        // appears, and the setup should come with it. It only shows once home does.
+        PhoneSetupView.markPendingIfNew()
         Task {
             problem = await store.signIn(email: email.trimmingCharacters(in: .whitespaces), password: password, region: region)
             working = false
             if problem == nil {
                 Haptics.success()
                 UserDefaults.standard.set(PhoneMode.sensor.rawValue, forKey: "phoneMode")
-                // The first sign-in on this iPhone carries on into a short setup.
-                PhoneSetupView.markPendingIfNew()
                 if onFollowInstead == nil { dismiss() }
             }
         }

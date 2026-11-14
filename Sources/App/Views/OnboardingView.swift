@@ -264,7 +264,7 @@ struct OnboardingView: View {
                 FlowPanel {
                     FollowerAccountHelp()
                 }
-                Text("Your password is stored in the macOS Keychain. It goes to Abbott to sign in, and once to the GlucOS sync server so your logbook can sync with your iPhone, which doesn't keep it.")
+                Text("Your password is stored in the macOS Keychain. It goes to Abbott to sign in, and to the GlucOS sync server when it signs your logbook in to sync with your iPhone. The sync server doesn't keep it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -274,7 +274,7 @@ struct OnboardingView: View {
         .task {
             // Straight into typing, at the field that's still empty.
             try? await Task.sleep(nanoseconds: 350_000_000)
-            if !connected { focus = email.isEmpty ? .email : .password }
+            if !connected && focus == nil { focus = email.isEmpty ? .email : .password }
         }
     }
 
