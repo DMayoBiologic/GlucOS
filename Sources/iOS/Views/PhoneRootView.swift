@@ -160,7 +160,8 @@ struct PhoneHomeView: View {
             }
             .background {
                 PhoneBackdrop(tone: store.snapshot.displayTone(),
-                              rapid: !store.snapshot.isStale() && (store.snapshot.current?.trend.isRapid ?? false))
+                              rapid: !store.snapshot.isStale() && (store.snapshot.current?.trend.isRapid ?? false),
+                              range: store.snapshot.isStale() ? nil : store.snapshot.range)
             }
             // Once the stage's value has scrolled under the bar, the bar's title becomes the reading.
             .onScrollGeometryChange(for: Bool.self) { geo in
@@ -231,12 +232,15 @@ struct PhoneBackdrop: View {
     let tone: Tone
     /// The trend is rapid: the field drifts a little faster.
     var rapid: Bool = false
+    /// The current range, so a range change sweeps the new colour in from the side it came from
+    /// (docs/Redesign.md §4.2). Nil when stale or on screens that aren't about the reading.
+    var range: GlucoseRange? = nil
 
     var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemGroupedBackground)
             // The range field the stage sits on (docs/Redesign.md §5.1), fading into the page.
-            RangeField(tone: tone, rapid: rapid, live: true)
+            RangeField(tone: tone, rapid: rapid, live: true, range: range)
                 .frame(height: 520)
                 .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.45),
                                              .init(color: .clear, location: 1)],
@@ -261,7 +265,7 @@ private struct PhoneTitleReading: View {
                     .font(.system(.headline, design: .rounded).weight(.bold))
                     .monospacedDigit()
                     .contentTransition(.numericText(value: cur.mgdl))
-                    .strikethrough(stale, color: .secondary)
+                    .staleStrike(stale, thickness: 2)
                 Image(systemName: stale ? "clock.badge.exclamationmark" : cur.trend.systemImage)
                     .font(.subheadline.weight(.bold))
                     .contentTransition(.symbolEffect(.replace))
