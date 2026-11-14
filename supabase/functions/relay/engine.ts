@@ -173,7 +173,9 @@ export interface Tx {
 }
 
 export interface Store {
-  transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
+  /// `readOnly` neither locks the relay row nor writes it back: a status read mustn't wait behind
+  /// a tick that holds the row while it sends pushes.
+  transaction<T>(fn: (tx: Tx) => Promise<T>, options?: { readOnly?: boolean }): Promise<T>;
   /// Only one tick at a time: false while another holds the lease.
   /// A token for the lease, or null when another tick holds it.
   claimTick(now: number, seconds: number): Promise<string | null>;
@@ -348,7 +350,8 @@ export class RelayEngine {
 
   async status(): Promise<RelayStatus> {
     return await this.attachCheckIn(
-      await this.store.transaction(async (tx) => this.statusOf(tx.row, (await tx.account()) !== null)),
+      await this.store.transaction(async (tx) => this.statusOf(tx.row, (await tx.account()) !== null),
+        { readOnly: true }),
     );
   }
 

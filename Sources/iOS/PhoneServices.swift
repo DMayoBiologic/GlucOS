@@ -30,7 +30,9 @@ final class PhoneServices: ObservableObject {
         }
     }
     @Published private(set) var relayStatus: RelayStatus?
+    /// Shown in the banner and Settings only once the relay has stayed unreachable (`RelayHealth`).
     @Published private(set) var relayError: String?
+    private var relayHealth = RelayHealth()
     @Published private(set) var isSyncingRelay = false
     @Published private(set) var pushRegistrationError: String?
 
@@ -200,6 +202,7 @@ final class PhoneServices: ObservableObject {
         await claimRelayIfOwner()
         guard relaySettings.isConfigured else {
             relayStatus = nil
+            relayHealth = RelayHealth()
             relayError = nil
             return
         }
@@ -261,9 +264,7 @@ final class PhoneServices: ObservableObject {
             apply(try await client.register(r))
             return true
         } catch {
-            relayError = error.localizedDescription
-            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "register", error: error)
-            relayStatus = nil
+            failed(error, step: "register")
             return false
         }
     }
@@ -272,10 +273,20 @@ final class PhoneServices: ObservableObject {
         guard let client = relaySettings.client else { return }
         lastStatusCheck = Date()
         do { apply(try await client.status()) } catch {
-            relayError = error.localizedDescription
-            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "status", error: error)
-            relayStatus = nil
+            failed(error, step: "status")
         }
+    }
+
+    /// A call failed even after the client's retries. A network failure keeps the last status: it
+    /// still says whether the relay was fetching, and `isDeliveringAlerts` lets it lapse after 5
+    /// minutes, so the phone takes over alerts by itself if the relay really has gone quiet.
+    private func failed(_ error: Error, step: String) {
+        if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+        let transient = relayHealth.failed(error, message: error.localizedDescription)
+        relayError = relayHealth.visibleError
+        Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: step, error: error,
+                                  context: ["consecutive": String(relayHealth.consecutiveFailures)])
+        if !transient { relayStatus = nil }
     }
 
     /// Keeps the relay's status fresh while the app is fetching, at most once a minute.
@@ -295,6 +306,7 @@ final class PhoneServices: ObservableObject {
         // While the relay is fetching and can reach this phone it sends the alerts, even when the
         // app is closed, and `deliversLocally` stands down so they don't arrive twice.
         relayStatus = status
+        relayHealth.succeeded()
         relayError = nil
         lastStatusCheck = Date()
     }

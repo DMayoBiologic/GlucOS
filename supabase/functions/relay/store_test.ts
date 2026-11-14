@@ -68,6 +68,32 @@ Deno.test({
       assertEquals(status.lastFetchAt, now);
       assertEquals(status.lastReadingAt, now - 30);
 
+      // A status read doesn't wait for (or write) the row a tick holds while it sends pushes.
+      const held = connect(url);
+      try {
+        let release = () => {};
+        const holding = new Promise<void>((r) => { release = r; });
+        let locked = () => {};
+        const isLocked = new Promise<void>((r) => { locked = r; });
+        const tx = held.begin(async (s) => {
+          await s`select 1 from glucos.relay where id = 1 for update`;
+          locked();
+          await holding;
+        });
+        await isLocked;
+        const before = (await sql`select updated_at::text as u from glucos.relay where id = 1`)[0].u;
+        const read = await Promise.race([
+          again.status(),
+          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+        ]);
+        release();
+        await tx;
+        assertEquals(read?.lastFetchAt, now);
+        assertEquals((await sql`select updated_at::text as u from glucos.relay where id = 1`)[0].u, before);
+      } finally {
+        await held.end();
+      }
+
       assert(await store.cronToken());
       const cache = store.tokenCache();
       await cache.set({ token: "jwt", issuedAt: now });
