@@ -191,12 +191,14 @@ enum BolusNotice: Hashable {
     case trendLowered
     case trendRaised
     case notComingDown(units: Double, minutesAgo: Int)
+    case possibleRepeat(units: Double, minutesAgo: Int)
     case reduced(percent: Int)
 
     var level: BolusNoticeLevel {
         switch self {
         case .notSetUp, .turnedOff, .invalidSettings, .carbsOutOfRange, .low, .fallingTowardsLow: return .stop
-        case .fallingFast, .noReading, .staleReading, .recentLow, .veryHigh, .capped, .notComingDown: return .caution
+        case .fallingFast, .noReading, .staleReading, .recentLow, .veryHigh, .capped, .notComingDown, .possibleRepeat:
+            return .caution
         case .recentBolus, .exercise, .pumpInsulinOnBoard, .manualGlucose, .trendLowered, .trendRaised, .reduced:
             return .info
         }
@@ -242,6 +244,8 @@ enum BolusNotice: Hashable {
             return "Glucose is rising, so the dose allows for where it's heading in the next 30 minutes (turned on in your settings)."
         case .notComingDown(let u, let m):
             return "Glucose is higher now than when you took \(LogFormat.units(u)) \(m) minutes ago. Check your pump site or pen and needle, and check for ketones. If you use a pump, consider an injection by pen."
+        case .possibleRepeat(let u, let m):
+            return "You took \(LogFormat.units(u)) for about the same carbs \(m) minutes ago. If this is the same meal, don't dose again. That dose only counts as insulin on board against a correction."
         case .reduced(let p):
             return "Reduced by \(p)% for exercise, as you chose."
         }
@@ -452,6 +456,7 @@ enum BolusCalculator {
         if let g = glucose, let stuck = notComingDown(from: r.doses, readings: sorted, glucose: g, now: r.now) {
             notices.append(stuck)
         }
+        if let again = possibleRepeat(carbs: r.carbs, doses: r.doses, now: r.now) { notices.append(again) }
         if r.therapy == .pump { notices.append(.pumpInsulinOnBoard) }
 
         return BolusSuggestion(at: r.now, block: block, carbs: r.carbs, glucose: glucose, ratePerMinute: rate,
@@ -460,6 +465,23 @@ enum BolusCalculator {
                                insulinOnBoard: iob, insulinOnBoardApplied: iobApplied,
                                reduction: reduction, reductionUnits: reductionUnits, calculated: total,
                                units: final, increment: settings.increment, notices: notices)
+    }
+
+    /// How far back, and how close in carbs, a dose from the calculator counts as maybe the same meal.
+    static let repeatWindow: TimeInterval = 45 * 60
+    static let repeatCarbShare = 0.10
+
+    /// A calculator dose for about the same carbs in the last 45 minutes: the meal may have been logged
+    /// twice (e.g. on the Mac and the iPhone), and a second full food dose would double it.
+    static func possibleRepeat(carbs: Double, doses: [InsulinDose], now: Date) -> BolusNotice? {
+        guard carbs >= 5 else { return nil }
+        let match = doses.filter { d in
+            guard let c = d.calculation, c.carbs > 0, d.kind.isBolus else { return false }
+            let age = now.timeIntervalSince(d.timestamp)
+            return age >= 0 && age <= repeatWindow && abs(c.carbs - carbs) <= repeatCarbShare * max(c.carbs, carbs)
+        }.max { $0.timestamp < $1.timestamp }
+        guard let match else { return nil }
+        return .possibleRepeat(units: match.units, minutesAgo: Int((now.timeIntervalSince(match.timestamp) / 60).rounded()))
     }
 
     /// A high that hasn't come down since a fast-acting dose 1½–4 hours ago, taken when glucose was

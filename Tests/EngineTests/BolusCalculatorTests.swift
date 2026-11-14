@@ -307,6 +307,31 @@ final class BolusCalculatorTests: XCTestCase {
         XCTAssertFalse(suggest(carbs: 40, readings: moving(to: 95, rate: -0.8)).isBlocked)
     }
 
+    // MARK: The same meal twice
+
+    func calculatorDose(carbs: Double, units: Double, minutesAgo: Double) -> InsulinDose {
+        var d = bolus(units, minutesAgo: minutesAgo)
+        d.calculation = BolusCalculation(suggest(carbs: carbs, readings: steady(100)))
+        return d
+    }
+
+    func testSameCarbsDosedRecentlyIsFlagged() {
+        let s = suggest(carbs: 36, readings: steady(140), doses: [calculatorDose(carbs: 35.8, units: 6, minutesAgo: 12)])
+        XCTAssertTrue(s.notices.contains(.possibleRepeat(units: 6, minutesAgo: 12)))
+        XCTAssertEqual(s.level, .caution)
+    }
+
+    func testDifferentCarbsOrOlderDoseIsNotARepeat() {
+        func flagged(_ s: BolusSuggestion) -> Bool {
+            s.notices.contains { if case .possibleRepeat = $0 { return true } else { return false } }
+        }
+        XCTAssertFalse(flagged(suggest(carbs: 60, readings: steady(140), doses: [calculatorDose(carbs: 36, units: 6, minutesAgo: 12)])))
+        XCTAssertFalse(flagged(suggest(carbs: 36, readings: steady(140), doses: [calculatorDose(carbs: 36, units: 6, minutesAgo: 60)])))
+        XCTAssertFalse(flagged(suggest(carbs: 0, readings: steady(200), doses: [calculatorDose(carbs: 36, units: 6, minutesAgo: 12)])))
+        XCTAssertFalse(flagged(suggest(carbs: 36, readings: steady(140), doses: [bolus(6, minutesAgo: 12)])),
+                       "a dose without the calculator's working can't be matched to carbs")
+    }
+
     // MARK: High that isn't coming down
 
     /// Readings at `start` until `doseMinutesAgo`, then climbing to `end` now.
