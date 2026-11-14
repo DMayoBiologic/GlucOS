@@ -174,8 +174,9 @@ struct PhoneLogBar: View {
                             Text(item.title)
                         } icon: {
                             Image(systemName: item.systemImage)
-                                .symbolEffect(.bounce, value: taps[item.id, default: 0])
-                                .symbolEffect(.bounce.up, value: item.part == nil ? saves : 0)
+                                // One trigger: a tap, or (for the plus) a save. Held still under Reduce Motion.
+                                .symbolEffect(.bounce, value: reduceMotion ? 0
+                                              : taps[item.id, default: 0] + (item.part == nil ? saves : 0))
                         }
                             .labelStyle(LogBarLabelStyle())
                             .foregroundStyle(item.tint)
@@ -189,8 +190,6 @@ struct PhoneLogBar: View {
                 }
             }
         }
-        // Nothing bounces under Reduce Motion.
-        .symbolEffectsRemoved(reduceMotion)
         .onChange(of: router.request == nil) { _, closed in
             guard closed, router.savedSinceOpen else { return }
             router.savedSinceOpen = false
