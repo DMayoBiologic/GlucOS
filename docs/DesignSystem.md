@@ -10,6 +10,8 @@ Everything visual comes from `Sources/Shared/DesignSystem/` (compiled into the a
 4. **Spacing is in steps of 4** (`DS.Space`). Radii nest: a tile inside a card is one step smaller.
 5. **Nothing wraps letter by letter.** Single-line labels get `lineLimit(1)`, numbers get `minimumScaleFactor`, and rows that can run out of width use `DSAdaptiveRow`, which moves the accessory underneath.
 6. **Motion respects Reduce Motion.** Use `.dsAnimation(_:value:)`, `DS.animate(_:reduceMotion:)` and `DS.Transition.*`, never a bare `.animation` or `withAnimation`.
+7. **Haptics only mean something (iPhone).** Use `.sensoryFeedback`: `.selection` for scrubbing the chart and switching chart hours, `.warning` when a new reading crosses into a low, `.success` when it comes back into range. Never on first load, never for routine refreshes.
+8. **Charts show out-of-range time as a shape.** `GlucoseChart` fills between the trace and the high or low line it crossed, and fades the forecast band as it reaches further ahead. Its end-of-trace pulse only plays when `interactive` (app screens), never in widgets or the Live Activity.
 
 ## Tokens
 

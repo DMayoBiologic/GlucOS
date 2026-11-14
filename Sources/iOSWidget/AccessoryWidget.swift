@@ -73,7 +73,9 @@ struct AccessoryGlucoseView: View {
                         .monospacedDigit()
                         .minimumScaleFactor(0.5)
                         .strikethrough(freshness == .stale)
+                        .contentTransition(.numericText(value: s.current?.mgdl ?? 0))
                     Image(systemName: symbol).font(.system(size: 11, weight: .bold))
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .padding(4)
             }
@@ -86,7 +88,9 @@ struct AccessoryGlucoseView: View {
                         .font(.system(size: 26, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .strikethrough(freshness == .stale)
+                        .contentTransition(.numericText(value: s.current?.mgdl ?? 0))
                     Image(systemName: symbol).font(.system(size: 15, weight: .bold))
+                        .contentTransition(.symbolEffect(.replace))
                     Text(s.unit.label).font(.caption2).foregroundStyle(.secondary)
                 }
                 if freshness == .fresh, let o = s.currentOutlook(at: entry.date), let h = OutlookFormat.headlineSample(o) {
