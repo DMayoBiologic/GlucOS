@@ -79,6 +79,7 @@ counted). The glucose forecast is never used.
 | Above the maximum | Capped, and says so |
 | Very high (≥ 16.7 mmol/L) | Check ketones / site |
 | ≥ 13.9 mmol/L and no lower than at a fast-acting dose (≥ 0.5 u, taken at ≥ 11.1 mmol/L) 1½–4 h ago | Check site or pen, ketones; pump users consider a pen injection |
+| A calculator dose for carbs within 10% of these in the last 45 min | Possibly the same meal logged twice: don't dose again |
 | Low or hypo treatment in the last hour, recent bolus, exercise, pump user | Notes |
 
 **Use** only fills in the dose; logging it asks for confirmation, and the dose keeps the
