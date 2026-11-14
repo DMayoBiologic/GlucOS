@@ -15,7 +15,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.0.0";
+export const version = "2.0.1";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -23,6 +23,8 @@ export const rotateAfter = 7 * 3600 + 40 * 60;
 export const activityRefresh = 10 * 60;
 export const startRetry = 15 * 60;
 export const maxStartAttempts = 3;
+/// How many ended or replaced activity ids the relay remembers.
+export const retiredActivityMemory = 16;
 /// How often the forecast's accuracy is relearnt, and from how much history.
 export const relearnEvery = 3 * 3600;
 export const learnFromDays = 14;
@@ -92,6 +94,10 @@ export interface Work {
   followerCursor?: string | null;
   /// Wrong claims (`claim`) since `since`. Missing on old rows.
   claimFailures?: { count: number; since: number } | null;
+  /// Activities the relay has ended or replaced, newest last. A late registration from one of
+  /// them (its token upload was stuck behind a timeout) mustn't bring it back as a second card.
+  /// Missing on old rows.
+  retiredActivities?: string[];
 }
 
 export interface RelayRow {
@@ -256,12 +262,18 @@ export class RelayEngine {
         }
       }
 
+      // An ended card's token is never adopted again, whether or not the relay was updating it.
+      if (r.endedActivityID) this.retire(row, r.endedActivityID);
       if (r.endedActivityID && row.activity?.id === r.endedActivityID) {
         // The phone ended it, or it was swiped away. Don't put it back until the phone starts another.
         row.activity = null;
         row.pendingStart = false;
       }
-      if (r.activityID && r.activityToken) {
+      if (r.activityID && r.activityToken && !(row.work.retiredActivities ?? []).includes(r.activityID)) {
+        // The phone moved to another activity. It ends the old one itself (it knows which of its
+        // cards is newest; the relay only knows which registration came last), so here it's just
+        // retired, so a late upload of its token can't win it back.
+        if (row.activity && row.activity.id !== r.activityID) this.retire(row, row.activity.id);
         const startedAt = row.activity?.id === r.activityID ? row.activity.startedAt : now;
         row.activity = { id: r.activityID, token: r.activityToken, startedAt };
         row.pendingStart = false;
@@ -452,10 +464,13 @@ export class RelayEngine {
     row.startAttempts += 1;
     row.lastStartAttempt = now;
     // The new activity's own update token reaches the phone, which registers it here.
-    await this.push(row, {
+    const result = await this.push(row, {
       deviceToken: p2s, type: "liveactivity", topic: this.config.bundleId, priority: 10,
       payload: payloads.activity("start", card, now), expiration: now + 600, sandbox: row.prefs.sandbox,
     }, (r) => { delete r.prefs.pushToStartToken; });
+    // APNs took it, so iOS has started the card. Starting again because its registration is
+    // slow would put a second card on the Lock Screen: wait for the phone instead.
+    if (result.kind === "delivered") row.pendingStart = false;
   }
 
   private async endActivity(row: RelayRow, now: number) {
@@ -463,10 +478,16 @@ export class RelayEngine {
     if (!a) return;
     row.activity = null;
     row.work.lastCard = null;
+    this.retire(row, a.id);
     await this.push(row, {
       deviceToken: a.token, type: "liveactivity", topic: this.config.bundleId, priority: 10,
       payload: payloads.activity("end", null, now), sandbox: row.prefs.sandbox,
     }, () => {});
+  }
+
+  private retire(row: RelayRow, id: string) {
+    row.work.retiredActivities = [...(row.work.retiredActivities ?? []).filter((x) => x !== id), id]
+      .slice(-retiredActivityMemory);
   }
 
   // MARK: Sharing
@@ -608,6 +629,8 @@ export class RelayEngine {
       expiration: now + 600, sandbox: f.sandbox,
     });
     if (result.kind === "tokenInvalid") f.pushToStartToken = null;
+    // Delivered means iOS started it: don't start a second card while its registration is slow.
+    if (result.kind === "delivered") f.pendingStart = false;
     return true;
   }
 

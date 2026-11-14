@@ -167,6 +167,12 @@ final class PhoneServices: ObservableObject {
         r.pushToStartToken = pushToStartToken
         r.liveActivityEnabled = liveActivityEnabled
         r.apnsEnvironment = apnsEnvironment
+        // The card on the Lock Screen now, every time: a token upload lost to a timeout would
+        // otherwise leave the relay updating an older card (or starting a second one).
+        if liveActivityEnabled, let current = liveActivity.currentRegistration {
+            r.activityID = current.id
+            r.activityToken = current.token
+        }
         r.display = .init(unit: s.unit.rawValue, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl)
         r.alerts = s.alertPreferences
         if s.hasCredentials {
@@ -175,7 +181,8 @@ final class PhoneServices: ObservableObject {
         } else {
             r.signedOut = true
         }
-        guard force || r != lastRegistration || relayStatus == nil else { return }
+        let relayOnOtherCard = r.activityID != nil && relayStatus?.activityID != r.activityID
+        guard force || r != lastRegistration || relayStatus == nil || relayOnOtherCard else { return }
         if await send(r) { lastRegistration = r }
     }
 
