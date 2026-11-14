@@ -67,6 +67,18 @@ struct AccessoryGlucoseView: View {
         case .accessoryCircular:
             ZStack {
                 AccessoryWidgetBackground()
+                // The ring empties over the reading's life (docs/Redesign.md §9), live, with no
+                // timeline reload: a full ring is a fresh reading.
+                if freshness == .fresh, let c = s.current {
+                    ProgressView(timerInterval: c.timestamp...c.timestamp.addingTimeInterval(GlucoseSnapshot.staleAfter),
+                                 countsDown: true) {
+                        EmptyView()
+                    } currentValueLabel: {
+                        EmptyView()
+                    }
+                    .progressViewStyle(.circular)
+                    .labelsHidden()
+                }
                 VStack(spacing: 0) {
                     Text(value)
                         .font(.system(size: 20, weight: .bold, design: .rounded))
@@ -98,7 +110,15 @@ struct AccessoryGlucoseView: View {
                 } else if let range = s.range, freshness == .fresh {
                     Text(range.label).font(.caption)
                 }
-                Text(freshness == .fresh ? age : "Stale · \(age)").font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if let c = s.current, freshness.showsValue {
+                        RangeRail(mgdl: c.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: freshness != .fresh,
+                                  thickness: 3, monochrome: true, unit: s.unit)
+                            .frame(maxWidth: 64)
+                    }
+                    Text(freshness == .fresh ? age : "Stale · \(age)").font(.caption2).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .widgetAccentable()

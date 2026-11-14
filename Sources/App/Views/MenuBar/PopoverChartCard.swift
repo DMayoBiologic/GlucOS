@@ -88,15 +88,9 @@ struct PopoverChartCard: View {
         HStack(spacing: 8) {
             Eyebrow(title: "Last \(settings.chartHours) hours", systemImage: "waveform.path.ecg")
                 .accessibilityAddTraits(.isHeader)
-            Picker("Chart range", selection: $settings.chartHours) {
-                Text("3h").tag(3).accessibilityLabel("3 hours")
-                Text("6h").tag(6).accessibilityLabel("6 hours")
-                Text("12h").tag(12).accessibilityLabel("12 hours")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.mini)
-            .fixedSize()
+            SlidingSegments(selection: $settings.chartHours, options: [3, 6, 12]) { "\($0)h" }
+                .fixedSize()
+                .accessibilityLabel("Chart range")
             .help("Chart range (⌘1, ⌘2, ⌘3)")
             .overlay(alignment: .bottom) {
                 if showsShortcuts {

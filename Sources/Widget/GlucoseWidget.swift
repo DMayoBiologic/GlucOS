@@ -36,6 +36,7 @@ struct GlucoseWidget: Widget {
 
 struct GlucoseWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetRenderingMode) private var renderingMode
     let entry: GlucoseEntry
 
     private var s: GlucoseSnapshot { entry.snapshot }
@@ -58,6 +59,19 @@ struct GlucoseWidgetView: View {
     }
 
     private var chartCaption: String { "Last \(Int(hours))h" }
+
+    /// Where the reading sits between urgent low and very high (docs/Redesign.md §9), with the
+    /// forecast's ghost marker while the reading is fresh. One ink in accented / vibrant modes.
+    @ViewBuilder
+    private func rail(_ thickness: CGFloat, forecast: Bool = true) -> some View {
+        if let cur = s.current, entry.freshness.showsValue {
+            let stale = entry.freshness != .fresh
+            RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
+                      forecastMgdl: forecast && !stale
+                          ? s.currentOutlook(at: entry.date).flatMap(OutlookFormat.headlineSample)?.sample.mgdl : nil,
+                      thickness: thickness, monochrome: renderingMode != .fullColor, unit: s.unit)
+        }
+    }
 
     private func chart(axes: Bool, lineWidth: CGFloat = 2.25) -> some View {
         WidgetChart(snapshot: s, now: entry.date, hours: hours, tint: entry.tint, showsAxes: axes, lineWidth: lineWidth)
@@ -84,6 +98,8 @@ struct GlucoseWidgetView: View {
             HeroValue(entry: entry, size: 46)
             DetailLine(entry: entry, showsTrendWord: false)
                 .padding(.top, 1)
+            rail(4, forecast: false)
+                .padding(.top, 6)
         }
     }
 
@@ -103,6 +119,8 @@ struct GlucoseWidgetView: View {
                 HeroValue(entry: entry, size: 40)
                 DetailLine(entry: entry)
                     .padding(.top, 1)
+                rail(4)
+                    .padding(.top, 6)
             }
             .frame(minWidth: 112, maxWidth: 140, alignment: .leading)
 
@@ -127,6 +145,9 @@ struct GlucoseWidgetView: View {
                     StatusPill(entry: entry)
                     HeroValue(entry: entry, size: 50)
                     DetailLine(entry: entry)
+                    rail(5)
+                        .frame(maxWidth: 200)
+                        .padding(.top, 4)
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .trailing, spacing: 8) {
@@ -168,6 +189,7 @@ struct GlucoseWidgetView: View {
             VStack(alignment: .leading, spacing: 10) {
                 StatusPill(entry: entry)
                 HeroValue(entry: entry, size: 60)
+                rail(6)
                 HStack(spacing: 10) {
                     WidgetTrend(entry: entry, size: 38)
                     VStack(alignment: .leading, spacing: 2) {
