@@ -135,11 +135,15 @@ struct OnboardingView: View {
                 .buttonStyle(.plain)
                 .disabled(!passed || step == .done)
                 .help(passed ? "Back to \(s.title)" : s.title)
+                .accessibilityLabel(passed ? "Back to \(s.title)"
+                                           : current ? "Step \(step.rawValue + 1) of \(Step.allCases.count): \(step.title)"
+                                                     : "\(s.title), not reached yet")
+                .accessibilityAddTraits(current ? [.isSelected] : [])
             }
         }
         .frame(maxWidth: .infinity)
-        .accessibilityElement()
-        .accessibilityLabel("Step \(step.rawValue + 1) of \(Step.allCases.count): \(step.title)")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Setup progress")
     }
 
     private var navigation: some View {

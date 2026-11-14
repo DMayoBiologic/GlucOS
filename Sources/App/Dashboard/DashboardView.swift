@@ -641,23 +641,27 @@ private struct DashboardSidebarList: View {
     private var emphasized: Bool { focused && activeState == .key }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 1) {
-                ForEach(DashboardSection.Group.allCases) { group in
-                    Text(group.title)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, DS.Space.sm)
-                        .padding(.top, group == DashboardSection.Group.allCases.first ? DS.Space.xs : DS.Space.md)
-                        .padding(.bottom, DS.Space.xxs)
-                        .accessibilityAddTraits(.isHeader)
-                    ForEach(group.sections) { s in row(s) }
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(DashboardSection.Group.allCases) { group in
+                        Text(group.title)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, DS.Space.sm)
+                            .padding(.top, group == DashboardSection.Group.allCases.first ? DS.Space.xs : DS.Space.md)
+                            .padding(.bottom, DS.Space.xxs)
+                            .accessibilityAddTraits(.isHeader)
+                        ForEach(group.sections) { s in row(s).id(s) }
+                    }
                 }
+                .padding(.horizontal, DS.Space.sm + 2)
+                .padding(.vertical, DS.Space.xs)
             }
-            .padding(.horizontal, DS.Space.sm + 2)
-            .padding(.vertical, DS.Space.xs)
+            .scrollBounceBehavior(.basedOnSize)
+            // Keep the selected row visible when the arrow keys move past the edge of a short window.
+            .onChange(of: selection) { _, s in proxy.scrollTo(s) }
         }
-        .scrollBounceBehavior(.basedOnSize)
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
