@@ -236,6 +236,28 @@ final class BolusCalculatorTests: XCTestCase {
         XCTAssertEqual(s.units, 0)
     }
 
+    func testRisingTrendNeedsAMeasuredRate() {
+        var on = settings()
+        on.addsForRisingTrend = true
+        let one = [reading(now.addingTimeInterval(-60), 180, .risingQuickly)]
+        let s = suggest(carbs: 60, readings: one, settings: on)
+        XCTAssertEqual(s.trendUnits, 0, "an arrow alone never adds insulin")
+        XCTAssertEqual(s.units, 8)
+        let falling = suggest(carbs: 60, readings: [reading(now.addingTimeInterval(-60), 180, .falling)])
+        XCTAssertLessThan(falling.trendUnits, 0, "an arrow can still take insulin off")
+    }
+
+    func testBelowTargetInsulinOnBoardStillComesOffTheFoodWhenRising() {
+        var on = settings()
+        on.addsForRisingTrend = true
+        let doses = [bolus(3, minutesAgo: 20)]
+        let onBoard = iob(doses)
+        // 80 rising 2 a minute: correction −0.5, trend +1.125, so +0.625 — but glucose is under target.
+        let s = suggest(carbs: 60, readings: moving(to: 80, rate: 2), doses: doses, settings: on)
+        XCTAssertEqual(s.calculated, 6 + 0.625 - onBoard, accuracy: 1e-6)
+        XCTAssertEqual(s.insulinOnBoardApplied, onBoard, accuracy: 1e-9)
+    }
+
     func testNoTrendWithoutAFreshReading() {
         let s = suggest(carbs: 30, readings: steady(150, endingAgo: 30 * 60))
         XCTAssertEqual(s.trendUnits, 0)

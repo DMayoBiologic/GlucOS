@@ -352,6 +352,8 @@ enum BolusCalculator {
         let latest = sorted.last
         var glucose: Double?
         var rate: Double?
+        /// The 15-minute least-squares rate, without the arrow fallback. Only this can add insulin.
+        var measuredRate: Double?
         if let manual = r.manualGlucose, manual.isFinite, manual > 0 {
             glucose = manual
             notices.append(.manualGlucose)
@@ -366,7 +368,8 @@ enum BolusCalculator {
             notices.append(.noReading)
         }
         if let latest, r.now.timeIntervalSince(latest.timestamp) <= freshFor {
-            rate = ratePerMinute(sorted, at: latest.timestamp) ?? arrowRate(latest.trend)
+            measuredRate = ratePerMinute(sorted, at: latest.timestamp)
+            rate = measuredRate ?? arrowRate(latest.trend)
         }
 
         // Low, or heading there fast: stop. Never below 3.9 mmol/L, whatever the low alert is set to.
@@ -395,7 +398,8 @@ enum BolusCalculator {
         if glucose != nil, let rate {
             let counted = min(max(abs(rate) - trendDeadband, 0), trendMaxRate - trendDeadband)
             let shift = (rate < 0 ? -counted : counted) * trendHorizonMinutes
-            if shift < 0 || (shift > 0 && settings.risingTrendAdds) { trendMgdl = shift }
+            // A fall may come from the arrow alone (it only lowers the dose); a rise needs a measured rate.
+            if shift < 0 || (shift > 0 && settings.risingTrendAdds && measuredRate != nil) { trendMgdl = shift }
         }
         let trend = trendMgdl / block.correctionFactor
         if trend < -0.005 { notices.append(.trendLowered) }
@@ -405,7 +409,9 @@ enum BolusCalculator {
 
         var total: Double
         var iobApplied: Double
-        if glucose != nil && !withheld && usedCorrection >= 0 {
+        // Which rule applies is decided by glucose against target, before the trend: below target,
+        // on-board insulin always comes off the food dose too, even if a rise lifts the correction.
+        if glucose != nil && !withheld && correction >= 0 && usedCorrection >= 0 {
             // At or above target: on-board insulin offsets the correction, never the food.
             iobApplied = min(iob, usedCorrection)
             total = food + usedCorrection - iobApplied

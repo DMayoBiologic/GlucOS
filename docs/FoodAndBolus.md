@@ -48,13 +48,14 @@ food        = carbs ÷ carb ratio
 correction  = (glucose − target) ÷ correction factor        (negative below target)
 trend       = shift ÷ correction factor, where shift is where the measured rate takes glucose
               in 30 min, counting only beyond ±0.5 mg/dL/min and up to 3 (so at most ±75 mg/dL).
-              Falling: always counted. Rising: only if "Add insulin when glucose is rising" is on.
-              It's added to the correction below.
+              Falling: always counted (the arrow is used if there are too few readings for a rate).
+              Rising: only with a measured rate, and only if "Add insulin when glucose is rising" is on.
 
-at or above target:  total = food + max(0, correction − insulin on board)
-below target:        total = max(0, food + correction − insulin on board)
-no fresh reading,
-or falling fast:     total = max(0, food − insulin on board)    (no correction)
+at or above target:  total = food + max(0, correction + trend − insulin on board)
+                     (if a fall takes correction + trend under 0, the below-target line applies)
+below target:        total = max(0, food + correction + trend − insulin on board)
+no fresh reading:    total = max(0, food − insulin on board)    (no correction, no trend)
+falling fast:        total = max(0, food + trend − insulin on board)    (correction left out)
 
 then: take off the exercise reduction the user picked (none, 25% or 50%),
       cap at the maximum, round DOWN to the dose step
