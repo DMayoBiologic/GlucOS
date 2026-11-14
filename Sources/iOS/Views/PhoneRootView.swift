@@ -122,10 +122,10 @@ struct PhoneHomeView: View {
                     ForEach(follows.follows) { PhoneFollowingCard(follow: $0) }
                     PhoneOnBoardCard()
                     PhoneChartCard()
-                    PhoneMorningCard(outlook: store.outlook)
-                    PhoneForecastAccuracyCard(outlook: store.outlook)
                     PhoneLogbookCard()
-                    PhoneGlanceCard()
+                    // Time in range, mornings and forecast accuracy live one tap away, so the
+                    // logbook isn't pushed below three cards of statistics.
+                    PhoneInsightsRow()
                     if let sensor = store.snapshot.sensor {
                         PhoneSensorCard(sensor: sensor)
                     }
@@ -157,20 +157,28 @@ struct PhoneHomeView: View {
                         .accessibilityLabel("Settings")
                 }
             }
-            .sheet(isPresented: $showsSettings) {
-                NavigationStack { PhoneSettingsView() }
+            .navigationDestination(for: PhoneRoute.self) { route in
+                switch route {
+                case .logbook: PhoneLogbookView()
+                case .insights: PhoneInsightsView()
+                }
             }
-            .sheet(isPresented: $showsSharing) {
-                NavigationStack { PhoneSharingView() }
-            }
-            .onChange(of: router.request?.id) { _, id in
-                // A log link arriving while Settings or Sharing is open: show the log sheet instead.
-                if id != nil { showsSettings = false; showsSharing = false }
-            }
-            .sheet(item: $router.request) { request in
-                PhoneLogSheet(target: request.target)
-                    .presentationDragIndicator(.visible)
-            }
+        }
+        // On the stack rather than its root, so the log sheet also opens over a pushed screen
+        // (editing a row in the full logbook).
+        .sheet(isPresented: $showsSettings) {
+            NavigationStack { PhoneSettingsView() }
+        }
+        .sheet(isPresented: $showsSharing) {
+            NavigationStack { PhoneSharingView() }
+        }
+        .onChange(of: router.request?.id) { _, id in
+            // A log link arriving while Settings or Sharing is open: show the log sheet instead.
+            if id != nil { showsSettings = false; showsSharing = false }
+        }
+        .sheet(item: $router.request) { request in
+            PhoneLogSheet(target: request.target)
+                .presentationDragIndicator(.visible)
         }
     }
 }
