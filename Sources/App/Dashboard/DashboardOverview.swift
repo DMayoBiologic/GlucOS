@@ -97,6 +97,7 @@ struct StatChange {
 /// left on a regular window and on top on a narrow one; the tiles go four across when there's
 /// room and two by two when there isn't.
 private struct OverviewHeader: View {
+    @EnvironmentObject private var settings: AppSettings
     let snapshot: GlucoseSnapshot
     let data: DashboardData
     let previous: GlucoseStats?
