@@ -398,11 +398,11 @@ Widgets in accented or vibrant rendering modes drop the field and keep the rail 
 | 1 | This document; `Signal.swift` components; Live Activity rebuild (all presentations, watch/CarPlay small family); relay priority policy; iOS deployment target 18.0 | #56 | merged |
 | 2 | iPhone stage on the range field with rail, forecast note and freshness meter; collapsing title; sliding chart hours; zoom transitions; welcome entrances | #57 | this release |
 | 3 | Mac popover and dashboard heroes on the range field with the rail; sliding chart hours; rail in Home Screen / desktop widgets; freshness ring and rail on Lock Screen accessories | #57 | this release |
-| 4 | iPhone motion: log bar bounce after a save (§7.1); Setup steps push in the direction of travel with filling progress and a field that follows the range being set; Logbook sticky day headers and row entrances; Insights columns growing from the baseline; follower cards' range strip and rail; Sensor scan ring pulse and value roll-in (§7.2) | this PR | built |
+| 4 | Directional range sweep (`RangeField(range:)`) and push-swapping range pill (`RangeBadgeSwap`); strike line drawing in (`.staleStrike`); Mac dashboard sidebar's sliding selection, chart wipes (`.chartWipe`) and rolling headline tiles; onboarding push with sliding progress dots | #60 | merged |
+| 5 | iPhone motion: log bar bounce after a save (§7.1); Setup steps push in the direction of travel with filling progress and a field that follows the range being set; Logbook sticky day headers and row entrances; Insights columns growing from the baseline; follower cards' range strip and rail; Sensor scan ring pulse and value roll-in (§7.2) | #59 | merged |
 
-Not built yet, still part of this design: the range-change colour sweep's direction and the
-strike line drawing in (§4.2, §4.3), the dashboard sidebar's sliding
-selection and chart wipes (§8.3), and Mac onboarding transitions (§8.4).
+Not built yet, still part of this design: the iPhone stage can adopt the sweep and strike with
+`RangeField(range:)` and `.staleStrike` (§4.2, §4.3).
 
 Raising iOS to 18.0 drops no devices: iOS 18 runs on every iPhone that runs iOS 17 (XS / XR and
 later). It unlocks `MeshGradient`, the watch/CarPlay Live Activity family, zoom transitions and scroll

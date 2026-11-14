@@ -54,11 +54,16 @@ async function writeSecret(sql: SQL, name: string, value: string | null) {
 export class PostgresStore implements Store {
   constructor(private readonly sql: SQL) {}
 
-  transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-    return this.sql.begin(async (sql) => {
-      const rows = await sql`
-        select prefs, account_generation, activity, pending_start, start_attempts, last_start_attempt, work
-        from glucos.relay where id = 1 for update`;
+  transaction<T>(fn: (tx: Tx) => Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
+    const readOnly = options.readOnly === true;
+    return this.sql.begin(readOnly ? "read only" : "read write", async (sql) => {
+      const rows = readOnly
+        ? await sql`
+          select prefs, account_generation, activity, pending_start, start_attempts, last_start_attempt, work
+          from glucos.relay where id = 1`
+        : await sql`
+          select prefs, account_generation, activity, pending_start, start_attempts, last_start_attempt, work
+          from glucos.relay where id = 1 for update`;
       if (!rows.length) throw new Error("glucos.relay has no row; run the migrations");
       const r = rows[0];
       const row = hydrate({
@@ -107,6 +112,7 @@ export class PostgresStore implements Store {
       };
 
       const result = await fn(tx);
+      if (readOnly) return result;
       await sql`
         update glucos.relay set
           prefs = ${sql.json(row.prefs as never)},

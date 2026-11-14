@@ -93,18 +93,9 @@ struct DashboardView: View {
     // MARK: Sidebar
 
     private func sidebar(_ data: DashboardData) -> some View {
-        List(selection: Binding<DashboardSection?>(get: { section }, set: { if let s = $0 { select(s) } })) {
-            ForEach(DashboardSection.Group.allCases) { group in
-                Section(group.title) {
-                    ForEach(group.sections) { s in
-                        Label(s.title, systemImage: s.systemImage)
-                            .badge(badge(for: s, data: data))
-                            .tag(s)
-                            .help("\(s.subtitle) (⌘\(s.shortcutDigit))")
-                    }
-                }
-            }
-        }
+        // Not a List: its rows are separate cells, so the selection can't slide between them
+        // (docs/Redesign.md §8.3). This keeps the sidebar look, arrow keys and VoiceOver.
+        DashboardSidebarList(selection: section, badge: { badge(for: $0, data: data) }, select: select)
         .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
         .safeAreaInset(edge: .bottom) {
             TimelineView(.periodic(from: .now, by: 30)) { ctx in
@@ -412,7 +403,8 @@ struct DashboardView: View {
     // MARK: Navigation
 
     private func select(_ s: DashboardSection) {
-        DS.animate(.standard, reduceMotion: reduceMotion) { section = s }
+        // The sidebar's highlight springs to the new row; the section cross-fades in with it.
+        DS.animate(.emphasized, reduceMotion: reduceMotion) { section = s }
     }
 
     /// Moves a whole period earlier or later.
@@ -631,6 +623,107 @@ private struct ShortcutsHelp: View {
     }
 }
 
+// MARK: - Sidebar sections
+
+/// The section list, with one selection highlight that slides from row to row. Rows are buttons in
+/// sidebar style: the highlight is accent-filled while the list has keyboard focus and grey when it
+/// doesn't, as in a system sidebar. Up and down arrows move the selection once the list has focus.
+private struct DashboardSidebarList: View {
+    let selection: DashboardSection
+    let badge: (DashboardSection) -> Int
+    let select: (DashboardSection) -> Void
+
+    @Namespace private var namespace
+    @FocusState private var focused: Bool
+    @State private var hovered: DashboardSection?
+    @Environment(\.controlActiveState) private var activeState
+
+    private var emphasized: Bool { focused && activeState == .key }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(DashboardSection.Group.allCases) { group in
+                    Text(group.title)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, DS.Space.sm)
+                        .padding(.top, group == DashboardSection.Group.allCases.first ? DS.Space.xs : DS.Space.md)
+                        .padding(.bottom, DS.Space.xxs)
+                        .accessibilityAddTraits(.isHeader)
+                    ForEach(group.sections) { s in row(s) }
+                }
+            }
+            .padding(.horizontal, DS.Space.sm + 2)
+            .padding(.vertical, DS.Space.xs)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onMoveCommand { direction in
+            let all = DashboardSection.allCases
+            guard let i = all.firstIndex(of: selection) else { return }
+            switch direction {
+            case .up where i > 0: select(all[i - 1])
+            case .down where i < all.count - 1: select(all[i + 1])
+            default: break
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Sections")
+    }
+
+    private func row(_ s: DashboardSection) -> some View {
+        let selected = s == selection
+        let count = badge(s)
+        return Button {
+            focused = true
+            select(s)
+        } label: {
+            HStack(spacing: DS.Space.sm) {
+                Image(systemName: s.systemImage)
+                    .symbolVariant(selected ? .fill : .none)
+                    .foregroundStyle(selected && emphasized ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.accentColor))
+                    .frame(width: 18)
+                Text(s.title)
+                    .foregroundStyle(selected && emphasized ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.primary))
+                    .lineLimit(1)
+                Spacer(minLength: DS.Space.xs)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.callout)
+                        .monospacedDigit()
+                        .foregroundStyle(selected && emphasized ? AnyShapeStyle(Color.white.opacity(0.85)) : AnyShapeStyle(Color.secondary))
+                        .contentTransition(.numericText(value: Double(count)))
+                }
+            }
+            .font(.body)
+            .padding(.horizontal, DS.Space.sm)
+            .frame(height: 28)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(emphasized ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.primary.opacity(0.1)))
+                        .matchedGeometryEffect(id: "selection", in: namespace)
+                } else if hovered == s {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.05))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { inside in
+            if inside { hovered = s } else if hovered == s { hovered = nil }
+        }
+        .help("\(s.subtitle) (⌘\(s.shortcutDigit))")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .accessibilityValue(count > 0 ? "\(count) entries" : "")
+    }
+}
+
 // MARK: - Sidebar reading
 
 /// Current reading in the sidebar, so it stays visible whichever section is open.
@@ -651,12 +744,13 @@ private struct CurrentReadingTile: View {
                         .contentTransition(.numericText(value: cur.mgdl))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
+                        .staleStrike(stale, thickness: 2)
                     // An old trend arrow could be read as what's happening now.
                     TrendSymbol(trend: stale ? .unknown : cur.trend)
                         .font(.title3)
                         .foregroundStyle(stale ? Palette.stale : tint)
                     Spacer(minLength: 0)
-                    if let range = snapshot.range { RangeBadge(range: range, stale: stale) }
+                    if let range = snapshot.range { RangeBadgeSwap(range: range, stale: stale) }
                 }
                 HStack(spacing: DS.Space.xs) {
                     Text(snapshot.unit.label)
@@ -704,6 +798,12 @@ struct DashboardData {
     let archiveStart: Date?
     /// True when the period ends at the latest readings rather than somewhere in the past.
     let isLive: Bool
+
+    /// Names the period on screen (its length and where it ends), so charts can wipe in when it
+    /// changes but not when a new reading extends a live period.
+    var periodKey: String {
+        "\(range.rawValue)-\(isLive ? "live" : String(Int(domain.upperBound.timeIntervalSince1970)))"
+    }
 
     init(archive: [GlucoseReading], range: DashboardRange, snapshot: GlucoseSnapshot,
          endingAt anchor: Date? = nil, now: Date = Date()) {
