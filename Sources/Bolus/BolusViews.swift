@@ -36,6 +36,8 @@ struct BolusSuggestionCard: View {
     @State private var usesFingerPrick = false
     @State private var fingerPrickText = ""
     @State private var showsWorking = true
+    /// Exercise reduction the user picked: 0, 0.25 or 0.5.
+    @State private var reduction = 0.0
 
     private var fingerPrick: Double? {
         guard usesFingerPrick,
@@ -53,7 +55,7 @@ struct BolusSuggestionCard: View {
             let s = suggestion(at: context.date)
             let live = fingerPrickMissing ? nil : s
             content(s)
-                .task(id: (live.map { "\($0.units)|\($0.isBlocked)|\($0.carbs)" } ?? "none") + "|\(fingerPrick ?? -1)") {
+                .task(id: (live.map { "\($0.units)|\($0.isBlocked)|\($0.carbs)" } ?? "none") + "|\(fingerPrick ?? -1)|\(reduction)") {
                     onUpdate?(live, recompute())
                 }
         }
@@ -62,26 +64,27 @@ struct BolusSuggestionCard: View {
     /// Works the suggestion out again at the time it's called, from the current readings, doses and
     /// settings and the finger-prick value as it is now.
     private func recompute() -> @MainActor () -> BolusSuggestion? {
-        let manual = fingerPrick, missing = fingerPrickMissing, carbs = carbs
+        let manual = fingerPrick, missing = fingerPrickMissing, carbs = carbs, reduction = reduction
         let logbook = logbook, store = store, settings = settings
         return { @MainActor in
             guard !missing else { return nil }
-            return Self.suggestion(carbs: carbs, at: Date(), manual: manual,
+            return Self.suggestion(carbs: carbs, at: Date(), manual: manual, reduction: reduction,
                                    logbook: logbook, store: store, settings: settings)
         }
     }
 
     private func suggestion(at now: Date) -> BolusSuggestion {
-        Self.suggestion(carbs: carbs, at: now, manual: fingerPrick, logbook: logbook, store: store, settings: settings)
+        Self.suggestion(carbs: carbs, at: now, manual: fingerPrick, reduction: reduction,
+                        logbook: logbook, store: store, settings: settings)
     }
 
-    private static func suggestion(carbs: Double, at now: Date, manual: Double?, logbook: LogbookStore,
-                                   store: GlucoseStore, settings: AppSettings) -> BolusSuggestion {
+    private static func suggestion(carbs: Double, at now: Date, manual: Double?, reduction: Double,
+                                   logbook: LogbookStore, store: GlucoseStore, settings: AppSettings) -> BolusSuggestion {
         let snapshot = store.snapshot
         let readings = snapshot.history + (snapshot.current.map { [$0] } ?? [])
         let request = BolusRequest(carbs: carbs, now: now, readings: readings, manualGlucose: manual,
                                    doses: logbook.doses, contexts: logbook.contexts,
-                                   lowMgdl: settings.lowMgdl, therapy: settings.therapy)
+                                   lowMgdl: settings.lowMgdl, therapy: settings.therapy, reduction: reduction)
         return BolusCalculator.suggest(request, settings: logbook.bolusSettings)
     }
 
@@ -127,6 +130,7 @@ struct BolusSuggestionCard: View {
                 if showsWorking && !s.isBlocked && !fingerPrickMissing { BolusWorking(suggestion: s, unit: settings.unit) }
                 if !fingerPrickMissing { BolusNoticeList(notices: s.notices, unit: settings.unit) }
                 fingerPrickRow
+                if !s.isBlocked { reductionRow }
                 if !s.isBlocked && !fingerPrickMissing {
                     Button { onUse(s) } label: {
                         Label("Use \(LogFormat.units(s.units))", systemImage: "arrow.down.circle").frame(maxWidth: .infinity)
@@ -142,6 +146,23 @@ struct BolusSuggestionCard: View {
         }
         .padding(DS.Space.md)
         .dsCard(s.isBlocked && s.block != nil ? .tinted(.critical) : .inset, padding: 0)
+    }
+
+    /// Exercise before or after the meal: take a quarter or half off, the usual starting points.
+    private var reductionRow: some View {
+        HStack(spacing: DS.Space.sm) {
+            Text("Exercise").dsFont(.callout)
+            Spacer(minLength: DS.Space.sm)
+            Picker("Exercise reduction", selection: $reduction.animation(DSMotion.quick.animation)) {
+                Text("None").tag(0.0)
+                Text("−25%").tag(0.25)
+                Text("−50%").tag(0.5)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 220)
+        }
+        .accessibilityHint("Takes a quarter or half off the suggestion if you're exercising around this meal.")
     }
 
     @ViewBuilder
@@ -187,9 +208,18 @@ struct BolusWorking: View {
                 } else {
                     row("Correction", "No current reading", "0.00 u")
                 }
+                if abs(s.trendUnits) > 0.005, let rate = s.ratePerMinute {
+                    let sign = s.trendUnits >= 0 ? "+" : "−"
+                    row("Trend",
+                        "\(rate < 0 ? "Falling" : "Rising") \(unit.format(mgdl: abs(rate) * 5, withUnit: true)) per 5 min: \(s.trendMgdl < 0 ? "−" : "+")\(unit.format(mgdl: abs(s.trendMgdl))) in 30 min",
+                        "\(sign)\(BolusText.units(abs(s.trendUnits)))")
+                }
                 row("Insulin on board",
                     s.insulinOnBoard > 0.005 ? "\(BolusText.units(s.insulinOnBoard)) still acting" : "None logged",
                     "−\(BolusText.units(s.insulinOnBoardApplied))")
+                if s.reductionUnits > 0.005 {
+                    row("Exercise", "\(Int((s.reduction * 100).rounded()))% less", "−\(BolusText.units(s.reductionUnits))")
+                }
                 Divider()
                 row("Total", nil, BolusText.units(s.calculated))
                 if case .capped(_, let cap)? = s.notices.first(where: { if case .capped = $0 { return true } else { return false } }) {
@@ -311,6 +341,16 @@ struct BolusSettingsEditor: View {
                 }
                 numberField("Maximum bolus", value: $draft.maxBolus, suffix: "units", fraction: 1)
                 Toggle("Turn the calculator off", isOn: $draft.disabled)
+            }
+
+            Section {
+                Toggle("Add insulin when glucose is rising", isOn: Binding(
+                    get: { draft.risingTrendAdds },
+                    set: { draft.addsForRisingTrend = $0 ? true : nil }))
+            } header: {
+                Text("Trend")
+            } footer: {
+                Text("When glucose is falling, the suggestion always allows for where it's heading in the next 30 minutes, so it's smaller. Allowing for a rise adds insulin, so it's off unless you and your diabetes team want it.")
             }
 
             let problems = draft.problems

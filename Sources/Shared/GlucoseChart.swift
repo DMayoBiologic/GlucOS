@@ -31,6 +31,7 @@ struct GlucoseChart: View {
     var marksNow: Bool = false
 
     @State private var hoverDate: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The real reading nearest the pointer. Only actual readings are ever shown, never an
     /// interpolated value between two of them. Over a gap in the data (sensor warm-up, phone out
@@ -104,6 +105,10 @@ struct GlucoseChart: View {
                 )
             }
 
+            // Time spent out of range, filled between the trace and the line it crossed, so a
+            // high or a low reads as a shape before anyone looks at the numbers.
+            outOfRangeMarks(window)
+
             // The trace changes colour as it crosses the thresholds.
             ForEach(window) { r in
                 LineMark(
@@ -124,7 +129,11 @@ struct GlucoseChart: View {
                     series: .value("Series", "Forecast range")
                 )
                 .interpolationMethod(.monotone)
-                .foregroundStyle(Palette.stale.opacity(0.22))
+                // Fades as it reaches further ahead: the further out, the less it should be trusted.
+                .foregroundStyle(
+                    LinearGradient(colors: [Palette.stale.opacity(0.30), Palette.stale.opacity(0.08)],
+                                   startPoint: .leading, endPoint: .trailing)
+                )
             }
             ForEach(projection) { p in
                 LineMark(
@@ -175,15 +184,8 @@ struct GlucoseChart: View {
                 .foregroundStyle(color(for: h.mgdl))
                 .annotation(position: .top, spacing: 6,
                             overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
-                    VStack(spacing: 0) {
-                        Text(unit.format(mgdl: h.mgdl, withUnit: true))
-                            .fontWeight(.semibold)
-                            .dsFont(.callout)
-                            .monospacedDigit()
-                        Text(ClockLabel.dayTime(h.timestamp, now: Date()))
-                            .dsFont(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    ChartReadout(reading: h, previous: Self.previous(to: h, in: window), unit: unit,
+                                 range: GlucoseRange.classify(mgdl: h.mgdl, low: lowMgdl, high: highMgdl))
                     .padding(.horizontal, DS.Space.sm)
                     .padding(.vertical, DS.Space.xs)
                     .background { DSSurface(style: .standard, radius: DS.Radius.control) }
@@ -222,7 +224,18 @@ struct GlucoseChart: View {
                 }
             }
         }
+        .chartOverlay { proxy in
+            // A slow ring breathing out of the newest reading while readings are arriving. App
+            // screens only: widgets and the Live Activity don't animate, and it holds still (it
+            // isn't drawn) under Reduce Motion or once the reading is stale.
+            if interactive, !stale, !reduceMotion, let last = window.last {
+                TracePulse(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl), tint: currentTint)
+            }
+        }
         .hoverSelection(interactive, $hoverDate)
+        .scrubFeedback(interactive, trigger: hovered?.timestamp)
+        // A new reading slides the trace along instead of jumping it.
+        .dsAnimation(.standard, value: interactive ? window.last?.timestamp : nil)
         .accessibilityLabel(projection.isEmpty ? "Glucose, last \(Int(hours)) hours"
                                                 : "Glucose, last \(Int(hours)) hours, with an estimated forecast")
     }
@@ -246,6 +259,52 @@ extension GlucoseChart {
         Calendar.current.component(.hour, from: d) == 0
             ? d.formatted(.dateTime.weekday(.abbreviated))
             : d.formatted(.dateTime.hour())
+    }
+
+    /// The reading before `r`, when it's close enough (15 minutes) for a change to mean something.
+    static func previous(to r: GlucoseReading, in window: [GlucoseReading]) -> GlucoseReading? {
+        guard let prev = window.last(where: { $0.timestamp < r.timestamp }),
+              r.timestamp.timeIntervalSince(prev.timestamp) <= 15 * 60 else { return nil }
+        return prev
+    }
+
+    /// Fills above the high line and below the low line wherever the trace goes past them.
+    @ChartContentBuilder
+    func outOfRangeMarks(_ window: [GlucoseReading]) -> some ChartContent {
+        let high = unit.value(fromMgdl: highMgdl)
+        let low = unit.value(fromMgdl: lowMgdl)
+        let goesHigh = window.contains { $0.mgdl > highMgdl }
+        let goesLow = window.contains { $0.mgdl < lowMgdl }
+        if goesHigh {
+            ForEach(window) { r in
+                AreaMark(
+                    x: .value("Time", r.timestamp),
+                    yStart: .value("High", high),
+                    yEnd: .value("Above", max(unit.value(fromMgdl: r.mgdl), high)),
+                    series: .value("Series", "Above range")
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(
+                    LinearGradient(colors: [GlucoseRange.high.tint.opacity(0.30), GlucoseRange.high.tint.opacity(0.10)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+            }
+        }
+        if goesLow {
+            ForEach(window) { r in
+                AreaMark(
+                    x: .value("Time", r.timestamp),
+                    yStart: .value("Below", min(unit.value(fromMgdl: r.mgdl), low)),
+                    yEnd: .value("Low", low),
+                    series: .value("Series", "Below range")
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(
+                    LinearGradient(colors: [GlucoseRange.low.tint.opacity(0.12), GlucoseRange.low.tint.opacity(0.34)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+            }
+        }
     }
 
     /// Where readings end and the forecast begins.
@@ -303,7 +362,87 @@ private struct EventSymbol: View {
     }
 }
 
+/// The hover / scrub label: the reading with its range's dot, when it was, and how much it
+/// changed since the reading before.
+private struct ChartReadout: View {
+    let reading: GlucoseReading
+    let previous: GlucoseReading?
+    let unit: GlucoseUnit
+    let range: GlucoseRange
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: DS.Space.xs) {
+                Circle().fill(range.tint).frame(width: 7, height: 7)
+                Text(unit.format(mgdl: reading.mgdl, withUnit: true))
+                    .fontWeight(.semibold)
+                    .dsFont(.callout)
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: reading.mgdl))
+                if let previous {
+                    Text(unit.formatDelta(mgdl: reading.mgdl - previous.mgdl))
+                        .dsFont(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(ClockLabel.dayTime(reading.timestamp, now: Date()))
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .lineLimit(1)
+        .fixedSize()
+    }
+}
+
+/// The breathing ring at the end of the trace. Placed with the chart's proxy so it sits exactly on
+/// the newest reading's dot whatever the chart's size.
+private struct TracePulse: View {
+    let proxy: ChartProxy
+    let date: Date
+    let value: Double
+    let tint: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            if let plot = proxy.plotFrame,
+               let x = proxy.position(forX: date),
+               let y = proxy.position(forY: value) {
+                let origin = geo[plot].origin
+                Circle()
+                    .strokeBorder(tint, lineWidth: 1.5)
+                    .frame(width: 12, height: 12)
+                    .phaseAnimator([false, true]) { content, out in
+                        content.scaleEffect(out ? 2.6 : 1).opacity(out ? 0 : 0.8)
+                    } animation: { out in
+                        out ? .easeOut(duration: 1.8) : .linear(duration: 0.01)
+                    }
+                    .position(x: origin.x + x, y: origin.y + y)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 private extension View {
+    /// A light tick each time scrubbing lands on a different reading (iPhone).
+    @ViewBuilder
+    func scrubFeedback(_ enabled: Bool, trigger: Date?) -> some View {
+        #if os(iOS)
+        if enabled {
+            sensoryFeedback(trigger: trigger) { old, new in
+                old != nil && new != nil ? .selection : nil
+            }
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
     @ViewBuilder
     func hoverSelection(_ enabled: Bool, _ date: Binding<Date?>) -> some View {
         if enabled {

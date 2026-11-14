@@ -14,13 +14,21 @@ import Foundation
 //     below target:        total = max(0, food + correction − insulin on board)
 //     no reading / falling fast (correction left out):  total = max(0, food − insulin on board)
 //
+// The trend: glucose moving shifts the correction by where it will be in 30 minutes at the
+// measured rate (beyond ±0.5 mg/dL per minute, counted up to 3). A fall always takes insulin off,
+// and can come off the food dose. A rise only adds insulin if the user turned that on. This is the
+// published "trend arrow" adjustment (Pettus & Edelman 2017, Aleppo et al. 2017) done with the
+// measured rate; it is not the glucose forecast. An exercise reduction the user picks comes off
+// last, before the cap and rounding.
+//
 // That's the rule Tandem's pumps use: insulin still on board only cancels out a correction when
 // glucose is high, but when glucose is under target it comes off the food bolus too. Without a
 // current reading there's no correction, and insulin on board still comes off the food bolus.
 // The total is capped at the user's maximum, then rounded *down* to their increment.
 //
-// Safety gates: no suggestion while glucose is low, or falling fast towards a low; corrections are
-// left out when glucose is falling fast or the reading is old. Everything the user sees carries
+// Safety gates: no suggestion while glucose is low, or falling towards a low within 20 minutes;
+// corrections are left out when glucose is falling fast or the reading is old. A high that hasn't
+// come down since a dose 1½–4 hours ago raises a site / pen check. Everything the user sees carries
 // "check it yourself, not medical advice".
 
 // MARK: - Settings
@@ -63,6 +71,11 @@ struct BolusSettings: Codable, Hashable {
     var confirmedAt: Date?
     /// The user turned the calculator off.
     var disabled: Bool = false
+    /// Add insulin for a rising trend. Off unless the user turns it on (nil on settings saved before
+    /// this existed). A falling trend always takes insulin off.
+    var addsForRisingTrend: Bool? = nil
+
+    var risingTrendAdds: Bool { addsForRisingTrend == true }
 
     /// Steps pens and pumps actually give.
     static let increments: [Double] = [0.05, 0.1, 0.5, 1]
@@ -143,6 +156,13 @@ struct BolusRequest {
     /// The user's low threshold, mg/dL.
     var lowMgdl: Double
     var therapy: TherapyType
+    /// A reduction the user picked for exercise (0, 0.25 or 0.5). Comes off the total.
+    var reduction: Double = 0
+}
+
+/// Reductions offered for exercise, the usual 25% and 50% starting points.
+enum BolusReduction {
+    static let choices: [Double] = [0, 0.25, 0.5]
 }
 
 enum BolusNoticeLevel: Int, Comparable, Codable {
@@ -157,7 +177,7 @@ enum BolusNotice: Hashable {
     case invalidSettings([String])
     case carbsOutOfRange
     case low(mgdl: Double)
-    case fallingFastTowardsLow
+    case fallingTowardsLow
     case fallingFast
     case noReading
     case staleReading(minutes: Int)
@@ -168,12 +188,17 @@ enum BolusNotice: Hashable {
     case exercise
     case pumpInsulinOnBoard
     case manualGlucose
+    case trendLowered
+    case trendRaised
+    case notComingDown(units: Double, minutesAgo: Int)
+    case reduced(percent: Int)
 
     var level: BolusNoticeLevel {
         switch self {
-        case .notSetUp, .turnedOff, .invalidSettings, .carbsOutOfRange, .low, .fallingFastTowardsLow: return .stop
-        case .fallingFast, .noReading, .staleReading, .recentLow, .veryHigh, .capped: return .caution
-        case .recentBolus, .exercise, .pumpInsulinOnBoard, .manualGlucose: return .info
+        case .notSetUp, .turnedOff, .invalidSettings, .carbsOutOfRange, .low, .fallingTowardsLow: return .stop
+        case .fallingFast, .noReading, .staleReading, .recentLow, .veryHigh, .capped, .notComingDown: return .caution
+        case .recentBolus, .exercise, .pumpInsulinOnBoard, .manualGlucose, .trendLowered, .trendRaised, .reduced:
+            return .info
         }
     }
 
@@ -189,8 +214,8 @@ enum BolusNotice: Hashable {
             return "Carbs must be between 0 and 500 g."
         case .low(let g):
             return "Glucose is low (\(unit.format(mgdl: g, withUnit: true))). Treat the low first. No bolus is suggested."
-        case .fallingFastTowardsLow:
-            return "Glucose is falling fast and could be low within 20 minutes. Check with a finger-prick and treat if needed. No bolus is suggested."
+        case .fallingTowardsLow:
+            return "Glucose is falling and could be low within 20 minutes. Check with a finger-prick and treat if needed, then check again. No bolus is suggested."
         case .fallingFast:
             return "Glucose is falling fast, so no correction was added. Consider waiting and checking again."
         case .noReading:
@@ -206,11 +231,19 @@ enum BolusNotice: Hashable {
         case .recentBolus(let m):
             return "You logged a bolus \(m) minutes ago. It's counted as insulin on board."
         case .exercise:
-            return "Exercise logged recently: insulin can work harder for hours afterwards."
+            return "Exercise logged recently: insulin can work harder for hours afterwards. Consider a reduction."
         case .pumpInsulinOnBoard:
             return "Insulin on board only counts doses logged in GlucOS. If your pump shows more, use your pump's calculator."
         case .manualGlucose:
             return "Using the glucose you entered instead of the sensor."
+        case .trendLowered:
+            return "Glucose is falling, so the dose allows for where it's heading in the next 30 minutes."
+        case .trendRaised:
+            return "Glucose is rising, so the dose allows for where it's heading in the next 30 minutes (turned on in your settings)."
+        case .notComingDown(let u, let m):
+            return "Glucose is higher now than when you took \(LogFormat.units(u)) \(m) minutes ago. Check your pump site or pen and needle, and check for ketones. If you use a pump, consider an injection by pen."
+        case .reduced(let p):
+            return "Reduced by \(p)% for exercise, as you chose."
         }
     }
 }
@@ -233,10 +266,18 @@ struct BolusSuggestion: Hashable {
     let correctionUnits: Double
     /// A positive correction was left out because glucose is falling fast.
     let correctionWithheld: Bool
+    /// Units for where the trend takes glucose in 30 minutes: negative when falling, positive when
+    /// rising (only if the user turned that on), 0 otherwise.
+    let trendUnits: Double
+    /// mg/dL the trend shifted the glucose used, matching `trendUnits`.
+    let trendMgdl: Double
     /// Fast-acting insulin from logged doses that hasn't acted yet.
     let insulinOnBoard: Double
     /// How much of `insulinOnBoard` was taken off.
     let insulinOnBoardApplied: Double
+    /// Share taken off for exercise (0, 0.25, 0.5), and the units that came to.
+    let reduction: Double
+    let reductionUnits: Double
     /// Before the cap and rounding.
     let calculated: Double
     /// What to show as the suggestion: capped, then rounded down to the increment. 0 when blocked.
@@ -268,6 +309,18 @@ enum BolusCalculator {
     static let fallingFastRate = -2.0
     /// How far ahead the "falling towards a low" check looks.
     static let lowLookahead: TimeInterval = 20 * 60
+    /// Falling at least this fast (mg/dL per minute, Libre's ↘ arrow) is checked for a low ahead.
+    static let fallingRate = -1.0
+    /// Trend adjustment: rates within this of flat don't count (mg/dL per minute)...
+    static let trendDeadband = 0.5
+    /// ...nor does anything beyond this...
+    static let trendMaxRate = 3.0
+    /// ...and the shift is where that rate gets to in this long.
+    static let trendHorizonMinutes = 30.0
+    /// A dose this long ago (and no longer) that glucose hasn't come down from raises a site check.
+    static let notComingDownWindow: ClosedRange<TimeInterval> = (90 * 60)...(4 * 3600)
+    /// Only for highs at or above this (13.9 mmol/L), when the dose was taken at 200 mg/dL or more.
+    static let notComingDownMgdl = 250.0
     /// The low gate is never set lower than this (3.9 mmol/L), even if the low alert is.
     static let minimumLowMgdl = 70.0
     /// At or above this, suggest checking for ketones.
@@ -278,8 +331,9 @@ enum BolusCalculator {
         func blocked(_ n: BolusNotice, block: BolusScheduleBlock? = nil, glucose: Double? = nil,
                      rate: Double? = nil, iob: Double = 0) -> BolusSuggestion {
             BolusSuggestion(at: r.now, block: block, carbs: r.carbs, glucose: glucose, ratePerMinute: rate,
-                            foodUnits: 0, correctionUnits: 0, correctionWithheld: false, insulinOnBoard: iob,
-                            insulinOnBoardApplied: 0, calculated: 0, units: 0,
+                            foodUnits: 0, correctionUnits: 0, correctionWithheld: false, trendUnits: 0, trendMgdl: 0,
+                            insulinOnBoard: iob, insulinOnBoardApplied: 0, reduction: 0, reductionUnits: 0,
+                            calculated: 0, units: 0,
                             increment: settings?.increment ?? 0.5, notices: notices + [n])
         }
 
@@ -298,6 +352,8 @@ enum BolusCalculator {
         let latest = sorted.last
         var glucose: Double?
         var rate: Double?
+        /// The 15-minute least-squares rate, without the arrow fallback. Only this can add insulin.
+        var measuredRate: Double?
         if let manual = r.manualGlucose, manual.isFinite, manual > 0 {
             glucose = manual
             notices.append(.manualGlucose)
@@ -312,7 +368,8 @@ enum BolusCalculator {
             notices.append(.noReading)
         }
         if let latest, r.now.timeIntervalSince(latest.timestamp) <= freshFor {
-            rate = ratePerMinute(sorted, at: latest.timestamp) ?? arrowRate(latest.trend)
+            measuredRate = ratePerMinute(sorted, at: latest.timestamp)
+            rate = measuredRate ?? arrowRate(latest.trend)
         }
 
         // Low, or heading there fast: stop. Never below 3.9 mmol/L, whatever the low alert is set to.
@@ -320,9 +377,10 @@ enum BolusCalculator {
         if let g = glucose, g < low {
             return blocked(.low(mgdl: g), block: block, glucose: g, rate: rate, iob: iob)
         }
-        if let g = glucose, let rate, rate <= fallingFastRate, g + rate * lowLookahead / 60 < low {
-            return blocked(.fallingFastTowardsLow, block: block, glucose: g, rate: rate, iob: iob)
+        if let g = glucose, let rate, rate <= fallingRate, g + rate * lowLookahead / 60 < low {
+            return blocked(.fallingTowardsLow, block: block, glucose: g, rate: rate, iob: iob)
         }
+        let reduction = BolusReduction.choices.contains(r.reduction) ? r.reduction : 0
 
         let food = r.carbs / block.carbRatio
         var correction = 0.0
@@ -335,11 +393,25 @@ enum BolusCalculator {
             }
             if g >= veryHighMgdl { notices.append(.veryHigh) }
         }
-        let usedCorrection = withheld ? 0 : correction
+        // The trend, only with a current sensor rate behind the glucose used.
+        var trendMgdl = 0.0
+        if glucose != nil, let rate {
+            let counted = min(max(abs(rate) - trendDeadband, 0), trendMaxRate - trendDeadband)
+            let shift = (rate < 0 ? -counted : counted) * trendHorizonMinutes
+            // A fall may come from the arrow alone (it only lowers the dose); a rise needs a measured rate.
+            if shift < 0 || (shift > 0 && settings.risingTrendAdds && measuredRate != nil) { trendMgdl = shift }
+        }
+        let trend = trendMgdl / block.correctionFactor
+        if trend < -0.005 { notices.append(.trendLowered) }
+        if trend > 0.005 { notices.append(.trendRaised) }
+
+        let usedCorrection = (withheld ? 0 : correction) + trend
 
         var total: Double
         var iobApplied: Double
-        if glucose != nil && !withheld && usedCorrection >= 0 {
+        // Which rule applies is decided by glucose against target, before the trend: below target,
+        // on-board insulin always comes off the food dose too, even if a rise lifts the correction.
+        if glucose != nil && !withheld && correction >= 0 && usedCorrection >= 0 {
             // At or above target: on-board insulin offsets the correction, never the food.
             iobApplied = min(iob, usedCorrection)
             total = food + usedCorrection - iobApplied
@@ -350,6 +422,9 @@ enum BolusCalculator {
             total = max(0, before - iob)
         }
         if !total.isFinite { total = 0 }
+        let reductionUnits = total * reduction
+        total -= reductionUnits
+        if reduction > 0 { notices.append(.reduced(percent: Int((reduction * 100).rounded()))) }
 
         var final = total
         if total > settings.maxBolus {
@@ -360,7 +435,7 @@ enum BolusCalculator {
 
         // Context worth knowing.
         let hourAgo = r.now.addingTimeInterval(-3600)
-        let recentLowReading = sorted.contains { $0.timestamp >= hourAgo && $0.mgdl < r.lowMgdl }
+        let recentLowReading = sorted.contains { $0.timestamp >= hourAgo && $0.mgdl < low }
         let recentHypoTreatment = r.contexts.contains {
             $0.tags.contains(.hypoTreatment) && $0.timestamp >= hourAgo && $0.timestamp <= r.now
         }
@@ -374,12 +449,38 @@ enum BolusCalculator {
         }) {
             notices.append(.exercise)
         }
+        if let g = glucose, let stuck = notComingDown(from: r.doses, readings: sorted, glucose: g, now: r.now) {
+            notices.append(stuck)
+        }
         if r.therapy == .pump { notices.append(.pumpInsulinOnBoard) }
 
         return BolusSuggestion(at: r.now, block: block, carbs: r.carbs, glucose: glucose, ratePerMinute: rate,
                                foodUnits: food, correctionUnits: correction, correctionWithheld: withheld,
-                               insulinOnBoard: iob, insulinOnBoardApplied: iobApplied, calculated: total,
+                               trendUnits: trend, trendMgdl: trendMgdl,
+                               insulinOnBoard: iob, insulinOnBoardApplied: iobApplied,
+                               reduction: reduction, reductionUnits: reductionUnits, calculated: total,
                                units: final, increment: settings.increment, notices: notices)
+    }
+
+    /// A high that hasn't come down since a fast-acting dose 1½–4 hours ago, taken when glucose was
+    /// already 200 mg/dL or more: the usual sign of a blocked pump site, a bad pen or spoiled insulin.
+    /// The latest such dose is named.
+    static func notComingDown(from doses: [InsulinDose], readings sorted: [GlucoseReading], glucose: Double,
+                              now: Date) -> BolusNotice? {
+        guard glucose >= notComingDownMgdl else { return nil }
+        let candidates = doses.filter {
+            !$0.kind.fastComponents.isEmpty && $0.units >= 0.5
+                && notComingDownWindow.contains(now.timeIntervalSince($0.timestamp))
+        }.sorted { $0.timestamp > $1.timestamp }
+        for d in candidates {
+            // The reading nearest the dose, within 10 minutes.
+            guard let at = sorted.min(by: { abs($0.timestamp.timeIntervalSince(d.timestamp)) < abs($1.timestamp.timeIntervalSince(d.timestamp)) }),
+                  abs(at.timestamp.timeIntervalSince(d.timestamp)) <= 10 * 60 else { continue }
+            if at.mgdl >= 200 && glucose >= at.mgdl {
+                return .notComingDown(units: d.units, minutesAgo: Int((now.timeIntervalSince(d.timestamp) / 60).rounded()))
+            }
+        }
+        return nil
     }
 
     /// Rounds down to a multiple of `step`, clearing floating-point dust ("2.9999999" → 3).
@@ -425,7 +526,11 @@ struct BolusCalculation: Codable, Hashable {
     var targetMgdl: Double
     var foodUnits: Double
     var correctionUnits: Double
+    /// Units for the trend (nil on doses logged before the trend was counted).
+    var trendUnits: Double? = nil
     var insulinOnBoard: Double
+    /// Share taken off for exercise, when one was chosen.
+    var reduction: Double? = nil
     /// What the calculator suggested; the dose's own units are what the user actually took.
     var suggestedUnits: Double
 
@@ -437,7 +542,9 @@ struct BolusCalculation: Codable, Hashable {
         targetMgdl = s.block?.targetMgdl ?? 0
         foodUnits = s.foodUnits
         correctionUnits = s.correctionWithheld ? 0 : s.correctionUnits
+        trendUnits = s.trendUnits
         insulinOnBoard = s.insulinOnBoardApplied
+        reduction = s.reduction > 0 ? s.reduction : nil
         suggestedUnits = s.units
     }
 }

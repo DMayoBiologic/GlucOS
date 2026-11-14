@@ -71,6 +71,16 @@ struct PhoneHeroCard: View {
             guard old != nil, new != nil, old != new, !reduceMotion else { return }
             ripple += 1
         }
+        // A tap you can feel when a new reading, with the app open, crosses into a low (warning)
+        // or comes back into range (success). Nothing on first load or for other changes.
+        .sensoryFeedback(trigger: s.range) { old, new in
+            guard let old, let new, old != new else { return nil }
+            switch new {
+            case .low, .urgentLow: return .warning
+            case .inRange: return .success
+            case .high, .veryHigh: return nil
+            }
+        }
     }
 
     private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color) -> some View {
@@ -292,6 +302,7 @@ struct PhoneChartCard: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 200)
+                .sensoryFeedback(.selection, trigger: settings.chartHours)
             }
             GlucoseChart(readings: store.readings(lastHours: hours), unit: s.unit, lowMgdl: s.lowMgdl,
                          highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
