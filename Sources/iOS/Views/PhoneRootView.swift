@@ -129,6 +129,8 @@ struct PhoneHomeView: View {
                         settingsAnchor = anchor
                         showsSettings = true
                     }
+                    // Someone's asking if they're okay: above everything, until they answer.
+                    PhoneCheckInBanner()
                     // Cards assemble top to bottom on launch rather than popping in at once.
                     PhoneHeroCard().dsEntrance(0)
                     ForEach(follows.follows) { PhoneFollowingCard(follow: $0).dsEntrance(1) }

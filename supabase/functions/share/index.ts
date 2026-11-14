@@ -7,12 +7,18 @@
 //   GET  /v1/snapshot                         → ShareSnapshot   (the web view, and the app)
 //   POST /v1/follow     FollowRegistration    → FollowStatus    (a follower phone's push tokens, alert switch)
 //   POST /v1/unfollow   {installation}        → {ok}
+//   POST /v1/checkin    {installation, name}  → CheckInCard     (ask the owner if they're okay)
+//
+// GET /v1/snapshot?installation=<id> also returns that follower's latest check-in, so the app's
+// own update of its Lock Screen card keeps it.
 //
 // Browsers call it from the web view on Vercel, so it answers CORS preflights. JWT
 // verification is off for this function (supabase/config.toml). See docs/Sharing.md.
 
+import { APNsSender, type PushSender } from "../relay/apns.ts";
+import { askCheckIn, type CheckInCard, cleanName, followerCheckInCard } from "../relay/checkins.ts";
 import type { CardState } from "../relay/core.ts";
-import { connect } from "../relay/store.ts";
+import { connect, PostgresStore } from "../relay/store.ts";
 import {
   type FollowRegistration, hashShareToken, isShareToken, PostgresShareStore, type Share, type ShareStore,
 } from "../relay/sharing.ts";
@@ -26,6 +32,8 @@ export interface ShareSnapshot {
   updatedAt: number | null;
   /// Used as the follower's Live Activity `followID`.
   followID: string;
+  /// With `?installation=`: that follower's latest check-in, while it's current.
+  checkIn?: CheckInCard;
 }
 
 export interface FollowStatus {
@@ -49,15 +57,33 @@ const json = (body: unknown, status = 200) =>
     headers: { ...cors, "content-type": "application/json", "cache-control": "no-store" },
   });
 
+const isInstallation = (s: string) => /^[A-Za-z0-9-]{8,64}$/.test(s);
+
 const ended = () => json({ error: "This share has ended or the link is wrong." }, 404);
 
 let cachedStore: ShareStore | null = null;
-const defaultStore = () => (cachedStore ??= new PostgresShareStore(connect()));
+let cachedSender: PushSender | null | undefined;
+const env = (k: string) => Deno.env.get(k)?.trim() || undefined;
+let sql: ReturnType<typeof connect> | null = null;
+const db = () => (sql ??= connect());
+const defaultStore = () => (cachedStore ??= new PostgresShareStore(db()));
+/// The same APNs key and cached provider token as the relay (Supabase secrets are per project).
+function defaultSender(): PushSender | null {
+  if (cachedSender !== undefined) return cachedSender;
+  const keyPem = env("APNS_KEY_P8"), keyId = env("APNS_KEY_ID"), teamId = env("APPLE_TEAM_ID");
+  cachedSender = keyPem && keyId && teamId ? new APNsSender({ keyPem, keyId, teamId }, new PostgresStore(db()).tokenCache()) : null;
+  return cachedSender;
+}
+const checkInConfig = () => ({
+  bundleId: env("APNS_BUNDLE_ID") ?? "au.com.declanmayo.glucos.ios",
+  criticalAlerts: env("APNS_CRITICAL_ALERTS") === "true",
+});
 
 export async function handle(
   req: Request,
   store: () => ShareStore = defaultStore,
   clock: () => number = () => Date.now() / 1000,
+  sender: () => PushSender | null = defaultSender,
 ): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/(functions\/v1\/)?share/, "") || "/";
@@ -78,7 +104,26 @@ export async function handle(
       label: share.label, expiresAt: share.expiresAt, card: latest?.card ?? null, updatedAt: latest?.at ?? null,
       followID: share.id,
     };
+    const installation = url.searchParams.get("installation");
+    if (installation && isInstallation(installation)) {
+      const f = await s.followerByInstallation(share.id, installation, now);
+      if (f) {
+        const mine = (await s.checkIns(now)).find((c) => c.followerId === f.id);
+        const c = followerCheckInCard(mine, now);
+        if (c) body.checkIn = c;
+      }
+    }
     return json(body);
+  }
+
+  if (path === "/v1/checkin" && req.method === "POST") {
+    const body = await req.json().catch(() => null);
+    if (typeof body?.installation !== "string" || !isInstallation(body.installation)) {
+      return json({ error: "bad installation" }, 400);
+    }
+    const f = await s.followerByInstallation(share.id, body.installation, now);
+    if (!f) return json({ error: "Follow first, then you can check in." }, 409);
+    return json(await askCheckIn(s, sender(), checkInConfig(), f, cleanName(body.name), now));
   }
 
   if ((path === "/v1/follow" || path === "/v1/unfollow") && req.method === "POST") {
@@ -88,7 +133,7 @@ export async function handle(
     } catch {
       return json({ error: "bad request" }, 400);
     }
-    if (typeof body?.installation !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(body.installation)) {
+    if (typeof body?.installation !== "string" || !isInstallation(body.installation)) {
       return json({ error: "bad installation" }, 400);
     }
     if (path === "/v1/unfollow") {

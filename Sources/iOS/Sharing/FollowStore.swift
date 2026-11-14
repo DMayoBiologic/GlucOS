@@ -48,6 +48,13 @@ final class FollowStore: ObservableObject {
     @Published private(set) var errors: [String: String] = [:]
     /// The outcome of opening a share link, for an alert.
     @Published var notice: String?
+    /// Each follow's latest check-in (Check in on their card), while it's current.
+    @Published private(set) var checkIns: [String: CheckInState] = [:]
+    @Published private(set) var checkingIn: Set<String> = []
+    /// This person's own name, so the people they check in on know who's asking.
+    @Published var myName: String {
+        didSet { defaults.set(myName, forKey: "followerName") }
+    }
 
     private let defaults = UserDefaults.standard
     private var tracked = Set<String>()
@@ -70,6 +77,7 @@ final class FollowStore: ObservableObject {
     }
 
     init() {
+        myName = UserDefaults.standard.string(forKey: "followerName") ?? ""
         if let data = defaults.data(forKey: "follows"), let saved = try? JSONDecoder().decode([Follow].self, from: data) {
             follows = saved
         }
@@ -208,10 +216,11 @@ final class FollowStore: ObservableObject {
         for follow in follows {
             guard let client = client(follow.id) else { continue }
             do {
-                let s = try await client.snapshot()
+                let s = try await client.snapshot(installation: installation)
                 // Removed, or switched off the Lock Screen, while that was loading: use what's current.
                 guard let i = follows.firstIndex(where: { $0.id == follow.id }) else { continue }
                 snapshots[follow.id] = s
+                checkIns[follow.id] = s.checkIn
                 errors[follow.id] = nil
                 if follows[i].label != s.label {
                     follows[i].label = s.label
@@ -239,7 +248,8 @@ final class FollowStore: ObservableObject {
 
     private func showActivity(for follow: Follow, canStart: Bool) async {
         guard follow.liveActivity, !ended.contains(follow.id), ActivityAuthorizationInfo().areActivitiesEnabled,
-              let card = snapshots[follow.id]?.card else { return }
+              var card = snapshots[follow.id]?.card else { return }
+        card.checkIn = checkIns[follow.id]
         let content = ActivityContent(state: card, staleDate: card.staleDate,
                                       relevanceScore: card.range == .inRange ? 40 : 90)
         let running = activities(for: follow.id)
@@ -302,6 +312,30 @@ final class FollowStore: ObservableObject {
                 r.endedActivityID = id
                 await self.send(r, to: followID)
             }
+        }
+    }
+
+    // MARK: Check-ins
+
+    /// Asks the person behind `followID` whether they're okay (the Check in button on their card,
+    /// on their low alerts, or in the app). Their Lock Screen card here shows it straight away.
+    func checkIn(_ followID: String) async throws {
+        guard let client = client(followID) else { throw ShareClient.ShareError.ended }
+        checkingIn.insert(followID)
+        defer { checkingIn.remove(followID) }
+        let state: CheckInState
+        do {
+            state = try await client.checkIn(CheckInRequest(installation: installation, name: myName))
+        } catch ShareClient.ShareError.refused(_) {
+            // Not registered as a follower yet (a fresh install, or a lost registration): register, then ask.
+            await register(followID)
+            state = try await client.checkIn(CheckInRequest(installation: installation, name: myName))
+        }
+        checkIns[followID] = state
+        for a in activities(for: followID) {
+            var content = a.content.state
+            content.checkIn = state
+            await a.update(ActivityContent(state: content, staleDate: a.content.staleDate, relevanceScore: 100))
         }
     }
 

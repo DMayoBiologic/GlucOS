@@ -66,6 +66,47 @@ link (docs/TestFlight.md). The web view works anywhere.
 
 Limits: 20 live links, 10 follower phones per link, and expiry between 10 minutes and 90 days (or none).
 
+## Check-ins
+
+When the person you follow is low, or forecast to go low, their card on your Lock Screen (and in the
+Dynamic Island and the app) shows **Check in**. Their low alerts on your phone have the same button.
+Tapping it asks them if they're okay, without opening GlucOS:
+
+1. They get a time-sensitive notification, "Sam checking in: Are you okay? Your glucose is 3.4 mmol/L",
+   with **I'm okay** and **I need help** buttons that work from the Lock Screen without unlocking. Their
+   own Lock Screen card shows "Sam is checking in" with the same two buttons, and so does the top of the
+   app.
+2. Your card shows "Checked in 10:42 · waiting" straight away.
+3. When they answer you get a notification ("Declan is okay", or a critical "Declan needs help"), and
+   your card shows the answer and its time for 30 minutes.
+4. No answer after 5 minutes: they're asked again, as a critical alert when the relay may send those
+   (`APNS_CRITICAL_ALERTS`), and you're told ("No answer from Declan... If you can, call them"). Your
+   card shows "No answer since 10:42" with **Ask again**. An unanswered check-in lapses after an hour.
+
+One answer covers everyone waiting. Tapping Check in again re-notifies at most every 2 minutes. Set
+your name under Settings, Following, so the person knows who's asking ("Someone who follows you"
+otherwise).
+
+How it runs:
+
+- The follower asks through the `share` function, `POST /v1/checkin {installation, name}`, with the
+  share token. It records the check-in in `glucos.check_ins` and sends the owner's notification at
+  once, with the relay's APNs key and cached provider token. `GET /v1/snapshot?installation=…` also
+  returns that phone's latest check-in, so the app's own updates of the card keep it.
+- The owner answers through the relay, `POST /v1/checkins/answer {answer: "okay" | "help"}`, with the
+  relay secret. Every follower waiting gets a notification at once. `RelayStatus.checkIn` says who's
+  waiting.
+- The relay's minute tick puts each follower's check-in on their card and the waiting one on the
+  owner's (`checkIn` in the card's content state, `CheckInState` in Swift), sends the 5-minute
+  reminders once (`reminded_at`), and pushes any change at priority 10.
+- The Live Activity buttons are `LiveActivityIntent`s (`Sources/iOSIntents`), compiled into the widget
+  and the app. iOS runs them in the app's process, so they use the app's Keychain and network.
+  Notification buttons are the `glucos.checkin` and `glucos.follow.low` categories
+  (`Sources/iOS/CheckIns.swift`). Neither needs the phone unlocked.
+
+Rules and wording are in `supabase/functions/relay/checkins.ts`; tests in `checkins_test.ts` and
+`checkins_pg_test.ts`.
+
 ## Setup
 
 The functions and migration deploy on merge, like the rest of `supabase/`. The web view deploys on merge

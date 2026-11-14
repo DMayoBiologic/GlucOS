@@ -158,6 +158,19 @@ final class LiveActivityController: ObservableObject {
         }
     }
 
+    /// The check-in the owner's card shows now (the relay puts it there).
+    var currentCheckIn: CheckInState? { current?.content.state.checkIn }
+
+    /// Puts `checkIn` on the card as it is, without waiting for a new reading.
+    func setCheckIn(_ checkIn: CheckInState?) async {
+        guard let activity = current, activity.content.state.checkIn != checkIn else { return }
+        var state = activity.content.state
+        state.checkIn = checkIn
+        await activity.update(ActivityContent(state: state, staleDate: activity.content.staleDate,
+                                              relevanceScore: activity.content.relevanceScore))
+        lastSent = state
+    }
+
     /// Ends the owner's Live Activity (the switch was turned off, or the account signed out).
     /// Cards following other people stay.
     func endAll() async {

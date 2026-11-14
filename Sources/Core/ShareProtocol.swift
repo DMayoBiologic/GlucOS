@@ -12,6 +12,8 @@ import Foundation
 //     GET  /v1/snapshot                      → ShareSnapshot
 //     POST /v1/follow        FollowRegistration → FollowStatus
 //     POST /v1/unfollow      {installation}  → {ok}
+//     POST /v1/checkin       CheckInRequest  → CheckInState   (ask if they're okay)
+//     GET  /v1/snapshot?installation=…       → ShareSnapshot with this phone's check-in
 
 /// One of the owner's live share links.
 struct ShareInfo: Codable, Hashable, Identifiable {
@@ -57,6 +59,15 @@ struct ShareSnapshot: Codable, Hashable {
     var updatedAt: Double?
     /// The share's id: a follower's Live Activity carries it, so the relay and the app know whose it is.
     var followID: String
+    /// This phone's latest check-in, when asked for with `?installation=` and still current.
+    var checkIn: CheckInState?
+}
+
+/// A follower asks the person they follow whether they're okay.
+struct CheckInRequest: Codable, Hashable {
+    var installation: String
+    /// The follower's own name, so the person knows who's asking. Empty: "Someone who follows you".
+    var name: String
 }
 
 /// What a follower phone tells the share function. nil means unchanged.

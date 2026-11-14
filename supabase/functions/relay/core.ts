@@ -8,6 +8,8 @@
 //
 // Times are seconds since 1970 throughout, like the Swift code's `timeIntervalSince1970`.
 
+import type { CheckInCard } from "./checkins.ts";
+
 // MARK: - Models
 
 export type Trend = 0 | 1 | 2 | 3 | 4 | 5;
@@ -671,6 +673,8 @@ export interface CardState {
   insulinOnBoard?: number;
   lowExpectedAt?: number;
   source: string;
+  /// A check-in on this card (checkins.ts). Never set by `makeCard`: the relay adds it per card.
+  checkIn?: CheckInCard;
 }
 
 const cardStep = 5 * 60;

@@ -10,6 +10,7 @@
 //   GET  /v1/shares                        → Share[]       (the owner's live share links)
 //   POST /v1/shares     CreateShareRequest → CreatedShare
 //   POST /v1/shares/revoke  {id}           → Share[]
+//   POST /v1/checkins/answer {answer}      → RelayStatus   (the owner answers check-ins: "okay" | "help")
 //
 // The phone sends `Authorization: Bearer <RELAY_SECRET>`. The schedule sends `X-GlucOS-Cron`
 // with a token the migration generated into Vault. JWT verification is off for this function
@@ -82,6 +83,16 @@ export async function handle(req: Request): Promise<Response> {
   const { engine } = services();
   if (path === "/v1/status" && req.method === "GET") return json(await engine.status());
   if (path === "/v1/test" && req.method === "POST") return json(await engine.sendTest());
+  if (path === "/v1/checkins/answer" && req.method === "POST") {
+    const body = await req.json().catch(() => null);
+    if (body?.answer !== "okay" && body?.answer !== "help") return json({ error: "bad request" }, 400);
+    try {
+      return json(await engine.answerCheckIns(body.answer));
+    } catch (e) {
+      if (e instanceof ShareError) return json({ error: e.message }, e.status);
+      throw e;
+    }
+  }
   if (path.startsWith("/v1/shares")) {
     try {
       if (path === "/v1/shares" && req.method === "GET") return json(await engine.listShares());
