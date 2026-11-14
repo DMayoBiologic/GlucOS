@@ -303,6 +303,15 @@ struct PhoneSettingsView: View {
     private var alertsSection: some View {
         Section {
             Toggle("Glucose alerts", isOn: $settings.alertsEnabled)
+                .onChange(of: settings.alertsEnabled) { _, on in
+                    // Turning alerts on is the moment to ask, if iOS hasn't asked yet.
+                    guard on else { return }
+                    store.alerts.requestAuthorization()
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        notificationsAllowed = await AlertManager.notificationsAllowed()
+                    }
+                }
             if settings.alertsEnabled {
                 if notificationsAllowed == false {
                     Button("Notifications are off. Turn them on in Settings") { openURL(AlertManager.notificationSettingsURL) }

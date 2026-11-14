@@ -95,7 +95,7 @@ final class GlucoseStore: ObservableObject {
         #if os(iOS)
         // Not cold at launch on iPhone: the first-run setup asks with an explanation, and
         // following someone asks when the first follow is added.
-        if settings.hasCredentials && !UserDefaults.standard.bool(forKey: "phoneSetupPending") {
+        if settings.hasCredentials && settings.alertsEnabled && !UserDefaults.standard.bool(forKey: "phoneSetupPending") {
             alerts.requestAuthorization()
         }
         #else
