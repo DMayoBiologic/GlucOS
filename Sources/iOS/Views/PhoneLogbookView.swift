@@ -16,6 +16,9 @@ struct PhoneLogbookView: View {
     @EnvironmentObject var sync: LogbookSyncService
     @State private var query = ""
     @State private var kind: LogPart?
+    /// The first rows have played their entrance; rows built after this (scrolled to, filtered in)
+    /// are just there.
+    @State private var assembled = false
 
     var body: some View {
         let all = logbook.entries
@@ -52,11 +55,23 @@ struct PhoneLogbookView: View {
                 // Headers total the whole day, not just what the filter or search left showing.
                 let totals = Dictionary(PhoneLogbookDay.group(all, now: now).map { ($0.id, $0.totals) },
                                         uniquingKeysWith: { a, _ in a })
-                ForEach(PhoneLogbookDay.group(shown, now: now)) { day in
+                let days = PhoneLogbookDay.group(shown, now: now)
+                let starts = PhoneLogbookDay.rowStarts(days)
+                ForEach(Array(days.enumerated()), id: \.element.id) { i, day in
                     Section {
-                        ForEach(day.entries, id: \.id) { row($0) }
+                        ForEach(Array(day.entries.enumerated()), id: \.element.id) { j, entry in
+                            // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
+                            let order = starts[i] + j
+                            row(entry).dsEntrance(min(order, 8), enabled: !assembled && order < 12)
+                        }
                     } header: {
+                        // Day headers stay pinned, on a blur, while their day scrolls under them.
                         dayHeader(day, totals: totals[day.id] ?? day.totals)
+                            .padding(.horizontal, DS.Space.lg)
+                            .padding(.vertical, DS.Space.xs + 2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.bar)
+                            .listRowInsets(EdgeInsets())
                     }
                 }
             }
@@ -69,7 +84,8 @@ struct PhoneLogbookView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        // Plain, so day headers stick to the top as their day scrolls.
+        .listStyle(.plain)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Food, insulin, notes")
         .navigationTitle("Logbook")
         .navigationBarTitleDisplayMode(.large)
@@ -83,6 +99,10 @@ struct PhoneLogbookView: View {
         .animation(DSMotion.quick.animation, value: logbook.lastDeleted.count)
         .onChange(of: kinds) { _, now in
             if let k = kind, !now.contains(k) { kind = nil }
+        }
+        .task {
+            try? await Task.sleep(for: .seconds(1))
+            assembled = true
         }
     }
 
@@ -133,12 +153,15 @@ struct PhoneLogbookView: View {
     private func dayHeader(_ day: PhoneLogbookDay, totals: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(day.title)
+                .dsFont(.headline)
+                .foregroundStyle(.primary)
             Spacer(minLength: DS.Space.sm)
             Text(totals)
-                .textCase(nil)
+                .dsFont(.caption)
                 .monospacedDigit()
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
+        .textCase(nil)
         .accessibilityElement(children: .combine)
     }
 
@@ -201,6 +224,17 @@ struct PhoneLogbookDay: Identifiable {
         if units > 0 { parts.append(LogFormat.units(units)) }
         if carbs > 0 { parts.append("\(LogFormat.grams(carbs)) carbs") }
         return parts.joined(separator: " · ")
+    }
+
+    /// The overall row number each day's first row has, so rows can be ordered across days.
+    static func rowStarts(_ days: [PhoneLogbookDay]) -> [Int] {
+        var out: [Int] = []
+        var n = 0
+        for day in days {
+            out.append(n)
+            n += day.entries.count
+        }
+        return out
     }
 
     /// Consecutive entries by calendar day, titled "Today", "Yesterday" or the date.

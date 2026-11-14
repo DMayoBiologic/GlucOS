@@ -221,6 +221,7 @@ struct PhoneFollowingCard: View {
                         .dsFont(.callout)
                 } else if let card {
                     SharedReadingView(card: card, now: now)
+                    FollowRail(card: card, stale: stale)
                     FollowCheckInRow(follow: follow, card: card)
                 } else {
                     Text(follows.errors[follow.id] ?? "Waiting for \(follow.label)'s first reading…")
@@ -229,7 +230,7 @@ struct PhoneFollowingCard: View {
             }
             .padding(DS.Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background { DSSurface(style: .tinted(tone), radius: DS.Radius.card) }
+            .background { FollowCardSurface(tone: tone) }
             .accessibilityElement(children: .contain)
         }
         .confirmationDialog("Stop following \(follow.label)?", isPresented: $confirmsStop, titleVisibility: .visible) {
@@ -304,6 +305,37 @@ struct AddFollowView: View {
             }
             working = false
         }
+    }
+}
+
+/// A followed person's card background: the tinted surface with a strip of their range field down
+/// its leading edge (docs/Redesign.md §7.2), which sweeps to the new colour when their range changes.
+private struct FollowCardSurface: View {
+    let tone: Tone
+
+    var body: some View {
+        DSSurface(style: .tinted(tone), radius: DS.Radius.card)
+            .overlay {
+                // Still (not `live`): a strip this thin shows no drift, and a list of followed
+                // people shouldn't each run a timeline. Clipped on its own so the card keeps its shadow.
+                RangeField(tone: tone, intensity: 2.2)
+                    .frame(width: 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                    .allowsHitTesting(false)
+            }
+    }
+}
+
+/// Where a followed person's reading sits between urgent low and very high, with their own range.
+private struct FollowRail: View {
+    let card: GlucoseActivityState
+    let stale: Bool
+
+    var body: some View {
+        RangeRail(mgdl: card.mgdl, lowMgdl: card.lowMgdl, highMgdl: card.highMgdl, stale: stale,
+                  thickness: 5, unit: card.glucoseUnit)
+            .padding(.vertical, DS.Space.xxs)
     }
 }
 
@@ -418,12 +450,13 @@ private struct ExampleFollowCard: View {
                     RangeBadge(range: card.range, stale: false)
                 }
                 SharedReadingView(card: card, now: context.date)
+                FollowRail(card: card, stale: false)
                 Text("Example readings, not a real person's.")
                     .dsFont(.caption).foregroundStyle(.secondary)
             }
             .padding(DS.Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background { DSSurface(style: .tinted(.glucose(card.range)), radius: DS.Radius.card) }
+            .background { FollowCardSurface(tone: .glucose(card.range)) }
             .accessibilityElement(children: .contain)
         }
     }

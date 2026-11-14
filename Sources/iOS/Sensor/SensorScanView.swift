@@ -10,10 +10,17 @@ struct SensorScanView: View {
     @State private var result: SensorScanResult?
     @State private var error: String?
     @State private var scanning = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Form {
             Section {
+                // The ring pulses while the phone reads the sensor; it shows above the system's
+                // NFC sheet (docs/Redesign.md §7.2).
+                SensorScanRing(scanning: scanning)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DS.Space.sm)
+                    .listRowBackground(Color.clear)
                 Button {
                     Task { await scan() }
                 } label: {
@@ -73,8 +80,12 @@ struct SensorScanView: View {
         Section {
             if let current {
                 HStack(alignment: .firstTextBaseline) {
+                    // Rolls in from below on the first scan, and rolls digit by digit on a rescan.
                     Text(settings.unit.format(mgdl: current.mgdl))
                         .font(.system(size: 44, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText(value: current.mgdl))
+                        .modifier(RollIn())
                     Text(settings.unit.label).foregroundStyle(.secondary)
                     Spacer()
                     Image(systemName: current.trend.systemImage)
@@ -149,7 +160,8 @@ struct SensorScanView: View {
         error = nil
         defer { scanning = false }
         do {
-            result = try await scanner.scan(.read)
+            let scanned = try await scanner.scan(.read)
+            DS.animate(.emphasized, reduceMotion: reduceMotion) { result = scanned }
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription
@@ -194,5 +206,61 @@ struct SensorScanView: View {
         case .unknown:
             return "GlucOS doesn't recognise this sensor yet. The patch info bytes above identify it."
         }
+    }
+}
+
+/// The sensor in a ring. While scanning, soft rings leave it and the radio waves step, like the
+/// reader is listening; still otherwise, and always still under Reduce Motion.
+private struct SensorScanRing: View {
+    let scanning: Bool
+    var tint: Color = Palette.brand
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let pulses = scanning && !reduceMotion
+        ZStack {
+            if pulses {
+                ForEach(0..<2, id: \.self) { i in
+                    Circle()
+                        .stroke(tint.opacity(0.5), lineWidth: 2)
+                        .phaseAnimator([false, true]) { content, expanded in
+                            content
+                                .scaleEffect(expanded ? 1.6 : 1)
+                                .opacity(expanded ? 0 : 0.8)
+                        } animation: { expanded in
+                            expanded ? .easeOut(duration: 1.4).delay(Double(i) * 0.7) : .linear(duration: 0.01)
+                        }
+                }
+            }
+            Circle()
+                .fill(tint.opacity(scanning ? 0.2 : 0.12))
+            Circle()
+                .strokeBorder(tint.opacity(scanning ? 0.8 : 0.35), lineWidth: 2)
+            Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(tint)
+                .symbolEffect(.variableColor.iterative, options: .repeating, isActive: pulses)
+        }
+        .frame(width: 84, height: 84)
+        .dsAnimation(.standard, value: scanning)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Lifts a value into place from just below when it first appears, as if rolled in. Shown in place
+/// at once under Reduce Motion.
+private struct RollIn: ViewModifier {
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown || reduceMotion ? 0 : 18)
+            .onAppear {
+                guard !shown else { return }
+                if reduceMotion { shown = true; return }
+                withAnimation(DSMotion.arrival.animation.delay(0.1)) { shown = true }
+            }
     }
 }

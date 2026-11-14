@@ -1127,6 +1127,7 @@ struct PhoneLogSheet: View {
                                          tags: logsTags ? tags : []))
         }
         Haptics.success()
+        PhoneLogRouter.shared.noteSaved()
         dismiss()
     }
 }
