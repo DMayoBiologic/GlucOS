@@ -7,6 +7,7 @@ import Foundation
 //   POST /v1/register   RelayRegistration  → RelayStatus   (send only what changed)
 //   GET  /v1/status                        → RelayStatus
 //   POST /v1/test                          → RelayStatus   (sends a test alert push)
+//   POST /v1/checkins/answer CheckInAnswer → RelayStatus   (the owner answers followers' check-ins)
 //   GET  /health                           → "ok"          (no secret, for the host's health check)
 
 /// What the phone tells the relay. Every field is optional: nil means "unchanged".
@@ -65,6 +66,9 @@ struct RelayStatus: Codable, Hashable {
     var activityStartedAt: Double?
     var liveActivityEnabled: Bool
     var alertsEnabled: Bool
+    /// Followers waiting for the owner to answer a check-in. Missing when nobody is (and from
+    /// relays older than 2.2.0).
+    var checkIn: CheckInState?
 
     /// The relay is fetching and has a way to reach the phone, so the phone can leave alerts to it.
     func isDeliveringAlerts(at now: Date = Date()) -> Bool {
@@ -72,4 +76,13 @@ struct RelayStatus: Codable, Hashable {
               let fetched = lastFetchAt else { return false }
         return now.timeIntervalSince1970 - fetched < 5 * 60
     }
+}
+
+/// The owner's answer to every waiting check-in: `POST /v1/checkins/answer`.
+struct CheckInAnswer: Codable, Hashable {
+    enum Answer: String, Codable {
+        case okay, help
+    }
+
+    var answer: Answer
 }

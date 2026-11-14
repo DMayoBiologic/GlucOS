@@ -30,7 +30,15 @@ struct ShareClient {
         return URLSession(configuration: cfg)
     }()
 
-    func snapshot() async throws -> ShareSnapshot { try await call("v1/snapshot", method: "GET") }
+    /// With `installation`, the snapshot also carries this phone's latest check-in.
+    func snapshot(installation: String? = nil) async throws -> ShareSnapshot {
+        try await call("v1/snapshot", method: "GET", query: installation.map { [URLQueryItem(name: "installation", value: $0)] })
+    }
+
+    /// Asks the person this share belongs to whether they're okay.
+    func checkIn(_ request: CheckInRequest) async throws -> CheckInState {
+        try await call("v1/checkin", method: "POST", body: try JSONEncoder().encode(request))
+    }
 
     func follow(_ r: FollowRegistration) async throws -> FollowStatus {
         try await call("v1/follow", method: "POST", body: try JSONEncoder().encode(r))
@@ -42,8 +50,11 @@ struct ShareClient {
                                    body: try JSONEncoder().encode(FollowRegistration(installation: installation)))
     }
 
-    private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil) async throws -> T {
-        var req = URLRequest(url: Self.baseURL.appendingPathComponent(path))
+    private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil,
+                                    query: [URLQueryItem]? = nil) async throws -> T {
+        var url = Self.baseURL.appendingPathComponent(path)
+        if let query { url.append(queryItems: query) }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Accept")

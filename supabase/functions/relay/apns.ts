@@ -33,6 +33,9 @@ export interface PushSender {
 /// The relay starts activities by this type name; it must match the Swift struct.
 export const activityAttributesType = "GlucoseActivityAttributes";
 
+/// The follower alerts that offer a Check in button.
+export const followerLowKinds: ReadonlySet<string> = new Set(["urgentLow", "low", "predictedUrgentLow", "predictedLow"]);
+
 export const payloads = {
   alert(n: AlertNotice, criticalSound: boolean) {
     const aps: Record<string, unknown> = {
@@ -53,6 +56,8 @@ export const payloads = {
     const body = n.kind === "urgentLow" ? n.body.replace("Treat now and confirm on your phone.", `Check on ${label} now.`) : n.body;
     base.aps.alert = { title: `${label}: ${n.title}`, body };
     base.aps["thread-id"] = `glucos.follow.${shareId}`;
+    // Lows (and forecast lows) get a Check in button: see checkins.ts.
+    if (followerLowKinds.has(n.kind)) base.aps.category = "glucos.follow.low";
     return { ...base, followID: shareId };
   },
 

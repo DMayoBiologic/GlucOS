@@ -1,4 +1,5 @@
 import ActivityKit
+import AppIntents
 import SwiftUI
 import WidgetKit
 
@@ -53,10 +54,8 @@ struct GlucoseLiveActivity: Widget {
                         RangeRail(mgdl: state.mgdl, lowMgdl: state.lowMgdl, highMgdl: state.highMgdl, stale: stale,
                                   forecastMgdl: stale ? nil : state.forecastHeadline?.mgdl, thickness: 3,
                                   unit: state.glucoseUnit)
-                        HStack(spacing: 8) {
-                            ActivityFooter(state: state, stale: stale, compact: true)
-                            if context.isOwner { LogLink() }
-                        }
+                        ActivityActionRow(state: state, stale: stale, followID: context.attributes.followID,
+                                          person: context.person, compact: true)
                     }
                 }
             } compactLeading: {
@@ -161,7 +160,7 @@ private struct ActivityPresentation: View {
             SmallGlucoseCard(state: context.state, stale: context.isStaleCard, person: context.person)
         default:
             LockScreenGlucoseCard(state: context.state, stale: context.isStaleCard, person: context.person,
-                                  showsLog: context.isOwner)
+                                  followID: context.attributes.followID)
         }
     }
 }
@@ -174,7 +173,8 @@ struct LockScreenGlucoseCard: View {
     let stale: Bool
     /// Whose reading, on a card following someone else's share. nil on the owner's own card.
     var person: String? = nil
-    var showsLog: Bool = true
+    /// The share, on a follower's card (for its Check in button). nil on the owner's own card.
+    var followID: String? = nil
 
     var body: some View {
         let tone = state.tone(stale: stale)
@@ -212,10 +212,7 @@ struct LockScreenGlucoseCard: View {
             }
             RangeRail(mgdl: state.mgdl, lowMgdl: state.lowMgdl, highMgdl: state.highMgdl, stale: stale,
                       forecastMgdl: stale ? nil : state.forecastHeadline?.mgdl, thickness: 3, unit: state.glucoseUnit)
-            HStack(spacing: 8) {
-                ActivityFooter(state: state, stale: stale, compact: false)
-                if showsLog { LogLink() }
-            }
+            ActivityActionRow(state: state, stale: stale, followID: followID, person: person, compact: false)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -411,5 +408,123 @@ private struct LogLink: View {
                 .background(Color.white.opacity(0.16), in: Capsule())
         }
         .accessibilityLabel("Log insulin, food or an event")
+    }
+}
+
+// MARK: - Check-ins
+
+/// The bottom row: the forecast and Log on the owner's card, or the check-in (docs/Sharing.md
+/// "Check-ins"). A follower gets Check in while the person they follow is low or heading low; the
+/// owner gets "I'm okay" and "Help" while someone's waiting. The buttons run in the app
+/// (Sources/iOSIntents), so neither has to unlock the phone.
+struct ActivityActionRow: View {
+    let state: GlucoseActivityState
+    let stale: Bool
+    /// nil on the owner's own card.
+    let followID: String?
+    let person: String?
+    var compact: Bool = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let followID {
+                followerRow(followID)
+            } else if let checkIn = state.checkIn, checkIn.isWaiting {
+                CheckInNote(text: "\(checkIn.askers) \((checkIn.count ?? 1) > 1 ? "are" : "is") checking in",
+                            systemImage: "hand.wave.fill", tint: Tone.warning.color)
+                Spacer(minLength: 4)
+                CheckInButton(title: "I'm okay", systemImage: "checkmark", tint: Tone.success.color,
+                              intent: AnswerCheckInIntent(okay: true),
+                              accessibility: "Tell \(checkIn.askers) you're okay")
+                CheckInButton(title: "Help", systemImage: nil, tint: Tone.critical.color,
+                              intent: AnswerCheckInIntent(okay: false),
+                              accessibility: "Tell \(checkIn.askers) you need help")
+            } else {
+                ActivityFooter(state: state, stale: stale, compact: compact)
+                LogLink()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func followerRow(_ followID: String) -> some View {
+        let name = person ?? "them"
+        switch state.checkIn?.status {
+        case .asked?:
+            CheckInNote(text: "Checked in \(Self.time(state.checkIn!.askedDate)) · waiting", systemImage: "hand.wave.fill",
+                        tint: .secondary)
+            Spacer(minLength: 4)
+        case .noAnswer?:
+            CheckInNote(text: "No answer since \(Self.time(state.checkIn!.askedDate))",
+                        systemImage: "exclamationmark.triangle.fill", tint: Tone.warning.color)
+            Spacer(minLength: 4)
+            CheckInButton(title: "Ask again", systemImage: "hand.wave.fill", tint: Tone.warning.color,
+                          intent: CheckInIntent(followID: followID), accessibility: "Ask \(name) again if they're okay")
+        case .okay?:
+            CheckInNote(text: "\(name) is okay · \(Self.time(state.checkIn!.answeredDate ?? state.checkIn!.askedDate))",
+                        systemImage: "checkmark.circle.fill", tint: Tone.success.color)
+            Spacer(minLength: 4)
+            if state.offersCheckIn { checkInButton(followID, name: name) }
+        case .help?:
+            CheckInNote(text: "\(name) needs help · \(Self.time(state.checkIn!.answeredDate ?? state.checkIn!.askedDate))",
+                        systemImage: "exclamationmark.triangle.fill", tint: Tone.critical.color)
+            Spacer(minLength: 4)
+        case nil:
+            ActivityFooter(state: state, stale: stale, compact: compact)
+            if state.offersCheckIn { checkInButton(followID, name: name) }
+        }
+    }
+
+    private func checkInButton(_ followID: String, name: String) -> some View {
+        CheckInButton(title: "Check in", systemImage: "hand.wave.fill", tint: .white,
+                      intent: CheckInIntent(followID: followID), accessibility: "Ask \(name) if they're okay")
+    }
+
+    static func time(_ date: Date) -> String {
+        date.formatted(.dateTime.hour().minute())
+    }
+}
+
+/// The check-in, where the forecast note usually goes.
+private struct CheckInNote: View {
+    let text: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+    }
+}
+
+/// A capsule button that runs a check-in intent in the app.
+private struct CheckInButton<I: AppIntent>: View {
+    let title: String
+    let systemImage: String?
+    let tint: Color
+    let intent: I
+    let accessibility: String
+
+    var body: some View {
+        Button(intent: intent) {
+            Group {
+                if let systemImage {
+                    Label(title, systemImage: systemImage)
+                } else {
+                    Text(title)
+                }
+            }
+            .font(.caption.weight(.bold))
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .foregroundStyle(tint)
+            .background(tint.opacity(0.2), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibility)
     }
 }

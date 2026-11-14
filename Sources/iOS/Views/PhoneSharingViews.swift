@@ -221,6 +221,7 @@ struct PhoneFollowingCard: View {
                         .dsFont(.callout)
                 } else if let card {
                     SharedReadingView(card: card, now: now)
+                    FollowCheckInRow(follow: follow, card: card)
                 } else {
                     Text(follows.errors[follow.id] ?? "Waiting for \(follow.label)'s first reading…")
                         .dsFont(.callout).foregroundStyle(.secondary)
@@ -510,10 +511,18 @@ struct FollowingSettingsSection: View {
                 }
             }
             Button("Follow Someone…", systemImage: "plus") { showsAdd = true }
+            if !follows.follows.isEmpty {
+                LabeledContent("Your name") {
+                    TextField("For check-ins", text: $follows.myName)
+                        .multilineTextAlignment(.trailing)
+                        .textContentType(.givenName)
+                        .submitLabel(.done)
+                }
+            }
         } header: {
             Text("Following")
         } footer: {
-            Text("Readings people have shared with you. Alerts are their lows, highs and missing data, sent even when GlucOS is closed. Swipe to stop following.")
+            Text("Readings people have shared with you. Alerts are their lows, highs and missing data, sent even when GlucOS is closed. When someone you follow is low, Check in on their Lock Screen card asks if they're okay, and shows their answer. Your name tells them who's asking. Swipe to stop following.")
         }
         .sheet(isPresented: $showsAdd) { NavigationStack { AddFollowView() } }
         .confirmationDialog("Stop following \(stopping?.label ?? "")?",

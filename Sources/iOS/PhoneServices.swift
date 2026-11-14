@@ -156,8 +156,41 @@ final class PhoneServices: ObservableObject {
             return
         }
         let readings = store.readings(lastHours: GlucoseActivityState.historyHours + 0.5)
-        guard let state = GlucoseActivityState.make(from: store.snapshot, readings: readings) else { return }
+        guard var state = GlucoseActivityState.make(from: store.snapshot, readings: readings) else { return }
+        // Who's checking in, from the relay; while its status is unknown, whatever the card shows.
+        state.checkIn = relaySettings.isConfigured
+            ? (relayStatus.map { $0.checkIn } ?? liveActivity.currentCheckIn)
+            : nil
         await liveActivity.show(state, wantsPushUpdates: relaySettings.isConfigured, canStart: canStart)
+    }
+
+    // MARK: Check-ins
+
+    /// People waiting for this person to say they're okay.
+    var waitingCheckIn: CheckInState? {
+        guard let c = relayStatus?.checkIn, c.isWaiting else { return nil }
+        return c
+    }
+
+    /// Answers everyone checking in (from the notification, the Lock Screen card or the app).
+    func answerCheckIn(_ answer: CheckInAnswer.Answer) async throws {
+        guard let client = relaySettings.client else { throw RelayClient.RelayError.unauthorized }
+        do {
+            apply(try await client.answerCheckIns(answer))
+        } catch {
+            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "checkin.answer", error: error)
+            throw error
+        }
+        // Off the card now, not on the relay's next tick.
+        await liveActivity.setCheckIn(relayStatus?.checkIn)
+        await showLiveActivity(canStart: false)
+    }
+
+    /// A check-in notification arrived: the card and the app should show it now.
+    func checkInArrived() async {
+        await refreshRelayStatus()
+        await liveActivity.setCheckIn(relayStatus?.checkIn)
+        await showLiveActivity(canStart: false)
     }
 
     // MARK: Relay

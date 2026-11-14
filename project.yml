@@ -126,6 +126,8 @@ targets:
     sources:
       - path: Sources/iOS
         excludes: ["Info.plist", "*.entitlements"]
+      # The Live Activity's check-in buttons: drawn by the widget, run in the app.
+      - path: Sources/iOSIntents
       - path: Sources/Core
       - path: Sources/Engine
       - path: Sources/Shared
@@ -214,6 +216,7 @@ targets:
     sources:
       - path: Sources/iOSWidget
         excludes: ["Info.plist", "*.entitlements"]
+      - path: Sources/iOSIntents
       - path: Sources/Widget
         excludes: ["Info.plist", "*.entitlements"]
       - path: Sources/Shared

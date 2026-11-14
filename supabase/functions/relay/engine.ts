@@ -9,13 +9,17 @@ import {
   type Sensor, unitOf,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
+import {
+  type CheckIn, type CheckInAnswer, type CheckInCard, checkInOpenFor, checkInPayloads, checkInRemindAfter,
+  followerCheckInCard, isOpen, ownerCheckInCard, sameCheckIn, withCheckIn,
+} from "./checkins.ts";
 import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
 import {
   cleanLabel, type Follower, hashShareToken, maxShareLifetime, maxShares, newShareToken, type Share, type ShareStore,
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.1.0";
+export const version = "2.2.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -207,6 +211,8 @@ export interface RelayStatus {
   activityStartedAt?: number;
   liveActivityEnabled: boolean;
   alertsEnabled: boolean;
+  /// Followers waiting for the owner to answer a check-in (checkins.ts). Missing when nobody is.
+  checkIn?: CheckInCard;
 }
 
 // MARK: - Engine
@@ -250,8 +256,8 @@ export class RelayEngine {
 
   // MARK: API
 
-  register(r: RelayRegistration): Promise<RelayStatus> {
-    return this.store.transaction(async (tx) => {
+  async register(r: RelayRegistration): Promise<RelayStatus> {
+    return await this.attachCheckIn(await this.store.transaction(async (tx) => {
       const now = this.clock();
       const row = tx.row;
       if (r.deviceToken) row.prefs.deviceToken = r.deviceToken;
@@ -310,7 +316,7 @@ export class RelayEngine {
         if (!r.liveActivityEnabled) await this.endActivity(row, now);
       }
       return this.statusOf(row, (await tx.account()) !== null);
-    });
+    }));
   }
 
   /// A phone signed in to the same LibreLinkUp account the relay fetches with is the owner's, so
@@ -340,8 +346,52 @@ export class RelayEngine {
     });
   }
 
-  status(): Promise<RelayStatus> {
-    return this.store.transaction(async (tx) => this.statusOf(tx.row, (await tx.account()) !== null));
+  async status(): Promise<RelayStatus> {
+    return await this.attachCheckIn(
+      await this.store.transaction(async (tx) => this.statusOf(tx.row, (await tx.account()) !== null)),
+    );
+  }
+
+  // MARK: Check-ins
+
+  /// The check-ins still current, or none when sharing isn't set up (or can't be read: a check-in
+  /// must never break the owner's own tick).
+  private async currentCheckIns(now: number): Promise<CheckIn[]> {
+    if (!this.config.shares) return [];
+    try {
+      return await this.config.shares.checkIns(now);
+    } catch (e) {
+      console.error("checkIns", e);
+      return [];
+    }
+  }
+
+  private async attachCheckIn(s: RelayStatus): Promise<RelayStatus> {
+    const now = this.clock();
+    const c = ownerCheckInCard(await this.currentCheckIns(now), now);
+    if (c) s.checkIn = c;
+    return s;
+  }
+
+  /// The owner answers (from the notification, their Lock Screen card or the app): every follower
+  /// waiting hears back straight away, and their cards change on the next tick.
+  async answerCheckIns(answer: CheckInAnswer): Promise<RelayStatus> {
+    const now = this.clock();
+    const shares = this.shares;
+    const answered = await shares.answerCheckIns(answer, now);
+    if (this.sender) {
+      for (const a of answered) {
+        if (!a.deviceToken) continue;
+        const result = await this.sender.send({
+          deviceToken: a.deviceToken, type: "alert", topic: this.config.bundleId, priority: 10,
+          payload: checkInPayloads.answer(a.label, a.checkIn.shareId, answer, this.config.criticalAlerts),
+          collapseId: `glucos.checkin.${a.checkIn.shareId}`.slice(0, 64), expiration: now + checkInOpenFor,
+          sandbox: a.sandbox,
+        });
+        if (result.kind === "tokenInvalid") await shares.clearFollowerDeviceToken(a.checkIn.followerId, a.deviceToken);
+      }
+    }
+    return await this.status();
   }
 
   sendTest(): Promise<RelayStatus> {
@@ -453,9 +503,30 @@ export class RelayEngine {
           ? cardPriority(result.card, w.latestCard?.card ?? null, w.urgentCardAt ?? null, result.notices.length > 0, now)
           : 5;
         if (priority === 10) w.urgentCardAt = now;
-        await this.updateActivity(row, result.card, result.notices.length > 0, priority, now);
+        // Check-ins: the owner's card shows who's waiting, each follower's card their own; and
+        // after `checkInRemindAfter` without an answer both sides hear about it once.
+        const checkIns = await this.currentCheckIns(now);
+        const due = checkIns.filter((c) => isOpen(c, now) && c.remindedAt === null && now - c.askedAt >= checkInRemindAfter);
+        if (due.length && token) {
+          const waiting = checkIns.filter((c) => isOpen(c, now));
+          await this.push(row, {
+            deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
+            payload: checkInPayloads.ask(due.find((c) => c.name)?.name ?? "", waiting.length, result.card, true,
+              this.config.criticalAlerts),
+            collapseId: "glucos.checkin", expiration: now + checkInOpenFor, sandbox: row.prefs.sandbox,
+          }, (r) => { delete r.prefs.deviceToken; });
+        }
+        const ownerCard = result.card ? withCheckIn(result.card, ownerCheckInCard(checkIns, now)) : null;
+        await this.updateActivity(row, ownerCard, result.notices.length > 0, priority, now);
         if (result.card) w.latestCard = { card: result.card, at: now };
-        await this.updateFollowers(w, result.card, result.notices, priority, now);
+        await this.updateFollowers(w, result.card, result.notices, priority, now, checkIns, due);
+        if (due.length) {
+          try {
+            await this.config.shares?.markReminded(due.map((c) => c.id), now);
+          } catch (e) {
+            console.error("markReminded", e);
+          }
+        }
         return "done";
       });
     } finally {
@@ -481,8 +552,10 @@ export class RelayEngine {
         const due = last ? now - last.pushedAt >= activityRefresh : true;
         if (!changed && !due) return;
         const rangeChanged = last ? cardRange(last.card) !== cardRange(card) : true;
+        const checkInChanged = !sameCheckIn(last?.card.checkIn, card.checkIn);
         // This card's own history counts too: it may have missed the push where the range changed.
-        const priority = tickPriority === 10 || urgent || rangeChanged || cardRange(card) !== "inRange" ? 10 : 5;
+        const priority = tickPriority === 10 || urgent || rangeChanged || checkInChanged ||
+            cardRange(card) !== "inRange" ? 10 : 5;
         const result = await this.push(row, {
           deviceToken: a.token, type: "liveactivity", topic: this.config.bundleId, priority,
           payload: payloads.activity("update", card, now), expiration: cardStaleDate(card), sandbox: row.prefs.sandbox,
@@ -568,7 +641,9 @@ export class RelayEngine {
   /// resent when it changes or every 10 minutes, replaced before iOS's 8-hour limit, and taken
   /// down when the share expires.
   private async updateFollowers(w: Work, card: CardState | null, notices: AlertNotice[], priority: 5 | 10,
-                                now: number) {
+                                now: number, checkIns: CheckIn[] = [], dueCheckIns: CheckIn[] = []) {
+    const checkInOf = new Map(checkIns.map((c) => [c.followerId, c]));
+    const due = new Set(dueCheckIns.map((c) => c.followerId));
     const urgent = notices.length > 0;
     const forFollowers = notices.filter((n) => followerAlertKinds.has(n.kind));
     const shares = this.config.shares;
@@ -591,9 +666,12 @@ export class RelayEngine {
           return;
         }
         if (forFollowers.length && f.alertsEnabled && f.deviceToken) await this.alertFollower(f, forFollowers, now);
+        // They asked, so they hear about no answer whatever their alert switch says.
+        if (due.has(f.id) && f.deviceToken) await this.tellNoAnswer(f, now);
         if (!card || !f.liveActivityEnabled) return;
         const seen = { activityToken: f.activityToken, pushToStartToken: f.pushToStartToken };
-        if (await this.updateFollower(f, card, urgent, priority, now)) await shares.saveFollower(f, seen);
+        const content = withCheckIn(card, followerCheckInCard(checkInOf.get(f.id), now));
+        if (await this.updateFollower(f, content, urgent, priority, now)) await shares.saveFollower(f, seen);
       } catch (e) {
         console.error("follower", f.id, e);
       }
@@ -638,9 +716,10 @@ export class RelayEngine {
         const due = f.lastPushedAt === null || now - f.lastPushedAt >= activityRefresh;
         if (!changed && !due) return false;
         const rangeChanged = f.lastCard ? cardRange(f.lastCard) !== cardRange(card) : true;
+        const checkInChanged = !sameCheckIn(f.lastCard?.checkIn, card.checkIn);
         const result = await sender.send({
           deviceToken: f.activityToken, type: "liveactivity", topic: this.config.bundleId,
-          priority: tickPriority === 10 || urgent || rangeChanged || cardRange(card) !== "inRange" ? 10 : 5,
+          priority: tickPriority === 10 || urgent || rangeChanged || checkInChanged || cardRange(card) !== "inRange" ? 10 : 5,
           payload: payloads.activity("update", card, now), expiration: cardStaleDate(card), sandbox: f.sandbox,
         });
         if (result.kind === "delivered") {
@@ -688,6 +767,16 @@ export class RelayEngine {
         return;
       }
     }
+  }
+
+  private async tellNoAnswer(f: Follower, now: number) {
+    const token = f.deviceToken!;
+    const result = await this.sender!.send({
+      deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
+      payload: checkInPayloads.noAnswer(f.label, f.shareId),
+      collapseId: `glucos.checkin.${f.shareId}`.slice(0, 64), expiration: now + checkInOpenFor, sandbox: f.sandbox,
+    });
+    if (result.kind === "tokenInvalid") await this.config.shares!.clearFollowerDeviceToken(f.id, token);
   }
 
   private async endFollower(f: Follower, now: number) {

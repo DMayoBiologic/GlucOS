@@ -33,6 +33,9 @@ struct GlucoseActivityState: Codable, Hashable {
     var lowExpectedAt: Double?
     /// "phone" or "relay": who sent this update. Shown nowhere; handy when debugging.
     var source: String = "phone"
+    /// A check-in on this card: on a follower's, theirs; on the owner's, who's waiting for an answer.
+    /// Added by the relay (and by the app from what the relay says); never by `make`.
+    var checkIn: CheckInState?
 
     static let historyStep: TimeInterval = 5 * 60
     /// How much history the card's sparkline covers.
@@ -80,6 +83,9 @@ struct GlucoseActivityState: Codable, Hashable {
     }
 
     var lowExpectedDate: Date? { lowExpectedAt.map { Date(timeIntervalSince1970: $0) } }
+
+    /// Low now, or forecast to be: when a follower's card offers Check in.
+    var offersCheckIn: Bool { range == .low || range == .urgentLow || lowExpectedAt != nil }
 
     // MARK: Building
 
@@ -137,5 +143,57 @@ struct GlucoseActivityState: Codable, Hashable {
             state.lowExpectedAt = o.lowExpectedAt?.timeIntervalSince1970
         }
         return state
+    }
+}
+
+/// A check-in, as a Live Activity shows it (supabase/functions/relay/checkins.ts `CheckInCard`).
+/// A follower taps Check in when the person they follow is low; that person answers "I'm okay" or
+/// "I need help".
+struct CheckInState: Codable, Hashable {
+    enum Status: String, Codable {
+        /// Waiting for an answer.
+        case asked
+        /// Still waiting after 5 minutes: the owner has been asked again.
+        case noAnswer
+        case okay
+        case help
+    }
+
+    var status: Status
+    /// Seconds since 1970.
+    var askedAt: Double
+    var answeredAt: Double?
+    /// On the owner's card: who's asking (the first of them, when they gave a name).
+    var who: String?
+    /// On the owner's card: how many people are waiting.
+    var count: Int?
+
+    init(status: Status, askedAt: Double, answeredAt: Double? = nil, who: String? = nil, count: Int? = nil) {
+        self.status = status
+        self.askedAt = askedAt
+        self.answeredAt = answeredAt
+        self.who = who
+        self.count = count
+    }
+
+    // A status a newer relay adds shows as waiting rather than breaking the whole card.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = (try? c.decode(Status.self, forKey: .status)) ?? .asked
+        askedAt = try c.decode(Double.self, forKey: .askedAt)
+        answeredAt = try c.decodeIfPresent(Double.self, forKey: .answeredAt)
+        who = try c.decodeIfPresent(String.self, forKey: .who)
+        count = try c.decodeIfPresent(Int.self, forKey: .count)
+    }
+
+    var askedDate: Date { Date(timeIntervalSince1970: askedAt) }
+    var answeredDate: Date? { answeredAt.map { Date(timeIntervalSince1970: $0) } }
+    var isWaiting: Bool { status == .asked || status == .noAnswer }
+
+    /// "Sam", "Sam and 1 other", or "Someone" on the owner's card.
+    var askers: String {
+        let name = who.flatMap { $0.isEmpty ? nil : $0 } ?? "Someone"
+        let others = max(0, (count ?? 1) - 1)
+        return others == 0 ? name : "\(name) and \(others) other\(others == 1 ? "" : "s")"
     }
 }

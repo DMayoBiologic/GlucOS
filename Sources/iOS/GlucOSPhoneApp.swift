@@ -29,6 +29,8 @@ struct GlucOSPhoneApp: App {
         services.logbookSync = sync
         services.follows = follows
         _services = StateObject(wrappedValue: services)
+        // Before any check-in button can run: they may be what launched the app.
+        CheckInCoordinator.install(services: services, follows: follows)
         // Has to happen before launch finishes.
         BackgroundRefresh.register()
     }
@@ -90,5 +92,18 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.banner, .list, .sound])
+        let userInfo = notification.request.content.userInfo
+        Task { @MainActor in await CheckInCoordinator.arrived(userInfo: userInfo) }
+    }
+
+    /// Check-in buttons on a notification ("I'm okay", "I need help", "Check in").
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
+        let action = response.actionIdentifier
+        let userInfo = response.notification.request.content.userInfo
+        Task { @MainActor in
+            await CheckInCoordinator.handle(action: action, userInfo: userInfo)
+            completionHandler()
+        }
     }
 }
