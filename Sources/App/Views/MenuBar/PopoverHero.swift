@@ -7,6 +7,7 @@ import SwiftUI
 /// so an old number can never pass for a live one.
 struct PopoverHero: View {
     @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var onCopy: () -> Void
@@ -45,6 +46,9 @@ struct PopoverHero: View {
                 }
             }
             if let cur = s.current {
+                RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
+                          forecastMgdl: stale || !settings.showForecast ? nil : s.currentOutlook().flatMap(OutlookFormat.headlineSample)?.sample.mgdl,
+                          thickness: 5, unit: s.unit)
                 FreshnessRow(reading: cur)
             }
         }
@@ -60,7 +64,15 @@ struct PopoverHero: View {
         .accessibilityAction(named: "Refresh", onRefresh)
         .accessibilityAction(named: "Open Dashboard", onOpenDashboard)
         // Stale is `Tone.stale`: a grey surface, so an old reading never sits on a reassuring colour.
-        .background { DSSurface(style: .hero(tone), radius: PopoverLayout.heroRadius) }
+        .background {
+            // The range field behind the reading. Still here (the popover is open for seconds), so
+            // it only sweeps to a new colour when the range changes.
+            ZStack {
+                DSSurface(style: .hero(tone), radius: PopoverLayout.heroRadius)
+                RangeField(tone: tone, intensity: 0.8)
+                    .clipShape(shape)
+            }
+        }
         .readingRipple(trigger: ripple, in: shape, tint: tint)
         .dsShadow(.medium, tint: stale ? nil : tint)
         .contentShape(shape)

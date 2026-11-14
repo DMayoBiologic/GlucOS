@@ -282,3 +282,49 @@ private struct MeshField: View {
                             colors: o.map { tint.opacity($0 * k) })
     }
 }
+
+// MARK: - Sliding segments
+
+/// A compact segmented control whose selection slides between options (docs/Redesign.md §4.5),
+/// for chart hours and similar small choices. App screens only.
+struct SlidingSegments<Value: Hashable>: View {
+    @Binding var selection: Value
+    let options: [Value]
+    let title: (Value) -> String
+    @Namespace private var namespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options, id: \.self) { option in
+                let selected = option == selection
+                Button {
+                    DS.animate(.emphasized, reduceMotion: reduceMotion) { selection = option }
+                } label: {
+                    Text(title(option))
+                        .fontWeight(.semibold)
+                        .dsFont(.label)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .padding(.horizontal, DS.Space.sm + 2)
+                        .padding(.vertical, DS.Space.xs + 1)
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(selected ? AnyShapeStyle(Color.primary) : AnyShapeStyle(Color.secondary))
+                        .background {
+                            if selected {
+                                Capsule()
+                                    .fill(.background)
+                                    .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+                                    .matchedGeometryEffect(id: "selection", in: namespace)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? [.isSelected] : [])
+            }
+        }
+        .padding(2)
+        .background(Capsule().fill(Color.primary.opacity(0.07)))
+    }
+}

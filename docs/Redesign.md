@@ -393,12 +393,16 @@ Widgets in accented or vibrant rendering modes drop the field and keep the rail 
 
 ## 11. Delivery plan
 
-| Step | Scope | PR |
-| --- | --- | --- |
-| 1 | This document; `Signal.swift` components; Live Activity rebuild (all presentations, watch/CarPlay small family); relay priority policy; iOS deployment target 18.0 | 1 |
-| 2 | iPhone home stage with collapsing header, chart chips, zoom transitions, welcome field | 2 |
-| 3 | Mac popover hero, dashboard overview hero, widgets (rail, needle, meter), Lock Screen accessories | 3 |
-| 4 | Release (one combined [minor]) | last of the above |
+| Step | Scope | PR | State |
+| --- | --- | --- | --- |
+| 1 | This document; `Signal.swift` components; Live Activity rebuild (all presentations, watch/CarPlay small family); relay priority policy; iOS deployment target 18.0 | #56 | merged |
+| 2 | iPhone stage on the range field with rail, forecast note and freshness meter; collapsing title; sliding chart hours; zoom transitions; welcome entrances | #57 | this release |
+| 3 | Mac popover and dashboard heroes on the range field with the rail; sliding chart hours; rail in Home Screen / desktop widgets; freshness ring and rail on Lock Screen accessories | #57 | this release |
+
+Not built yet, still part of this design: the range-change colour sweep's direction and the
+strike line drawing in (§4.2, §4.3), the log bar bounce (§7.1), the screen-by-screen motion for
+Setup, Logbook, Insights, Sharing and Sensor scan (§7.2), the dashboard sidebar's sliding
+selection and chart wipes (§8.3), and Mac onboarding transitions (§8.4).
 
 Raising iOS to 18.0 drops no devices: iOS 18 runs on every iPhone that runs iOS 17 (XS / XR and
 later). It unlocks `MeshGradient`, the watch/CarPlay Live Activity family, zoom transitions and scroll

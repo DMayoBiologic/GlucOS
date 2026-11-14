@@ -97,6 +97,7 @@ struct StatChange {
 /// left on a regular window and on top on a narrow one; the tiles go four across when there's
 /// room and two by two when there isn't.
 private struct OverviewHeader: View {
+    @EnvironmentObject private var settings: AppSettings
     let snapshot: GlucoseSnapshot
     let data: DashboardData
     let previous: GlucoseStats?
@@ -106,12 +107,12 @@ private struct OverviewHeader: View {
         switch data.stats == nil ? DashboardLayout.WidthClass.compact : layout.widthClass {
         case .compact:
             VStack(spacing: layout.gutter) {
-                CurrentReadingPanel(snapshot: snapshot, isLive: data.isLive)
+                CurrentReadingPanel(snapshot: snapshot, isLive: data.isLive, showsForecast: settings.showForecast)
                 tiles
             }
         case .regular, .wide:
             HStack(alignment: .top, spacing: layout.gutter) {
-                CurrentReadingPanel(snapshot: snapshot, isLive: data.isLive)
+                CurrentReadingPanel(snapshot: snapshot, isLive: data.isLive, showsForecast: settings.showForecast)
                     .frame(width: layout.widthClass == .wide ? 400 : min(340, layout.contentWidth * 0.42))
                 tiles
             }
@@ -194,6 +195,7 @@ private struct CurrentReadingPanel: View {
     let snapshot: GlucoseSnapshot
     /// False when the page shows an earlier period, so the panel says this one is "now".
     let isLive: Bool
+    var showsForecast: Bool = true
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
@@ -239,6 +241,9 @@ private struct CurrentReadingPanel: View {
                         .lineLimit(1)
                     }
                 }
+                RangeRail(mgdl: cur.mgdl, lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl, stale: stale,
+                          forecastMgdl: stale || !showsForecast ? nil : snapshot.currentOutlook(at: now).flatMap(OutlookFormat.headlineSample)?.sample.mgdl,
+                          thickness: 6, unit: snapshot.unit)
                 if stale {
                     Label("No new reading for \(PopoverFormat.age(cur.age(at: now))). Check your sensor before relying on this number.",
                           systemImage: "exclamationmark.triangle.fill")
@@ -255,6 +260,13 @@ private struct CurrentReadingPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .dsCard(.hero(snapshot.displayTone(at: now)), radius: DS.Radius.panel)
+        // The range field (docs/Redesign.md §8.3): living colour behind the reading, drifting
+        // slowly while it's fresh. A window you look at, so it may move; never under Reduce Motion.
+        .background {
+            RangeField(tone: snapshot.displayTone(at: now),
+                       rapid: !stale && (snapshot.current?.trend.isRapid ?? false), live: isLive)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
+        }
         .help(isLive ? "" : "This is your current reading. The numbers beside it are for the earlier period you're viewing.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(snapshot.accessibilitySummary(at: now))

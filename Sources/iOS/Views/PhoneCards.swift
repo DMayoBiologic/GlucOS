@@ -6,8 +6,13 @@ import SwiftUI
 
 // MARK: - Hero
 
+/// The stage (docs/Redesign.md §7.1): the reading on the screen's range field rather than in a
+/// card. Range pill and streak, the value with its needle, the range rail with the forecast's ghost
+/// marker, the forecast note, and the freshness meter. A new reading rolls the value, swings the
+/// needle, glides the rail marker and sends one ripple out of the needle.
 struct PhoneHeroCard: View {
     @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let textScale = DSScaledValue()
     /// Bumped on each new reading to play one soft ripple around the card, like the Mac popover.
@@ -20,9 +25,15 @@ struct PhoneHeroCard: View {
             let now = context.date
             let stale = s.isStale(at: now)
             let tone = s.displayTone(at: now)
+            let outlook = settings.showForecast && !stale ? s.currentOutlook(at: now) : nil
+            let headline = outlook.flatMap(OutlookFormat.headlineSample)
             VStack(alignment: .leading, spacing: DS.Space.md) {
                 HStack(spacing: DS.Space.sm) {
-                    if let range = s.range { RangeBadge(range: range, stale: stale) }
+                    if let range = s.range {
+                        RangeBadge(range: range, stale: stale)
+                            .id(stale ? "stale" : range.label)
+                            .transition(.push(from: (s.current?.trend.isFalling ?? false) ? .top : .bottom))
+                    }
                     if let streak = s.rangeStreak(at: now), streak.duration >= 5 * 60 {
                         Text("for \(streak.isOpenEnded ? "over " : "")\(PopoverFormat.streak(streak.duration))")
                             .dsFont(.label)
@@ -33,6 +44,7 @@ struct PhoneHeroCard: View {
                     Spacer(minLength: 0)
                     if store.isRefreshing { ProgressView().controlSize(.small) }
                 }
+                .dsAnimation(.standard, value: s.range)
                 if let cur = s.current {
                     HStack(alignment: .center, spacing: DS.Space.md) {
                         VStack(alignment: .leading, spacing: DS.Space.xxs) {
@@ -40,23 +52,39 @@ struct PhoneHeroCard: View {
                             trendRow(cur, stale: stale)
                         }
                         Spacer(minLength: DS.Space.sm)
-                        TrendDial(trend: stale ? .unknown : cur.trend, tint: tone.color, size: 72)
+                        TrendDial(trend: stale ? .unknown : cur.trend, tint: tone.color, size: 80)
                             .opacity(stale ? 0.6 : 1)
+                            .readingRipple(trigger: ripple, in: Circle(), tint: tone.color)
                             .accessibilityHidden(true)
+                    }
+                    RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
+                              forecastMgdl: headline?.sample.mgdl, thickness: 6, unit: s.unit)
+                        .padding(.vertical, DS.Space.xxs)
+                    if let outlook, headline != nil || outlook.lowExpectedAt != nil {
+                        ForecastNote(unit: s.unit, headline: headline.map { (minutes: $0.minutes, mgdl: $0.sample.mgdl) },
+                                     lowExpectedAt: outlook.lowExpectedAt, readingDate: cur.timestamp)
+                            .dsFont(.callout)
+                            .foregroundStyle(.secondary)
                     }
                     freshness(cur, stale: stale, now: now)
                 } else {
                     waiting
                 }
             }
-            .padding(DS.Space.lg)
+            .padding(.horizontal, DS.Space.xs)
+            .padding(.vertical, DS.Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background { DSSurface(style: .hero(tone), radius: DS.Radius.hero) }
-            .readingRipple(trigger: ripple, in: RoundedRectangle(cornerRadius: DS.Radius.hero, style: .continuous),
-                           tint: tone.color)
-            .dsShadow(.medium, tint: stale ? nil : tone.color)
+            // An urgent low gets a rim as well as its colour, so it reads without colour vision.
+            .padding(s.range == .urgentLow && !stale ? DS.Space.md : 0)
+            .overlay {
+                if s.range == .urgentLow && !stale {
+                    RoundedRectangle(cornerRadius: DS.Radius.hero, style: .continuous)
+                        .strokeBorder(Palette.crimson, lineWidth: 2)
+                }
+            }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(s.current == nil ? store.statusLine : s.accessibilitySummary(at: now))
+            .accessibilityLabel(s.current == nil ? store.statusLine
+                                : s.accessibilitySummary(at: now) + forecastSentence(outlook, headline: headline))
             .accessibilityAddTraits(.updatesFrequently)
             .contextMenu {
                 Button("Copy Reading", systemImage: "doc.on.doc") { store.copyReadingToClipboard() }
@@ -103,7 +131,7 @@ struct PhoneHeroCard: View {
     private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs + 2) {
             Text(s.unit.format(mgdl: cur.mgdl))
-                .font(.system(size: (64 * (1 + (textScale.scale - 1) * 0.4)).rounded(), weight: .bold, design: .rounded))
+                .font(.system(size: (96 * (1 + (textScale.scale - 1) * 0.4)).rounded(), weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tint))
                 .overlay {
@@ -137,6 +165,19 @@ struct PhoneHeroCard: View {
         .dsFont(.headline)
     }
 
+    /// What the forecast note says, for VoiceOver. Empty when no note is shown.
+    private func forecastSentence(_ outlook: OutlookSnapshot?,
+                                  headline: (minutes: Int, sample: ForecastSample)?) -> String {
+        guard let outlook, let cur = s.current else { return "" }
+        if let low = outlook.lowExpectedAt {
+            return ". Low expected in about \(ForecastNote.roundedMinutes(low.timeIntervalSince(cur.timestamp))) minutes"
+        }
+        guard let headline else { return "" }
+        return ". Forecast about \(s.unit.format(mgdl: headline.sample.mgdl)) in \(headline.minutes) minutes"
+    }
+
+    private func tint(stale: Bool) -> Color { stale ? Tone.warning.color : Palette.neutral }
+
     private func freshness(_ cur: GlucoseReading, stale: Bool, now: Date) -> some View {
         HStack(spacing: DS.Space.xs) {
             if stale {
@@ -144,6 +185,8 @@ struct PhoneHeroCard: View {
             } else {
                 LiveDot(live: true).padding(.trailing, 2)
             }
+            FreshnessMeter(readingDate: cur.timestamp, stale: stale, tint: tint(stale: stale), width: 36)
+                .padding(.trailing, DS.Space.xxs)
             Text(stale ? "Last reading \(PopoverFormat.ageAgo(cur.age(at: now)))" : "Updated \(PopoverFormat.ageAgo(cur.age(at: now)))")
             Text("· \(ClockLabel.dayTime(cur.timestamp, now: now))").foregroundStyle(.tertiary)
         }
@@ -314,12 +357,10 @@ struct PhoneChartCard: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             HStack {
                 Eyebrow(title: "Glucose", systemImage: "chart.xyaxis.line")
-                Picker("Hours", selection: $settings.chartHours) {
-                    ForEach(Self.choices, id: \.self) { Text("\($0)h").tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 200)
-                .sensoryFeedback(.selection, trigger: settings.chartHours)
+                SlidingSegments(selection: $settings.chartHours, options: Self.choices) { "\($0)h" }
+                    .frame(maxWidth: 200)
+                    .sensoryFeedback(.selection, trigger: settings.chartHours)
+                    .accessibilityLabel("Chart hours")
             }
             GlucoseChart(readings: store.readings(lastHours: hours), unit: s.unit, lowMgdl: s.lowMgdl,
                          highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,

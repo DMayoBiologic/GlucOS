@@ -60,9 +60,11 @@ struct PhoneWelcomeView: View {
                 choice(title: "I wear a sensor",
                        detail: "Sign in with your LibreLinkUp follower account to see your readings, log insulin and food, get alerts, and share live with family.",
                        systemImage: "sensor.tag.radiowaves.forward.fill") { mode = .sensor }
+                    .dsEntrance(1)
                 choice(title: "I'm following someone",
                        detail: "No sensor or account needed. Open the GlucOS link someone sent you to see their glucose live, on your Lock Screen, with their alerts.",
                        systemImage: "person.2.wave.2.fill") { mode = .follower }
+                    .dsEntrance(2)
 
                 Text("Not a medical device. Confirm readings and alerts with the sensor app before acting.")
                     .dsFont(.caption)
@@ -113,6 +115,10 @@ struct PhoneHomeView: View {
     @State private var showsSettings = false
     @State private var settingsAnchor: PhoneSettingsView.Jump?
     @State private var showsSharing = false
+    /// The stage has scrolled under the navigation bar, so the bar shows the reading instead.
+    @State private var stageHidden = false
+    @Namespace private var routes
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PhoneSetupView.pendingKey) private var setupPending = false
 
     var body: some View {
@@ -128,10 +134,14 @@ struct PhoneHomeView: View {
                     ForEach(follows.follows) { PhoneFollowingCard(follow: $0).dsEntrance(1) }
                     PhoneOnBoardCard().dsEntrance(1)
                     PhoneChartCard().dsEntrance(2)
-                    PhoneLogbookCard().dsEntrance(3)
+                    PhoneLogbookCard()
+                        .matchedTransitionSource(id: PhoneRoute.logbook, in: routes)
+                        .dsEntrance(3)
                     // Time in range, mornings and forecast accuracy live one tap away, so the
                     // logbook isn't pushed below three cards of statistics.
-                    PhoneInsightsRow().dsEntrance(4)
+                    PhoneInsightsRow()
+                        .matchedTransitionSource(id: PhoneRoute.insights, in: routes)
+                        .dsEntrance(4)
                     if let sensor = store.snapshot.sensor {
                         PhoneSensorCard(sensor: sensor).dsEntrance(5)
                     }
@@ -146,7 +156,16 @@ struct PhoneHomeView: View {
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
-            .background { PhoneBackdrop(tone: store.snapshot.displayTone()) }
+            .background {
+                PhoneBackdrop(tone: store.snapshot.displayTone(),
+                              rapid: !store.snapshot.isStale() && (store.snapshot.current?.trend.isRapid ?? false))
+            }
+            // Once the stage's value has scrolled under the bar, the bar's title becomes the reading.
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top > 190
+            } action: { _, hidden in
+                DS.animate(.standard, reduceMotion: reduceMotion) { stageHidden = hidden }
+            }
             .refreshable { await store.refresh() }
             // The one place to start logging. A bar under the content rather than a button over
             // it, so it never covers a logbook row.
@@ -154,6 +173,15 @@ struct PhoneHomeView: View {
             .navigationTitle("GlucOS")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    if stageHidden, store.snapshot.current != nil {
+                        PhoneTitleReading()
+                            .transition(DS.Transition.swap(reduceMotion: reduceMotion))
+                    } else {
+                        Text("GlucOS").font(.headline)
+                            .transition(.opacity)
+                    }
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showsSharing = true } label: { Image(systemName: "person.2.wave.2") }
                         .accessibilityLabel("Share live readings")
@@ -164,10 +192,14 @@ struct PhoneHomeView: View {
                 }
             }
             .navigationDestination(for: PhoneRoute.self) { route in
-                switch route {
-                case .logbook: PhoneLogbookView()
-                case .insights: PhoneInsightsView()
+                // The card grows into its screen.
+                Group {
+                    switch route {
+                    case .logbook: PhoneLogbookView()
+                    case .insights: PhoneInsightsView()
+                    }
                 }
+                .navigationTransition(.zoom(sourceID: route, in: routes))
             }
         }
         // On the stack rather than its root, so the log sheet also opens over a pushed screen
@@ -195,15 +227,47 @@ struct PhoneHomeView: View {
 /// top, like the glow behind the Mac popover's hero.
 struct PhoneBackdrop: View {
     let tone: Tone
+    /// The trend is rapid: the field drifts a little faster.
+    var rapid: Bool = false
 
     var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemGroupedBackground)
-            AmbientGlow(tint: tone.color, intensity: 0.45)
-                .frame(height: 360)
-                .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
+            // The range field the stage sits on (docs/Redesign.md §5.1), fading into the page.
+            RangeField(tone: tone, rapid: rapid, live: true)
+                .frame(height: 520)
+                .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.45),
+                                             .init(color: .clear, location: 1)],
+                                     startPoint: .top, endPoint: .bottom))
         }
         .ignoresSafeArea()
+    }
+}
+
+/// The reading in the navigation bar while the stage is scrolled away: value and arrow in the
+/// range's colour, grey when stale.
+private struct PhoneTitleReading: View {
+    @EnvironmentObject var store: GlucoseStore
+
+    var body: some View {
+        let s = store.snapshot
+        let stale = s.isStale()
+        let tone = s.displayTone()
+        HStack(spacing: DS.Space.xs) {
+            if let cur = s.current {
+                Text(s.unit.format(mgdl: cur.mgdl))
+                    .font(.system(.headline, design: .rounded).weight(.bold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: cur.mgdl))
+                    .strikethrough(stale, color: .secondary)
+                Image(systemName: stale ? "clock.badge.exclamationmark" : cur.trend.systemImage)
+                    .font(.subheadline.weight(.bold))
+                    .contentTransition(.symbolEffect(.replace))
+            }
+        }
+        .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(s.accessibilitySummary())
     }
 }
 
