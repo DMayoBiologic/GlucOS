@@ -49,11 +49,14 @@ struct PhoneLogbookView: View {
                         .listRowBackground(Color.clear)
                 }
             } else {
+                // Headers total the whole day, not just what the filter or search left showing.
+                let totals = Dictionary(PhoneLogbookDay.group(all, now: now).map { ($0.id, $0.totals) },
+                                        uniquingKeysWith: { a, _ in a })
                 ForEach(PhoneLogbookDay.group(shown, now: now)) { day in
                     Section {
                         ForEach(day.entries, id: \.id) { row($0) }
                     } header: {
-                        dayHeader(day)
+                        dayHeader(day, totals: totals[day.id] ?? day.totals)
                     }
                 }
             }
@@ -127,11 +130,11 @@ struct PhoneLogbookView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func dayHeader(_ day: PhoneLogbookDay) -> some View {
+    private func dayHeader(_ day: PhoneLogbookDay, totals: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(day.title)
             Spacer(minLength: DS.Space.sm)
-            Text(day.totals)
+            Text(totals)
                 .textCase(nil)
                 .monospacedDigit()
                 .foregroundStyle(.tertiary)

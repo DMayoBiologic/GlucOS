@@ -152,8 +152,9 @@ struct PhoneDayStats: Identifiable {
         return "\(day): \(Format.percent(s.timeInRange)) in range, \(Format.percent(s.timeBelowRange)) below, \(Format.percent(s.timeAboveRange)) above"
     }
 
-    /// The last `count` days, oldest first, ending today. A day with under an hour of readings has
-    /// no stats, so a sensor change doesn't show as a perfect or terrible day.
+    /// The last `count` days, oldest first, ending today. A day with under two hours or fewer than
+    /// eight readings has no stats, so a sensor change or a gap doesn't show as a perfect or
+    /// terrible day.
     static func lastDays(_ count: Int, readings: [GlucoseReading], low: Double, high: Double,
                          now: Date = Date(), calendar: Calendar = .autoupdatingCurrent) -> [PhoneDayStats] {
         let today = calendar.startOfDay(for: now)
@@ -162,7 +163,7 @@ struct PhoneDayStats: Identifiable {
         return (0..<count).reversed().compactMap { back -> PhoneDayStats? in
             guard let start = calendar.date(byAdding: .day, value: -back, to: today) else { return nil }
             let rs = byDay[start] ?? []
-            let stats = GlucoseStats.compute(rs, low: low, high: high).flatMap { $0.spanHours >= 1 ? $0 : nil }
+            let stats = GlucoseStats.compute(rs, low: low, high: high).flatMap { $0.spanHours >= 2 && $0.count >= 8 ? $0 : nil }
             return PhoneDayStats(id: start, label: back == 0 ? "Today" : start.formatted(.dateTime.weekday(.narrow)),
                                  isToday: back == 0, stats: stats)
         }
