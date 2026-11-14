@@ -46,11 +46,7 @@ struct PhoneHeroCard: View {
                     }
                     freshness(cur, stale: stale, now: now)
                 } else {
-                    Text(store.statusLine)
-                        .dsFont(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, DS.Space.lg)
+                    waiting
                 }
             }
             .padding(DS.Space.lg)
@@ -81,6 +77,27 @@ struct PhoneHeroCard: View {
             case .high, .veryHigh: return nil
             }
         }
+    }
+
+    /// Before the first reading: the shape of the card with a placeholder number, so the screen
+    /// doesn't jump when it arrives, and what's happening in words. A connection problem has its
+    /// own banner above with the fix.
+    private var waiting: some View {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs + 2) {
+                Text("–.–")
+                    .font(.system(size: 64, weight: .bold, design: .rounded))
+                    .foregroundStyle(.quaternary)
+                Text(s.unit.label).dsFont(.callout).fontWeight(.semibold).foregroundStyle(.tertiary)
+            }
+            HStack(spacing: DS.Space.xs) {
+                if store.connectionProblem == nil { ProgressView().controlSize(.small) }
+                Text(store.connectionProblem == nil && store.isRefreshing ? "Getting your latest reading…" : store.statusLine)
+            }
+            .dsFont(.callout)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color) -> some View {

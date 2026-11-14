@@ -187,6 +187,7 @@ struct NewShareView: View {
 struct PhoneFollowingCard: View {
     @EnvironmentObject var follows: FollowStore
     let follow: Follow
+    @State private var confirmsStop = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 15)) { context in
@@ -207,7 +208,7 @@ struct PhoneFollowingCard: View {
                         Toggle("Alerts", isOn: Binding(
                             get: { follow.alerts },
                             set: { on in Task { await follows.setAlerts(on, for: follow) } }))
-                        Button("Stop Following", role: .destructive) { Task { await follows.remove(follow) } }
+                        Button("Stop Following…", role: .destructive) { confirmsStop = true }
                     } label: {
                         Image(systemName: "ellipsis.circle").font(.body)
                     }
@@ -230,6 +231,11 @@ struct PhoneFollowingCard: View {
             .background { DSSurface(style: .tinted(tone), radius: DS.Radius.card) }
             .accessibilityElement(children: .contain)
         }
+        .confirmationDialog("Stop following \(follow.label)?", isPresented: $confirmsStop, titleVisibility: .visible) {
+            Button("Stop Following", role: .destructive) { Task { await follows.remove(follow) } }
+        } message: {
+            Text("Their card and alerts go from this iPhone. To follow again you'll need a new link from them.")
+        }
     }
 }
 
@@ -244,34 +250,27 @@ struct AddFollowView: View {
     var body: some View {
         Form {
             Section {
-                TextField("Share link", text: $text, prompt: Text("https://gluc-os-seven.vercel.app/share/#…"), axis: .vertical)
+                // Typing clears the last error; a paste that fails keeps its error showing.
+                TextField("Share link", text: Binding(get: { text }, set: { text = $0; error = nil }), prompt: Text("https://gluc-os-seven.vercel.app/share/#…"), axis: .vertical)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
-                Button("Paste", systemImage: "doc.on.clipboard") {
-                    text = UIPasteboard.general.url?.absoluteString ?? UIPasteboard.general.string ?? ""
+                // PasteButton reads the clipboard without iOS asking "Allow Paste?" every time, and a
+                // pasted link is followed straight away.
+                PasteButton(payloadType: String.self) { strings in
+                    guard let pasted = strings.first?.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+                    Task { @MainActor in
+                        text = pasted
+                        follow()
+                    }
                 }
+                .buttonBorderShape(.capsule)
             } footer: {
                 Text("Opening a GlucOS share link in Messages and tapping Open in GlucOS does this for you.")
             }
             if let error { Section { Text(error).foregroundStyle(Tone.warning.textColor) } }
             Section {
-                Button {
-                    guard let token = FollowLink.token(in: text) else {
-                        error = "That isn't a GlucOS share link."
-                        return
-                    }
-                    working = true
-                    Task {
-                        do {
-                            try await follows.add(token: token)
-                            dismiss()
-                        } catch {
-                            self.error = error.localizedDescription
-                        }
-                        working = false
-                    }
-                } label: {
+                Button(action: follow) {
                     HStack {
                         Text("Follow")
                         Spacer()
@@ -284,6 +283,26 @@ struct AddFollowView: View {
         .navigationTitle("Follow Someone")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+    }
+
+    private func follow() {
+        guard !working else { return }
+        guard let token = FollowLink.token(in: text) else {
+            error = "That isn't a GlucOS share link. Copy the whole link from Messages and try again."
+            return
+        }
+        working = true
+        error = nil
+        Task {
+            do {
+                try await follows.add(token: token)
+                Haptics.success()
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            working = false
+        }
     }
 }
 
@@ -367,7 +386,7 @@ private struct FollowEmptyState: View {
                 .dsFont(.callout)
                 .foregroundStyle(.secondary)
             Button(action: paste) {
-                Label("Paste a Link", systemImage: "doc.on.clipboard")
+                Label("Add a Link", systemImage: "link.badge.plus")
                     .dsFont(.headline)
                     .frame(maxWidth: .infinity)
             }
@@ -468,6 +487,7 @@ struct FollowerSettingsView: View {
 struct FollowingSettingsSection: View {
     @EnvironmentObject var follows: FollowStore
     @State private var showsAdd = false
+    @State private var stopping: Follow?
 
     var body: some View {
         Section {
@@ -486,7 +506,7 @@ struct FollowingSettingsSection: View {
                                                    set: { on in Task { await follows.setAlerts(on, for: f) } }))
                 }
                 .swipeActions {
-                    Button("Stop Following", role: .destructive) { Task { await follows.remove(f) } }
+                    Button("Stop Following", role: .destructive) { stopping = f }
                 }
             }
             Button("Follow Someone…", systemImage: "plus") { showsAdd = true }
@@ -496,5 +516,12 @@ struct FollowingSettingsSection: View {
             Text("Readings people have shared with you. Alerts are their lows, highs and missing data, sent even when GlucOS is closed. Swipe to stop following.")
         }
         .sheet(isPresented: $showsAdd) { NavigationStack { AddFollowView() } }
+        .confirmationDialog("Stop following \(stopping?.label ?? "")?",
+                            isPresented: Binding(get: { stopping != nil }, set: { if !$0 { stopping = nil } }),
+                            titleVisibility: .visible, presenting: stopping) { f in
+            Button("Stop Following", role: .destructive) { Task { await follows.remove(f) } }
+        } message: { _ in
+            Text("Their card and alerts go from this iPhone. To follow again you'll need a new link from them.")
+        }
     }
 }
