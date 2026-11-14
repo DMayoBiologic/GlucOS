@@ -168,13 +168,16 @@ struct PhoneDayStats: Identifiable {
         }
     }
 
-    /// Hours actually covered by readings: each reading counts until the next one, but no more
-    /// than 30 minutes, so two readings twelve hours apart count as half an hour, not twelve.
+    /// Hours actually covered by readings: the time between consecutive readings, skipping any gap
+    /// over 30 minutes, so scattered readings hours apart don't count as coverage.
     static func coveredHours(_ readings: [GlucoseReading]) -> Double {
         let times = readings.map(\.timestamp).sorted()
         guard times.count > 1 else { return 0 }
         var covered: TimeInterval = 0
-        for (a, b) in zip(times, times.dropFirst()) { covered += min(b.timeIntervalSince(a), 30 * 60) }
+        for (a, b) in zip(times, times.dropFirst()) {
+            let gap = b.timeIntervalSince(a)
+            if gap <= 30 * 60 { covered += gap }
+        }
         return covered / 3600
     }
 }
