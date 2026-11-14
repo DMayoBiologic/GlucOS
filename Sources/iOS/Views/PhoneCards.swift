@@ -83,7 +83,8 @@ struct PhoneHeroCard: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(s.current == nil ? store.statusLine : s.accessibilitySummary(at: now))
+            .accessibilityLabel(s.current == nil ? store.statusLine
+                                : s.accessibilitySummary(at: now) + forecastSentence(outlook, headline: headline))
             .accessibilityAddTraits(.updatesFrequently)
             .contextMenu {
                 Button("Copy Reading", systemImage: "doc.on.doc") { store.copyReadingToClipboard() }
@@ -162,6 +163,17 @@ struct PhoneHeroCard: View {
             }
         }
         .dsFont(.headline)
+    }
+
+    /// What the forecast note says, for VoiceOver. Empty when no note is shown.
+    private func forecastSentence(_ outlook: OutlookSnapshot?,
+                                  headline: (minutes: Int, sample: ForecastSample)?) -> String {
+        guard let outlook, let cur = s.current else { return "" }
+        if let low = outlook.lowExpectedAt {
+            return ". Low expected in about \(ForecastNote.roundedMinutes(low.timeIntervalSince(cur.timestamp))) minutes"
+        }
+        guard let headline else { return "" }
+        return ". Forecast about \(s.unit.format(mgdl: headline.sample.mgdl)) in \(headline.minutes) minutes"
     }
 
     private func tint(stale: Bool) -> Color { stale ? Tone.warning.color : Palette.neutral }
