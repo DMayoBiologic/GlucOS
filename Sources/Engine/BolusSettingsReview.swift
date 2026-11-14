@@ -101,7 +101,8 @@ struct BolusSettingsReview: Hashable {
         let series = GlucoseSeries(readings)
         let since = now.addingTimeInterval(-Double(lookbackDays) * 86_400)
         let boluses = doses.filter { $0.kind.isBolus && $0.units > 0 }.sorted { $0.timestamp < $1.timestamp }
-        let carbMeals = meals.sorted { $0.timestamp < $1.timestamp }
+        // The same meal logged twice (e.g. on two devices) counts once, so it can't look like extra food.
+        let carbMeals = LogCleanup.mealsWithoutRepeats(meals).sorted { $0.timestamp < $1.timestamp }
         let fastDoses = doses.filter { !$0.kind.fastComponents.isEmpty && $0.units > 0 }
 
         func blockFor(_ date: Date) -> BolusScheduleBlock? { settings.block(at: date, calendar: calendar) }
