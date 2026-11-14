@@ -2,8 +2,8 @@
 // Swift relay's tests.
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1";
 import { type PushRequest, type PushResult, type PushSender, importAPNsKey, payloads, providerToken } from "./apns.ts";
-import { claimWindow, newRow, type RelayRow, RelayEngine, type Store, type Tx, rotateAfter, startRetry } from "./engine.ts";
-import type { Reading, Trend } from "./core.ts";
+import { cardPriority, claimWindow, newRow, type RelayRow, RelayEngine, type Store, type Tx, rotateAfter, startRetry, urgentPushEvery, urgentPushGap } from "./engine.ts";
+import type { CardState, Reading, Trend } from "./core.ts";
 import type { Account, FetchResult, GlucoseFetcher, LibreSession } from "./libre.ts";
 import { parseFactoryTimestamp } from "./libre.ts";
 import { handle } from "./index.ts";
@@ -278,7 +278,7 @@ Deno.test("status says the relay is delivering once it has fetched", async () =>
   assert(s.hasAccount && s.hasDeviceToken && s.alertsEnabled);
   assertEquals(s.lastFetchAt, t.clock());
   assertEquals(s.lastError, undefined);
-  assertEquals(s.version, "2.0.1");
+  assertEquals(s.version, "2.1.0");
 });
 
 Deno.test("the LibreLinkUp session is kept between ticks", async () => {
@@ -365,4 +365,56 @@ Deno.test("the owner's LibreLinkUp login claims the secret; wrong tries are limi
 Deno.test("a relay without an account can't be claimed", async () => {
   const t = setup();
   assertEquals(await t.engine.claim("a@b.c", "x"), "no account");
+});
+
+// MARK: - Live Activity push priority (docs/Redesign.md §6.4)
+
+const cardOf = (mgdl: number, trend = 3, readingAt = 1_000_000): CardState => ({
+  mgdl, trend, readingAt, unit: "mmol", lowMgdl: 70, highMgdl: 180, history: [mgdl], forecast: [], source: "relay",
+});
+
+Deno.test("priority: the first card, an alert, a range change and out of range send now", () => {
+  const now = 2_000_000;
+  assertEquals(cardPriority(cardOf(110), null, null, false, now), 10);
+  assertEquals(cardPriority(cardOf(110), cardOf(110), now - 30, true, now), 10);
+  assertEquals(cardPriority(cardOf(185), cardOf(175), now - 30, false, now), 10);
+  assertEquals(cardPriority(cardOf(200), cardOf(199), now - 30, false, now), 10);
+  assertEquals(cardPriority(cardOf(65), cardOf(64), now - 30, false, now), 10);
+});
+
+Deno.test("priority: in range, a visible change sends now once the last urgent push is old enough", () => {
+  const now = 2_000_000;
+  // 6.1 → 6.3 mmol/L: visible.
+  assertEquals(cardPriority(cardOf(114), cardOf(110), now - urgentPushGap, false, now), 10);
+  assertEquals(cardPriority(cardOf(114), cardOf(110), now - urgentPushGap + 1, false, now), 5);
+  // A trend change is visible too.
+  assertEquals(cardPriority(cardOf(110, 4), cardOf(110, 3), now - urgentPushGap, false, now), 10);
+});
+
+Deno.test("priority: in range, an invisible change waits, but never past urgentPushEvery", () => {
+  const now = 2_000_000;
+  // 108 and 109 mg/dL are both 6.0 mmol/L.
+  assertEquals(cardPriority(cardOf(109, 3, 1_000_060), cardOf(108), now - urgentPushGap, false, now), 5);
+  assertEquals(cardPriority(cardOf(109, 3, 1_000_060), cardOf(108), now - urgentPushEvery, false, now), 10);
+});
+
+Deno.test("an in-range card is pushed at priority 10 at least every few minutes", async () => {
+  const t = await registered();
+  await t.engine.register({ activityID: "A1", activityToken: "act" });
+  t.fetcher.mgdl = 110;
+  await t.engine.tick();
+  const priorities: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    t.sender.sent = [];
+    t.advance(60);
+    t.fetcher.mgdl = 108 + (i % 2); // 6.0 mmol/L either way: nothing visible changes
+    await t.engine.tick();
+    const update = t.sender.sent.find((p) => p.type === "liveactivity");
+    if (update) priorities.push(update.priority);
+  }
+  assert(priorities.length >= 7, `pushed ${priorities.length} times`);
+  assert(priorities.includes(10), "never sent at priority 10");
+  assert(priorities.includes(5), "never let iOS batch an invisible change");
+  // Never three minutes of priority 5 in a row.
+  assertFalse(priorities.join("").includes("555"), priorities.join(","));
 });

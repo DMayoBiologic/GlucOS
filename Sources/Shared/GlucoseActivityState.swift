@@ -71,11 +71,15 @@ struct GlucoseActivityState: Codable, Hashable {
         }
     }
 
-    /// The forecast's last point, in minutes from the reading, with its value.
+    /// The forecast point the card names: 30 minutes ahead when the forecast reaches that far
+    /// (further out is too uncertain to headline on a glance), else its last point.
     var forecastHeadline: (minutes: Int, mgdl: Double)? {
+        if forecast.count >= 6 { return (30, Double(forecast[5])) }
         guard let last = forecast.last else { return nil }
         return (forecast.count * 5, Double(last))
     }
+
+    var lowExpectedDate: Date? { lowExpectedAt.map { Date(timeIntervalSince1970: $0) } }
 
     // MARK: Building
 

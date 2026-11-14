@@ -4,7 +4,7 @@ options:
   bundleIdPrefix: au.com.declanmayo
   deploymentTarget:
     macOS: "14.0"
-    iOS: "17.2"
+    iOS: "18.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
@@ -122,7 +122,7 @@ targets:
   GlucOSiOS:
     type: application
     platform: iOS
-    deploymentTarget: "17.2"
+    deploymentTarget: "18.0"
     sources:
       - path: Sources/iOS
         excludes: ["Info.plist", "*.entitlements"]
@@ -210,7 +210,7 @@ targets:
   GlucOSiOSWidget:
     type: app-extension
     platform: iOS
-    deploymentTarget: "17.2"
+    deploymentTarget: "18.0"
     sources:
       - path: Sources/iOSWidget
         excludes: ["Info.plist", "*.entitlements"]
@@ -251,7 +251,7 @@ targets:
     # and App Store Connect rejects the upload ("Missing App Icon … iMessage app icon").
     type: app-extension.messages
     platform: iOS
-    deploymentTarget: "17.2"
+    deploymentTarget: "18.0"
     sources:
       - path: Sources/iOSMessages
         excludes: ["Info.plist", "*.entitlements"]

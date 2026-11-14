@@ -256,7 +256,8 @@ struct Eyebrow: View {
 
 // MARK: - Trend dial
 
-/// The trend as a ring with an arrow that rotates to the actual rate of change.
+/// The trend needle (docs/Redesign.md §5.2): a ring with an arrow that swings to the direction of
+/// travel, with a trail behind it while the trend is rapid.
 struct TrendDial: View {
     let trend: Trend
     var tint: Color
@@ -286,11 +287,23 @@ struct TrendDial: View {
                     .font(.system(size: size * 0.36, weight: .bold, design: .rounded))
                     .foregroundStyle(tint)
             } else {
-                Image(systemName: "arrow.right")
-                    .font(.system(size: size * 0.42, weight: .heavy))
-                    .foregroundStyle(tint)
-                    .rotationEffect(.degrees(angle))
-                    .dsAnimation(.emphasized, value: angle)
+                // The needle: an arrow swung to the direction of travel, springing to a new angle
+                // when the trend turns (also between two Live Activity states). A rapid trend draws
+                // a ghosted second arrow behind it, a trail that says "fast" without reading words.
+                ZStack {
+                    if trend.isRapid {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: size * 0.42, weight: .heavy))
+                            .foregroundStyle(tint.opacity(0.35))
+                            .offset(x: -size * 0.16)
+                    }
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: size * 0.42, weight: .heavy))
+                        .foregroundStyle(tint)
+                        .offset(x: trend.isRapid ? size * 0.05 : 0)
+                }
+                .rotationEffect(.degrees(angle))
+                .dsAnimation(.arrival, value: angle)
             }
             if trend.isRapid {
                 Circle()

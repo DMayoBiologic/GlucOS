@@ -5,8 +5,8 @@
 
 import {
   type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
-  type Display, learnCalibration, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
-  type Sensor,
+  type Display, formatGlucose, learnCalibration, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
+  type Sensor, unitOf,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
 import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
@@ -15,12 +15,17 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.0.1";
+export const version = "2.1.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
 /// Resend the card at least this often, even when nothing changed, so a missed push heals.
 export const activityRefresh = 10 * 60;
+/// Priority-10 (send now) Live Activity pushes for a visible change are spaced at least this far
+/// apart while in range, and one goes out at least this often, so a card is never more than a few
+/// minutes behind. See `cardPriority` and docs/Redesign.md §6.4.
+export const urgentPushGap = 2 * 60;
+export const urgentPushEvery = 3 * 60;
 export const startRetry = 15 * 60;
 export const maxStartAttempts = 3;
 /// How many ended or replaced activity ids the relay remembers.
@@ -43,6 +48,25 @@ export function followerOrder<F extends { id: string }>(all: F[], cursor: string
   const sorted = [...all].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const start = cursor == null ? 0 : sorted.findIndex((f) => f.id >= cursor);
   return start <= 0 ? sorted : [...sorted.slice(start), ...sorted.slice(0, start)];
+}
+
+/// The APNs priority for this tick's Live Activity updates (docs/Redesign.md §6.4). Priority 5 lets
+/// iOS hold an update back to save power, which left in-range cards minutes behind, so:
+/// - 10 when an alert fired, the range changed, or the reading is out of range;
+/// - 10 when what the card shows (value or trend) changed and the last 10 was `urgentPushGap` ago;
+/// - 10 when the last 10 was `urgentPushEvery` ago, so a card never drifts towards its stale date;
+/// - otherwise 5 (only the history changed, or a visible change came hard on the heels of a 10).
+/// `previous` is the card of the tick before, `urgentAt` when the last priority-10 tick was.
+export function cardPriority(card: CardState, previous: CardState | null, urgentAt: number | null,
+                             alerted: boolean, now: number): 5 | 10 {
+  if (alerted || !previous || urgentAt === null) return 10;
+  if (cardRange(card) !== "inRange" || cardRange(previous) !== cardRange(card)) return 10;
+  const since = now - urgentAt;
+  if (since >= urgentPushEvery) return 10;
+  const unit = unitOf(card.unit);
+  const visible = previous.trend !== card.trend || previous.unit !== card.unit ||
+    formatGlucose(unit, previous.mgdl) !== formatGlucose(unit, card.mgdl);
+  return visible && since >= urgentPushGap ? 10 : 5;
 }
 
 /// The owner's alerts that also go to followers who want them: about the glucose itself, not
@@ -90,6 +114,9 @@ export interface Work {
   lastCard: { activityId: string; card: CardState; pushedAt: number } | null;
   /// The newest card, whether or not the owner has a Live Activity: what followers see.
   latestCard: { card: CardState; at: number } | null;
+  /// When a tick last sent its Live Activity updates at priority 10 (`cardPriority`). Missing on
+  /// old rows.
+  urgentCardAt?: number | null;
   /// The first follower the last tick ran out of time for (`followerOrder`). Missing on old rows.
   followerCursor?: string | null;
   /// Wrong claims (`claim`) since `since`. Missing on old rows.
@@ -420,9 +447,15 @@ export class RelayEngine {
             }, (r) => { delete r.prefs.deviceToken; });
           }
         }
-        await this.updateActivity(row, result.card, result.notices.length > 0, now);
+        // One priority for every card this tick (owner's and followers'), from how the card
+        // changed since the last tick.
+        const priority = result.card
+          ? cardPriority(result.card, w.latestCard?.card ?? null, w.urgentCardAt ?? null, result.notices.length > 0, now)
+          : 5;
+        if (priority === 10) w.urgentCardAt = now;
+        await this.updateActivity(row, result.card, result.notices.length > 0, priority, now);
         if (result.card) w.latestCard = { card: result.card, at: now };
-        await this.updateFollowers(w, result.card, result.notices, now);
+        await this.updateFollowers(w, result.card, result.notices, priority, now);
         return "done";
       });
     } finally {
@@ -432,7 +465,8 @@ export class RelayEngine {
 
   // MARK: Live Activity
 
-  private async updateActivity(row: RelayRow, card: CardState | null, urgent: boolean, now: number) {
+  private async updateActivity(row: RelayRow, card: CardState | null, urgent: boolean, tickPriority: 5 | 10,
+                               now: number) {
     if (!row.prefs.liveActivityEnabled || !card) return;
     const a = row.activity;
     if (a) {
@@ -447,7 +481,8 @@ export class RelayEngine {
         const due = last ? now - last.pushedAt >= activityRefresh : true;
         if (!changed && !due) return;
         const rangeChanged = last ? cardRange(last.card) !== cardRange(card) : true;
-        const priority = urgent || rangeChanged || cardRange(card) !== "inRange" ? 10 : 5;
+        // This card's own history counts too: it may have missed the push where the range changed.
+        const priority = tickPriority === 10 || urgent || rangeChanged || cardRange(card) !== "inRange" ? 10 : 5;
         const result = await this.push(row, {
           deviceToken: a.token, type: "liveactivity", topic: this.config.bundleId, priority,
           payload: payloads.activity("update", card, now), expiration: cardStaleDate(card), sandbox: row.prefs.sandbox,
@@ -532,7 +567,8 @@ export class RelayEngine {
   /// Each follower's Lock Screen card gets the same card as the owner's, by the same rules:
   /// resent when it changes or every 10 minutes, replaced before iOS's 8-hour limit, and taken
   /// down when the share expires.
-  private async updateFollowers(w: Work, card: CardState | null, notices: AlertNotice[], now: number) {
+  private async updateFollowers(w: Work, card: CardState | null, notices: AlertNotice[], priority: 5 | 10,
+                                now: number) {
     const urgent = notices.length > 0;
     const forFollowers = notices.filter((n) => followerAlertKinds.has(n.kind));
     const shares = this.config.shares;
@@ -557,7 +593,7 @@ export class RelayEngine {
         if (forFollowers.length && f.alertsEnabled && f.deviceToken) await this.alertFollower(f, forFollowers, now);
         if (!card || !f.liveActivityEnabled) return;
         const seen = { activityToken: f.activityToken, pushToStartToken: f.pushToStartToken };
-        if (await this.updateFollower(f, card, urgent, now)) await shares.saveFollower(f, seen);
+        if (await this.updateFollower(f, card, urgent, priority, now)) await shares.saveFollower(f, seen);
       } catch (e) {
         console.error("follower", f.id, e);
       }
@@ -582,7 +618,8 @@ export class RelayEngine {
   }
 
   /// Whether `f` changed and needs saving.
-  private async updateFollower(f: Follower, card: CardState, urgent: boolean, now: number): Promise<boolean> {
+  private async updateFollower(f: Follower, card: CardState, urgent: boolean, tickPriority: 5 | 10,
+                               now: number): Promise<boolean> {
     const sender = this.sender!;
     let dirty = false;
     if (f.activityId && f.activityToken) {
@@ -603,7 +640,7 @@ export class RelayEngine {
         const rangeChanged = f.lastCard ? cardRange(f.lastCard) !== cardRange(card) : true;
         const result = await sender.send({
           deviceToken: f.activityToken, type: "liveactivity", topic: this.config.bundleId,
-          priority: urgent || rangeChanged || cardRange(card) !== "inRange" ? 10 : 5,
+          priority: tickPriority === 10 || urgent || rangeChanged || cardRange(card) !== "inRange" ? 10 : 5,
           payload: payloads.activity("update", card, now), expiration: cardStaleDate(card), sandbox: f.sandbox,
         });
         if (result.kind === "delivered") {

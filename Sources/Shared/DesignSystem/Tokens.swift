@@ -177,6 +177,10 @@ enum DSMotion: Sendable {
     case emphasized
     /// Slow colour and glow changes behind the reading.
     case ambient
+    /// A new reading arriving: the trend needle swinging, the range rail's marker gliding.
+    case arrival
+    /// A range change: the range field's colour sweeping across the hero.
+    case sweep
 
     var animation: Animation {
         switch self {
@@ -184,13 +188,15 @@ enum DSMotion: Sendable {
         case .standard: return .smooth(duration: 0.3)
         case .emphasized: return .spring(response: 0.5, dampingFraction: 0.78)
         case .ambient: return .smooth(duration: 0.6)
+        case .arrival: return .spring(response: 0.7, dampingFraction: 0.72)
+        case .sweep: return .smooth(duration: 0.9)
         }
     }
 
     /// What to use when Reduce Motion is on. Colour fades stay (they don't move anything);
     /// everything else changes instantly.
     var reducedAnimation: Animation? {
-        self == .ambient ? .easeInOut(duration: 0.25) : nil
+        self == .ambient || self == .sweep ? .easeInOut(duration: 0.25) : nil
     }
 
     func animation(reduceMotion: Bool) -> Animation? {
