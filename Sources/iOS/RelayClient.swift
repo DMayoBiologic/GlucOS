@@ -69,7 +69,7 @@ struct RelayClient {
     let baseURL: URL
     let secret: String
 
-    enum RelayError: LocalizedError {
+    enum RelayError: LocalizedError, RetryableError {
         case unauthorized
         case http(Int)
         case badResponse
@@ -83,6 +83,11 @@ struct RelayClient {
             case .badResponse: return "The relay's reply wasn't understood."
             case .refused(let message): return message
             }
+        }
+
+        var isTransient: Bool {
+            if case .http(let code) = self { return Self.isGatewayHiccup(code) }
+            return false
         }
     }
 
@@ -117,10 +122,12 @@ struct RelayClient {
     }
 
     func register(_ registration: RelayRegistration) async throws -> RelayStatus {
-        try await call("v1/register", method: "POST", body: try JSONEncoder().encode(registration))
+        // The whole state every time, so sending it twice is harmless.
+        let body = try JSONEncoder().encode(registration)
+        return try await RelayRetry.run { try await call("v1/register", method: "POST", body: body) }
     }
 
-    func status() async throws -> RelayStatus { try await call("v1/status", method: "GET") }
+    func status() async throws -> RelayStatus { try await RelayRetry.run { try await call("v1/status", method: "GET") } }
 
     func sendTest() async throws -> RelayStatus { try await call("v1/test", method: "POST") }
 
