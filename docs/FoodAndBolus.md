@@ -96,6 +96,8 @@ no low, readings at both ends; or a correction from at least 2 mmol/L above targ
 - Meal: the ratio that would have ended level is `carbs ÷ (units + Δ ÷ CF − insulin left at 4 h)`.
 - Correction: the factor shown is `(start − 4 h later) ÷ (units acted by 4 h)`.
 
+A meal logged twice (same food and carbs within 10%, within 45 minutes; `LogCleanup.mealsWithoutRepeats`) counts once.
+
 A change is offered for a time block only with at least 5 examples, a spread (IQR ÷ median) of
 0.5 or less, and a difference of 10% or more. It moves at most 20% at a time, comes with the
 evidence and a confidence level, and is applied only if the user taps **Try it**, re-confirms

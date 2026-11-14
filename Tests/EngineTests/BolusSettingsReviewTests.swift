@@ -75,6 +75,15 @@ final class BolusSettingsReviewTests: XCTestCase {
         XCTAssertNil(r.suggestions.first { $0.setting == .correctionFactor }, "no clean corrections")
     }
 
+    func testAMealLoggedTwiceStillCountsAsAnExample() throws {
+        // Every breakfast logged again 12 minutes later on another device: same food, same carbs.
+        var sim = simulate(Person(ratio: 8, cf: 50), days: 30) { breakfast($0) }
+        sim.meals += sim.meals.map { MealEntry(timestamp: $0.timestamp.addingTimeInterval(12 * 60), carbs: $0.carbs) }
+        let s = try XCTUnwrap(review(sim, settings: settings()).suggestions.first { $0.setting == .carbRatio })
+        XCTAssertGreaterThanOrEqual(s.examples.count, 25, "a repeat isn't other food")
+        XCTAssertEqual(s.observed, 8, accuracy: 0.4)
+    }
+
     func testSmallMismatchIsOfferedInFull() throws {
         // Really 1 per 9 g: the suggestion is 9 (within the 20% step), rounded to half grams.
         let sim = simulate(Person(ratio: 9, cf: 50), days: 30) { breakfast($0) }
