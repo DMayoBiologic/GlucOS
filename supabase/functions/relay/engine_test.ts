@@ -265,7 +265,7 @@ Deno.test("status says the relay is delivering once it has fetched", async () =>
   assert(s.hasAccount && s.hasDeviceToken && s.alertsEnabled);
   assertEquals(s.lastFetchAt, t.clock());
   assertEquals(s.lastError, undefined);
-  assertEquals(s.version, "2.0.0");
+  assertEquals(s.version, "2.0.1");
 });
 
 Deno.test("the LibreLinkUp session is kept between ticks", async () => {
