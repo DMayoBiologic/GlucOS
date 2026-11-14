@@ -8,7 +8,10 @@ import SwiftUI
 
 struct PhoneHeroCard: View {
     @EnvironmentObject var store: GlucoseStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let textScale = DSScaledValue()
+    /// Bumped on each new reading to play one soft ripple around the card, like the Mac popover.
+    @State private var ripple = 0
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -25,6 +28,7 @@ struct PhoneHeroCard: View {
                             .dsFont(.label)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
+                            .contentTransition(.numericText())
                     }
                     Spacer(minLength: 0)
                     if store.isRefreshing { ProgressView().controlSize(.small) }
@@ -52,6 +56,8 @@ struct PhoneHeroCard: View {
             .padding(DS.Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background { DSSurface(style: .hero(tone), radius: DS.Radius.hero) }
+            .readingRipple(trigger: ripple, in: RoundedRectangle(cornerRadius: DS.Radius.hero, style: .continuous),
+                           tint: tone.color)
             .dsShadow(.medium, tint: stale ? nil : tone.color)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(s.current == nil ? store.statusLine : s.accessibilitySummary(at: now))
@@ -60,6 +66,10 @@ struct PhoneHeroCard: View {
                 Button("Copy Reading", systemImage: "doc.on.doc") { store.copyReadingToClipboard() }
                 Button("Refresh Now", systemImage: "arrow.clockwise") { Task { await store.refresh() } }
             }
+        }
+        .onChange(of: s.current?.timestamp) { old, new in
+            guard old != nil, new != nil, old != new, !reduceMotion else { return }
+            ripple += 1
         }
     }
 
@@ -93,6 +103,7 @@ struct PhoneHeroCard: View {
                 Text(cur.trend.description)
                 if let d = s.deltaMgdl {
                     Text(s.unit.formatDelta(mgdl: d)).monospacedDigit().foregroundStyle(.secondary)
+                        .contentTransition(.numericText(value: d))
                 }
             }
         }
@@ -101,7 +112,11 @@ struct PhoneHeroCard: View {
 
     private func freshness(_ cur: GlucoseReading, stale: Bool, now: Date) -> some View {
         HStack(spacing: DS.Space.xs) {
-            Image(systemName: stale ? "clock.badge.exclamationmark" : "clock")
+            if stale {
+                Image(systemName: "clock.badge.exclamationmark")
+            } else {
+                LiveDot(live: true).padding(.trailing, 2)
+            }
             Text(stale ? "Last reading \(PopoverFormat.ageAgo(cur.age(at: now)))" : "Updated \(PopoverFormat.ageAgo(cur.age(at: now)))")
             Text("· \(ClockLabel.dayTime(cur.timestamp, now: now))").foregroundStyle(.tertiary)
         }
@@ -283,6 +298,8 @@ struct PhoneChartCard: View {
                          forecast: outlook?.forecast ?? [], events: events(hours: hours),
                          timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true)
                 .frame(height: 260)
+                // Switching 3h / 6h / 12h / 24h glides the trace to its new scale.
+                .dsAnimation(.standard, value: settings.chartHours)
             legend(outlook)
             if let outlook { forecastLine(outlook, unit: s.unit) }
         }
@@ -368,7 +385,7 @@ struct PhoneGlanceCard: View {
             if let stats = store.glanceStats(window) {
                 let unit = store.snapshot.unit
                 HStack(alignment: .center, spacing: DS.Space.lg) {
-                    TimeInRangeRing(stats: stats, lineWidth: 11)
+                    TimeInRangeRing(stats: stats, lineWidth: 11, drawsIn: true)
                         .frame(width: 112, height: 112)
                     VStack(alignment: .leading, spacing: DS.Space.sm) {
                         StatTile("Average", value: unit.format(mgdl: stats.meanMgdl), unit: unit.label) { EmptyView() }
@@ -421,7 +438,7 @@ struct PhoneSensorCard: View {
         let fraction = days / Double(max(1, sensor.lifetimeDays))
         let tone: Tone = days < 1 ? .critical : days < 2 ? .warning : .neutral
         HStack(spacing: DS.Space.md) {
-            ProgressRing(fraction: fraction, tint: tone == .neutral ? Palette.brand : tone.color, lineWidth: 5)
+            ProgressRing(fraction: fraction, tint: tone == .neutral ? Palette.brand : tone.color, lineWidth: 5, drawsIn: true)
                 .frame(width: 40, height: 40)
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text("Sensor").dsFont(.label).foregroundStyle(.secondary)

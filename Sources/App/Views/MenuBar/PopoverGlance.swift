@@ -219,7 +219,7 @@ private struct SensorRow: View {
         let tint: Color = expiringSoon ? Tone.warning.color : Palette.brand
         HStack(spacing: 10) {
             ZStack {
-                ProgressRing(fraction: fraction, tint: tint, lineWidth: 3)
+                ProgressRing(fraction: fraction, tint: tint, lineWidth: 3, drawsIn: true)
                 Image(systemName: "sensor.tag.radiowaves.forward.fill")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(tint)

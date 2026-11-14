@@ -61,7 +61,7 @@ struct PopoverHero: View {
         .accessibilityAction(named: "Open Dashboard", onOpenDashboard)
         // Stale is `Tone.stale`: a grey surface, so an old reading never sits on a reassuring colour.
         .background { DSSurface(style: .hero(tone), radius: PopoverLayout.heroRadius) }
-        .overlay { rippleRing(tint) }
+        .readingRipple(trigger: ripple, in: shape, tint: tint)
         .dsShadow(.medium, tint: stale ? nil : tint)
         .contentShape(shape)
         .contextMenu {
@@ -76,31 +76,6 @@ struct PopoverHero: View {
             guard old != nil, new != nil, old != new, !reduceMotion else { return }
             ripple += 1
         }
-    }
-
-    /// New-reading ripple: one expanding, fading outline.
-    private func rippleRing(_ tint: Color) -> some View {
-        shape
-            .strokeBorder(tint, lineWidth: 2)
-            .keyframeAnimator(initialValue: Ripple(), trigger: ripple) { content, value in
-                content.scaleEffect(value.scale).opacity(value.opacity)
-            } keyframes: { _ in
-                KeyframeTrack(\.scale) {
-                    LinearKeyframe(1, duration: 0.01)
-                    CubicKeyframe(1.035, duration: 0.9)
-                }
-                KeyframeTrack(\.opacity) {
-                    LinearKeyframe(0.6, duration: 0.01)
-                    CubicKeyframe(0, duration: 0.9)
-                }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-
-    private struct Ripple {
-        var scale: CGFloat = 1
-        var opacity: Double = 0
     }
 
     // MARK: Rows
@@ -202,7 +177,11 @@ private struct FreshnessRow: View {
             let color: Color = stale || nearlyStale ? warning.textColor : .secondary
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
-                    if stale { Image(systemName: "exclamationmark.triangle.fill").imageScale(.small) }
+                    if stale {
+                        Image(systemName: "exclamationmark.triangle.fill").imageScale(.small)
+                    } else {
+                        LiveDot(live: true, size: 6).padding(.trailing, 2)
+                    }
                     Text(stale ? "Last reading \(PopoverFormat.ageAgo(age))" : "Updated \(PopoverFormat.ageAgo(age))")
                         .monospacedDigit()
                     Spacer(minLength: 4)

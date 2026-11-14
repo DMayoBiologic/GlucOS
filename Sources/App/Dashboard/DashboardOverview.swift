@@ -293,7 +293,7 @@ private struct TimeInRangeCard: View {
     private func ring(size: CGFloat) -> some View {
         TimeInRangeRing(
             segments: breakdown.rows.reversed().map { (fraction: $0.fraction, color: $0.range.reportColor) },
-            inRange: breakdown.inRange, lineWidth: 12)
+            inRange: breakdown.inRange, lineWidth: 12, drawsIn: true)
             .frame(width: size, height: size)
     }
 

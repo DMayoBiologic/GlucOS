@@ -134,6 +134,8 @@ struct PhoneLogbookCard: View {
 struct PhoneLogBar: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var router: PhoneLogRouter
+    /// Taps per button, so each icon gives one small bounce when pressed.
+    @State private var taps: [String: Int] = [:]
 
     private struct Item: Identifiable {
         let id: String
@@ -161,8 +163,16 @@ struct PhoneLogBar: View {
             PhoneWakeStrip()
             HStack(spacing: DS.Space.sm) {
                 ForEach(items) { item in
-                    Button { router.open(item.part) } label: {
-                        Label(item.title, systemImage: item.systemImage)
+                    Button {
+                        taps[item.id, default: 0] += 1
+                        router.open(item.part)
+                    } label: {
+                        Label {
+                            Text(item.title)
+                        } icon: {
+                            Image(systemName: item.systemImage)
+                                .symbolEffect(.bounce, value: taps[item.id, default: 0])
+                        }
                             .labelStyle(LogBarLabelStyle())
                             .foregroundStyle(item.tint)
                             .frame(maxWidth: .infinity)
