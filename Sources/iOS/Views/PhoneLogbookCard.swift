@@ -167,16 +167,16 @@ struct PhoneLogBar: View {
             HStack(spacing: DS.Space.sm) {
                 ForEach(items) { item in
                     Button {
-                        taps[item.id, default: 0] += 1
+                        // Counted only with motion allowed, so nothing bounces under Reduce Motion.
+                        if !reduceMotion { taps[item.id, default: 0] += 1 }
                         router.open(item.part)
                     } label: {
                         Label {
                             Text(item.title)
                         } icon: {
                             Image(systemName: item.systemImage)
-                                // One trigger: a tap, or (for the plus) a save. Held still under Reduce Motion.
-                                .symbolEffect(.bounce, value: reduceMotion ? 0
-                                              : taps[item.id, default: 0] + (item.part == nil ? saves : 0))
+                                // One trigger: a tap, or (for the plus) a save.
+                                .symbolEffect(.bounce, value: taps[item.id, default: 0] + (item.part == nil ? saves : 0))
                         }
                             .labelStyle(LogBarLabelStyle())
                             .foregroundStyle(item.tint)
@@ -193,6 +193,7 @@ struct PhoneLogBar: View {
         .onChange(of: router.request == nil) { _, closed in
             guard closed, router.savedSinceOpen else { return }
             router.savedSinceOpen = false
+            guard !reduceMotion else { return }
             Task { @MainActor in
                 // After the sheet has slid away, so the bounce is seen.
                 try? await Task.sleep(for: .milliseconds(380))
