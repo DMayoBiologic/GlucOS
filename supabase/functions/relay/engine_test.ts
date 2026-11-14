@@ -199,11 +199,13 @@ Deno.test("a start APNs didn't take is tried again", async () => {
   assertEquals(t.sender.sent.filter((p) => p.deviceToken === "p2s").length, 2);
 });
 
-Deno.test("a replaced or ended card's late registration doesn't win it back", async () => {
+Deno.test("an ended card's late registration doesn't win it back", async () => {
   const t = await registered();
-  await t.engine.register({ activityID: "A1", activityToken: "act" });
   await t.engine.register({ activityID: "A2", activityToken: "act2" });
-  // A1's token upload was stuck behind a timeout and lands now.
+  // A1's token upload was stuck behind a timeout and lands after A2's. The phone keeps A2, ends
+  // A1 and names A2 in the same request: A2 is adopted again, A1 never.
+  await t.engine.register({ activityID: "A1", activityToken: "act" });
+  await t.engine.register({ endedActivityID: "A1", activityID: "A2", activityToken: "act2" });
   await t.engine.register({ activityID: "A1", activityToken: "act" });
   await t.engine.register({ endedActivityID: "A3" });
   await t.engine.register({ activityID: "A3", activityToken: "act3" });
@@ -216,6 +218,17 @@ Deno.test("a replaced or ended card's late registration doesn't win it back", as
   await t.engine.tick();
   await t.engine.register({ activityID: "A2", activityToken: "act2" });
   assertEquals((await t.engine.status()).activityID, undefined);
+});
+
+Deno.test("a card whose end push failed can be registered again", async () => {
+  const t = await registered();
+  await t.engine.register({ activityID: "A1", activityToken: "act" });
+  await t.engine.tick();
+  t.sender.results["act"] = { kind: "failed", reason: "500 InternalServerError" };
+  t.advance(rotateAfter + 60);
+  await t.engine.tick();
+  await t.engine.register({ activityID: "A1", activityToken: "act" });
+  assertEquals((await t.engine.status()).activityID, "A1");
 });
 
 Deno.test("a dismissed activity isn't restarted", async () => {

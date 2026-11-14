@@ -79,10 +79,19 @@ final class PhoneServices: ObservableObject {
             }
         }
         liveActivity.onActivityEnded = { [weak self] id in
-            var r = RelayRegistration()
-            r.endedActivityID = id
-            Task { @MainActor in await self?.send(r) }
+            Task { @MainActor in
+                guard let self else { return }
+                var r = RelayRegistration()
+                r.endedActivityID = id
+                // Name the card that stays in the same request, so the relay moves to it at once.
+                if let current = self.liveActivity.currentRegistration, current.id != id {
+                    r.activityID = current.id
+                    r.activityToken = current.token
+                }
+                await self.send(r)
+            }
         }
+        liveActivity.relayActivityID = { [weak self] in self?.relayStatus?.activityID }
         liveActivity.startObserving()
 
         // Account, units, thresholds and alert switches go to the relay when they change.

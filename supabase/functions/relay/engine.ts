@@ -270,10 +270,9 @@ export class RelayEngine {
         row.pendingStart = false;
       }
       if (r.activityID && r.activityToken && !(row.work.retiredActivities ?? []).includes(r.activityID)) {
-        // The phone moved to another activity. It ends the old one itself (it knows which of its
-        // cards is newest; the relay only knows which registration came last), so here it's just
-        // retired, so a late upload of its token can't win it back.
-        if (row.activity && row.activity.id !== r.activityID) this.retire(row, row.activity.id);
+        // Another activity. Arrival order doesn't say which card the phone kept (a stale upload
+        // can land after the current one), so nothing is retired here: the phone ends the card it
+        // doesn't keep, that end retires it, and the same request names the card it kept.
         const startedAt = row.activity?.id === r.activityID ? row.activity.startedAt : now;
         row.activity = { id: r.activityID, token: r.activityToken, startedAt };
         row.pendingStart = false;
@@ -468,8 +467,10 @@ export class RelayEngine {
       deviceToken: p2s, type: "liveactivity", topic: this.config.bundleId, priority: 10,
       payload: payloads.activity("start", card, now), expiration: now + 600, sandbox: row.prefs.sandbox,
     }, (r) => { delete r.prefs.pushToStartToken; });
-    // APNs took it, so iOS has started the card. Starting again because its registration is
-    // slow would put a second card on the Lock Screen: wait for the phone instead.
+    // APNs accepted it, which doesn't prove the phone started the card, but starting again because
+    // its registration is slow put a second card on the Lock Screen. So a delivered start isn't
+    // retried: the card's registration (sent with every app sync) re-arms everything, and if no
+    // card ever appears the app starts one the next time it's opened.
     if (result.kind === "delivered") row.pendingStart = false;
   }
 
@@ -478,11 +479,13 @@ export class RelayEngine {
     if (!a) return;
     row.activity = null;
     row.work.lastCard = null;
-    this.retire(row, a.id);
-    await this.push(row, {
+    const result = await this.push(row, {
       deviceToken: a.token, type: "liveactivity", topic: this.config.bundleId, priority: 10,
       payload: payloads.activity("end", null, now), sandbox: row.prefs.sandbox,
     }, () => {});
+    // Only a card that's really gone is retired. If the end didn't go through it's still on the
+    // Lock Screen, and the phone may keep it and register it again.
+    if (result.kind !== "failed") this.retire(row, a.id);
   }
 
   private retire(row: RelayRow, id: string) {

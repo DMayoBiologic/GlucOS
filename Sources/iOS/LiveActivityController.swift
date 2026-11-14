@@ -19,6 +19,8 @@ final class LiveActivityController: ObservableObject {
     var onActivityToken: ((_ activityID: String, _ token: String) -> Void)?
     var onPushToStartToken: ((String) -> Void)?
     var onActivityEnded: ((_ activityID: String) -> Void)?
+    /// The activity the relay last said it's updating (`RelayStatus.activityID`), if any.
+    var relayActivityID: (@MainActor () -> String?)?
 
     /// This controller looks after the owner's own card only. Cards following someone else's
     /// share (`followID` set) belong to `FollowStore`.
@@ -59,10 +61,14 @@ final class LiveActivityController: ObservableObject {
         a.activityState == .active || a.activityState == .stale
     }
 
-    /// The card to keep when there are several: the one showing the newest reading, which is the
-    /// one being updated. On a tie, the later one.
+    /// The card to keep when there are several: the one the relay says it's updating, else the one
+    /// showing the newest reading (the one being updated). On a tie, the later one.
     private var current: GlucoseActivity? {
-        ownActivities.filter(LiveActivityController.isRunning).enumerated()
+        let running = ownActivities.filter(LiveActivityController.isRunning)
+        if let relayID = relayActivityID?(), let accepted = running.first(where: { $0.id == relayID }) {
+            return accepted
+        }
+        return running.enumerated()
             .max { ($0.element.content.state.readingAt, $0.offset) < ($1.element.content.state.readingAt, $1.offset) }?
             .element
     }
