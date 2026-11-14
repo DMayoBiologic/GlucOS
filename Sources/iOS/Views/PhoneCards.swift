@@ -134,11 +134,8 @@ struct PhoneHeroCard: View {
                 .font(.system(size: (96 * (1 + (textScale.scale - 1) * 0.4)).rounded(), weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tint))
-                .overlay {
-                    if stale {
-                        Capsule().fill(Color.secondary.opacity(0.7)).frame(height: 3).rotationEffect(.degrees(-8))
-                    }
-                }
+                // The line draws across as the data goes stale (docs/Redesign.md §4.3).
+                .staleStrike(stale)
                 .contentTransition(.numericText(value: cur.mgdl))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
