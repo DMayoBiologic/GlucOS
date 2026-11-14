@@ -258,7 +258,12 @@ struct RangeField: View {
     var body: some View {
         let sweeps = !reduceMotion && SweepDirection.between(last.range, range) != nil
         ZStack {
-            if let outgoing { layer(outgoing) }
+            // The old colour gives way exactly where the new one arrives, so translucent fields
+            // (Reduce Transparency's flat wash) never show both at once.
+            if let outgoing {
+                layer(outgoing)
+                    .mask { SweepMask(progress: reveal, direction: direction, inverted: true) }
+            }
             layer(tone)
                 .mask {
                     if outgoing != nil {
@@ -344,8 +349,22 @@ extension GlucoseRange {
 private struct SweepMask: View {
     var progress: Double
     var direction: SweepDirection
+    /// Covers what the band doesn't: the outgoing colour's mask.
+    var inverted: Bool = false
 
     var body: some View {
+        if inverted {
+            ZStack {
+                Rectangle()
+                SweepMask(progress: progress, direction: direction).blendMode(.destinationOut)
+            }
+            .compositingGroup()
+        } else {
+            band
+        }
+    }
+
+    private var band: some View {
         GeometryReader { geo in
             let h = geo.size.height
             let feather: CGFloat = 0.35
