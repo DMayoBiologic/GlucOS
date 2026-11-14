@@ -266,11 +266,28 @@ export interface HorizonStats {
   upper: number;
 }
 
+/// The forecast's trend timing and strength (ForecastTuning in GlucoseForecaster.swift), tuned
+/// to the user's history by `tuneTrend`. Standard values are Loop's.
+export interface Tuning {
+  trendFade: number;
+  trendWindow: number;
+  /// How much of the recent trend is carried forward, 0–1.
+  trendGain: number;
+}
+
+export const standardTuning: Tuning = { trendFade: 30 * 60, trendWindow: 20 * 60, trendGain: 1 };
+const isStandardTuning = (t: Tuning) =>
+  t.trendFade === standardTuning.trendFade && t.trendWindow === standardTuning.trendWindow &&
+  t.trendGain === standardTuning.trendGain;
+
 /// The relay has no logbook, so only the trend basis is ever learnt.
 export interface Calibration {
   trend: HorizonStats[];
   origins: number;
   computedAt: number;
+  /// The timing the figures were measured with and the forecast uses. Missing on rows saved
+  /// before tuning existed: standard.
+  tuning?: Tuning;
 }
 
 export const calibrationHorizons = [15, 30, 45, 60, 90, 120, 150, 180];
@@ -349,14 +366,12 @@ const unavailable = {
 };
 
 const step = 5 * 60;
-const trendFade = 30 * 60;
-const trendWindow = 20 * 60;
 const maxTrendPerMinute = 4;
 const trendHorizon = 30 * 60;
 const sensorLow = 40, sensorHigh = 400;
 
-export function trendAt(series: Series, at: number): number | null {
-  const recent = series.slice(at - trendWindow, at);
+export function trendAt(series: Series, at: number, window = standardTuning.trendWindow): number | null {
+  const recent = series.slice(at - Math.max(window, 10 * 60), at);
   if (recent.length === 0) return null;
   const first = recent[0], last = recent[recent.length - 1];
   if (last.t - first.t < 9 * 60) return null;
@@ -365,14 +380,15 @@ export function trendAt(series: Series, at: number): number | null {
   return Math.min(Math.max(s, -maxTrendPerMinute), maxTrendPerMinute);
 }
 
-/// The relay's forecast: the recent trend fading to level over half an hour (no insulin or carbs,
-/// since the logbook lives on the Mac).
-export function forecast(series: Series, calibration: Calibration | null, now: number, maxHorizon?: number): ForecastResult {
+/// The relay's forecast: the recent trend, at the strength it has earned, fading to level over
+/// half an hour or the tuned time (no insulin or carbs, since the logbook lives on the Mac).
+export function forecast(series: Series, calibration: Calibration | null, now: number, maxHorizon?: number,
+                         tuning: Tuning = calibration?.tuning ?? standardTuning): ForecastResult {
   const latest = series.last;
   if (!latest) return { ok: false, reason: unavailable.noReading };
   if (now - latest.t > staleAfter) return { ok: false, reason: unavailable.stale };
   if (!(latest.mgdl >= sensorLow && latest.mgdl <= sensorHigh)) return { ok: false, reason: unavailable.outOfSensorRange };
-  const trend = trendAt(series, latest.t);
+  const trend = trendAt(series, latest.t, tuning.trendWindow);
   if (trend === null) return { ok: false, reason: unavailable.notEnoughRecentReadings };
 
   const t0 = latest.t;
@@ -393,10 +409,12 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
   let g = latest.mgdl;
   let minute = 0;
   const totalMinutes = horizon / 60;
+  const fade = Math.max(60, tuning.trendFade);
+  const gain = Math.min(1, Math.max(0, tuning.trendGain));
   while (minute < totalMinutes) {
     const mid = minute + 0.5;
-    const w = Math.max(0, 1 - (mid * 60) / trendFade);
-    g += w * trend;
+    const w = Math.max(0, 1 - (mid * 60) / fade);
+    g += w * gain * trend;
     minute += 1;
     if (Math.trunc(minute) % (step / 60) === 0) {
       const central = Math.min(Math.max(g, sensorLow - 1), sensorHigh + 1);
@@ -411,23 +429,43 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
   return { ok: true, forecast: { issuedAt: t0, startMgdl: latest.mgdl, basis: "trend", trendPerMinute: trend, samples } };
 }
 
-/// Replays the stored readings to see how good the forecast has been (see ForecastBacktest.swift).
-export function learnCalibration(readings: Reading[], now: number, days = 30): Calibration | null {
+/// One replayed forecast point compared with what happened (ForecastBacktest.Check).
+export interface Check {
+  origin: number;
+  minutes: number;
+  /// actual − forecast, mg/dL.
+  residual: number;
+  /// actual − starting reading: the error of assuming no change.
+  naive: number;
+  /// The trend came from live readings, one at least every 5 minutes.
+  dense: boolean;
+}
+
+/// Origins are at least this far apart, as often as the apps log their forecasts.
+export const backtestSpacing = 15 * 60;
+const denseSpacing = 5 * 60;
+
+/// Replays a forecast every 15 minutes over the last `days` (ForecastBacktest.checks). Stretches
+/// filled in from the 15-minute history are left out when live readings are most of what there is.
+export function backtestChecks(readings: Reading[], now: number, days: number, tuning: Tuning): { checks: Check[]; origins: number } {
   const series = new Series(readings);
   const start = now - days * 86_400;
   const maxH = Math.max(...calibrationHorizons) * 60;
-  const residuals = new Map<number, number[]>();
-  const naive = new Map<number, number[]>();
-  let origins = 0;
+  const out: Check[] = [];
+  let origins = 0, denseOrigins = 0;
   let lastOrigin = -Infinity;
   for (const r of series.readings) {
     if (!(r.t >= start && r.t + 15 * 60 <= now)) continue;
-    if (r.t - lastOrigin < 30 * 60) continue;
-    const res = forecast(series.upTo(r.t), null, r.t, maxH);
+    if (r.t - lastOrigin < backtestSpacing) continue;
+    // The forecast only looks at the last few readings, so the last hour is enough.
+    const recent = new Series(series.slice(r.t - 3600, r.t), true);
+    const res = forecast(recent, null, r.t, maxH, tuning);
     if (!res.ok) continue;
     const f = res.forecast;
     lastOrigin = r.t;
     origins += 1;
+    const dense = recent.slice(r.t - tuning.trendWindow, r.t).length >= Math.trunc(tuning.trendWindow / denseSpacing);
+    if (dense) denseOrigins += 1;
     for (const h of calibrationHorizons) {
       const target = r.t + h * 60;
       if (target > now) continue;
@@ -435,28 +473,141 @@ export function learnCalibration(readings: Reading[], now: number, days = 30): C
       if (actual === null) continue;
       const p = f.samples.find((s) => Math.abs(s.t - target) < 30);
       if (!p) continue;
-      if (!residuals.has(h)) residuals.set(h, []);
-      if (!naive.has(h)) naive.set(h, []);
-      residuals.get(h)!.push(actual - p.mgdl);
-      naive.get(h)!.push(actual - f.startMgdl);
+      out.push({ origin: r.t, minutes: h, residual: actual - p.mgdl, naive: actual - f.startMgdl, dense });
     }
   }
+  if (denseOrigins * 2 >= origins && denseOrigins > 0) return { checks: out.filter((c) => c.dense), origins: denseOrigins };
+  return { checks: out, origins };
+}
+
+// MARK: - Tuning (ForecastTuner.swift)
+
+const tunerFades = [15, 20, 30, 45].map((m) => m * 60);
+const tunerWindows = [15, 20].map((m) => m * 60);
+const tunerCandidates: Tuning[] = tunerFades.flatMap((f) => tunerWindows.map((w) => ({ trendFade: f, trendWindow: w, trendGain: 1 })));
+/// The trend forecast is shown 30 minutes ahead, so it's judged there.
+const tunerHorizons = new Set([15, 30]);
+export const tunerMinimumChecks = 120;
+const tunerRequiredImprovement = 0.97;
+
+type Keyed = Map<string, { origin: number; minutes: number; value: number }>;
+const keyOf = (origin: number, minutes: number) => `${origin}:${minutes}`;
+
+function median(values: number[]): number {
+  return quantile([...values].sort((a, b) => a - b), 0.5);
+}
+
+/// The share of the trend that carried on: a least-squares slope of what happened on the trend's
+/// part of each forecast, fitted on each half of the history and the larger taken, rounded to 5%.
+/// Null with too few points, or when it's within 5% of all of it.
+export function fittedGain(withTrend: Keyed, withoutTrend: Keyed): number | null {
+  const keys = [...withTrend.keys()].filter((k) => withoutTrend.has(k));
+  if (keys.length < tunerMinimumChecks) return null;
+  const mid = median(keys.map((k) => withTrend.get(k)!.origin));
+  const xy = [0, 0], xx = [0, 0];
+  for (const k of keys) {
+    const half = withTrend.get(k)!.origin < mid ? 0 : 1;
+    const r0 = withoutTrend.get(k)!.value;
+    const part = r0 - withTrend.get(k)!.value;
+    xy[half] += r0 * part;
+    xx[half] += part * part;
+  }
+  if (!(xx[0] > 0 && xx[1] > 0)) return null;
+  const gain = Math.max(xy[0] / xx[0], xy[1] / xx[1]);
+  const rounded = Math.round(Math.min(1, Math.max(0.25, gain)) * 20) / 20;
+  return rounded < 0.95 ? rounded : null;
+}
+
+/// The candidate's error as a share of the baseline's on the points both made, each horizon
+/// counting equally. Null unless there are enough points, it's at least `required` of the
+/// baseline, and it's no worse in either half of the history.
+export function tuningRatio(theirs: Keyed, base: Keyed, required = tunerRequiredImprovement): number | null {
+  const shared = [...base.keys()].filter((k) => tunerHorizons.has(base.get(k)!.minutes) && theirs.has(k));
+  if (shared.length < tunerMinimumChecks) return null;
+  const per = new Map<number, { sum: number; n: number }>();
+  for (const k of shared) {
+    const b = base.get(k)!;
+    const e = per.get(b.minutes) ?? { sum: 0, n: 0 };
+    e.sum += b.value;
+    e.n += 1;
+    per.set(b.minutes, e);
+  }
+  const weight = (m: number) => {
+    const e = per.get(m);
+    return e && e.sum > 0 ? e.n / e.sum : 0;
+  };
+  const mid = median(shared.map((k) => base.get(k)!.origin));
+  const sums = [0, 0], baseSums = [0, 0], counts = [0, 0];
+  for (const k of shared) {
+    const b = base.get(k)!;
+    const half = b.origin < mid ? 0 : 1;
+    const w = weight(b.minutes);
+    sums[half] += theirs.get(k)!.value * w;
+    baseSums[half] += b.value * w;
+    counts[half] += 1;
+  }
+  const total = baseSums[0] + baseSums[1];
+  if (!(counts[0] > 0 && counts[1] > 0) || !(total > 0)) return null;
+  const ratio = (sums[0] + sums[1]) / total;
+  if (!(ratio <= required && sums[0] <= baseSums[0] && sums[1] <= baseSums[1] && ratio < 1)) return null;
+  return ratio;
+}
+
+/// Picks the trend's strength and then its timing from the user's history (ForecastTuner.tune):
+/// standard unless the replay clearly says otherwise.
+export function tuneTrend(readings: Reading[], now: number, days = 30): Tuning {
+  const run = (t: Tuning, abs: boolean): Keyed => {
+    const out: Keyed = new Map();
+    for (const c of backtestChecks(readings, now, days, t).checks) {
+      if (!tunerHorizons.has(c.minutes)) continue;
+      out.set(keyOf(c.origin, c.minutes), { origin: c.origin, minutes: c.minutes, value: abs ? Math.abs(c.residual) : c.residual });
+    }
+    return out;
+  };
+  const standard = run(standardTuning, true);
+  if (standard.size < tunerMinimumChecks) return standardTuning;
+  let base = { tuning: standardTuning, errors: standard };
+  const gain = fittedGain(run(standardTuning, false), run({ ...standardTuning, trendGain: 0 }, false));
+  if (gain !== null) {
+    const candidate = { ...standardTuning, trendGain: gain };
+    const theirs = run(candidate, true);
+    if (tuningRatio(theirs, standard, 1) !== null) base = { tuning: candidate, errors: theirs };
+  }
+  let chosen = base.tuning;
+  let bestRatio = 1;
+  for (const timing of tunerCandidates) {
+    if (isStandardTuning(timing)) continue;
+    const candidate = { ...timing, trendGain: base.tuning.trendGain };
+    const ratio = tuningRatio(run(candidate, true), base.errors);
+    if (ratio !== null && ratio < bestRatio) {
+      bestRatio = ratio;
+      chosen = candidate;
+    }
+  }
+  return chosen;
+}
+
+/// Tunes the trend, then replays the stored readings with it to see how good the forecast has
+/// been (OutlookEngine.learn with no logbook).
+export function learnCalibration(readings: Reading[], now: number, days = 30): Calibration | null {
+  const tuning = tuneTrend(readings, now, days);
+  const { checks, origins } = backtestChecks(readings, now, days, tuning);
   if (origins === 0) return null;
   const trend: HorizonStats[] = [];
   for (const h of calibrationHorizons) {
-    const res = residuals.get(h);
-    if (!res || res.length === 0) continue;
+    const cs = checks.filter((c) => c.minutes === h);
+    if (cs.length === 0) continue;
+    const res = cs.map((c) => c.residual);
     const sorted = [...res].sort((a, b) => a - b);
-    const nv = naive.get(h) ?? [];
     trend.push({
       minutes: h, samples: res.length,
       meanAbsoluteError: res.reduce((a, b) => a + Math.abs(b), 0) / res.length,
-      naiveError: nv.length === 0 ? Infinity : nv.reduce((a, b) => a + Math.abs(b), 0) / nv.length,
+      naiveError: cs.reduce((a, c) => a + Math.abs(c.naive), 0) / cs.length,
       bias: res.reduce((a, b) => a + b, 0) / res.length,
       lower: quantile(sorted, 0.1), upper: quantile(sorted, 0.9),
     });
   }
-  return { trend, origins, computedAt: now };
+  return { trend, origins, computedAt: now, tuning };
 }
 
 // MARK: - Outlook snapshot

@@ -61,7 +61,7 @@ final class PredictiveAlertTests: XCTestCase {
         let r = readings(endingAt: now, minutes: 20) { _ in 90 }
         let profile = EffectProfile(insulin: LearnedEffect(value: 80, standardError: 4, examples: 20), carbs: nil,
                                     driftPerHour: [0, 0, 0, 0], days: 30, intervals: 1000, learnedAt: now)
-        let dose = InsulinDose(timestamp: now.addingTimeInterval(-45 * 60), units: 4, kind: .rapid)
+        let dose = InsulinDose(timestamp: now.addingTimeInterval(-65 * 60), units: 4, kind: .rapid)
         let input = ForecastInputs(readings: GlucoseSeries(r), doses: [dose], meals: [], contexts: [], profile: profile, now: now)
         guard case .success(let f) = GlucoseForecaster.forecast(input) else { return XCTFail("no forecast") }
         XCTAssertEqual(f.basis, .trendInsulinCarbs)

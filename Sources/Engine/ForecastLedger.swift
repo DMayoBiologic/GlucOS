@@ -21,6 +21,9 @@ struct ForecastRecord: Codable, Hashable, Identifiable {
         var actual: Double?
         /// Insulin, food or an event was logged between the forecast and this point.
         var afterLog: Bool = false
+        /// How much this point's range was widened when shown. Nil in records from before ranges
+        /// were widened per horizon: the record's `rangeScale` applies.
+        var scale: Double? = nil
 
         var error: Double? { actual.map { $0 - mgdl } }
         var insideRange: Bool? { actual.map { $0 >= lower && $0 <= upper } }
@@ -73,7 +76,8 @@ struct ForecastLedger: Codable, Equatable {
         let points: [ForecastRecord.Point] = Self.checkedMinutes.compactMap { m in
             let target = forecast.issuedAt.addingTimeInterval(TimeInterval(m * 60))
             guard let s = forecast.samples.first(where: { abs($0.date.timeIntervalSince(target)) < 30 }) else { return nil }
-            return ForecastRecord.Point(minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl)
+            return ForecastRecord.Point(minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl,
+                                        scale: forecast.rangeScale(atMinutes: m))
         }
         guard !points.isEmpty else { return false }
         records.append(ForecastRecord(id: UUID(), issuedAt: forecast.issuedAt, device: device, basis: forecast.basis,
@@ -140,6 +144,8 @@ struct ForecastLedger: Codable, Equatable {
     /// Shown points needed before the range is widened, per kind of forecast (or all kinds
     /// together when one kind has too few).
     static let minimumForRange = 40
+    /// Shown points needed at one horizon before it gets its own widening.
+    static let minimumForHorizon = 25
     /// How far back shown forecasts count towards the range.
     static let rangeWindow: TimeInterval = 14 * 86_400
 
@@ -147,20 +153,23 @@ struct ForecastLedger: Codable, Equatable {
     /// the forecasts shown in the last 14 days (points with nothing logged in between). Each
     /// point is measured against the range before any earlier widening, so the figure settles
     /// rather than compounding. Points where the range was cut off at the sensor's limits are
-    /// left out.
+    /// left out. Each checked horizon with enough points of its own gets its own figure.
     func rangeScale(now: Date = Date()) -> ForecastRangeScale {
         let from = now.addingTimeInterval(-Self.rangeWindow)
         var ratios: [ForecastBasis: [Double]] = [:]
+        var perHorizon: [ForecastBasis: [Int: [Double]]] = [:]
         for r in records where r.issuedAt >= from && r.issuedAt <= now {
-            let shown = max(1, r.rangeScale ?? 1)
             for p in r.points where !p.afterLog {
+                let shown = max(1, p.scale ?? r.rangeScale ?? 1)
                 guard let actual = p.actual,
                       p.lower > GlucoseForecaster.sensorRange.lowerBound - 0.5,
                       p.upper < GlucoseForecaster.sensorRange.upperBound + 0.5 else { continue }
                 let above = (p.upper - p.mgdl) / shown, below = (p.mgdl - p.lower) / shown
                 guard above > 0.5, below > 0.5 else { continue }
                 let e = actual - p.mgdl
-                ratios[r.basis, default: []].append(e >= 0 ? e / above : -e / below)
+                let ratio = e >= 0 ? e / above : -e / below
+                ratios[r.basis, default: []].append(ratio)
+                perHorizon[r.basis, default: [:]][p.minutes, default: []].append(ratio)
             }
         }
         func needed(_ xs: [Double]) -> Double {
@@ -170,11 +179,15 @@ struct ForecastLedger: Codable, Equatable {
         guard pooled.count >= Self.minimumForRange else { return ForecastRangeScale(byBasis: [:], checks: pooled.count) }
         let overall = needed(pooled)
         var out: [ForecastBasis: Double] = [:]
+        var outHorizon: [ForecastBasis: [Int: Double]] = [:]
         for basis in ForecastBasis.allCases {
             let xs = ratios[basis] ?? []
             out[basis] = xs.count >= Self.minimumForRange ? needed(xs) : overall
+            for (m, hs) in perHorizon[basis] ?? [:] where hs.count >= Self.minimumForHorizon {
+                outHorizon[basis, default: [:]][m] = needed(hs)
+            }
         }
-        return ForecastRangeScale(byBasis: out, checks: pooled.count)
+        return ForecastRangeScale(byBasis: out, byHorizon: outHorizon, checks: pooled.count)
     }
 
     private static func anyLog(in sorted: [Date], after start: Date, before end: Date) -> Bool {

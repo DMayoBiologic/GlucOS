@@ -168,6 +168,8 @@ struct ParityScenario {
         if let cal = model.calibration, let s = cal.stats(for: .trend) {
             scenario["calibration"] = s.map { ["minutes": $0.minutes, "samples": $0.samples, "lower": $0.lower, "upper": $0.upper,
                                                "mae": $0.meanAbsoluteError, "naive": $0.naiveError] }
+            let t = model.tuning.tuning
+            scenario["tuning"] = ["trendFade": t.trendFade, "trendWindow": t.trendWindow, "trendGain": t.trendGain]
         }
         return scenario
     }
@@ -270,6 +272,20 @@ enum ParityScenarios {
         }
         tail[0].learn = true
         list.append(.init(name: "learnt-calibration", ticks: warmup + tail))
+
+        // A day and a half of live readings with sensor noise: the trend overstates where glucose
+        // goes next, so the replay counts it at part strength.
+        let noisy: (Double) -> Double = { m in
+            140 + 35 * sin(m / 90) + 12 * sin(m / 6) + 4 * jitter(Int(m.rounded()) &* 7 &+ 3)
+        }
+        let start = t0.addingTimeInterval(10 * 86_400)
+        var noisyWarmup = ticks(start: start, count: 36 * 30, every: 120, historyMinutes: 5, curve: noisy)
+        for i in noisyWarmup.indices { noisyWarmup[i].record = false }
+        var noisyTail = ticks(start: start.addingTimeInterval(36 * 3600), count: 10, every: 60, historyMinutes: 5) { m in
+            noisy(m + 36 * 60)
+        }
+        noisyTail[0].learn = true
+        list.append(.init(name: "learnt-trend-strength", ticks: noisyWarmup + noisyTail))
 
         return list
     }
