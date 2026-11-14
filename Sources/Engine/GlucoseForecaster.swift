@@ -15,6 +15,14 @@ import Foundation
 //
 // After a logged wake-up, the user's usual post-wake change (`MorningPattern`, only once it has
 // been shown to improve their past forecasts) is added to the modelled rate the same way.
+//
+// Two things keep it from claiming more than it knows:
+//   • the trend counts for only as much as it has earned (`ForecastTuning.trendGain`, from the
+//     replay): a Libre trend measured over 20 minutes carries on at roughly half strength, so
+//     following it fully made the 15-minute forecast worse than assuming no change;
+//   • for the first hour after a meal or a dose, the modelled effects are mostly still to come and
+//     their timing varies, so the forecast follows the trend alone until the replay shows that
+//     forecasts made this soon after a log beat assuming no change (`ForecastCalibration.freshModel`).
 
 /// Why there's no forecast right now.
 enum ForecastUnavailable: Hashable {
@@ -53,6 +61,9 @@ enum ForecastLimitation: Hashable {
     case backgroundInsulin
     /// Accuracy hasn't been checked against this user's history yet, so a cautious range is used.
     case uncalibrated
+    /// A meal or dose was logged within the last hour, and forecasts made that soon after a log
+    /// haven't yet beaten assuming no change.
+    case freshLog
 
     var message: String {
         switch self {
@@ -72,6 +83,8 @@ enum ForecastLimitation: Hashable {
             return "Long-acting insulin isn't modelled; it's assumed to be holding glucose level."
         case .uncalibrated:
             return "Not yet checked against enough of your history, so a cautious range is shown."
+        case .freshLog:
+            return "Insulin or carbs were logged in the last hour, before their effect is clear. Until your history shows forecasts this soon after a log are reliable, this only follows the trend."
         }
     }
 
@@ -86,13 +99,14 @@ enum ForecastLimitation: Hashable {
         case .rapidChange: return "rapidChange"
         case .backgroundInsulin: return "backgroundInsulin"
         case .uncalibrated: return "uncalibrated"
+        case .freshLog: return "freshLog"
         }
     }
 
     /// Limitations that force a trend-only forecast.
     var forcesTrendOnly: Bool {
         switch self {
-        case .insulinNotLearned, .carbsNotLearned, .uncountedFood, .deliveryProblem: return true
+        case .insulinNotLearned, .carbsNotLearned, .uncountedFood, .deliveryProblem, .freshLog: return true
         default: return false
         }
     }
@@ -111,8 +125,16 @@ struct GlucoseForecast: Hashable {
     let calibrated: Bool
     /// The post-wake adjustment included, if any.
     var morning: AppliedMorningAdjustment? = nil
-    /// How much the range was widened to match how this device's forecasts actually did.
+    /// How much the range was widened to match how this device's forecasts actually did: the
+    /// largest widening anywhere along it.
     var rangeScale: Double = 1
+    /// The widening at each 5-minute sample, by minutes ahead.
+    var rangeScales: [Int: Double] = [:]
+    /// Insulin and carbs were modelled within the first hour after a log.
+    var fresh = false
+
+    /// The widening `minutes` ahead.
+    func rangeScale(atMinutes minutes: Int) -> Double { rangeScales[minutes] ?? rangeScale }
 
     var horizon: TimeInterval { samples.last.map { $0.date.timeIntervalSince(issuedAt) } ?? 0 }
 
@@ -128,16 +150,39 @@ struct GlucoseForecast: Hashable {
 /// confident.
 struct ForecastRangeScale: Hashable, Codable {
     var byBasis: [ForecastBasis: Double] = [:]
+    /// The same per checked horizon (minutes ahead), where that horizon has enough shown points of
+    /// its own. Errors grow at different rates at different distances, so one figure per kind left
+    /// the range too narrow at 15 and 45 minutes and wider than needed elsewhere.
+    var byHorizon: [ForecastBasis: [Int: Double]] = [:]
     /// Shown forecast points the figures came from.
     var checks: Int = 0
 
     static let unchanged = ForecastRangeScale()
     static let maximum = 2.5
 
-    func factor(for basis: ForecastBasis) -> Double { min(Self.maximum, max(1, byBasis[basis] ?? 1)) }
-    var isWidened: Bool { byBasis.values.contains { $0 > 1.005 } }
+    private static func clamp(_ x: Double) -> Double { min(maximum, max(1, x)) }
+
+    func factor(for basis: ForecastBasis) -> Double { Self.clamp(byBasis[basis] ?? 1) }
+
+    /// The widening `minutes` ahead: interpolated between the horizons that have their own figure,
+    /// held flat before the first and after the last, and the kind's overall figure without any.
+    func factor(for basis: ForecastBasis, minutes: Double) -> Double {
+        let points = (byHorizon[basis] ?? [:]).sorted { $0.key < $1.key }
+        guard let first = points.first, let last = points.last else { return factor(for: basis) }
+        if minutes <= Double(first.key) { return Self.clamp(first.value) }
+        if minutes >= Double(last.key) { return Self.clamp(last.value) }
+        for (a, b) in zip(points, points.dropFirst()) where minutes <= Double(b.key) {
+            let f = (minutes - Double(a.key)) / Double(b.key - a.key)
+            return Self.clamp(a.value + (b.value - a.value) * f)
+        }
+        return Self.clamp(last.value)
+    }
+
+    var isWidened: Bool { largest > 1.005 }
     /// The largest widening in use.
-    var largest: Double { byBasis.values.max().map { min(Self.maximum, max(1, $0)) } ?? 1 }
+    var largest: Double {
+        (byBasis.values + byHorizon.values.flatMap(\.values)).max().map(Self.clamp) ?? 1
+    }
 }
 
 /// The forecast's own timing, tuned to the user once their history shows a different setting
@@ -147,13 +192,18 @@ struct ForecastTuning: Hashable, Codable {
     var trendFade: TimeInterval = GlucoseForecaster.trendFade
     /// How far back the trend is measured.
     var trendWindow: TimeInterval = GlucoseForecaster.trendWindow
+    /// How much of the recent trend the forecast carries forward, 0–1. Standard is all of it
+    /// (Loop's momentum); the tuner lowers it when the user's history shows their trend usually
+    /// carries on at only part strength, which pulls the forecast towards "no change".
+    var trendGain: Double = 1
 
     static let standard = ForecastTuning()
     var isStandard: Bool { self == .standard }
 
-    /// "eases off over 20 min, from the last 15 min of readings".
+    /// "the trend eases off over 20 min, measured over the last 15 min of readings, at half strength".
     var summary: String {
-        "the trend eases off over \(Int(trendFade / 60)) min, measured over the last \(Int(trendWindow / 60)) min of readings"
+        let strength = trendGain >= 0.995 ? "" : ", counted at \(Int((trendGain * 100).rounded()))% strength"
+        return "the trend eases off over \(Int(trendFade / 60)) min, measured over the last \(Int(trendWindow / 60)) min of readings\(strength)"
     }
 }
 
@@ -170,6 +220,9 @@ struct ForecastInputs {
     var tuning: ForecastTuning
     /// Range widening from this device's shown forecasts.
     var rangeScale: ForecastRangeScale
+    /// Whether to model insulin and carbs within the first hour after a log. Nil: only once the
+    /// calibration shows those forecasts beat "no change". The backtest sets it to measure both.
+    var freshModel: Bool? = nil
     var now: Date
 
     init(readings: GlucoseSeries, doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
@@ -199,6 +252,9 @@ enum GlucoseForecaster {
     static let modelHorizon: TimeInterval = 3 * 3600
     /// Without accuracy figures, a model-based forecast only looks this far.
     static let uncalibratedModelHorizon: TimeInterval = 60 * 60
+    /// A meal or fast-acting dose logged this recently makes the forecast "fresh": most of its
+    /// effect is still to come and the replay checks those forecasts separately.
+    static let freshLogWindow: TimeInterval = 60 * 60
     static let sensorRange: ClosedRange<Double> = 40...400
 
     /// The forecast, or why there isn't one. `maxHorizon` overrides the usual limit (backtesting
@@ -250,8 +306,17 @@ enum GlucoseForecaster {
             limitations.append(.backgroundInsulin)
         }
 
+        // In the first hour after a meal or dose, model it only once that has been shown to work.
+        let latestLog = (input.doses.filter { $0.timestamp <= t0 && TimedDose(fastPartOf: $0) != nil }.map(\.timestamp)
+                         + input.meals.filter { $0.carbs > 0 && $0.timestamp <= t0 }.map(\.timestamp)).max()
+        let fresh = latestLog.map { t0.timeIntervalSince($0) < freshLogWindow } ?? false
+        if fresh, insulinMatters || carbsMatter, !limitations.contains(where: \.forcesTrendOnly),
+           !(input.freshModel ?? (input.calibration?.freshModelAllowedHorizon.map { $0 > 0 } ?? false)) {
+            limitations.append(.freshLog)
+        }
         let forced = limitations.contains(where: \.forcesTrendOnly)
         let trendOnly = forced || (!insulinMatters && !carbsMatter)
+        let freshModel = fresh && !trendOnly
         // The usual post-wake change, while inside it. Not when the forecast can't trust the
         // logbook (it's learnt on top of what insulin and carbs explain).
         var morningWake: Date?
@@ -263,10 +328,13 @@ enum GlucoseForecaster {
         let basis: ForecastBasis = trendOnly ? .trend : .trendInsulinCarbs
 
         var horizon = basis == .trend ? trendHorizon : modelHorizon
-        let stats = input.calibration?.stats(for: basis)
+        let stats = freshModel ? input.calibration?.freshModel.flatMap { $0.isEmpty ? nil : $0 }
+                               : input.calibration?.stats(for: basis)
+        let allowedHorizon = freshModel ? input.calibration?.freshModelAllowedHorizon
+                                        : input.calibration?.allowedHorizon(for: basis)
         if let maxHorizon {
             horizon = maxHorizon
-        } else if let allowed = input.calibration?.allowedHorizon(for: basis) {
+        } else if let allowed = allowedHorizon {
             horizon = min(horizon, allowed)
             if horizon <= 0 { return .failure(.init(.notAccurateEnough, limitations: limitations)) }
         } else if basis == .trendInsulinCarbs {
@@ -277,9 +345,12 @@ enum GlucoseForecaster {
         if !calibrated && maxHorizon == nil { limitations.append(.uncalibrated) }
 
         // Integrate the rate minute by minute.
-        let rangeScale = maxHorizon == nil ? input.rangeScale.factor(for: basis) : 1
-        let widen = (activeTags.isEmpty ? 1.0 : 1.5) * rangeScale
+        let scaled = maxHorizon == nil
+        let rangeScale = scaled ? input.rangeScale.factor(for: basis) : 1
+        let contextWiden = activeTags.isEmpty ? 1.0 : 1.5
+        var rangeScales: [Int: Double] = [:]
         let fade = max(60, input.tuning.trendFade)
+        let gain = min(1, max(0, input.tuning.trendGain))
         var samples: [ForecastSample] = []
         var g = latest.mgdl
         var minute = 0.0
@@ -298,6 +369,9 @@ enum GlucoseForecaster {
         func band(_ minutes: Double) -> (Double, Double) {
             let q = stats.flatMap { ForecastCalibration.interpolate($0, minutes: minutes) }
                 ?? ForecastCalibration.defaultBand(minutes: minutes)
+            let scale = scaled ? input.rangeScale.factor(for: basis, minutes: minutes) : 1
+            rangeScales[Int(minutes.rounded())] = scale
+            let widen = contextWiden * scale
             return (q.lower * widen, q.upper * widen)
         }
         samples.append(ForecastSample(date: t0, mgdl: g, lowerMgdl: g, upperMgdl: g))
@@ -307,7 +381,7 @@ enum GlucoseForecaster {
             let w = max(0, 1 - mid * 60 / fade)
             let at = t0.addingTimeInterval(mid * 60)
             let fromMorning = (1 - w) * morningRate(at: at)
-            let rate = w * trend + (1 - w) * modelRate(at: at) + fromMorning
+            let rate = w * gain * trend + (1 - w) * modelRate(at: at) + fromMorning
             morningAdded += fromMorning
             g += rate
             minute += 1
@@ -324,7 +398,8 @@ enum GlucoseForecaster {
         }
         return .success(GlucoseForecast(issuedAt: t0, startMgdl: latest.mgdl, basis: basis, trendPerMinute: trend,
                                         samples: samples, limitations: limitations, calibrated: calibrated,
-                                        morning: morning, rangeScale: rangeScale))
+                                        morning: morning, rangeScale: max(rangeScale, rangeScales.values.max() ?? 1),
+                                        rangeScales: rangeScales, fresh: freshModel))
     }
 
     /// Slope of the readings in the `window` (normally 20 minutes) up to `date`, mg/dL per minute.

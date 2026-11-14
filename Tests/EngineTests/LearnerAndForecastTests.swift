@@ -176,25 +176,70 @@ final class GlucoseForecasterTests: XCTestCase {
 
     func testActiveInsulinWithLearntEffectPullsTheForecastDown() throws {
         let r = readings(endingAt: now, minutes: 30) { _ in 180 }
-        let dose = InsulinDose(timestamp: now.addingTimeInterval(-30 * 60), units: 3, kind: .rapid)
+        // Over an hour ago, so the forecast isn't "fresh" (see testFreshLogsFollowTheTrendUntilEarned).
+        let dose = InsulinDose(timestamp: now.addingTimeInterval(-70 * 60), units: 3, kind: .rapid)
         let f = try success(GlucoseForecaster.forecast(input(r, doses: [dose], profile: learned)))
         XCTAssertEqual(f.basis, .trendInsulinCarbs)
         XCTAssertEqual(f.horizon, GlucoseForecaster.uncalibratedModelHorizon)
-        XCTAssertLessThan(f.samples.last!.mgdl, 160)
+        XCTAssertLessThan(f.samples.last!.mgdl, 165)
         // Monotonic fall: a flat trend handing over to insulin only.
         for (a, b) in zip(f.samples, f.samples.dropFirst()) { XCTAssertLessThanOrEqual(b.mgdl, a.mgdl + 1e-9) }
         // With a long horizon the full remaining effect plays out: 3 u × remaining share × 50.
         let full = try success(GlucoseForecaster.forecast(input(r, doses: [dose], profile: learned), maxHorizon: 6 * 3600))
-        let expectedDrop = 3 * InsulinActionCurve.rapid.fractionRemaining(after: 30 * 60) * 50
+        let expectedDrop = 3 * InsulinActionCurve.rapid.fractionRemaining(after: 70 * 60) * 50
         XCTAssertEqual(180 - full.samples.last!.mgdl, expectedDrop, accuracy: expectedDrop * 0.12)
     }
 
     func testCarbsPushTheForecastUp() throws {
         let r = readings(endingAt: now, minutes: 30) { _ in 120 }
-        let meal = MealEntry(timestamp: now.addingTimeInterval(-15 * 60), carbs: 40)
+        let meal = MealEntry(timestamp: now.addingTimeInterval(-70 * 60), carbs: 40)
         let f = try success(GlucoseForecaster.forecast(input(r, meals: [meal], profile: learned)))
         XCTAssertEqual(f.basis, .trendInsulinCarbs)
-        XCTAssertGreaterThan(f.samples.last!.mgdl, 140)
+        XCTAssertGreaterThan(f.samples.last!.mgdl, 135)
+    }
+
+    func testFreshLogsFollowTheTrendUntilEarned() throws {
+        let r = readings(endingAt: now, minutes: 30) { _ in 120 }
+        let meal = MealEntry(timestamp: now.addingTimeInterval(-20 * 60), carbs: 40)
+        // No checks yet of forecasts made this soon after a log: trend only.
+        let early = try success(GlucoseForecaster.forecast(input(r, meals: [meal], profile: learned)))
+        XCTAssertEqual(early.basis, .trend)
+        XCTAssertTrue(early.limitations.contains(.freshLog))
+        XCTAssertEqual(early.horizon, GlucoseForecaster.trendHorizon)
+
+        // Once those forecasts have beaten "no change", the meal is modelled, with their own range.
+        func stats(_ m: Int, mae: Double, naive: Double) -> HorizonStats {
+            HorizonStats(minutes: m, samples: 40, meanAbsoluteError: mae, naiveError: naive, bias: 0,
+                         lower: -2 * Double(m), upper: 2 * Double(m))
+        }
+        var cal = ForecastCalibration(byBasis: [:], origins: 100, computedAt: now)
+        cal.freshModel = [stats(15, mae: 8, naive: 12), stats(30, mae: 12, naive: 20), stats(45, mae: 30, naive: 25)]
+        XCTAssertEqual(cal.freshModelAllowedHorizon, 30 * 60)
+        let earned = try success(GlucoseForecaster.forecast(input(r, meals: [meal], profile: learned, calibration: cal)))
+        XCTAssertEqual(earned.basis, .trendInsulinCarbs)
+        XCTAssertTrue(earned.fresh)
+        XCTAssertFalse(earned.limitations.contains(.freshLog))
+        XCTAssertEqual(earned.horizon, 30 * 60)
+        let at30 = earned.samples.last!
+        XCTAssertEqual(at30.upperMgdl - at30.mgdl, 60, accuracy: 0.01)
+
+        // An hour on, it's an ordinary forecast again.
+        let old = MealEntry(timestamp: now.addingTimeInterval(-61 * 60), carbs: 40)
+        let settled = try success(GlucoseForecaster.forecast(input(r, meals: [old], profile: learned)))
+        XCTAssertEqual(settled.basis, .trendInsulinCarbs)
+        XCTAssertFalse(settled.fresh)
+    }
+
+    func testTrendGainPullsTheForecastTowardsNoChange() throws {
+        let r = readings(endingAt: now, minutes: 20) { m in 120 - m }   // rising 1 mg/dL per minute
+        var half = input(r)
+        half.tuning.trendGain = 0.5
+        let full = try success(GlucoseForecaster.forecast(input(r)))
+        let damped = try success(GlucoseForecaster.forecast(half))
+        XCTAssertEqual(full.samples.last!.mgdl - 120, 15, accuracy: 0.01)
+        XCTAssertEqual(damped.samples.last!.mgdl - 120, 7.5, accuracy: 0.01)
+        // The trend itself is reported as measured.
+        XCTAssertEqual(damped.trendPerMinute, 1, accuracy: 1e-6)
     }
 
     func testUnlearntInsulinFallsBackToTrend() throws {
@@ -269,7 +314,7 @@ final class GlucoseForecasterTests: XCTestCase {
         XCTAssertEqual(cal.allowedHorizon(for: .trendInsulinCarbs), 45 * 60)
         XCTAssertNil(cal.allowedHorizon(for: .trend))
         let r = readings(endingAt: now, minutes: 30) { _ in 180 }
-        let dose = InsulinDose(timestamp: now.addingTimeInterval(-30 * 60), units: 3, kind: .rapid)
+        let dose = InsulinDose(timestamp: now.addingTimeInterval(-70 * 60), units: 3, kind: .rapid)
         let f = try success(GlucoseForecaster.forecast(input(r, doses: [dose], profile: learned, calibration: cal)))
         XCTAssertEqual(f.horizon, 45 * 60)
         XCTAssertTrue(f.calibrated)

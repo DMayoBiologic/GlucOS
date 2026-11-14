@@ -145,7 +145,8 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
 - **The relay's forecast is trend-only.** The phone and the Mac forecast with the synced
-  logbook; the relay still forecasts from the recent trend.
+  logbook; the relay forecasts from the recent trend, at the strength and timing it has learnt
+  from its own readings (docs/ForecastAccuracy.md §6).
 - **The relay gets your LibreLinkUp login.** The app sends it over HTTPS (with the relay secret).
   It's kept encrypted in Supabase Vault. Signing out on the phone asks the relay to delete it; if
   the relay can't be reached then, the login stays in Vault until it can.

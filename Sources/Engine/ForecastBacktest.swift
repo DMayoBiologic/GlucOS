@@ -29,6 +29,10 @@ struct ForecastCalibration: Hashable, Codable {
     var computedAt: Date
     /// The trend timing the figures were measured with (and the forecast uses).
     var tuning: ForecastTuning = .standard
+    /// Insulin-and-carb forecasts made within the first hour after a meal or dose
+    /// (`GlucoseForecaster.freshLogWindow`), checked apart from the rest: until these beat "no
+    /// change", forecasts that soon after a log follow the trend alone.
+    var freshModel: [HorizonStats]? = nil
 
     static let horizons = [15, 30, 45, 60, 90, 120, 150, 180]
     static let minimumSamples = 30
@@ -44,8 +48,15 @@ struct ForecastCalibration: Hashable, Codable {
     /// checked horizon had enough samples and beat "no change". Nil when there's not enough data
     /// to say; 0 when it didn't help even at the shortest horizon.
     func allowedHorizon(for basis: ForecastBasis) -> TimeInterval? {
-        guard let stats = byBasis[basis]?.sorted(by: { $0.minutes < $1.minutes }),
-              let first = stats.first, first.samples >= Self.minimumSamples else { return nil }
+        byBasis[basis].flatMap(Self.allowedHorizon)
+    }
+
+    /// The same for insulin-and-carb forecasts in the first hour after a log.
+    var freshModelAllowedHorizon: TimeInterval? { freshModel.flatMap(Self.allowedHorizon) }
+
+    static func allowedHorizon(_ unsorted: [HorizonStats]) -> TimeInterval? {
+        let stats = unsorted.sorted(by: { $0.minutes < $1.minutes })
+        guard let first = stats.first, first.samples >= Self.minimumSamples else { return nil }
         var allowed = 0
         for s in stats {
             guard s.samples >= Self.minimumSamples, s.beatsNaive else { break }
@@ -88,8 +99,14 @@ struct ForecastCalibration: Hashable, Codable {
 }
 
 enum ForecastBacktest {
-    /// Forecast origins are at least this far apart.
-    static let spacing: TimeInterval = 30 * 60
+    /// Forecast origins are at least this far apart: as often as forecasts are logged
+    /// (`ForecastLedger.spacing`). Every half hour left too few points to measure how much of the
+    /// trend carries on; the fitted share swung between 55% and 77% from one half-hour offset to
+    /// the other.
+    static let spacing: TimeInterval = 15 * 60
+    /// Readings at least this often across the trend window make an origin "live" rather than
+    /// filled in from the 15-minute history.
+    static let denseSpacing: TimeInterval = 5 * 60
 
     /// One replayed forecast point compared with what happened.
     struct Check: Hashable {
@@ -100,6 +117,11 @@ enum ForecastBacktest {
         let residual: Double
         /// actual − starting reading, mg/dL: the error of assuming no change.
         let naive: Double
+        /// An insulin-and-carb forecast from the first hour after a log, which would have been
+        /// shown as trend-only (`ForecastCalibration.freshModel`).
+        var fresh = false
+        /// The trend came from live readings (one every `denseSpacing` or more often).
+        var dense = true
     }
 
     static func run(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
@@ -110,7 +132,7 @@ enum ForecastBacktest {
         return calibration(from: c.checks, origins: c.origins, now: now)
     }
 
-    /// Replays a forecast every half hour over the last `days`, using only what was known at
+    /// Replays a forecast every 15 minutes over the last `days`, using only what was known at
     /// the time, and compares each checked horizon with the reading that followed. Points with
     /// food, insulin or context logged before them are left out.
     static func checks(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
@@ -125,6 +147,7 @@ enum ForecastBacktest {
 
         var out: [Check] = []
         var origins = 0
+        var denseOrigins = 0
         var lastOrigin = Date.distantPast
         for r in series.readings where r.timestamp >= start && r.timestamp.addingTimeInterval(15 * 60) <= now {
             guard r.timestamp.timeIntervalSince(lastOrigin) >= spacing else { continue }
@@ -132,34 +155,65 @@ enum ForecastBacktest {
             // far cheaper than everything up to this point).
             let recent = GlucoseSeries(Array(series.slice(from: r.timestamp.addingTimeInterval(-3600), through: r.timestamp)),
                                        sorted: true)
-            let input = ForecastInputs(readings: recent, doses: doses.filter { $0.timestamp <= r.timestamp },
+            var input = ForecastInputs(readings: recent, doses: doses.filter { $0.timestamp <= r.timestamp },
                                        meals: meals.filter { $0.timestamp <= r.timestamp },
                                        contexts: contexts.filter { $0.timestamp <= r.timestamp },
                                        profile: profileAt?(r.timestamp) ?? profile, calibration: nil,
                                        tuning: tuning, now: r.timestamp)
+            // What would be shown until fresh-log forecasts have proved themselves...
+            input.freshModel = false
             guard case .success(let f) = GlucoseForecaster.forecast(input, maxHorizon: maxH) else { continue }
+            var forecasts = [(f, false)]
+            // ...and, soon after a log, the insulin-and-carb forecast that's being checked.
+            if f.limitations.contains(.freshLog) {
+                input.freshModel = true
+                if case .success(let m) = GlucoseForecaster.forecast(input, maxHorizon: maxH), m.basis == .trendInsulinCarbs {
+                    forecasts.append((m, true))
+                }
+            }
             lastOrigin = r.timestamp
             origins += 1
+            // Forecasts are shown from live readings, a minute or so apart. Stretches filled in
+            // later from the 15-minute history (the device was asleep) have a smoother, steadier
+            // trend than anything the forecast sees live, so they're checked only if they're
+            // most of what there is.
+            let window = recent.slice(from: r.timestamp.addingTimeInterval(-tuning.trendWindow), through: r.timestamp)
+            let dense = window.count >= Int(tuning.trendWindow / Self.denseSpacing)
+            if dense { denseOrigins += 1 }
             let nextEvent = min(firstAfter(r.timestamp, in: doseTimes) ?? .distantFuture,
                                 firstAfter(r.timestamp, in: mealTimes) ?? .distantFuture)
-            for h in ForecastCalibration.horizons {
-                let target = r.timestamp.addingTimeInterval(TimeInterval(h * 60))
-                guard target <= now, target < nextEvent,
-                      let actual = series.value(at: target),
-                      let predicted = f.samples.first(where: { abs($0.date.timeIntervalSince(target)) < 30 })?.mgdl
-                else { continue }
-                out.append(Check(origin: r.timestamp, basis: f.basis, minutes: h,
-                                 residual: actual - predicted, naive: actual - f.startMgdl))
+            for (f, fresh) in forecasts {
+                for h in ForecastCalibration.horizons {
+                    let target = r.timestamp.addingTimeInterval(TimeInterval(h * 60))
+                    guard target <= now, target < nextEvent,
+                          let actual = series.value(at: target),
+                          let predicted = f.samples.first(where: { abs($0.date.timeIntervalSince(target)) < 30 })?.mgdl
+                    else { continue }
+                    out.append(Check(origin: r.timestamp, basis: f.basis, minutes: h,
+                                     residual: actual - predicted, naive: actual - f.startMgdl, fresh: fresh,
+                                     dense: dense))
+                }
             }
+        }
+        if denseOrigins * 2 >= origins && denseOrigins > 0 {
+            return (out.filter(\.dense), denseOrigins)
         }
         return (out, origins)
     }
 
     static func calibration(from checks: [Check], origins: Int, now: Date) -> ForecastCalibration {
         var byBasis: [ForecastBasis: [HorizonStats]] = [:]
-        for (basis, ofBasis) in Dictionary(grouping: checks, by: \.basis) {
-            let perHorizon = Dictionary(grouping: ofBasis, by: \.minutes)
-            byBasis[basis] = ForecastCalibration.horizons.compactMap { h -> HorizonStats? in
+        for (basis, ofBasis) in Dictionary(grouping: checks.filter { !$0.fresh }, by: \.basis) {
+            byBasis[basis] = stats(ofBasis)
+        }
+        let fresh = stats(checks.filter(\.fresh))
+        return ForecastCalibration(byBasis: byBasis, origins: origins, computedAt: now,
+                                   freshModel: fresh.isEmpty ? nil : fresh)
+    }
+
+    static func stats(_ checks: [Check]) -> [HorizonStats] {
+            let perHorizon = Dictionary(grouping: checks, by: \.minutes)
+            return ForecastCalibration.horizons.compactMap { h -> HorizonStats? in
                 guard let cs = perHorizon[h], !cs.isEmpty else { return nil }
                 let res = cs.map(\.residual)
                 let sorted = res.sorted()
@@ -169,8 +223,6 @@ enum ForecastBacktest {
                                     bias: res.reduce(0, +) / Double(res.count),
                                     lower: EngineMath.quantile(sorted, 0.1), upper: EngineMath.quantile(sorted, 0.9))
             }
-        }
-        return ForecastCalibration(byBasis: byBasis, origins: origins, computedAt: now)
     }
 
     private static func firstAfter(_ date: Date, in sorted: [Date]) -> Date? {

@@ -118,6 +118,43 @@ final class ForecastHonestyTests: XCTestCase {
         XCTAssertEqual(s.factor(for: .trend), 1.6, accuracy: 0.01)
     }
 
+    func testEachHorizonGetsItsOwnWidening() {
+        // Readings 1.6 half-widths out at 15 minutes, right on the edge at 45.
+        var l = ForecastLedger()
+        for i in 0..<40 {
+            let sign: Double = i % 2 == 0 ? 1 : -1
+            let points = [(15, 1.6), (45, 1.0)].map { m, miss in
+                ForecastRecord.Point(minutes: m, mgdl: 120, lower: 100, upper: 140, actual: 120 + sign * miss * 20)
+            }
+            l.records.append(ForecastRecord(id: UUID(), issuedAt: now.addingTimeInterval(-Double(i + 1) * 3600), device: "Mac",
+                                            basis: .trend, startMgdl: 120, trendPerMinute: 0, points: points,
+                                            limitations: [], calibrated: true, tuned: false, morning: false, settled: true))
+        }
+        let s = l.rangeScale(now: now)
+        XCTAssertEqual(s.factor(for: .trend, minutes: 15), 1.6, accuracy: 0.01)
+        XCTAssertEqual(s.factor(for: .trend, minutes: 45), 1.0, accuracy: 0.01)
+        XCTAssertEqual(s.factor(for: .trend, minutes: 30), 1.3, accuracy: 0.01, "Interpolated between horizons")
+        XCTAssertEqual(s.factor(for: .trend, minutes: 5), 1.6, accuracy: 0.01, "Held before the first")
+        XCTAssertEqual(s.largest, 1.6, accuracy: 0.01)
+
+        // The forecast draws it point by point and records what each point was shown with.
+        let r = readings(endingAt: now, minutes: 30) { 120 - $0 }
+        var input = ForecastInputs(readings: GlucoseSeries(r), doses: [], meals: [], contexts: [], profile: .empty, now: now)
+        let plain = try! GlucoseForecaster.forecast(input).get()
+        input.rangeScale = s
+        let wider = try! GlucoseForecaster.forecast(input).get()
+        func half(_ f: GlucoseForecast, _ m: Int) -> Double {
+            let p = f.samples.first { Int($0.date.timeIntervalSince(f.issuedAt) / 60) == m }!
+            return p.upperMgdl - p.mgdl
+        }
+        XCTAssertEqual(half(wider, 15), half(plain, 15) * 1.6, accuracy: 0.01)
+        XCTAssertEqual(half(wider, 30), half(plain, 30) * 1.3, accuracy: 0.01)
+        var shown = ForecastLedger()
+        shown.note(wider, device: "Mac", tuned: false, now: now)
+        XCTAssertEqual(shown.records.first?.points.first { $0.minutes == 15 }?.scale ?? 0, 1.6, accuracy: 0.01)
+        XCTAssertEqual(shown.records.first?.points.first { $0.minutes == 30 }?.scale ?? 0, 1.3, accuracy: 0.01)
+    }
+
     func testOldRecordsWithoutAScaleStillDecode() throws {
         let json = """
         {"records":[{"id":"\(UUID().uuidString)","issuedAt":1789999200,"device":"Mac","basis":"trend","startMgdl":120,

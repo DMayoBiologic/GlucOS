@@ -152,11 +152,52 @@ final class ForecastTunerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(result.checks, ForecastTuner.minimumChecks)
     }
 
-    func testQuickSwingsPickAShorterFade() {
+    func testQuickSwingsCarryLessOfTheTrend() {
         let result = ForecastTuner.tune(readings: wave(periodHours: 1.5, amplitude: 40, days: 10), doses: [], meals: [],
                                         contexts: [], profile: .empty, days: 10, now: now)
         XCTAssertTrue(result.isTuned)
-        XCTAssertEqual(result.tuning.trendFade, 15 * 60)
+        // A trend that turns within the hour: less of it by fading sooner, counting it at part
+        // strength, or both. How far the trend carries by 30 minutes, per mg/dL/min:
+        let fade = result.tuning.trendFade / 60
+        let carried = result.tuning.trendGain * (fade >= 30 ? 30 - 450 / fade : fade / 2)
+        XCTAssertLessThan(carried, 15 * 0.8)
+    }
+
+    func testFitsHowMuchOfTheTrendCarriesOn() {
+        // Glucose carries on at half the trend's strength, give or take.
+        var rng = SeededRandom(seed: 7)
+        var withTrend: [ForecastTuner.Key: Double] = [:], withoutTrend: [ForecastTuner.Key: Double] = [:]
+        for i in 0..<300 {
+            let key = ForecastTuner.Key(origin: now.addingTimeInterval(Double(i) * 900), minutes: 15)
+            let trendPart = 20 * rng.normal()
+            let actualChange = 0.5 * trendPart + 4 * rng.normal()
+            withoutTrend[key] = actualChange
+            withTrend[key] = actualChange - trendPart
+        }
+        let gain = ForecastTuner.fittedGain(withTrend: withTrend, withoutTrend: withoutTrend)
+        XCTAssertEqual(gain ?? 0, 0.5, accuracy: 0.051)
+
+        // When the trend carries on in full, it's left alone.
+        let full = withTrend.mapValues { _ in 0.0 }
+        XCTAssertNil(ForecastTuner.fittedGain(withTrend: full, withoutTrend: withoutTrend.mapValues { $0 * 2 }))
+        // Too few points to say.
+        XCTAssertNil(ForecastTuner.fittedGain(withTrend: withTrend.filter { $0.key.origin < now.addingTimeInterval(9000) },
+                                              withoutTrend: withoutTrend))
+    }
+
+    func testANoisyTrendIsCountedAtPartStrength() {
+        // Readings every minute: a slow wave plus sensor noise, so the 15-minute trend overstates
+        // where glucose goes next and carrying it on in full forecasts worse than half.
+        var rng = SeededRandom(seed: 11)
+        var noise = 0.0
+        let r = readings(endingAt: now, minutes: 6 * 1440, step: 1) { m in
+            noise = 0.8 * noise + 3 * rng.normal()
+            return 140 + 30 * sin(2 * .pi * m / (4 * 60)) + noise
+        }
+        let result = ForecastTuner.tune(readings: r, doses: [], meals: [], contexts: [], profile: .empty, days: 6, now: now)
+        XCTAssertTrue(result.isTuned)
+        XCTAssertLessThan(result.tuning.trendGain, 0.95)
+        XCTAssertTrue(ForecastAccuracyText.tuningLine(result).contains("strength"))
     }
 
     func testStaysStandardWithoutEnoughHistory() {

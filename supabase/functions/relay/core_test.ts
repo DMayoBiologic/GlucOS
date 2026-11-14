@@ -25,6 +25,7 @@ interface Fixture {
   ticks: FixtureTick[];
   expected: Record<string, unknown>[];
   calibration?: { minutes: number; samples: number; lower: number; upper: number; mae: number; naive: number }[];
+  tuning?: { trendFade: number; trendWindow: number; trendGain: number };
 }
 
 const fixture = JSON.parse(await Deno.readTextFile(new URL("./testdata/parity.json", import.meta.url))) as {
@@ -107,6 +108,11 @@ for (const sc of fixture.scenarios) {
         minutes: s.minutes, samples: s.samples, lower: s.lower, upper: s.upper, mae: s.meanAbsoluteError,
         naive: s.naiveError,
       })), `${sc.name}.calibration`, problems);
+    }
+    if (sc.tuning) {
+      const t = (calibration as Calibration | null)?.tuning;
+      close(sc.tuning, t && { trendFade: t.trendFade, trendWindow: t.trendWindow, trendGain: t.trendGain },
+        `${sc.name}.tuning`, problems);
     }
     assertEquals(problems.slice(0, 15), []);
   });
