@@ -29,10 +29,11 @@ final class BolusCalculatorTests: XCTestCase {
     }
 
     func suggest(carbs: Double, readings: [GlucoseReading], doses: [InsulinDose] = [], manual: Double? = nil,
-                 contexts: [ContextEvent] = [], therapy: TherapyType = .injections,
+                 contexts: [ContextEvent] = [], therapy: TherapyType = .injections, reduction: Double = 0,
                  settings s: BolusSettings? = nil) -> BolusSuggestion {
         BolusCalculator.suggest(BolusRequest(carbs: carbs, now: now, readings: readings, manualGlucose: manual,
-                                             doses: doses, contexts: contexts, lowMgdl: 70, therapy: therapy),
+                                             doses: doses, contexts: contexts, lowMgdl: 70, therapy: therapy,
+                                             reduction: reduction),
                                 settings: s ?? settings(), calendar: utc)
     }
 
@@ -164,7 +165,7 @@ final class BolusCalculatorTests: XCTestCase {
         XCTAssertTrue(s.isBlocked)
         XCTAssertEqual(s.units, 0)
         XCTAssertEqual(s.ratePerMinute ?? 0, -3, accuracy: 0.01)
-        XCTAssertTrue(s.notices.contains(.fallingFastTowardsLow))
+        XCTAssertTrue(s.notices.contains(.fallingTowardsLow))
     }
 
     func testFallingFastWhileHighLeavesTheCorrectionOutAndTakesInsulinOffTheFood() {
@@ -174,13 +175,144 @@ final class BolusCalculatorTests: XCTestCase {
         XCTAssertFalse(s.isBlocked)
         XCTAssertTrue(s.correctionWithheld)
         XCTAssertTrue(s.notices.contains(.fallingFast))
-        XCTAssertEqual(s.calculated, 6 - onBoard, accuracy: 1e-9)
+        // Falling 2.5 a minute: (2.5 − 0.5) × 30 = 60 mg/dL lower in 30 minutes, 1.5 units.
+        XCTAssertEqual(s.trendUnits, -1.5, accuracy: 1e-9)
+        XCTAssertEqual(s.calculated, 6 - 1.5 - onBoard, accuracy: 1e-9)
     }
 
     func testSlowFallDoesNotWithholdTheCorrection() {
         let s = suggest(carbs: 0, readings: moving(to: 220, rate: -1))
         XCTAssertFalse(s.correctionWithheld)
-        XCTAssertEqual(s.units, 3)
+        XCTAssertEqual(s.correctionUnits, 3, accuracy: 1e-9)
+        // −1 a minute: (1 − 0.5) × 30 = 15 mg/dL, 0.375 units off. 2.625 rounds down to 2.6.
+        XCTAssertEqual(s.trendUnits, -0.375, accuracy: 1e-6)
+        XCTAssertEqual(s.units, 2.6)
+        XCTAssertTrue(s.notices.contains(.trendLowered))
+    }
+
+    // MARK: Trend
+
+    func testFlatTrendChangesNothing() {
+        let s = suggest(carbs: 60, readings: moving(to: 180, rate: 0.4))
+        XCTAssertEqual(s.trendUnits, 0)
+        XCTAssertEqual(s.units, 8)
+    }
+
+    func testFallingTrendComesOffTheFoodBelowTarget() {
+        // At target, falling 1.5 a minute: 30 mg/dL lower, 0.75 units off the 6 for food.
+        let s = suggest(carbs: 60, readings: moving(to: 130, rate: -1.5), settings: settings(target: 130))
+        XCTAssertFalse(s.isBlocked)
+        XCTAssertEqual(s.units, 5.25)
+    }
+
+    func testRisingTrendAddsOnlyWhenTurnedOn() {
+        let off = suggest(carbs: 60, readings: moving(to: 180, rate: 2))
+        XCTAssertEqual(off.trendUnits, 0)
+        XCTAssertEqual(off.units, 8)
+        XCTAssertFalse(off.notices.contains(.trendRaised))
+        var on = settings()
+        on.addsForRisingTrend = true
+        // +2 a minute: (2 − 0.5) × 30 = 45 mg/dL, 1.125 units.
+        let s = suggest(carbs: 60, readings: moving(to: 180, rate: 2), settings: on)
+        XCTAssertEqual(s.trendUnits, 1.125, accuracy: 1e-6)
+        XCTAssertEqual(s.units, 9.1)
+        XCTAssertTrue(s.notices.contains(.trendRaised))
+    }
+
+    func testTrendIsCappedAtThreeAMinute() {
+        var on = settings()
+        on.addsForRisingTrend = true
+        let s = suggest(carbs: 0, readings: moving(to: 200, rate: 6), settings: on)
+        XCTAssertEqual(s.trendMgdl, 75, accuracy: 1e-6, "(3 − 0.5) × 30")
+    }
+
+    func testRisingTrendIsOffsetByInsulinOnBoard() {
+        var on = settings()
+        on.addsForRisingTrend = true
+        let doses = [bolus(4, minutesAgo: 60)]
+        let s = suggest(carbs: 0, readings: moving(to: 140, rate: 2), doses: doses, settings: on)
+        // Correction 1 + trend 1.125, all covered by what's on board.
+        XCTAssertGreaterThan(iob(doses), 2.125)
+        XCTAssertEqual(s.units, 0)
+    }
+
+    func testNoTrendWithoutAFreshReading() {
+        let s = suggest(carbs: 30, readings: steady(150, endingAgo: 30 * 60))
+        XCTAssertEqual(s.trendUnits, 0)
+        XCTAssertNil(s.ratePerMinute)
+    }
+
+    func testOldSettingsWithoutTheTrendSwitchDecode() throws {
+        let json = #"{"blocks":[{"id":"4B7C3C1E-0000-4000-8000-000000000001","startMinute":0,"carbRatio":10,"correctionFactor":40,"targetMgdl":100}],"increment":0.5,"maxBolus":10,"confirmedAt":0,"disabled":false}"#
+        let s = try JSONDecoder().decode(BolusSettings.self, from: Data(json.utf8))
+        XCTAssertNil(s.addsForRisingTrend)
+        XCTAssertFalse(s.risingTrendAdds)
+        XCTAssertTrue(s.isUsable)
+    }
+
+    // MARK: Exercise reduction
+
+    func testExerciseReductionComesOffTheTotal() {
+        let s = suggest(carbs: 60, readings: steady(180), reduction: 0.25)
+        XCTAssertEqual(s.reductionUnits, 2, accuracy: 1e-9)
+        XCTAssertEqual(s.units, 6)
+        XCTAssertTrue(s.notices.contains(.reduced(percent: 25)))
+        XCTAssertEqual(BolusCalculation(s).reduction, 0.25)
+        let half = suggest(carbs: 60, readings: steady(100), reduction: 0.5)
+        XCTAssertEqual(half.units, 3)
+    }
+
+    func testOnlyOfferedReductionsAreUsed() {
+        let s = suggest(carbs: 60, readings: steady(100), reduction: 0.9)
+        XCTAssertEqual(s.reduction, 0)
+        XCTAssertEqual(s.units, 6)
+    }
+
+    func testAReductionAppliesBeforeTheCap() {
+        let s = suggest(carbs: 200, readings: steady(100), reduction: 0.5, settings: settings(max: 15))
+        XCTAssertEqual(s.units, 10, "20 units halved is 10, under the 15 cap")
+        XCTAssertFalse(s.notices.contains { if case .capped = $0 { return true } else { return false } })
+    }
+
+    // MARK: Falling towards a low
+
+    func testBlockedWhenFallingTowardsALowEvenIfNotFast() {
+        // 95 now, falling 1.5 a minute: 65 in 20 minutes.
+        let s = suggest(carbs: 40, readings: moving(to: 95, rate: -1.5))
+        XCTAssertTrue(s.isBlocked)
+        XCTAssertTrue(s.notices.contains(.fallingTowardsLow))
+        // A slow drift near the low threshold isn't blocked.
+        XCTAssertFalse(suggest(carbs: 40, readings: moving(to: 95, rate: -0.8)).isBlocked)
+    }
+
+    // MARK: High that isn't coming down
+
+    /// Readings at `start` until `doseMinutesAgo`, then climbing to `end` now.
+    func stuck(start: Double, end: Double, minutes: Int = 150) -> [GlucoseReading] {
+        stride(from: minutes + 20, through: 0, by: -5).map { m in
+            let v = m >= minutes ? start : end - (end - start) * Double(m) / Double(minutes)
+            return reading(now.addingTimeInterval(-Double(m) * 60), v)
+        }
+    }
+
+    func testHighNotComingDownAfterADoseAsksForASiteCheck() {
+        let doses = [bolus(3, minutesAgo: 150)]
+        let s = suggest(carbs: 0, readings: stuck(start: 240, end: 270), doses: doses)
+        XCTAssertTrue(s.notices.contains(.notComingDown(units: 3, minutesAgo: 150)))
+        XCTAssertEqual(s.level, .caution)
+    }
+
+    func testNoSiteCheckWhenItCameDownOrTheDoseIsRecent() {
+        XCTAssertFalse(suggest(carbs: 0, readings: stuck(start: 300, end: 260), doses: [bolus(3, minutesAgo: 150)])
+            .notices.contains { if case .notComingDown = $0 { return true } else { return false } })
+        XCTAssertFalse(suggest(carbs: 0, readings: stuck(start: 240, end: 270), doses: [bolus(3, minutesAgo: 45)])
+            .notices.contains { if case .notComingDown = $0 { return true } else { return false } })
+        // Started in range (a meal rise), so not a site sign.
+        XCTAssertFalse(suggest(carbs: 0, readings: stuck(start: 150, end: 260), doses: [bolus(3, minutesAgo: 150)])
+            .notices.contains { if case .notComingDown = $0 { return true } else { return false } })
+        // Long-acting doesn't count.
+        XCTAssertFalse(suggest(carbs: 0, readings: stuck(start: 240, end: 270), doses: [bolus(20, minutesAgo: 150, kind: .long)])
+            .notices.contains { if case .notComingDown = $0 { return true } else { return false } })
     }
 
     func testArrowUsedWhenTooFewReadingsForARate() {

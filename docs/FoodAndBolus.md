@@ -46,14 +46,23 @@ settings sync between devices (record kind `bolusSettings`).
 ```
 food        = carbs ÷ carb ratio
 correction  = (glucose − target) ÷ correction factor        (negative below target)
+trend       = shift ÷ correction factor, where shift is where the measured rate takes glucose
+              in 30 min, counting only beyond ±0.5 mg/dL/min and up to 3 (so at most ±75 mg/dL).
+              Falling: always counted. Rising: only if "Add insulin when glucose is rising" is on.
+              It's added to the correction below.
 
 at or above target:  total = food + max(0, correction − insulin on board)
 below target:        total = max(0, food + correction − insulin on board)
 no fresh reading,
 or falling fast:     total = max(0, food − insulin on board)    (no correction)
 
-then: cap at the maximum, round DOWN to the dose step
+then: take off the exercise reduction the user picked (none, 25% or 50%),
+      cap at the maximum, round DOWN to the dose step
 ```
+
+The trend step is the published trend-arrow adjustment (Pettus & Edelman 2017; Aleppo et al.
+2017), done with the rate measured over the last 15 minutes rather than a table. It is not the
+glucose forecast.
 
 Insulin on board is the engine's figure from logged fast-acting doses (long-acting and NPH aren't
 counted). The glucose forecast is never used.
@@ -63,15 +72,18 @@ counted). The glucose forecast is never used.
 | Situation | What happens |
 |---|---|
 | Glucose below the low threshold | No suggestion: treat the low first |
-| Falling fast (≤ −2 mg/dL/min) and heading under the low threshold within 20 min | No suggestion |
+| Falling (≤ −1 mg/dL/min) and heading under the low threshold within 20 min | No suggestion |
 | Falling fast but high | Correction left out; insulin on board comes off the food dose |
 | Last reading older than 15 min, or none | No correction; a finger-prick value can be typed in |
 | Above the maximum | Capped, and says so |
 | Very high (≥ 16.7 mmol/L) | Check ketones / site |
+| ≥ 13.9 mmol/L and no lower than at a fast-acting dose (≥ 0.5 u, taken at ≥ 11.1 mmol/L) 1½–4 h ago | Check site or pen, ketones; pump users consider a pen injection |
 | Low or hypo treatment in the last hour, recent bolus, exercise, pump user | Notes |
 
 **Use** only fills in the dose; logging it asks for confirmation, and the dose keeps the
-calculator's working (`InsulinDose.calculation`). Every view says it's not medical advice.
+calculator's working (`InsulinDose.calculation`). The working shows each step, including the trend and any
+exercise reduction, and the dose keeps them (`BolusCalculation.trendUnits`, `.reduction`). Every view
+says it's not medical advice.
 
 ## Suggested setting changes
 
