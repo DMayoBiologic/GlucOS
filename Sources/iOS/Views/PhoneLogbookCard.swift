@@ -136,6 +136,9 @@ struct PhoneLogBar: View {
     @EnvironmentObject var router: PhoneLogRouter
     /// Taps per button, so each icon gives one small bounce when pressed.
     @State private var taps: [String: Int] = [:]
+    /// Saves, so the plus bounces once as the sheet closes after one (docs/Redesign.md §7.1).
+    @State private var saves = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Item: Identifiable {
         let id: String
@@ -172,6 +175,7 @@ struct PhoneLogBar: View {
                         } icon: {
                             Image(systemName: item.systemImage)
                                 .symbolEffect(.bounce, value: taps[item.id, default: 0])
+                                .symbolEffect(.bounce.up, value: item.part == nil ? saves : 0)
                         }
                             .labelStyle(LogBarLabelStyle())
                             .foregroundStyle(item.tint)
@@ -183,6 +187,17 @@ struct PhoneLogBar: View {
                     .buttonStyle(PressScaleStyle())
                     .accessibilityLabel(item.part == nil ? "Log something else" : "Log \(item.title)")
                 }
+            }
+        }
+        // Nothing bounces under Reduce Motion.
+        .symbolEffectsRemoved(reduceMotion)
+        .onChange(of: router.request == nil) { _, closed in
+            guard closed, router.savedSinceOpen else { return }
+            router.savedSinceOpen = false
+            Task { @MainActor in
+                // After the sheet has slid away, so the bounce is seen.
+                try? await Task.sleep(for: .milliseconds(380))
+                saves += 1
             }
         }
         .padding(.horizontal, DS.Space.lg)

@@ -25,6 +25,8 @@ struct PhoneSetupView: View {
     }
 
     @State private var step: Step = .range
+    /// The way the last step change went, so Back slides the other way.
+    @State private var forward = true
     @State private var notificationsAllowed: Bool?
     @State private var asking = false
 
@@ -43,11 +45,12 @@ struct PhoneSetupView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     progress
+                    // Steps push horizontally in the direction of travel (docs/Redesign.md §7.2).
                     content
                         .id(step)
                         .transition(reduceMotion ? .opacity : .asymmetric(
-                            insertion: .move(edge: .trailing).combined(with: .opacity),
-                            removal: .move(edge: .leading).combined(with: .opacity)))
+                            insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
+                            removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity)))
                 }
                 .padding(.horizontal, DS.Space.xl)
                 .padding(.vertical, DS.Space.lg)
@@ -55,7 +58,7 @@ struct PhoneSetupView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollBounceBehavior(.basedOnSize)
-            .background { PhoneBackdrop(tone: .glucose(.inRange)) }
+            .background { PhoneBackdrop(tone: backdropTone) }
             .safeAreaInset(edge: .bottom, spacing: 0) { buttons }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -81,12 +84,20 @@ struct PhoneSetupView: View {
     private var progress: some View {
         HStack(spacing: 6) {
             ForEach(Step.allCases, id: \.self) { s in
+                // Each segment fills left to right as its step is reached.
                 Capsule()
-                    .fill(s.rawValue <= step.rawValue ? AnyShapeStyle(Palette.brandGradient) : AnyShapeStyle(Color.primary.opacity(0.1)))
+                    .fill(Color.primary.opacity(0.1))
+                    .overlay {
+                        Capsule()
+                            .fill(Palette.brandGradient)
+                            .scaleEffect(x: s.rawValue <= step.rawValue ? 1 : 0.001, anchor: .leading)
+                            .opacity(s.rawValue <= step.rawValue ? 1 : 0)
+                    }
+                    .clipShape(Capsule())
                     .frame(height: 4)
             }
         }
-        .dsAnimation(.standard, value: step)
+        .dsAnimation(.emphasized, value: step)
         .accessibilityElement()
         .accessibilityLabel("Step \(step.rawValue + 1) of \(Step.allCases.count): \(step.title)")
     }
@@ -126,7 +137,28 @@ struct PhoneSetupView: View {
     private func go(_ delta: Int) {
         guard let next = Step(rawValue: step.rawValue + delta) else { return }
         Haptics.tap()
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { step = next }
+        guard forward == (delta > 0) else {
+            // The outgoing step has to be drawn once with the new direction before it leaves,
+            // or it would slide out the old way.
+            forward = delta > 0
+            DispatchQueue.main.async { DS.animate(.standard, reduceMotion: reduceMotion) { step = next } }
+            return
+        }
+        DS.animate(.standard, reduceMotion: reduceMotion) { step = next }
+    }
+
+    /// The field behind the steps. On the range step it follows the range being set: the colour the
+    /// current reading would have with it (docs/Redesign.md §7.2). Mint otherwise.
+    private var backdropTone: Tone {
+        guard step == .range, let mgdl = currentMgdl else { return .glucose(.inRange) }
+        return .glucose(GlucoseRange.classify(mgdl: mgdl, low: settings.lowMgdl, high: settings.highMgdl))
+    }
+
+    /// The latest reading, while it's fresh.
+    private var currentMgdl: Double? {
+        let s = store.snapshot
+        guard let cur = s.current, !s.isStale() else { return nil }
+        return cur.mgdl
     }
 
     private func close() {
@@ -167,10 +199,31 @@ struct PhoneSetupView: View {
             .pickerStyle(.segmented)
             TargetRangeEditor(settings: settings)
                 .dsCard(.standard, padding: DS.Space.lg)
+            if let mgdl = currentMgdl { rangePreview(mgdl) }
             Text("Urgent low (below \(settings.unit.format(mgdl: 54, withUnit: true))) and very high (above \(settings.unit.format(mgdl: 250, withUnit: true))) are fixed.")
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// Where the reading right now sits with the range as set, so moving a limit shows what it does.
+    private func rangePreview(_ mgdl: Double) -> some View {
+        let range = GlucoseRange.classify(mgdl: mgdl, low: settings.lowMgdl, high: settings.highMgdl)
+        return VStack(alignment: .leading, spacing: DS.Space.sm) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Your reading now").dsFont(.label).foregroundStyle(.secondary)
+                Spacer(minLength: DS.Space.sm)
+                Text("\(settings.unit.format(mgdl: mgdl, withUnit: true)) · \(range.label)")
+                    .dsFont(.label)
+                    .monospacedDigit()
+                    .foregroundStyle(Tone.glucose(range).textColor)
+                    .contentTransition(.interpolate)
+            }
+            RangeRail(mgdl: mgdl, lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl, unit: settings.unit)
+        }
+        .dsAnimation(.standard, value: settings.lowMgdl)
+        .dsAnimation(.standard, value: settings.highMgdl)
+        .dsCard(.standard, padding: DS.Space.lg)
     }
 
     private var alerts: some View {

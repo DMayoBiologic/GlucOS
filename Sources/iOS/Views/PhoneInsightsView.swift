@@ -81,6 +81,10 @@ struct PhoneInsightsView: View {
 /// to 100%, with the day's time in range under it. Shows at a glance which days went well.
 struct PhoneDaysCard: View {
     @EnvironmentObject var store: GlucoseStore
+    /// The columns have grown from the baseline (docs/Redesign.md §7.2). App screen only; drawn
+    /// grown at once under Reduce Motion.
+    @State private var grown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let days = PhoneDayStats.lastDays(7, readings: store.readings(lastHours: 7 * 24),
@@ -89,9 +93,16 @@ struct PhoneDaysCard: View {
             Eyebrow(title: "Day by day", systemImage: "calendar", trailing: "Time in range")
             if days.contains(where: { $0.stats != nil }) {
                 HStack(alignment: .bottom, spacing: DS.Space.sm) {
-                    ForEach(days) { column($0) }
+                    ForEach(Array(days.enumerated()), id: \.element.id) { i, day in column(day, order: i) }
                 }
                 .frame(height: 150)
+                .onAppear {
+                    guard !grown else { return }
+                    if reduceMotion { grown = true } else {
+                        // Next frame, so the columns are laid out at the baseline first.
+                        DispatchQueue.main.async { grown = true }
+                    }
+                }
             } else {
                 Text("Each day's time in range shows here once GlucOS has a day of readings.")
                     .dsFont(.callout)
@@ -102,7 +113,7 @@ struct PhoneDaysCard: View {
         .dsCard(.standard, padding: DS.Space.lg)
     }
 
-    private func column(_ day: PhoneDayStats) -> some View {
+    private func column(_ day: PhoneDayStats, order: Int) -> some View {
         VStack(spacing: DS.Space.xs) {
             GeometryReader { geo in
                 let h = geo.size.height
@@ -117,6 +128,9 @@ struct PhoneDaysCard: View {
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control))
+                .scaleEffect(y: grown ? 1 : 0.001, anchor: .bottom)
+                .animation(reduceMotion ? nil : .spring(response: 0.6, dampingFraction: 0.82)
+                    .delay(0.15 + Double(order) * 0.045), value: grown)
             }
             Text(day.stats.map { Format.percent($0.timeInRange) } ?? "–")
                 .dsFont(.caption)

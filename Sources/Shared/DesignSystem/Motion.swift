@@ -83,15 +83,24 @@ extension View {
     /// Fades and lifts a card into place the first time it appears, `order` steps after the
     /// first, so a screen assembles top to bottom instead of popping in at once. Plays once per
     /// view lifetime; a plain fade under Reduce Motion. Not for widgets.
-    func dsEntrance(_ order: Int = 0) -> some View {
-        modifier(DSEntrance(order: order))
+    ///
+    /// `enabled: false` starts the view in place. For list rows: rows built after the screen has
+    /// assembled (scrolled into view later) shouldn't play it, since a list rebuilds rows as they
+    /// scroll in. Read once, when the view is first built.
+    func dsEntrance(_ order: Int = 0, enabled: Bool = true) -> some View {
+        modifier(DSEntrance(order: order, enabled: enabled))
     }
 }
 
 private struct DSEntrance: ViewModifier {
     let order: Int
-    @State private var shown = false
+    @State private var shown: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(order: Int, enabled: Bool) {
+        self.order = order
+        _shown = State(initialValue: !enabled)
+    }
 
     func body(content: Content) -> some View {
         content

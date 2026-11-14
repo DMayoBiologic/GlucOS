@@ -21,13 +21,23 @@ final class PhoneLogRouter: ObservableObject {
     static let shared = PhoneLogRouter()
 
     @Published var request: PhoneLogRequest?
+    /// The open sheet saved something: the log bar's plus bounces once as the sheet closes
+    /// (docs/Redesign.md §7.1). Cleared by the bar when it plays it.
+    var savedSinceOpen = false
 
     func open(_ start: PhoneLogPart? = nil) {
+        savedSinceOpen = false
         request = PhoneLogRequest(target: .new(start: start))
     }
 
     func edit(_ entry: LogEntry) {
+        savedSinceOpen = false
         request = PhoneLogRequest(target: .edit(entry))
+    }
+
+    /// Called by the log sheet when it saves, just before it closes.
+    func noteSaved() {
+        savedSinceOpen = true
     }
 
     /// `glucos://log`, `glucos://log/food`, `glucos://log?part=insulin`; `glucos://log/wake` logs a
