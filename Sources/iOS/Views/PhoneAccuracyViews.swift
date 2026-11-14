@@ -46,7 +46,7 @@ struct PhoneForecastAccuracyCard: View {
             if let line = ForecastAccuracyText.trendLine(lastWeek: week, before: ledger.weeksBefore, unit: unit) {
                 Text(line).dsFont(.caption).fixedSize(horizontal: false, vertical: true)
             }
-            Text("Typical error of the forecasts shown here in the last 7 days, when nothing was logged afterwards. \(ForecastAccuracyText.tuningLine(outlook.model.tuning))")
+            Text("Typical error of the forecasts shown here in the last 7 days, when nothing was logged afterwards. \(ForecastAccuracyText.tuningLine(outlook.model.tuning))\(ForecastAccuracyText.rangeLine(outlook.model.rangeScale).map { " " + $0 } ?? "")")
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

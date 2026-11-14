@@ -68,7 +68,8 @@ struct OutlookSection: View {
                 if let o = outlook {
                     InsulinActivityCard(insulin: o.insulin, carbs: o.carbs, now: now, onLog: onLog)
                 }
-                AccuracyCard(calibration: model.calibration, tuning: model.tuning, unit: unit)
+                AccuracyCard(calibration: model.calibration, tuning: model.tuning,
+                             rangeScale: outlookStore.ledger.rangeScale, unit: unit)
             }
 
             ShownForecastsCard(ledger: outlookStore.ledger, unit: unit)
@@ -257,6 +258,7 @@ private struct ActivityChart: View {
 private struct AccuracyCard: View {
     let calibration: ForecastCalibration?
     let tuning: ForecastTuningResult
+    let rangeScale: ForecastRangeScale
     let unit: GlucoseUnit
 
     var body: some View {
@@ -305,6 +307,12 @@ private struct AccuracyCard: View {
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let line = ForecastAccuracyText.rangeLine(rangeScale) {
+                Label(line, systemImage: "arrow.left.and.right")
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .dashboardCard()
     }

@@ -9,6 +9,8 @@ final class ForecastLedgerStore: ObservableObject {
     /// whether accuracy is improving.
     @Published private(set) var lastWeek: LiveAccuracy = .empty
     @Published private(set) var weeksBefore: LiveAccuracy = .empty
+    /// How much wider to draw the range, from how the forecasts shown here did.
+    @Published private(set) var rangeScale: ForecastRangeScale = .unchanged
 
     private(set) var ledger: ForecastLedger
     private var lastScored = Date.distantPast
@@ -62,6 +64,8 @@ final class ForecastLedgerStore: ObservableObject {
         let weekAgo = now.addingTimeInterval(-7 * 86_400)
         lastWeek = ledger.accuracy(from: weekAgo, to: now.addingTimeInterval(3600))
         weeksBefore = ledger.accuracy(from: now.addingTimeInterval(-28 * 86_400), to: weekAgo)
+        let scale = ledger.rangeScale(now: now)
+        if scale != rangeScale { rangeScale = scale }
     }
 
     private static func load() -> ForecastLedger {

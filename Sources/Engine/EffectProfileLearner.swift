@@ -102,6 +102,11 @@ enum EffectProfileLearner {
     /// stretches, and each stretch gets a profile fitted without its own intervals or the 3 hours
     /// after it (a forecast reaches 3 hours ahead). So a replayed forecast is never judged by a
     /// profile that has already seen the readings it is being compared with.
+    ///
+    /// The window starts at the first reading when there's less history than `backtestDays`.
+    /// Cutting the full 30 days instead put a new user's whole history in the last stretch, so
+    /// every replay was judged with a profile fitted on nothing: model forecasts were never
+    /// checked, and stayed on the cautious default range and a one-hour limit for weeks.
     static func heldOut(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry],
                         contexts: [ContextEvent], profile: EffectProfile, low: Double, backtestDays: Int = 30,
                         folds: Int = 5, now: Date = Date(), calendar: Calendar = .current) -> (Date) -> EffectProfile {
@@ -109,8 +114,8 @@ enum EffectProfileLearner {
         let fitDays = profile.days > 30 ? 90 : 30
         let all = rows(series: series, doses: doses, meals: meals, contexts: contexts, low: low,
                        from: now.addingTimeInterval(-Double(fitDays) * 86_400), to: now, calendar: calendar)
-        let start = now.addingTimeInterval(-Double(backtestDays) * 86_400)
-        let length = Double(backtestDays) * 86_400 / Double(max(1, folds))
+        let start = max(now.addingTimeInterval(-Double(backtestDays) * 86_400), series.first?.timestamp ?? now)
+        let length = max(3600, now.timeIntervalSince(start)) / Double(max(1, folds))
         let profiles: [EffectProfile] = (0..<max(1, folds)).map { k in
             let from = start.addingTimeInterval(Double(k) * length)
             let to = from.addingTimeInterval(length + 3 * 3600)
