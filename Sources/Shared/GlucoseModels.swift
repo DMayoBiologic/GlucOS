@@ -96,6 +96,7 @@ enum Trend: Int, Codable {
     }
 
     var isRapid: Bool { self == .fallingQuickly || self == .risingQuickly }
+    var isFalling: Bool { self == .fallingQuickly || self == .falling }
 }
 
 // MARK: - Reading

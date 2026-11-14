@@ -51,7 +51,7 @@ newest build once they're filled in.
 - **Beta App Review** is needed for the first build of each version. Every merge bumps the version,
   so each one is reviewed, but after the first approval Apple usually clears later builds in
   minutes to hours. Until then external testers stay on the previous build.
-- Testers need **iOS 17.2** or later and the TestFlight app. TestFlight sends Apple crash reports
+- Testers need **iOS 18** or later and the TestFlight app. TestFlight sends Apple crash reports
   and any feedback testers write to you.
 
 ## When the App Store is the better path
