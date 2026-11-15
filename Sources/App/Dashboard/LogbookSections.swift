@@ -295,6 +295,7 @@ struct InsightsSection: View {
 
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var outlookStore: OutlookStore
 
     var body: some View {
         // Worked out here rather than inside the page, which re-runs its content when the window
@@ -333,6 +334,7 @@ struct InsightsSection: View {
             } else {
                 TherapySetupView().dashboardCard()
             }
+            ForecastScorecardCard(outlook: outlookStore)
             Disclaimer()
         }
     }
@@ -360,6 +362,26 @@ struct InsightsSection: View {
             s += " Long-acting doses are logged and charted but not analysed."
         }
         return s
+    }
+}
+
+/// How close the forecasts shown on this Mac came in the last week. Hidden until there are enough
+/// checks; the Outlook page has the full breakdown.
+private struct ForecastScorecardCard: View {
+    @ObservedObject var outlook: OutlookStore
+    @ObservedObject var ledger: ForecastLedgerStore
+    @EnvironmentObject var store: GlucoseStore
+
+    init(outlook: OutlookStore) {
+        self.outlook = outlook
+        self.ledger = outlook.ledger
+    }
+
+    var body: some View {
+        if let card = ledger.scorecard {
+            ForecastScorecardView(card: card, unit: store.snapshot.unit, tuned: outlook.model.tuning.isTuned)
+                .dashboardCard()
+        }
     }
 }
 
