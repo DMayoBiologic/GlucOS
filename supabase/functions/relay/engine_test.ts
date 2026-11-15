@@ -160,6 +160,10 @@ Deno.test("the activity is replaced before iOS's 8-hour limit", async () => {
   await t.engine.tick();
   const events = t.sender.sent.map((p) => `${p.deviceToken}:${(p.payload.aps as Record<string, unknown>).event}`);
   assertEquals(events, ["act:end", "p2s:start"]);
+  // iOS drops an end push that has no content-state, and the old card stays on the Lock Screen.
+  const end = t.sender.sent[0].payload.aps as Record<string, unknown>;
+  assert(end["content-state"], "end push carries the final card");
+  assertEquals(typeof end["dismissal-date"], "number");
   const start = t.sender.sent[1].payload.aps as Record<string, unknown>;
   assertEquals(start["attributes-type"], "GlucoseActivityAttributes");
   assert(start.alert);
@@ -278,7 +282,7 @@ Deno.test("status says the relay is delivering once it has fetched", async () =>
   assert(s.hasAccount && s.hasDeviceToken && s.alertsEnabled);
   assertEquals(s.lastFetchAt, t.clock());
   assertEquals(s.lastError, undefined);
-  assertEquals(s.version, "2.3.0");
+  assertEquals(s.version, "2.3.1");
 });
 
 Deno.test("the LibreLinkUp session is kept between ticks", async () => {

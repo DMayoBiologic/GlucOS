@@ -34,6 +34,11 @@ final class LiveActivityController: ObservableObject {
     private var observers: [Task<Void, Never>] = []
     private var lastSent: GlucoseActivityState?
     private var requesting = false
+    /// The card that came into being most recently: one this app requested, or one the relay
+    /// started by push while the app was watching. It's the one to keep, even over the card the
+    /// relay's last status names, since that status can predate it (the relay's 8-hour rotation
+    /// starts the next card before the phone hears about it).
+    private var newestStarted: String?
 
     func startObserving() {
         guard observers.isEmpty else { return }
@@ -50,7 +55,9 @@ final class LiveActivityController: ObservableObject {
         // Activities the relay starts by push arrive here, even with the app in the background.
         observers.append(Task { [weak self] in
             for await activity in GlucoseActivity.activityUpdates where LiveActivityController.isOwn(activity) {
-                self?.track(activity)
+                guard let self else { return }
+                if !self.tracked.contains(activity.id) { self.newestStarted = activity.id }
+                self.track(activity)
             }
         })
         ownActivities.forEach(track)
@@ -65,6 +72,9 @@ final class LiveActivityController: ObservableObject {
     /// showing the newest reading (the one being updated). On a tie, the later one.
     private var current: GlucoseActivity? {
         let running = ownActivities.filter(LiveActivityController.isRunning)
+        if let newest = newestStarted, let fresh = running.first(where: { $0.id == newest }) {
+            return fresh
+        }
         if let relayID = relayActivityID?(), let accepted = running.first(where: { $0.id == relayID }) {
             return accepted
         }
@@ -84,12 +94,22 @@ final class LiveActivityController: ObservableObject {
     /// the old one is still showing, or when a start went out twice: end all but the newest. Each
     /// ended one reports itself through `onActivityEnded`, so the relay retires its token too.
     private func endDuplicates() async {
+        await dismissEnded()
         guard let keep = current else { return }
         for extra in ownActivities where LiveActivityController.isRunning(extra) && extra.id != keep.id {
             track(extra)
             await extra.end(nil, dismissalPolicy: .immediate)
         }
         refreshRunning()
+    }
+
+    /// A card iOS has ended (its 8-hour limit) stays on the Lock Screen for up to 4 more hours,
+    /// frozen on its last reading, beside the card that replaced it. Nothing updates it any more,
+    /// so it goes now.
+    private func dismissEnded() async {
+        for ended in ownActivities where ended.activityState == .ended {
+            await ended.end(nil, dismissalPolicy: .immediate)
+        }
     }
 
     private func track(_ activity: GlucoseActivity) {
@@ -110,8 +130,11 @@ final class LiveActivityController: ObservableObject {
                 if state == .ended || state == .dismissed {
                     self.tracked.remove(id)
                     self.tokens[id] = nil
+                    if self.newestStarted == id { self.newestStarted = nil }
                     self.onActivityEnded?(id)
                 }
+                // Ended but still showing a frozen reading: take it off the Lock Screen.
+                if state == .ended { await activity.end(nil, dismissalPolicy: .immediate) }
                 self.refreshRunning()
             }
         }
@@ -152,6 +175,7 @@ final class LiveActivityController: ObservableObject {
             }
             lastSent = state
             lastError = nil
+            newestStarted = activity.id
             track(activity)
         } catch {
             lastError = error.localizedDescription
