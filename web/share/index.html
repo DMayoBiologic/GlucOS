@@ -286,7 +286,8 @@
 <script>
 (() => {
   "use strict";
-  const API = "https://aqlbadbyjuoruwnwyfrc.supabase.co/functions/v1/share/v1/snapshot";
+  // Run the function next to the database (Mumbai), not next to the viewer: one long hop, not one per query.
+  const API = "https://aqlbadbyjuoruwnwyfrc.supabase.co/functions/v1/share/v1/snapshot?forceFunctionRegion=ap-south-1";
   const MGDL_PER_MMOL = 18.0182, STALE_AFTER = 6 * 60, STEP = 5 * 60;
   const token = decodeURIComponent(location.hash.slice(1)).trim();
   const $ = (id) => document.getElementById(id);

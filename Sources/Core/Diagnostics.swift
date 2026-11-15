@@ -275,6 +275,7 @@ final class Diagnostics: @unchecked Sendable {
             req.httpMethod = "POST"
             req.timeoutInterval = 20
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            FunctionRegion.pin(&req)
             req.httpBody = try JSONEncoder().encode(DiagnosticBatch(device: .current(installID: installID, bundle: bundle), events: batch))
             let code = try await transport(req)
             // 4xx other than rate limiting means the server won't ever take these: drop them.
