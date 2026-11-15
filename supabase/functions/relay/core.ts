@@ -49,7 +49,7 @@ export interface AlertPreferences {
 
 export const defaultAlertPreferences = (): AlertPreferences => ({
   enabled: true, high: true, rapidChange: true, stale: true, sensorExpiry: true,
-  predictedLow: true, predictedHigh: true, predictiveMinutes: 20, cooldownMinutes: 15,
+  predictedLow: true, predictedHigh: true, predictiveMinutes: 30, cooldownMinutes: 15,
 });
 
 export const staleAfter = 6 * 60;
@@ -463,8 +463,12 @@ export interface Forecast {
   trendPerMinute: number;
   samples: ForecastSample[];
   /// The part past the drawn horizon that the live checks cut off (GlucoseForecast.unshown):
-  /// never drawn, alerted on or shared, only kept in the ledger so those horizons go on being scored.
+  /// never drawn or shared, kept in the ledger so those horizons go on being scored, and read only
+  /// by predicted lows.
   unshown?: ForecastSample[];
+  /// The trend carried on past the calibrated horizon to the trend's full 30 minutes
+  /// (GlucoseForecast.lowLookahead): never drawn, shared or scored, read only by predicted lows.
+  lowLookahead?: ForecastSample[];
   /// Set when the live checks cut the forecast short (ForecastLimitation.liveHorizon).
   liveCut?: LiveCut;
 }
@@ -537,18 +541,26 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
     return { lower: b.lower * k, upper: b.upper * k };
   };
   const samples: ForecastSample[] = [{ t: t0, mgdl: latest.mgdl, lowerMgdl: latest.mgdl, upperMgdl: latest.mgdl }];
+  // Predicted lows look the trend's full 30 minutes ahead even when the calibrated horizon is
+  // shorter (docs/ForecastAccuracy.md §13): the rest is worked out for them alone.
+  const lookahead: ForecastSample[] = [];
   let g = latest.mgdl;
   let minute = 0;
   const totalMinutes = horizon / 60;
+  const lookMinutes = maxHorizon === undefined ? Math.max(totalMinutes, trendHorizon / 60) : totalMinutes;
   const fade = Math.max(60, tuning.trendFade);
   const gain = Math.min(1, Math.max(0, tuning.trendGain));
-  while (minute < totalMinutes) {
+  while (minute < lookMinutes) {
     const mid = minute + 0.5;
     const w = Math.max(0, 1 - (mid * 60) / fade);
     g += w * gain * trend;
     minute += 1;
     if (Math.trunc(minute) % (step / 60) === 0) {
       const central = Math.min(Math.max(g, sensorLow - 1), sensorHigh + 1);
+      if (minute > totalMinutes) {
+        lookahead.push({ t: t0 + minute * 60, mgdl: central, lowerMgdl: central, upperMgdl: central });
+        continue;
+      }
       const b = band(minute);
       samples.push({
         t: t0 + minute * 60, mgdl: central,
@@ -558,6 +570,7 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
     }
   }
   const f: Forecast = { issuedAt: t0, startMgdl: latest.mgdl, basis: "trend", trendPerMinute: trend, samples };
+  if (lookahead.length) f.lowLookahead = lookahead;
   if (!cut) return { ok: true, forecast: f };
   const drawn = { ...f, samples: samples.filter((s) => s.t <= t0 + shownHorizon),
                   unshown: samples.filter((s) => s.t > t0 + shownHorizon), liveCut: cut };
@@ -933,6 +946,13 @@ const veryHighMgdl = 250;
 const minimumFall = -0.3;
 const minimumRise = 0.3;
 const highLeadFactor = 1.5;
+/// Highs look no further than they did at the old 20-minute default (§13 moved it to 30 for lows).
+const highLeadMaximum = 30 * 60;
+
+/// How far ahead predicted lows look (PredictiveAlertRules.lowLookahead). `drawn`: only the drawn
+/// forecast, as before §13; `trend`: also its cut-off part and the trend's full 30 minutes.
+export type LowLookahead = "drawn" | "trend";
+export const lowLookahead: LowLookahead = "trend";
 
 interface Excursion {
   kind: "urgentLow" | "low" | "high" | "veryHigh";
@@ -940,11 +960,13 @@ interface Excursion {
   thresholdMgdl: number;
 }
 
-function predictedExcursion(f: Forecast, prefs: AlertPreferences, low: number, high: number, now: number): Excursion | null {
+function predictedExcursion(f: Forecast, prefs: AlertPreferences, low: number, high: number, now: number,
+                            look: LowLookahead): Excursion | null {
   if (now - f.issuedAt > staleAfter) return null;
   const start = f.startMgdl;
   const lead = prefs.predictiveMinutes * 60;
-  const below = (thr: number, within: number) => f.samples.find((s) => s.t - f.issuedAt <= within && s.mgdl < thr);
+  const lowSamples = look === "trend" ? [...f.samples, ...(f.unshown ?? []), ...(f.lowLookahead ?? [])] : f.samples;
+  const below = (thr: number, within: number) => lowSamples.find((s) => s.t - f.issuedAt <= within && s.mgdl < thr);
   const above = (thr: number, within: number) => f.samples.find((s) => s.t - f.issuedAt <= within && s.mgdl > thr);
   if (prefs.predictedLow && f.trendPerMinute <= minimumFall) {
     let s;
@@ -952,7 +974,7 @@ function predictedExcursion(f: Forecast, prefs: AlertPreferences, low: number, h
     if (start >= low && (s = below(low, lead))) return { kind: "low", expectedAt: s.t, thresholdMgdl: low };
   }
   if (prefs.predictedHigh && f.trendPerMinute >= minimumRise) {
-    const hl = lead * highLeadFactor;
+    const hl = Math.min(lead * highLeadFactor, highLeadMaximum);
     let s;
     if (start <= veryHighMgdl && (s = above(veryHighMgdl, hl))) return { kind: "veryHigh", expectedAt: s.t, thresholdMgdl: veryHighMgdl };
     if (prefs.high && start <= high && (s = above(high, hl))) return { kind: "high", expectedAt: s.t, thresholdMgdl: high };
@@ -970,14 +992,14 @@ function clearPredictions(p: PlannerState, now: number) {
 }
 
 export function evaluatePrediction(p: PlannerState, s: Snapshot, f: Forecast | null, prefs: AlertPreferences,
-                                   now: number): AlertNotice | null {
+                                   now: number, look: LowLookahead = lowLookahead): AlertNotice | null {
   if (!prefs.enabled || !(prefs.predictedLow || prefs.predictedHigh)) return null;
   const r = s.current;
   if (!r || isStale(s, now) || !f) {
     clearPredictions(p, now);
     return null;
   }
-  const d = predictedExcursion(f, prefs, s.lowMgdl, s.highMgdl, now);
+  const d = predictedExcursion(f, prefs, s.lowMgdl, s.highMgdl, now, look);
   if (!d) {
     clearPredictions(p, now);
     return null;

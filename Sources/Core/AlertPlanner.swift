@@ -15,8 +15,8 @@ struct AlertPreferences: Codable, Hashable {
     var sensorExpiry = true
     var predictedLow = true
     var predictedHigh = true
-    /// How far ahead a predicted low may be to alert, in minutes.
-    var predictiveMinutes = 20
+    /// How far ahead a predicted low may be to alert, in minutes (highs: half as far again, up to 30).
+    var predictiveMinutes = 30
     var cooldownMinutes = 15
 }
 

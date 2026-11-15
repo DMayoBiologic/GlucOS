@@ -183,9 +183,13 @@ struct GlucoseForecast: Hashable {
     /// Insulin was modelled with no logged carbs being absorbed (`ForecastLimitation.insulinOnly`).
     var insulinOnly = false
     /// The part past the drawn horizon that this device's live checks cut off
-    /// (`ForecastLimitation.liveHorizon`). Never drawn, alerted on or shared: it's kept only so the
-    /// forecast log goes on scoring those horizons and can tell when they've earned their place back.
+    /// (`ForecastLimitation.liveHorizon`). Never drawn or shared: it's kept so the forecast log goes
+    /// on scoring those horizons and can tell when they've earned their place back, and read only
+    /// by predicted lows on a trend forecast.
     var unshown: [ForecastSample] = []
+    /// A trend forecast carried on past its calibrated horizon to the trend's full 30 minutes, for
+    /// predicted lows alone (docs/ForecastAccuracy.md §13): never drawn, shared or scored.
+    var lowLookahead: [ForecastSample] = []
 
     /// The widening `minutes` ahead.
     func rangeScale(atMinutes minutes: Int) -> Double { rangeScales[minutes] ?? rangeScale }
@@ -478,9 +482,13 @@ enum GlucoseForecaster {
         let fade = max(60, input.tuning.trendFade)
         let gain = min(1, max(0, input.tuning.trendGain))
         var samples: [ForecastSample] = []
+        // Predicted lows look the trend's full 30 minutes ahead even when the calibrated horizon is
+        // shorter: the rest is worked out for them alone, central line only.
+        var lookahead: [ForecastSample] = []
         var g = latest.mgdl
         var minute = 0.0
         let totalMinutes = horizon / 60
+        let lookMinutes = basis == .trend && maxHorizon == nil ? max(totalMinutes, Self.trendHorizon / 60) : totalMinutes
         func modelRate(at t: Date) -> Double {
             guard basis == .trendInsulinCarbs else { return 0 }
             let insulinPerMinute = fast.reduce(0) { $0 + $1.activityPerHour(at: t) } / 60
@@ -501,18 +509,23 @@ enum GlucoseForecaster {
             return (q.lower * widen, q.upper * widen)
         }
         samples.append(ForecastSample(date: t0, mgdl: g, lowerMgdl: g, upperMgdl: g))
-        while minute < totalMinutes {
+        while minute < lookMinutes {
             // Midpoint rule over each minute.
             let mid = minute + 0.5
             let w = max(0, 1 - mid * 60 / fade)
             let at = t0.addingTimeInterval(mid * 60)
             let fromMorning = (1 - w) * morningRate(at: at)
             let rate = w * gain * trend + (1 - w) * modelRate(at: at) + fromMorning
-            morningAdded += fromMorning
+            if minute < totalMinutes { morningAdded += fromMorning }
             g += rate
             minute += 1
             if Int(minute) % Int(step / 60) == 0 {
                 let central = min(max(g, sensorRange.lowerBound - 1), sensorRange.upperBound + 1)
+                if minute > totalMinutes {
+                    lookahead.append(ForecastSample(date: t0.addingTimeInterval(minute * 60), mgdl: central,
+                                                    lowerMgdl: central, upperMgdl: central))
+                    continue
+                }
                 let (lo, hi) = band(minute)
                 samples.append(ForecastSample(date: t0.addingTimeInterval(minute * 60), mgdl: central,
                                               lowerMgdl: max(sensorRange.lowerBound - 1, central + lo),
@@ -524,11 +537,12 @@ enum GlucoseForecaster {
         }
         let cutAt = t0.addingTimeInterval(shownHorizon)
         let drawn = samples.filter { $0.date <= cutAt }
-        let forecast = GlucoseForecast(issuedAt: t0, startMgdl: latest.mgdl, basis: basis, trendPerMinute: trend,
+        var forecast = GlucoseForecast(issuedAt: t0, startMgdl: latest.mgdl, basis: basis, trendPerMinute: trend,
                                        samples: drawn, limitations: limitations, calibrated: calibrated,
                                        morning: morning, rangeScale: max(rangeScale, rangeScales.values.max() ?? 1),
                                        rangeScales: rangeScales, fresh: freshModel, insulinOnly: insulinOnly,
                                        unshown: samples.filter { $0.date > cutAt })
+        forecast.lowLookahead = lookahead
         if shownHorizon <= 0 {
             return .failure(.init(.notAccurateEnough, limitations: limitations, unshown: forecast))
         }

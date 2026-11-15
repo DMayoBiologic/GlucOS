@@ -477,3 +477,74 @@ minutes. The price is fewer long forecasts: 17–18 drawn at 45–60 minutes rat
 because the meal forecasts need 30 checks of their own at a horizon before the replay allows it.
 These figures rest on about ten meals; they'll firm up as more are logged. 15- and 30-minute
 figures are unchanged (14.5 / 22.5 against 14.8 / 23.5).
+
+## 13. Earlier warning before lows (15 Nov 2026)
+
+The question: how early do the forecast-based low alerts ("Low predicted in about N min") warn
+before readings go under 70 mg/dL, how many lows get no warning, and how many alerts are false
+alarms?
+
+**What there is to measure.** `glucos.readings` starts on 10 Nov, so there are 5 days, not 14,
+and 110 hours of one-minute readings to tick through. The relay's ledger only starts on 15 Nov (35
+checks) and the apps' `forecast_checks` are one forecast per 15 minutes, too sparse to time an
+alert: Mac snapshots predicted a low 6 times (4 followed by a low within 45 minutes), the iPhone's
+4 times (1), the relay's once (0). So the measure is a walk-forward replay of the relay itself,
+`scripts/low-alert-replay.ts`: every minute it forecasts from the hour before, relearns every 3
+hours, cuts the drawn horizon from its own ledger (§8), and runs the alert rules as the tick does.
+A low starts at the first reading under 70 and ends after 15 minutes back above. It counts as
+warned if a predicted-low alert came in the hour before it started; an alert is a false alarm if
+no reading goes under 70 in the 45 minutes after it.
+
+**What it found.** All six lows were warned, but late: a median of 6 minutes ahead, mean 8.2. The
+"warn me ahead by 20 minutes" setting wasn't what limited it. On 92% of ticks the relay draws its
+trend only 15 minutes ahead (the replay says the trend doesn't beat no change at 30 minutes on
+average), and the alert only looked at what was drawn, so lows were looked for 15 minutes ahead
+whatever the setting. One alert in 18 was a false alarm (15 Nov 06:11, a fall from 237 that
+levelled at 86).
+
+**Tried and rejected** (same replay, lows looked for 30 minutes along the trend; base: 6 minutes
+ahead median, 1 false alarm):
+
+| Change | Median / mean warning | False alarms |
+| --- | --- | --- |
+| Trend at full strength for alerts | 13 / 17.7 min | 12 |
+| Crossing read 15% toward the range's lower edge | 12 / 14.8 min | 4 |
+| …and confirmed on 2 ticks in a row | 11 / 13.8 min | 2 |
+| Crossing read 30% toward the lower edge | 14 / 16.3 min | 11 |
+| Fall needed to alert raised to 0.5–1.2 mg/dL a minute | no earlier | same |
+| Confirmed on 3–5 ticks | 2–9 min | 2–5 |
+| Shorter (10–15 min) or longer (25 min) trend window | 4–7 min | 0–4 |
+| Not after a rise in the 10–20 minutes before | 5–13 min | 5–11 |
+
+Every way of calling a low earlier also called falls that levelled off. The false alarms were
+mostly steep drops straight after a rise or a spike, which level off; the real lows were longer
+falls that sped up near the end, which a fading trend can't see coming much
+earlier.
+
+**What changed.** Predicted lows now look along the trend's full 30 minutes, whatever is drawn:
+the drawn forecast, the part live checks cut off (`unshown`), and the trend carried on past the
+calibrated horizon (`GlucoseForecast.lowLookahead`, `Forecast.lowLookahead` on the relay, central
+line only, never drawn, shared or scored). The default "warn me ahead by" is now 30 minutes, so
+the setting is what it says. Predicted highs still read only what's drawn and look no further than
+30 minutes (`PredictiveAlertRules.highLeadMaximum`), as they did at the old 20-minute default.
+Relay 2.11.0.
+
+| Replay, 110 h, lows under 70 | Lows | Warned | Median ahead | Mean ahead | Alerts | False alarms |
+| --- | --- | --- | --- | --- | --- | --- |
+| Before (drawn only, 20 min) | 6 | 6 | 6 min | 8.2 min | 18 | 1 |
+| After, 20-minute setting | 6 | 6 | 6 min | 9.2 min | 18 | 1 |
+| After, 30-minute default | 6 | 6 | 6 min | 10.8 min | 18 | 1 |
+
+Each low by when it was first warned (before → after): 11 Nov 06:51 20 → 27 min, 12 Nov 10:45
+6 → 6, 12 Nov 15:39 4 → 4, 13 Nov 11:05 8 → 10, 15 Nov 09:16 8 → 14, 15 Nov 13:40 3 → 4. Urgent-low
+heads-ups move up too (15 Nov 13:40: at 69 rather than 66). None came later, and no alert was
+added or lost. The median doesn't move because three lows were sharp drops that nothing in the
+trend saw more than 4–6 minutes out. Six lows is a small sample; rerun the replay as more build up:
+
+    GLUCOS_REPLAY_DIR=dir deno run --allow-read --allow-env scripts/low-alert-replay.ts
+    # LOOK=drawn for the old rule, LEAD=min for another setting, LIST=1 for each low and alert
+
+The Mac and iPhone use the same rules (`PredictiveAlertRules`) on their own forecasts, so the
+lookahead applies there too whenever their forecast is the trend. Their insulin-and-carb forecasts
+still alert only on what's drawn: the insulin-only ones ran 25 mg/dL low (§12), and reading their
+cut-off part would call lows that don't come.
