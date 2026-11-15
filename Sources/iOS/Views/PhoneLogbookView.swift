@@ -19,6 +19,10 @@ struct PhoneLogbookView: View {
     /// The first rows have played their entrance; rows built after this (scrolled to, filtered in)
     /// are just there.
     @State private var assembled = false
+    /// Entries that just arrived (logged, undone, or synced from the Mac), lit with their colour
+    /// for a moment so the eye finds them. Fades once; nothing loops.
+    @State private var fresh: Set<UUID> = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let all = logbook.entries
@@ -26,19 +30,6 @@ struct PhoneLogbookView: View {
         let shown = filtered(all)
         let now = Date()
         List {
-            if !logbook.lastDeleted.isEmpty {
-                Section {
-                    HStack {
-                        Label(logbook.lastDeleted.count == 1 ? "Entry deleted" : "\(logbook.lastDeleted.count) entries deleted",
-                              systemImage: "trash")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Undo") { logbook.undoDelete(); Haptics.tap() }
-                            .dsFont(.headline)
-                    }
-                    .dsFont(.callout)
-                }
-            }
             if kinds.count > 1 {
                 Section {
                     filterBar(kinds)
@@ -62,7 +53,10 @@ struct PhoneLogbookView: View {
                         ForEach(Array(day.entries.enumerated()), id: \.element.id) { j, entry in
                             // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
                             let order = starts[i] + j
-                            row(entry).dsEntrance(min(order, 8), enabled: !assembled && order < 12)
+                            row(entry)
+                                .dsEntrance(min(order, 8), enabled: !assembled && order < 12)
+                                .listRowBackground(Color(uiColor: .systemBackground)
+                                    .overlay(entry.part.logbookTint.opacity(fresh.contains(entry.id) ? 0.14 : 0)))
                         }
                     } header: {
                         // Day headers stay pinned, on a blur, while their day scrolls under them.
@@ -95,14 +89,32 @@ struct PhoneLogbookView: View {
                     .accessibilityLabel("Log something")
             }
         }
+        // Undo, just above the bottom edge. The countdown that sends it away runs on the home
+        // screen's stack, so it keeps time across both screens.
+        .overlay(alignment: .bottom) { PhoneUndoToast() }
         .animation(DSMotion.quick.animation, value: kind)
-        .animation(DSMotion.quick.animation, value: logbook.lastDeleted.count)
+        // New rows slide in and deleted rows fold away, whether from here, an undo or a sync.
+        // Instant under Reduce Motion.
+        .dsAnimation(.standard, value: shown.map(\.id))
+        .onChange(of: all.map(\.id)) { old, new in
+            markFresh(Set(new).subtracting(old))
+        }
         .onChange(of: kinds) { _, now in
             if let k = kind, !now.contains(k) { kind = nil }
         }
         .task {
             try? await Task.sleep(for: .seconds(1))
             assembled = true
+        }
+    }
+
+    /// Lights the rows that just arrived, then lets the colour fade out once.
+    private func markFresh(_ added: Set<UUID>) {
+        guard !added.isEmpty, assembled else { return }
+        fresh.formUnion(added)
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            DS.animate(.ambient, reduceMotion: reduceMotion) { fresh.subtract(added) }
         }
     }
 

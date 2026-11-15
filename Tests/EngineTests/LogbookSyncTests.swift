@@ -247,4 +247,65 @@ extension LogbookSyncTests {
                                          to: &contents, state: &state))
         XCTAssertEqual(contents.meals.first?.items?.first?.carbs, 25)
     }
+    // MARK: Undo
+
+    func testUndoAfterTheDeleteSyncedBringsTheEntryBackOnTheMac() {
+        let server = FakeServer()
+        var mac = Device(name: "Mac"), phone = Device(name: "iPhone")
+        let d = dose(4)
+        phone.add(d, at: 1000)
+        phone.sync(server)
+        mac.sync(server)
+
+        // Deleted on the phone; the tombstone reaches the server and the Mac.
+        phone.delete(d.id, at: 2000)
+        let deletedAt = [d.id: phone.state.pending[d.id]!.modified]
+        phone.sync(server)
+        mac.sync(server)
+        XCTAssertTrue(mac.contents.doses.isEmpty)
+
+        // The phone's next pull brings its own tombstone back. That mustn't cancel Undo.
+        let echo = server.pull(since: 0).filter { $0.id == d.id }
+        XCTAssertEqual(echo.first?.deleted, true)
+        XCTAssertTrue(LogbookUndo.superseded(by: echo, deletedAt: deletedAt).isEmpty)
+
+        // Undo: the entry goes back with a newer edit time, so the server takes it back.
+        phone.add(d, at: 2003)
+        phone.sync(server)
+        mac.sync(server)
+        XCTAssertEqual(server.rows[d.id]?.deleted, false)
+        XCTAssertEqual(mac.contents.doses, [d], "the undone entry is back on the Mac, unchanged")
+        XCTAssertEqual(phone.contents.doses, [d])
+    }
+
+    func testUndoBeforeTheDeleteIsPushedNeverReachesTheServerAsADelete() {
+        let server = FakeServer()
+        var mac = Device(name: "Mac"), phone = Device(name: "iPhone")
+        let d = dose(4)
+        phone.add(d, at: 1000)
+        phone.sync(server)
+        mac.sync(server)
+        phone.delete(d.id, at: 2000)
+        phone.add(d, at: 2001)
+        let out = LogbookMerge.outgoing(phone.contents, state: phone.state, device: "iPhone")
+        XCTAssertEqual(out.map(\.deleted), [false])
+        phone.sync(server)
+        mac.sync(server)
+        XCTAssertEqual(mac.contents.doses, [d])
+    }
+
+    func testAChangeElsewhereAfterTheDeleteEndsUndo() {
+        let id = UUID()
+        let deletedAt = [id: 2000.0]
+        // Edited or deleted on the Mac after the phone's delete: undoing would overwrite it.
+        let newer = LogbookRecord(id: id, kind: "dose", payload: nil, deleted: true, modified: 2005, rev: 9)
+        XCTAssertEqual(LogbookUndo.superseded(by: [newer], deletedAt: deletedAt), [id])
+        // Our own tombstone, stored to the microsecond, or capped by the server: Undo stays.
+        let echo = LogbookRecord(id: id, kind: "dose", payload: nil, deleted: true, modified: 2000.0000004, rev: 8)
+        let capped = LogbookRecord(id: id, kind: "dose", payload: nil, deleted: true, modified: 1700, rev: 8)
+        XCTAssertTrue(LogbookUndo.superseded(by: [echo, capped], deletedAt: deletedAt).isEmpty)
+        // Records for entries that weren't deleted here don't matter.
+        let other = LogbookRecord(id: UUID(), kind: "dose", payload: nil, deleted: true, modified: 9000, rev: 10)
+        XCTAssertTrue(LogbookUndo.superseded(by: [other], deletedAt: deletedAt).isEmpty)
+    }
 }

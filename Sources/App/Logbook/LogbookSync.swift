@@ -357,3 +357,30 @@ extension InsulinDose: LogbookTimestamped {}
 extension MealEntry: LogbookTimestamped {}
 extension SiteChange: LogbookTimestamped {}
 extension ContextEvent: LogbookTimestamped {}
+
+// MARK: - Undo
+
+/// Which deletes can still be undone once sync has run. A delete is pushed a couple of seconds
+/// after it's made, and the next pull brings this device's own tombstone back from the server.
+/// That echo mustn't cancel the Undo. Only a change made after the delete (an edit or a delete on
+/// another device) does, because undoing then would overwrite something newer.
+enum LogbookUndo {
+    /// How long the iPhone's undo toast stays up after the last delete, in seconds.
+    static let toastSeconds: Double = 5
+    /// Under VoiceOver, long enough to hear the announcement and reach the button.
+    static let toastSecondsVoiceOver: Double = 20
+
+    /// Leeway for the server's timestamp storing the edit time to the microsecond.
+    static let echoTolerance: Double = 0.001
+
+    /// The buffered deletes that `remote` supersedes. `deletedAt` is each buffered entry's delete
+    /// time, as pushed (`LogbookPendingChange.modified`).
+    static func superseded(by remote: [LogbookRecord], deletedAt: [UUID: Double]) -> Set<UUID> {
+        var out: Set<UUID> = []
+        for r in remote {
+            guard let t = deletedAt[r.id] else { continue }
+            if r.modified > t + echoTolerance { out.insert(r.id) }
+        }
+        return out
+    }
+}

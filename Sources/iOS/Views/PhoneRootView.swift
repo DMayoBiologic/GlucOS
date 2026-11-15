@@ -176,6 +176,8 @@ struct PhoneHomeView: View {
                 DS.animate(.standard, reduceMotion: reduceMotion) { stageHidden = hidden }
             }
             .refreshable { await store.refresh() }
+            // After a logbook delete: Undo, just above the log bar.
+            .overlay(alignment: .bottom) { PhoneUndoToast() }
             // The one place to start logging. A bar under the content rather than a button over
             // it, so it never covers a logbook row.
             .safeAreaInset(edge: .bottom, spacing: 0) { PhoneLogBar() }
@@ -212,6 +214,8 @@ struct PhoneHomeView: View {
             }
             .navigationDestination(for: FollowRoute.self) { FollowRouteView(route: $0) }
         }
+        // One countdown for the undo toast, whichever screen it's showing on.
+        .phoneUndoCountdown()
         // On the stack rather than its root, so the log sheet also opens over a pushed screen
         // (editing a row in the full logbook).
         .sheet(isPresented: $showsSettings) {

@@ -25,6 +25,9 @@ final class LogbookStore: ObservableObject {
     @Published private(set) var bolusSettings: BolusSettings?
     /// The entries removed by the last delete, kept in memory so it can be undone.
     @Published private(set) var lastDeleted: [LogEntry] = []
+    /// When each entry in `lastDeleted` was deleted, as pushed, so sync can tell this device's own
+    /// tombstone coming back from a newer change made elsewhere (`LogbookUndo`).
+    private var deletedAt: [UUID: Double] = [:]
 
     /// Set by the menu bar popover to have the dashboard open the log sheet.
     @Published var logSheetRequested = false
@@ -148,7 +151,10 @@ final class LogbookStore: ObservableObject {
         meals.removeAll { ids.contains($0.id) }
         siteChanges.removeAll { ids.contains($0.id) }
         contexts.removeAll { ids.contains($0.id) }
-        for e in removed { touch(e.id, kind: e.recordKind, deleted: true) }
+        for e in removed {
+            touch(e.id, kind: e.recordKind, deleted: true)
+            deletedAt[e.id] = syncState.pending[e.id]?.modified
+        }
         persist()
     }
 
@@ -157,15 +163,21 @@ final class LogbookStore: ObservableObject {
         let restore = lastDeleted
         guard !restore.isEmpty else { return }
         lastDeleted = []
+        deletedAt = [:]
         for e in restore {
             upsert(e)
+            // A fresh edit time, later than the delete's tombstone, so the server takes the entry
+            // back and the other devices get it again (rather than it vanishing on the Mac).
             touch(e.id, kind: e.recordKind)
         }
         persist()
     }
 
     /// Forgets the undo buffer, e.g. once its banner has been dismissed.
-    func clearUndo() { lastDeleted = [] }
+    func clearUndo() {
+        lastDeleted = []
+        deletedAt = [:]
+    }
 
     /// A copy of `entry` at `time` with a fresh id ("Log again now").
     func duplicate(_ entry: LogEntry, at time: Date = Date()) {
@@ -427,13 +439,17 @@ final class LogbookStore: ObservableObject {
             if c.presets != presets { presets = c.presets }
             if c.foods != foods { foods = c.foods }
             if c.bolusSettings != bolusSettings { bolusSettings = c.bolusSettings }
-            // An entry deleted elsewhere can't be undone here any more.
-            let ids = Set(records.filter(\.deleted).map(\.id))
-            if !ids.isEmpty { lastDeleted.removeAll { ids.contains($0.id) } }
             persist(notify: false)
             discoverInsulins()
         } else {
             persistSyncState()
+        }
+        // An entry changed or deleted elsewhere after it was deleted here can't be undone any
+        // more. Our own tombstone coming back from the server leaves Undo alone.
+        let gone = LogbookUndo.superseded(by: records, deletedAt: deletedAt)
+        if !gone.isEmpty {
+            lastDeleted.removeAll { gone.contains($0.id) }
+            for id in gone { deletedAt[id] = nil }
         }
     }
 
