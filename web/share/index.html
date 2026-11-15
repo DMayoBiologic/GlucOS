@@ -14,21 +14,33 @@
 <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
 <!--
-  The live view behind a GlucOS share link (docs/Sharing.md). The share token is in the URL's
-  fragment, which browsers never send to this server; the page sends it only to the GlucOS share
-  function. Static and dependency-free, served by Vercel (vercel.json).
+  The live view behind a GlucOS share link (docs/Sharing.md), in the "Signal" design
+  (docs/Redesign.md): the reading on its range field, the trend needle, the range rail with the
+  forecast's ghost marker, the forecast note and the freshness meter. Safety rules as in the apps:
+  a stale reading is grey and struck through with the needle at "?", and forecasts are grey, dashed
+  and marked "≈" (only a predicted low may use colour, as an amber triangle).
+
+  The share token is in the URL's fragment, which browsers never send to this server; the page
+  sends it only to the GlucOS share function. Static and dependency-free, served by Vercel
+  (vercel.json).
 -->
 <style>
   :root {
     --bg: #f2f2f7; --card: #ffffff; --text: #1c1c1e; --muted: #6e6e73; --line: rgba(60,60,67,.14);
-    --mint: #0E9F6E; --amber: #D97706; --coral: #E5484D; --crimson: #C81E4B; --magenta: #C2257A; --stale: #8E8E93;
-    --brand: #2563EB; --band: rgba(14,159,110,.10);
+    --mint: #0E9F6E; --amber: #D97706; --amber-text: #B45309; --coral: #E5484D; --crimson: #C81E4B;
+    --magenta: #C2257A; --stale: #8E8E93; --neutral: #6E6E73;
+    --brand: #2563EB;
+    /* Range field opacities (Redesign §3.1): 14–26 % on light. */
+    --f-lo: 14%; --f-mid: 20%; --f-hi: 26%; --f-stale: 16%;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #0b1220; --card: #141c2e; --text: #f5f5f7; --muted: #a1a1aa; --line: rgba(255,255,255,.10);
-      --mint: #34D399; --amber: #FBBF24; --coral: #FF6B6B; --crimson: #FF4D79; --magenta: #F472B6;
-      --brand: #60A5FA; --band: rgba(52,211,153,.10);
+      --mint: #34D399; --amber: #FBBF24; --amber-text: #FBBF24; --coral: #FF6B6B; --crimson: #FF4D79;
+      --magenta: #F472B6; --neutral: #98989D;
+      --brand: #60A5FA;
+      /* 22–38 % on dark. */
+      --f-lo: 22%; --f-mid: 30%; --f-hi: 38%;
     }
   }
   * { box-sizing: border-box; }
@@ -37,45 +49,179 @@
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     min-height: 100vh; display: flex; justify-content: center;
     padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+    -webkit-font-smoothing: antialiased;
   }
   main { width: 100%; max-width: 480px; display: grid; gap: 16px; align-content: start; }
   header { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 600; font-size: 14px; }
   header svg { width: 18px; height: 18px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
   .card {
-    background: var(--card); border-radius: 22px; padding: 20px; border: 1px solid var(--line);
-    box-shadow: 0 8px 30px color-mix(in srgb, var(--tone, var(--stale)) 18%, transparent);
-    position: relative; overflow: hidden;
+    background: var(--card); border-radius: 24px; padding: 20px; border: 1px solid var(--line);
+    position: relative; overflow: hidden; isolation: isolate;
   }
-  .card::before {
-    content: ""; position: absolute; inset: 0 0 auto 0; height: 140px; pointer-events: none;
-    background: radial-gradient(120% 100% at 0% 0%, color-mix(in srgb, var(--tone, var(--stale)) 22%, transparent), transparent 70%);
+
+  /* ---- The stage: the reading on its range field ---- */
+  .stage {
+    --tone: var(--stale);
+    box-shadow: 0 10px 34px color-mix(in srgb, var(--tone) 22%, transparent);
+    transition: box-shadow .6s ease;
+    padding: 20px 20px 18px;
   }
-  .who { font-weight: 700; font-size: 20px; position: relative; }
+  .stage.urgent { box-shadow: inset 0 0 0 2px var(--crimson), 0 10px 34px color-mix(in srgb, var(--crimson) 30%, transparent); }
+  .field { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+  .field .layer { position: absolute; inset: 0; }
+  /* A 3×3 mesh in the range's hue: two lighter nodes and one deeper, over a middle wash. */
+  .field .layer::before {
+    content: ""; position: absolute; inset: -8%;
+    background:
+      radial-gradient(42% 46% at 18% 14%, color-mix(in srgb, var(--c) var(--f-hi), transparent), transparent 70%),
+      radial-gradient(40% 44% at 86% 30%, color-mix(in srgb, color-mix(in srgb, var(--c) 70%, white) var(--f-mid), transparent), transparent 72%),
+      radial-gradient(50% 50% at 30% 92%, color-mix(in srgb, color-mix(in srgb, var(--c) 60%, white) var(--f-lo), transparent), transparent 72%),
+      radial-gradient(60% 60% at 80% 96%, color-mix(in srgb, color-mix(in srgb, var(--c) 80%, black) var(--f-hi), transparent), transparent 70%),
+      color-mix(in srgb, var(--c) var(--f-lo), transparent);
+    transition: background .6s ease;
+  }
+  .field .layer.stale::before { background: color-mix(in srgb, var(--stale) var(--f-stale), transparent); }
+  /* Ambient drift (§4.4): a 14 s loop, at most 6 % of the field; 9 s when the trend is rapid. Only
+     while fresh, never under Reduce Motion. */
+  .field.live .layer:not(.stale)::before { animation: drift 14s ease-in-out infinite alternate; }
+  .field.live.rapid .layer:not(.stale)::before { animation-duration: 9s; }
+  @keyframes drift {
+    0%   { transform: translate(0, 0) scale(1); }
+    33%  { transform: translate(3%, -2%) scale(1.03); }
+    66%  { transform: translate(-2%, 3%) scale(1.02); }
+    100% { transform: translate(-3%, -1%) scale(1.04); }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .field .layer::before { background: color-mix(in srgb, var(--c) 18%, transparent) !important; }
+  }
+
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .who { font-weight: 700; font-size: 17px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who svg { width: 15px; height: 15px; color: var(--muted); flex: none; }
+  .pillbox { overflow: hidden; border-radius: 999px; flex: none; }
   .pill {
-    display: inline-flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; padding: 3px 10px;
-    border-radius: 999px; color: var(--tone); background: color-mix(in srgb, var(--tone) 16%, transparent);
-    border: .5px solid color-mix(in srgb, var(--tone) 35%, transparent); position: relative;
+    display: inline-flex; gap: 5px; align-items: center; font-size: 13px; font-weight: 600; padding: 3px 10px;
+    border-radius: 999px; color: var(--pill-text, var(--tone)); background: color-mix(in srgb, var(--tone) 16%, transparent);
+    border: .5px solid color-mix(in srgb, var(--tone) 35%, transparent); white-space: nowrap;
   }
-  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: relative; }
-  .value { font: 700 72px/1 ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif; font-variant-numeric: tabular-nums; color: var(--tone); letter-spacing: -1px; }
-  .stale .value { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 3px; }
-  .unit { color: var(--muted); font-weight: 600; font-size: 15px; margin-left: 4px; }
-  .arrow { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; flex: none;
-           border: 3px solid color-mix(in srgb, var(--tone) 40%, transparent); color: var(--tone); }
-  .arrow svg { width: 32px; height: 32px; transition: transform .4s; }
-  .meta { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; position: relative; margin-top: 6px; }
-  .stale .meta .age { color: var(--amber); font-weight: 600; }
-  svg.chart { width: 100%; height: 120px; display: block; margin-top: 16px; position: relative; }
-  .legend { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .pill svg { width: 12px; height: 12px; }
+
+  .reading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+  .valuebox { min-width: 0; }
+  .valueline { display: flex; align-items: baseline; gap: 6px; }
+  .value {
+    position: relative; display: inline-block;
+    font: 700 84px/1 ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums; letter-spacing: -2px; color: var(--tone); transition: color .6s ease;
+  }
+  .value .digits { display: inline-block; }
+  /* The strike line (§4.3): draws across left to right over 0.35 s as the reading goes stale. */
+  .value::after {
+    content: ""; position: absolute; left: -4%; right: -4%; top: 52%; height: 4px; border-radius: 2px;
+    background: color-mix(in srgb, var(--muted) 75%, transparent);
+    transform: rotate(-8deg) scaleX(0); transform-origin: left center; transition: transform .35s ease-out;
+  }
+  .stale .value { color: var(--muted); }
+  .stale .value::after { transform: rotate(-8deg) scaleX(1); }
+  .unit { color: var(--muted); font-weight: 600; font-size: 15px; }
+  .trendline { color: var(--muted); font-size: 16px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .trendline .delta { margin-left: 6px; font-weight: 500; }
+
+  /* The trend needle (§5.2): an arrow in a ring, swung to the direction of travel. */
+  .needle {
+    --size: 84px; width: var(--size); height: var(--size); flex: none; border-radius: 50%; position: relative;
+    display: grid; place-items: center; color: var(--tone);
+    background: color-mix(in srgb, var(--tone) 16%, transparent);
+    box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--tone) 55%, transparent);
+    transition: color .6s, background .6s, box-shadow .6s, opacity .6s;
+  }
+  .needle .arrows { position: absolute; inset: 0; display: grid; place-items: center;
+    transition: transform .7s cubic-bezier(.3, 1.45, .55, 1); }
+  .needle svg { width: 44%; height: 44%; grid-area: 1 / 1; }
+  .needle .ghost { opacity: 0; transform: translateX(-30%); transition: opacity .3s; }
+  .needle.rapid .ghost { opacity: .35; }
+  .needle.rapid .main { transform: translateX(8%); }
+  .needle .q { font: 800 30px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; opacity: 0; transition: opacity .3s; position: absolute; }
+  .needle.unknown .arrows { opacity: 0; }
+  .needle.unknown .q { opacity: 1; }
+  .stale .needle { opacity: .6; }
+  .needle.rapid::after {
+    content: ""; position: absolute; inset: -5px; border-radius: 50%;
+    border: 1px solid color-mix(in srgb, var(--tone) 35%, transparent);
+  }
+  .needle.rapid::before {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--tone) 45%, transparent);
+    animation: halo 2.4s ease-out infinite;
+  }
+  @keyframes halo { from { transform: scale(1); opacity: .9; } to { transform: scale(1.35); opacity: 0; } }
+  .ripple { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--tone); pointer-events: none;
+    animation: ripple .9s ease-out forwards; }
+  @keyframes ripple { from { transform: scale(1); opacity: .7; } to { transform: scale(1.9); opacity: 0; } }
+
+  /* The range rail (§5.3): five ranges on a log scale from 40 to 300 mg/dL. */
+  .rail { position: relative; height: 12px; margin: 18px 0 6px; }
+  .rail .track { position: absolute; left: 0; right: 0; top: 3px; height: 6px; border-radius: 3px; overflow: hidden; display: flex; }
+  .rail .seg { height: 100%; transition: background .6s; }
+  .rail .marker, .rail .ghostmark {
+    position: absolute; top: 0; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
+    transition: left .7s cubic-bezier(.3, 1.35, .55, 1), background .6s, box-shadow .6s;
+  }
+  .rail .marker { background: var(--tone); box-shadow: 0 0 0 2px var(--card); }
+  .stale .rail .marker { background: var(--card); box-shadow: inset 0 0 0 2px var(--stale), 0 0 0 2px var(--card); }
+  .rail .ghostmark { width: 10px; height: 10px; margin-left: -5px; top: 1px; border: 1.5px dashed var(--stale); background: transparent; }
+  .scale { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; position: relative; height: 16px; }
+  .scale span { position: absolute; transform: translateX(-50%); }
+  @media (prefers-contrast: more) {
+    .rail .track { gap: 1px; }
+    .rail .marker { box-shadow: 0 0 0 3px var(--card); }
+  }
+
+  /* Forecast note (§5.5) and freshness (§5.4). */
+  .foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px;
+    color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+  .fresh { display: inline-flex; align-items: center; gap: 8px; }
+  .meter { width: 40px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--neutral) 25%, transparent); overflow: hidden; flex: none; }
+  .meter i { display: block; height: 100%; width: 100%; background: var(--neutral); transform-origin: left; transform: scaleX(0); }
+  .meter i.run { animation: fill 360s linear forwards; }
+  @keyframes fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  .stale .meter { background: var(--amber); }
+  .stale .meter i { display: none; }
+  .fresh svg { width: 14px; height: 14px; flex: none; }
+  .stale .fresh { color: var(--amber-text); font-weight: 600; }
+  .note { display: inline-flex; align-items: center; gap: 6px; }
+  .note svg { width: 15px; height: 15px; flex: none; }
+  .note.low { color: var(--amber-text); font-weight: 600; }
+  .note.low svg { color: var(--amber); }
+
+  svg.chart { width: 100%; height: 120px; display: block; margin-top: 14px; overflow: visible; }
+  .chart .end { transform-box: fill-box; transform-origin: center; }
+  .chart .end.pulse { animation: pulse .9s ease-out; }
+  @keyframes pulse { 0% { transform: scale(1); } 35% { transform: scale(1.8); } 100% { transform: scale(1); } }
+  .legend { position: relative; height: 16px; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .legend span { position: absolute; top: 0; white-space: nowrap; }
+  .legend #nowLegend { transform: translateX(-50%); }
+
   .actions { display: grid; gap: 10px; }
   .button {
     display: flex; justify-content: center; align-items: center; gap: 8px; padding: 14px; border-radius: 14px;
     background: #2563EB; color: #fff; font-weight: 600; text-decoration: none;
   }
-  .note { color: var(--muted); font-size: 13px; text-align: center; }
+  .small { color: var(--muted); font-size: 13px; text-align: center; }
   .ended { text-align: center; padding: 36px 20px; }
   .ended h1 { font-size: 20px; margin: 0 0 8px; }
   [hidden] { display: none !important; }
+
+  /* First paint and Reduce Motion: everything simply in place. */
+  .still *, .still *::before, .still *::after { transition: none !important; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 0s !important; animation: none !important; }
+    .meter i.run { animation: fill 360s linear forwards !important; } /* the meter is information, not decoration */
+    .meter i.run { animation-delay: var(--delay) !important; }
+  }
 </style>
 </head>
 <body>
@@ -85,38 +231,56 @@
     GlucOS · live
   </header>
 
-  <section id="live" class="card" hidden aria-live="polite">
-    <div class="row">
-      <div class="who" id="who"></div>
-      <span class="pill" id="range"></span>
+  <section id="live" class="card stage still" hidden role="group">
+    <div class="field" id="field" aria-hidden="true"><div class="layer" id="fieldBase"></div></div>
+    <div aria-hidden="true">
+      <div class="top">
+        <div class="who"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-4.4 0-8 2.2-8 5v1.5c0 .3.2.5.5.5h15c.3 0 .5-.2.5-.5V19c0-2.8-3.6-5-8-5Z"/></svg><span id="who"></span></div>
+        <div class="pillbox"><span class="pill" id="range"></span></div>
+      </div>
+      <div class="reading">
+        <div class="valuebox">
+          <div class="valueline"><span class="value" id="value"><span class="digits" id="digits">–</span></span><span class="unit" id="unit"></span></div>
+          <div class="trendline"><span id="trendWords"></span><span class="delta" id="delta"></span></div>
+        </div>
+        <div class="needle unknown" id="needle">
+          <div class="arrows" id="arrows">
+            <svg class="ghost" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg class="main" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <span class="q">?</span>
+        </div>
+      </div>
+      <div class="rail" id="rail"><div class="track" id="track"></div><div class="ghostmark" id="ghost" hidden></div><div class="marker" id="marker"></div></div>
+      <div class="scale" id="scale"></div>
+      <div class="foot">
+        <span class="fresh" id="fresh"><span class="meter"><i id="meter"></i></span><span id="freshIcon"></span><span id="age"></span></span>
+        <span class="note" id="note" hidden></span>
+      </div>
+      <svg class="chart" id="chart" viewBox="0 0 300 120" preserveAspectRatio="none"></svg>
+      <div class="legend"><span style="left:0">3 h ago</span><span id="nowLegend">now</span><span id="aheadLegend" style="right:0"></span></div>
     </div>
-    <div class="row" style="margin-top:14px">
-      <div><span class="value" id="value">–</span><span class="unit" id="unit"></span></div>
-      <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" id="arrow"><path d="M4 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-    </div>
-    <div class="meta"><span id="delta"></span><span class="age" id="age"></span></div>
-    <svg class="chart" id="chart" viewBox="0 0 300 120" preserveAspectRatio="none" role="img" aria-label="Last 3 hours"></svg>
-    <div class="legend"><span>3 h ago</span><span id="forecastLegend"></span><span>now</span></div>
+    <p class="sr" id="sentence" aria-live="polite"></p>
   </section>
 
   <section id="waiting" class="card ended" hidden>
     <h1>Waiting for the first reading</h1>
-    <div class="note">This page updates by itself.</div>
+    <div class="small">This page updates by itself.</div>
   </section>
 
   <section id="gone" class="card ended" hidden>
     <h1>This share has ended</h1>
-    <div class="note">The person stopped sharing, the link expired, or it was copied incompletely. Ask them for a new link.</div>
+    <div class="small">The person stopped sharing, the link expired, or it was copied incompletely. Ask them for a new link.</div>
   </section>
 
   <div class="actions" id="actions" hidden>
     <a class="button" id="openApp" href="#">Open in GlucOS for Lock Screen updates</a>
-    <div class="note" id="expiry"></div>
+    <div class="small" id="expiry"></div>
   </div>
 
-  <div class="note" id="offline" hidden>Can't reach GlucOS right now. Retrying…</div>
+  <div class="small" id="offline" hidden>Can't reach GlucOS right now. Retrying…</div>
 
-  <div class="note">Not a medical device. Readings can be delayed; confirm with the sensor app before acting.</div>
+  <div class="small">Not a medical device. Readings can be delayed; confirm with the sensor app before acting.</div>
 </main>
 
 <script>
@@ -126,51 +290,164 @@
   const MGDL_PER_MMOL = 18.0182, STALE_AFTER = 6 * 60, STEP = 5 * 60;
   const token = decodeURIComponent(location.hash.slice(1)).trim();
   const $ = (id) => document.getElementById(id);
-  let snap = null, timer = null;
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  let snap = null;
+  // What's on screen, so only real changes animate.
+  let shown = { readingAt: null, range: null, stale: null, mgdl: null };
 
   const show = (id) => ["live", "waiting", "gone"].forEach((k) => ($(k).hidden = k !== id));
 
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) { show("gone"); return; }
   $("openApp").href = `glucos://follow#${token}`;
 
+  // ---- Formatting ----
   const fmt = (mgdl, unit) => unit === "mgdl" ? String(Math.round(mgdl)) : (mgdl / MGDL_PER_MMOL).toFixed(1);
   const fmtDelta = (d, unit) => {
     const v = unit === "mgdl" ? Math.round(d) : Math.round((d / MGDL_PER_MMOL) * 10) / 10;
     return `${v > 0 ? "+" : v < 0 ? "−" : "±"}${unit === "mgdl" ? Math.abs(v) : Math.abs(v).toFixed(1)}`;
   };
-  const range = (mgdl, lo, hi) => mgdl < 54 ? ["Urgent low", "--crimson"] : mgdl < lo ? ["Low", "--coral"]
-    : mgdl > 250 ? ["Very high", "--magenta"] : mgdl > hi ? ["High", "--amber"] : ["In range", "--mint"];
-  const rotation = { 1: 90, 2: 45, 3: 0, 4: -45, 5: -90 };
-  const ago = (s) => s < 60 ? "just now" : s < 3600 ? `${Math.floor(s / 60)} min ago`
+  const unitLabel = (u) => u === "mgdl" ? "mg/dL" : "mmol/L";
+  // Same ranges and order as GlucoseRange.classify.
+  const RANGES = {
+    urgentLow: { label: "Urgent low", tone: "--crimson", order: 0, icon: "octagon" },
+    low:       { label: "Low",        tone: "--coral",   order: 1, icon: "down" },
+    inRange:   { label: "In range",   tone: "--mint",    order: 2, icon: "check" },
+    high:      { label: "High",       tone: "--amber",   order: 3, icon: "up" },
+    veryHigh:  { label: "Very high",  tone: "--magenta", order: 4, icon: "up2" },
+  };
+  const classify = (mgdl, lo, hi) => mgdl < 54 ? "urgentLow" : mgdl < lo ? "low" : mgdl > 250 ? "veryHigh" : mgdl > hi ? "high" : "inRange";
+  const TRENDS = {
+    1: { angle: 90, words: "Falling quickly", rapid: true }, 2: { angle: 45, words: "Falling" },
+    3: { angle: 0, words: "Steady" }, 4: { angle: -45, words: "Rising" }, 5: { angle: -90, words: "Rising quickly", rapid: true },
+  };
+  const age = (s) => {
+    s = Math.max(0, Math.floor(s));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, "0");
+    return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+  };
+  const words = (s) => s < 60 ? "just now" : s < 3600 ? `${Math.floor(s / 60)} min ago`
     : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min ago`;
+  // Forecast times are never more precise than 5 minutes.
+  const round5 = (seconds) => Math.max(5, Math.round(seconds / 300) * 5);
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+  const ICONS = {
+    check: '<path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>',
+    down: '<path d="M12 5v13M6 12l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>',
+    up: '<path d="M12 19V6M6 12l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>',
+    up2: '<path d="M6 13l6-6 6 6M6 19l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>',
+    octagon: '<path fill="currentColor" d="M8.3 2h7.4L22 8.3v7.4L15.7 22H8.3L2 15.7V8.3Z"/><path d="M12 7v6M12 16.5v.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>',
+    warn: '<path fill="currentColor" d="M10.3 3.6a2 2 0 0 1 3.4 0l8 13.9A2 2 0 0 1 20 20.5H4a2 2 0 0 1-1.7-3L10.3 3.6Z"/><path d="M12 9v4.5M12 16.8v.2" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>',
+    clockWarn: '<circle cx="11" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M11 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="19" cy="18" r="4" fill="currentColor"/><path d="M19 16v2.2M19 19.8v.1" stroke="var(--card)" stroke-width="1.6" stroke-linecap="round"/>',
+    trend: '<path d="M3 17l6-6 4 4 8-8M15 7h6v6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
+  };
+  const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+
+  // ---- The range scale (RangeScale in Signal.swift): log from 40 to 300 mg/dL ----
+  const pos = (mgdl) => {
+    const v = Math.min(Math.max(mgdl, 40), 300);
+    return (Math.log(v) - Math.log(40)) / (Math.log(300) - Math.log(40));
+  };
+  const edges = (lo, hi) => {
+    const a = pos(54), b = Math.max(a, pos(lo)), c = Math.max(b, pos(hi)), d = Math.max(c, pos(250));
+    return [0, a, b, c, d, 1];
+  };
+
+  const animate = (el, frames, opts) => reduceMotion.matches || !el.animate ? null : el.animate(frames, opts);
+
+  // ---- Range field: a directional sweep on range change (§4.2), a cross-fade otherwise ----
+  function paintField(toneVar, stale, sweep) {
+    const base = $("fieldBase");
+    const colour = `var(${toneVar})`;
+    if (!sweep || reduceMotion.matches || !base.animate) {
+      base.style.setProperty("--c", colour);
+      base.classList.toggle("stale", stale);
+      return;
+    }
+    const layer = document.createElement("div");
+    layer.className = "layer";
+    layer.style.setProperty("--c", colour);
+    $("field").appendChild(layer);
+    // Rising: the new colour comes up from the bottom; falling: down from the top.
+    const from = sweep === "up" ? "inset(100% 0 0 0)" : "inset(0 0 100% 0)";
+    layer.animate([{ clipPath: from }, { clipPath: "inset(0 0 0 0)" }], { duration: 900, easing: "cubic-bezier(.45,0,.25,1)" })
+      .finished.then(() => {
+        base.style.setProperty("--c", colour);
+        base.classList.toggle("stale", stale);
+        layer.remove();
+      }, () => layer.remove());
+  }
+
+  function paintRail(c, rangeKey, stale, forecastMgdl) {
+    const e = edges(c.lowMgdl, c.highMgdl);
+    const keys = ["urgentLow", "low", "inRange", "high", "veryHigh"];
+    const contrast = matchMedia("(prefers-contrast: more)").matches;
+    $("track").innerHTML = keys.map((k, i) => {
+      const hue = stale ? "var(--stale)" : `var(${RANGES[k].tone})`;
+      const pct = stale ? (k === "inRange" ? 55 : 30) : contrast ? (k === "inRange" ? 100 : 85) : (k === "inRange" ? 80 : 55);
+      return `<div class="seg" style="width:${((e[i + 1] - e[i]) * 100).toFixed(2)}%;background:color-mix(in srgb, ${hue} ${pct}%, transparent)"></div>`;
+    }).join("");
+    $("marker").style.left = `${(pos(c.mgdl) * 100).toFixed(2)}%`;
+    const ghost = $("ghost");
+    ghost.hidden = stale || forecastMgdl == null;
+    if (!ghost.hidden) ghost.style.left = `${(pos(forecastMgdl) * 100).toFixed(2)}%`;
+    // The target's edges under the rail, in the person's units.
+    $("scale").innerHTML = [c.lowMgdl, c.highMgdl]
+      .map((v) => `<span style="left:${(pos(v) * 100).toFixed(2)}%">${fmt(v, c.unit)}</span>`).join("");
+  }
 
   function chart(c, stale) {
     const svg = $("chart"), W = 300, H = 120;
     const hist = c.history.map((v, i) => ({ i, v })).filter((p) => p.v !== null);
     const n = c.history.length, f = stale ? [] : (c.forecast || []);
-    const all = hist.map((p) => p.v).concat(f, [c.lowMgdl, c.highMgdl]);
+    const fl = c.forecastLower ?? null, fu = c.forecastUpper ?? null;
+    const all = hist.map((p) => p.v).concat(f, [c.lowMgdl, c.highMgdl], fl != null ? [fl] : [], fu != null ? [fu] : []);
     const lo = Math.min(60, ...all) - 10, hi = Math.max(200, ...all) + 10;
-    const slots = n - 1 + f.length;
+    const slots = n - 1 + Math.max(f.length, 0);
     const x = (i) => (i / Math.max(slots, 1)) * W, y = (v) => H - ((v - lo) / (hi - lo)) * H;
-    const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-    let out = `<rect x="0" y="${y(c.highMgdl)}" width="${W}" height="${y(c.lowMgdl) - y(c.highMgdl)}" fill="${css("--band")}"/>`;
-    out += `<line x1="0" x2="${W}" y1="${y(c.lowMgdl)}" y2="${y(c.lowMgdl)}" stroke="${css("--coral")}" stroke-opacity=".35" stroke-dasharray="3 4"/>`;
-    out += `<line x1="0" x2="${W}" y1="${y(c.highMgdl)}" y2="${y(c.highMgdl)}" stroke="${css("--amber")}" stroke-opacity=".35" stroke-dasharray="3 4"/>`;
-    // Line segments coloured by range; gaps stay gaps.
+    const inRange = stale ? css("--stale") : css("--mint");
+    let out = `<rect x="0" y="${y(c.highMgdl)}" width="${W}" height="${y(c.lowMgdl) - y(c.highMgdl)}" fill="${inRange}" fill-opacity=".10"/>`;
+    out += `<line x1="0" x2="${W}" y1="${y(c.lowMgdl)}" y2="${y(c.lowMgdl)}" stroke="${css("--coral")}" stroke-opacity=".35" stroke-dasharray="3 4" vector-effect="non-scaling-stroke"/>`;
+    out += `<line x1="0" x2="${W}" y1="${y(c.highMgdl)}" y2="${y(c.highMgdl)}" stroke="${css("--amber")}" stroke-opacity=".35" stroke-dasharray="3 4" vector-effect="non-scaling-stroke"/>`;
+    // The forecast's likely range: grey, widening from nothing at the reading.
+    if (f.length && fl != null && fu != null) {
+      const last = f[f.length - 1];
+      const upper = f.map((v, k) => [x(n + k), y(v + (fu - last) * ((k + 1) / f.length))]);
+      const lower = f.map((v, k) => [x(n + k), y(v - (last - fl) * ((k + 1) / f.length))]).reverse();
+      const pts = [[x(n - 1), y(c.mgdl)], ...upper, ...lower];
+      out += `<polygon points="${pts.map((p) => p.join(",")).join(" ")}" fill="${css("--stale")}" fill-opacity=".14"/>`;
+    }
+    // Line segments coloured by range; gaps stay gaps. Stale: the whole trace in grey.
     for (let k = 1; k < hist.length; k++) {
       const a = hist[k - 1], b = hist[k];
       if (b.i - a.i > 1) continue;
-      const col = stale ? css("--stale") : css(range(b.v, c.lowMgdl, c.highMgdl)[1]);
-      out += `<line x1="${x(a.i)}" y1="${y(a.v)}" x2="${x(b.i)}" y2="${y(b.v)}" stroke="${col}" stroke-width="2.5" stroke-linecap="round"/>`;
+      const col = stale ? css("--stale") : css(RANGES[classify(b.v, c.lowMgdl, c.highMgdl)].tone);
+      out += `<line x1="${x(a.i)}" y1="${y(a.v)}" x2="${x(b.i)}" y2="${y(b.v)}" stroke="${col}" stroke-width="2.5" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
     }
     if (f.length) {
       const pts = [[x(n - 1), y(c.mgdl)], ...f.map((v, k) => [x(n + k), y(v)])];
-      out += `<polyline points="${pts.map((p) => p.join(",")).join(" ")}" fill="none" stroke="${css("--stale")}" stroke-width="2" stroke-dasharray="4 4"/>`;
+      out += `<polyline points="${pts.map((p) => p.join(",")).join(" ")}" fill="none" stroke="${css("--stale")}" stroke-width="2" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>`;
     }
     const last = hist[hist.length - 1];
-    if (last) out += `<circle cx="${x(last.i)}" cy="${y(last.v)}" r="4.5" fill="${stale ? css("--stale") : css(range(c.mgdl, c.lowMgdl, c.highMgdl)[1])}"/>`;
+    if (last) {
+      const col = stale ? css("--stale") : css(RANGES[classify(c.mgdl, c.lowMgdl, c.highMgdl)].tone);
+      out += `<circle class="end" id="endDot" cx="${x(last.i)}" cy="${y(last.v)}" r="4.5" fill="${col}"/>`;
+    }
     svg.innerHTML = out;
-    $("forecastLegend").textContent = f.length ? `≈ ${fmt(f[f.length - 1], c.unit)} in ${f.length * 5} min` : "";
+    $("aheadLegend").textContent = f.length ? `≈ +${f.length * 5} min` : "";
+    // "now" sits over the reading: at the right edge without a forecast, else where it starts.
+    const nowLegend = $("nowLegend");
+    if (f.length) { nowLegend.style.left = `${(x(n - 1) / W) * 100}%`; nowLegend.style.right = ""; nowLegend.style.transform = ""; }
+    else { nowLegend.style.left = ""; nowLegend.style.right = "0"; nowLegend.style.transform = "none"; }
+  }
+
+  // The age ticks every second; everything else redraws when data or staleness changes.
+  function tick() {
+    const c = snap && snap.card;
+    if (!c || $("live").hidden) return;
+    const a = Date.now() / 1000 - c.readingAt;
+    if ((a > STALE_AFTER) !== shown.stale) { render(); return; }
+    $("age").textContent = shown.stale ? `No reading for ${Math.max(1, Math.floor(a / 60))} min` : age(a);
   }
 
   function render() {
@@ -180,25 +457,110 @@
       ? `Link ends ${new Date(snap.expiresAt * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`
       : "";
     const c = snap.card;
+    const name = snap.label === "GlucOS" ? "Live glucose" : snap.label;
     document.title = `${snap.label === "GlucOS" ? "Live glucose" : `${snap.label}'s glucose`} · GlucOS`;
     if (!c) { show("waiting"); return; }
+    const first = $("live").hidden && shown.readingAt === null;
     show("live");
-    const now = Date.now() / 1000, age = now - c.readingAt, stale = age > STALE_AFTER;
-    const [label, tone] = range(c.mgdl, c.lowMgdl, c.highMgdl);
     const live = $("live");
+    const now = Date.now() / 1000, a = now - c.readingAt, stale = a > STALE_AFTER;
+    const rangeKey = classify(c.mgdl, c.lowMgdl, c.highMgdl), r = RANGES[rangeKey];
+    const trend = stale ? undefined : TRENDS[c.trend];
+    const toneVar = stale ? "--stale" : r.tone;
+    const newReading = shown.readingAt !== null && shown.readingAt !== c.readingAt;
+    const prevRange = shown.stale ? null : shown.range;
+    const sweep = !stale && prevRange && prevRange !== rangeKey
+      ? (RANGES[rangeKey].order > RANGES[prevRange].order ? "up" : "down") : null;
+
     live.classList.toggle("stale", stale);
-    live.style.setProperty("--tone", `var(${stale ? "--stale" : tone})`);
-    $("who").textContent = snap.label === "GlucOS" ? "Live glucose" : snap.label;
-    $("range").textContent = stale ? "Stale" : label;
-    $("value").textContent = fmt(c.mgdl, c.unit);
-    $("unit").textContent = c.unit === "mgdl" ? "mg/dL" : "mmol/L";
-    const rot = rotation[c.trend];
-    $("arrow").style.transform = `rotate(${stale || rot === undefined ? 0 : rot}deg)`;
-    $("arrow").style.opacity = stale || rot === undefined ? ".35" : "1";
-    $("delta").textContent = !stale && typeof c.deltaMgdl === "number" ? `${fmtDelta(c.deltaMgdl, c.unit)} · ` : "";
-    $("age").textContent = ago(Math.max(0, age));
-    live.setAttribute("aria-label", `${snap.label}: ${fmt(c.mgdl, c.unit)} ${$("unit").textContent}, ${stale ? "stale" : label}, ${ago(age)}`);
+    live.classList.toggle("urgent", !stale && rangeKey === "urgentLow");
+    live.style.setProperty("--tone", `var(${toneVar})`);
+    live.style.setProperty("--pill-text", stale ? "var(--muted)" : rangeKey === "high" ? "var(--amber-text)" : `var(${r.tone})`);
+    const field = $("field");
+    field.classList.toggle("live", !stale);
+    field.classList.toggle("rapid", !!(trend && trend.rapid));
+    if (first || stale !== shown.stale || rangeKey !== shown.range) paintField(toneVar, stale, sweep);
+
+    // Name and range pill. The pill pushes in the direction of travel when the range changes.
+    $("who").textContent = name;
+    const pill = $("range");
+    const pillHTML = stale ? `${icon("warn")}Stale` : `${icon(r.icon)}${r.label}`;
+    if (pill.innerHTML !== pillHTML) {
+      pill.innerHTML = pillHTML;
+      if (sweep) animate(pill, [{ transform: `translateY(${sweep === "up" ? 110 : -110}%)` }, { transform: "none" }],
+        { duration: 500, easing: "cubic-bezier(.3,1.3,.55,1)" });
+    }
+
+    // The value rolls to a new number, in the direction it moved.
+    const digits = $("digits"), text = fmt(c.mgdl, c.unit);
+    if (digits.textContent !== text) {
+      const up = shown.mgdl !== null && c.mgdl > shown.mgdl;
+      digits.textContent = text;
+      if (shown.mgdl !== null) animate(digits, [{ transform: `translateY(${up ? 35 : -35}%)`, opacity: 0 }, { transform: "none", opacity: 1 }],
+        { duration: 450, easing: "cubic-bezier(.3,1.25,.55,1)" });
+    }
+    $("unit").textContent = unitLabel(c.unit);
+    $("trendWords").textContent = stale ? "Trend unavailable" : trend ? trend.words : "Trend unknown";
+    $("delta").textContent = !stale && typeof c.deltaMgdl === "number" ? fmtDelta(c.deltaMgdl, c.unit) : "";
+
+    // The needle swings to the direction of travel; "?" when stale or unknown.
+    const needle = $("needle");
+    needle.classList.toggle("unknown", !trend);
+    needle.classList.toggle("rapid", !!(trend && trend.rapid));
+    if (trend) $("arrows").style.transform = `rotate(${trend.angle}deg)`;
+
+    // The forecast: its end as a ghost on the rail, and one grey line. Gone once stale.
+    const f = stale ? [] : (c.forecast || []);
+    const headline = f.length >= 6 ? { minutes: 30, mgdl: f[5] } : f.length ? { minutes: f.length * 5, mgdl: f[f.length - 1] } : null;
+    const lowAt = !stale && typeof c.lowExpectedAt === "number" ? c.lowExpectedAt : null;
+    paintRail(c, rangeKey, stale, headline ? headline.mgdl : null);
+    const note = $("note");
+    note.classList.toggle("low", lowAt !== null);
+    let forecastSentence = "";
+    if (lowAt !== null) {
+      const m = round5(lowAt - c.readingAt);
+      note.innerHTML = `${icon("warn")}<span>Low expected ≈ ${m} min</span>`;
+      forecastSentence = ` Low expected in about ${m} minutes.`;
+    } else if (headline) {
+      note.innerHTML = `${icon("trend")}<span>≈ ${fmt(headline.mgdl, c.unit)} in ${headline.minutes} min</span>`;
+      forecastSentence = ` Forecast about ${fmt(headline.mgdl, c.unit)} in ${headline.minutes} minutes.`;
+    }
+    note.hidden = lowAt === null && !headline;
+
+    // Freshness: the meter fills from the reading to the moment it goes stale, then turns amber.
+    const meter = $("meter");
+    if (!stale && (first || newReading || shown.stale !== false)) {
+      meter.classList.remove("run");
+      void meter.offsetWidth;
+      meter.style.setProperty("--delay", `${-Math.min(a, STALE_AFTER)}s`);
+      meter.style.animationDelay = `${-Math.min(a, STALE_AFTER)}s`;
+      meter.classList.add("run");
+    }
+    $("freshIcon").innerHTML = stale ? icon("clockWarn") : "";
+    $("age").textContent = stale ? `No reading for ${Math.max(1, Math.floor(a / 60))} min` : age(a);
+
     chart(c, stale);
+
+    // A new reading: one ripple off the needle and a pulse at the trace's end.
+    if (newReading && !stale && !reduceMotion.matches) {
+      const ring = document.createElement("span");
+      ring.className = "ripple";
+      needle.appendChild(ring);
+      setTimeout(() => ring.remove(), 1000);
+      const dot = $("endDot");
+      if (dot) dot.classList.add("pulse");
+    }
+
+    // One sentence for screen readers, said again only when it changes.
+    const sentence = stale
+      ? `${name}: glucose reading is ${Math.max(1, Math.floor(a / 60))} minutes old, last ${fmt(c.mgdl, c.unit)} ${unitLabel(c.unit)}.`
+      : `${name}: glucose ${fmt(c.mgdl, c.unit)} ${unitLabel(c.unit)}, ${r.label.toLowerCase()}, ${trend ? trend.words.toLowerCase() : "trend unknown"}` +
+        `${typeof c.deltaMgdl === "number" ? `, ${fmtDelta(c.deltaMgdl, c.unit)}` : ""}, ${words(a)}.${forecastSentence}`;
+    live.setAttribute("aria-label", sentence);
+    if (newReading || stale !== shown.stale || first) $("sentence").textContent = sentence;
+
+    shown = { readingAt: c.readingAt, range: rangeKey, stale, mgdl: c.mgdl };
+    if (first) requestAnimationFrame(() => requestAnimationFrame(() => live.classList.remove("still")));
   }
 
   async function load() {
@@ -219,8 +581,8 @@
   }
 
   load();
-  timer = setInterval(() => { if (snap || $("gone").hidden || Math.random() < 0.2) load(); }, 30_000);
-  setInterval(render, 15_000);
+  setInterval(() => { if (snap || $("gone").hidden || Math.random() < 0.2) load(); }, 30_000);
+  setInterval(tick, 1000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 })();
 </script>
