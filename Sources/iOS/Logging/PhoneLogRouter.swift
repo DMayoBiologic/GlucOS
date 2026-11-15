@@ -6,6 +6,8 @@ typealias PhoneLogPart = LogPart
 /// What the iPhone log sheet opens for.
 enum PhoneLogTarget {
     case new(start: PhoneLogPart?)
+    /// Food at an earlier time: the meal a dose was for ("Was it for a meal?" → Meal → Add Food).
+    case meal(at: Date)
     case edit(LogEntry)
 }
 
@@ -28,6 +30,12 @@ final class PhoneLogRouter: ObservableObject {
     func open(_ start: PhoneLogPart? = nil) {
         savedSinceOpen = false
         request = PhoneLogRequest(target: .new(start: start))
+    }
+
+    /// The log sheet on food, at `time`.
+    func logMeal(at time: Date) {
+        savedSinceOpen = false
+        request = PhoneLogRequest(target: .meal(at: time))
     }
 
     func edit(_ entry: LogEntry) {

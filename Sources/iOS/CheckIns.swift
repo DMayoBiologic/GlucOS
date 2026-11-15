@@ -27,6 +27,8 @@ enum CheckInNotifications {
         UNUserNotificationCenter.current().setNotificationCategories([
             UNNotificationCategory(identifier: ownerCategory, actions: [okay, help], intentIdentifiers: []),
             UNNotificationCategory(identifier: followerLowCategory, actions: [ask], intentIdentifiers: []),
+            // Not a check-in, but categories are set all at once: "Was that dose for a meal?".
+            DoseQuestion.notificationCategory,
         ])
     }
 }

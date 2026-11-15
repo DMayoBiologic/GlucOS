@@ -31,6 +31,8 @@ struct GlucOSPhoneApp: App {
         _services = StateObject(wrappedValue: services)
         // Before any check-in button can run: they may be what launched the app.
         CheckInCoordinator.install(services: services, follows: follows)
+        // Likewise the Meal / Correction buttons after a dose with no food near it.
+        DoseQuestion.shared.start(logbook: logbook)
         // Has to happen before launch finishes.
         BackgroundRefresh.register()
     }
@@ -96,13 +98,21 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         Task { @MainActor in await CheckInCoordinator.arrived(userInfo: userInfo) }
     }
 
-    /// Check-in buttons on a notification ("I'm okay", "I need help", "Check in").
+    /// Buttons on a notification: check-ins ("I'm okay", "I need help", "Check in") and
+    /// "Was that dose for a meal?" (Meal, Correction).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let action = response.actionIdentifier
         let userInfo = response.notification.request.content.userInfo
         Task { @MainActor in
-            await CheckInCoordinator.handle(action: action, userInfo: userInfo)
+            if DoseQuestion.shared.handle(action: action, userInfo: userInfo) {
+                // Send the answer now, while iOS keeps the app awake, so the Mac stops asking too.
+                if action != UNNotificationDefaultActionIdentifier {
+                    await PhoneServices.shared?.logbookSync?.sync()
+                }
+            } else {
+                await CheckInCoordinator.handle(action: action, userInfo: userInfo)
+            }
             completionHandler()
         }
     }

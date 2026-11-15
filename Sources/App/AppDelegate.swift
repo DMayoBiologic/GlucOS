@@ -4,12 +4,15 @@ import UserNotifications
 
 /// App-level plumbing SwiftUI's `App` doesn't cover for a menu bar app:
 /// - `glucos://open` (widget taps) and re-opening the app from Finder/Spotlight show the popover; `glucos://dashboard` opens the dashboard.
-/// - Notifications still appear while GlucOS is the active app, and clicking one shows the popover.
+/// - Notifications still appear while GlucOS is the active app, and clicking one shows the popover
+///   (the Meal / Correction buttons of "Was that dose for a meal?" answer without opening it).
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Must be set before launch finishes, or a click on a notification that launched us is lost.
         UNUserNotificationCenter.current().delegate = self
+        // "Was that dose for a meal?" with Meal and Correction buttons.
+        UNUserNotificationCenter.current().setNotificationCategories([DoseQuestion.notificationCategory])
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -58,7 +61,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        Task { @MainActor in StatusItemPopover.show() }
+        let action = response.actionIdentifier
+        let userInfo = response.notification.request.content.userInfo
+        Task { @MainActor in
+            // Meal, Correction or dismissing "Was that dose for a meal?" is answered on the spot.
+            if DoseQuestion.shared.handle(action: action, userInfo: userInfo),
+               action != UNNotificationDefaultActionIdentifier { return }
+            StatusItemPopover.show()
+        }
         completionHandler()
     }
 }

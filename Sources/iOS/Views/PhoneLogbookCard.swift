@@ -162,6 +162,8 @@ struct PhoneLogBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // "4 u at 9:12 am. Was it for a meal?" after a bolus with no food near it, once per dose.
+            PhoneDoseStrip()
             // "Woke up at 6:41?" in the morning, until it's logged or dismissed.
             PhoneWakeStrip()
             HStack(spacing: DS.Space.sm) {
@@ -294,6 +296,7 @@ struct PhoneLogRow: View {
     private var detail: String? {
         var parts: [String] = []
         if case .dose = entry, let site { parts.append(site.title) }
+        if case .dose(let d) = entry, let purpose = d.purpose?.label { parts.append(purpose) }
         let note = entry.phoneNote
         if !note.isEmpty { parts.append(note) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")

@@ -265,7 +265,7 @@ struct LogbookSection: View {
     private func details(_ e: LogEntry) -> String {
         var parts: [String] = []
         switch e {
-        case .dose(let d): parts.append(d.displayName); parts.append(d.note)
+        case .dose(let d): parts.append(d.displayName); parts.append(d.purpose?.label ?? ""); parts.append(d.note)
         case .meal(let m): parts.append(m.food); parts.append(m.note)
         case .siteChange(let c): parts.append(c.note)
         case .context(let c): parts.append(c.sortedTags.map(\.title).joined(separator: ", ")); parts.append(c.note)

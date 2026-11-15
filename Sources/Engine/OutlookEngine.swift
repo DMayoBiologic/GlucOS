@@ -91,6 +91,7 @@ enum OutlookEngine {
                                    morning: model.morning.isUsable ? model.morning : nil,
                                    tuning: model.tuning.tuning, rangeScale: model.rangeScale, now: now)
         let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
+            + DoseMealCheck.unloggedMealTimes(doses: doses, meals: meals)
         return Outlook(at: now,
                        forecast: GlucoseForecaster.forecast(input),
                        insulin: InsulinActivity.compute(doses: doses, at: now),

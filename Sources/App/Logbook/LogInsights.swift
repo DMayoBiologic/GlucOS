@@ -235,7 +235,8 @@ struct LogInsights {
 
     static func correctionResponse(_ dose: InsulinDose, readings: [GlucoseReading],
                                    doses: [InsulinDose], meals: [MealEntry], area: BodyArea?) -> DoseResponse? {
-        guard dose.units > 0 else { return nil }
+        // The user said it was for a meal (just not one they logged): not a correction.
+        guard dose.units > 0, dose.purpose != .meal else { return nil }
         let t0 = dose.timestamp
 
         // Nothing else acting at the start: no recent bolus, no recent or simultaneous food.

@@ -90,6 +90,10 @@ struct PhoneLogSheet: View {
             startPart = start
             // Opened for one thing (the log bar, a widget) it starts there; otherwise it asks.
             if let start { parts = [start] }
+        case .meal(let at):
+            startPart = .food
+            parts = [.food]
+            time = min(at, Date())
         case .edit(let entry):
             time = entry.timestamp
             editingID = entry.id
@@ -1110,7 +1114,7 @@ struct PhoneLogSheet: View {
             let calculation = (suggestionStillApplies ? usedSuggestion.map(BolusCalculation.init) : nil) ?? kept
             logbook.save(.dose(InsulinDose(id: doseID, timestamp: time, units: units, kind: kind, name: trimmedName,
                                            site: viaPump ? nil : injectionSite, viaPump: viaPump, note: trimmedNote,
-                                           calculation: calculation)))
+                                           calculation: calculation, purpose: existing?.purpose)))
         }
         if logsFood, let carbs {
             let described = foodText.isEmpty ? mealItems.map(\.name).joined(separator: ", ") : foodText
