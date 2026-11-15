@@ -105,3 +105,87 @@ and saves.
 
 Tests: `BolusCalculatorTests`, `BolusSettingsReviewTests` (simulated people with known ratios),
 `FoodDatabaseTests`, and the sync tests.
+
+## Do logged carbs match the rise? (15 Nov 2026)
+
+The question: for meals logged in the last 14 days, especially through food search, does the
+glucose rise match the carbs, given the insulin acting? If some foods are consistently
+under- or over-counted, food search could correct them or say "this usually raises you more
+than its carbs suggest".
+
+**Answer: not yet, and nothing was changed.** No food has been eaten often enough, cleanly
+enough, to say how it treats this user. The analysis is below so the next look can start from it.
+
+### What was there
+
+The server's readings start on 10 Nov 2026, so "14 days" is really 5. The logbook holds 15
+meals; 3 are from before the readings start and one is the same breakfast logged twice (counted
+once, as `LogCleanup.mealsWithoutRepeats` does), leaving 10 meals with readings. Seven came
+through food search, one is the user's own food and two are typed totals. Only one food (hash
+browns) appears in more than one meal.
+
+### How it was checked
+
+For each meal: glucose at 60–180 minutes after it, minus glucose when it was logged, against
+what the engine's curves expected (standard 3-hour carb absorption with a 10-minute delay,
+rapid insulin peaking at 75 minutes, every rapid dose from 4 hours before to the end of the
+window, and the replay's learnt effects from §11 of ForecastAccuracy.md: 2.8 mg/dL per gram,
+19.2 mg/dL per unit). The window stops at the next logged carbs. "Implied carbs" is what the
+logged carbs would have to have been for the curves to match.
+
+| Meal (Perth time) | Logged | How | Start | 120 min seen / expected | Implied at 120 / 180 min | What else was going on |
+| --- | --- | --- | --- | --- | --- | --- |
+| Wed 06:12 hash browns ×3, breakfast burrito | 30 g, 10 U | typed | 113 | −24 / −31 | 1.1× / 1.2× | went low 2½ h later |
+| Wed 09:29 3 hash browns, 2 pancakes, orange juice | 40 g, 8 U | typed | 116 | +208 / −37 | 3.8× / 3.4× | logged after eating (+62 in the 30 min before), after a low of 54 |
+| Thu 07:26 Big Brekkie Burger | 54 g, 7.5 U | own food | 113 | +52 / +45 | 1.1× / 1.0× | clean |
+| Thu 14:09 sushi (inari, fish) | 53.9 g, 7 + 4 U | search | 92 | (60 min) +41 / +21 | 1.4× at 60 | green juice 74 min later |
+| Thu 15:23 green juice | 16.6 g | search | 106 | +45 / −86 | 4.6× / 3.1× | 11 U of the sushi doses still acting |
+| Thu 19:08 burrito bowl | 37.5 g, 4 U | search | 69 | +175 / +43 | 2.6× / 1.9× | started low |
+| Thu 23:42 sports drink 600 ml | 36.8 g | search | 68 | +92 / +80 | 1.2× / 0.7× | hypo treatment |
+| Fri 09:58 2 eggs, 2 hash browns | 35.8 g, 6 U | search | 210 | −90 / +20 | below 0 | high and falling before it |
+| Fri 19:27 sports drink (powder) 437 ml | 21.4 g | search | 55 | +144 / +46 | 3.1× / 3.3× | hypo treatment, kept rising for 4 h |
+| Sat 17:04 Big Mac | 38.5 g, 5 U | search | 176 | +2 / +36 | 0.6× / 1.2× | rising +68 in the 30 min before (eaten before logging) |
+
+Glucose in mg/dL.
+
+### What it shows
+
+- **The two clean meals match.** The Big Brekkie Burger (own food) and the first breakfast came
+  within 10–20% of what their carbs predicted. That's evidence the curves and learnt effects are
+  roughly right for this user, not evidence about any food.
+- **Every meal that started low rose 2–4× more than its carbs.** The burrito bowl, both sports
+  drinks and the pancake breakfast all began at 55–69 mg/dL or straight after a low. That's
+  the body's own rebound from a low adding to the food, plus food not logged while treating it.
+  It isn't a carb-counting fault, so a per-food correction learnt from these would be wrong:
+  it would tell the user a sports drink "raises you more" when it was the low.
+- **The big under-count was a typed total, not food search.** "3 hash browns, 2 pancakes, orange
+  juice" was typed as 40 g. Describing it in food search gives about 112 g (3 takeaway hash
+  browns 53 g, 2 homemade pancakes 41 g, a 250 ml juice 18 g), which matches the 3–4× rise
+  seen. Food search was closer than the typed number.
+- **Everything else is tangled up**: two meals and four doses within two hours, meals logged
+  after they were eaten, or a falling high before the meal. ForecastAccuracy.md §12 found the
+  same: with every dose given at a meal, about ten meals can't separate the carbs' rise from
+  the insulin's fall, so a meal's "implied carbs" moves with whatever insulin effect is assumed.
+
+### When a per-food note would be safe
+
+A note on a food ("this usually raises you more than its carbs suggest") should need, for the
+same food (`foodID`), at least 3 meals that each:
+
+- start in range (about 80–180 mg/dL) and not moving fast in the 30 minutes before,
+- have no low in the 2 hours before, no hypo-treatment tag, and no other carbs or extra dose
+  within 3 hours after,
+- were logged within 15 minutes of eating (no rise in the 30 minutes before),
+
+and all of them pointing the same way by more than about 30%. Even then it should be a note
+only: it never changes the food's carbs, the meal's total or anything the bolus calculator
+works out, and the double-dose warning is untouched. With this logging pace (about 2 meals a
+day, mostly different foods), the first food to qualify is likely weeks away.
+
+### Worth doing sooner
+
+- **Check a typed total against its description.** When the user types foods and a total, food
+  search can already read the words. If it finds much more (say 1.5× or more), it could show
+  "These foods usually come to about 112 g" next to the total, without changing it.
+- **Keep hypo treatments apart.** A meal tagged as hypo treatment, or eaten under about 70 mg/dL,
+  should never count towards a food's note, or towards the carb effect the forecast learns.
