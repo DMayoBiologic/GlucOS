@@ -81,7 +81,13 @@ Tapping it asks them if they're okay, without opening GlucOS:
    your card shows the answer and its time for 30 minutes.
 4. No answer after 5 minutes: they're asked again, as a critical alert when the relay may send those
    (`APNS_CRITICAL_ALERTS`), and you're told ("No answer from Declan... If you can, call them"). Your
-   card shows "No answer since 10:42" with **Ask again**. An unanswered check-in lapses after an hour.
+   card shows "No answer since 10:42" with **Ask again**. Everyone else following them hears too
+   ("Sam checked in on Declan 5 minutes ago and hasn't heard back"), with a **Check in** button of their
+   own, if they have alerts on. When the answer comes, they get it as well. An unanswered check-in
+   lapses after an hour.
+
+The same buttons are on the card on an Apple Watch (Smart Stack) and in CarPlay. There the range rail
+makes way for a short note and the buttons; the tap runs on the iPhone, as it does from the Lock Screen.
 
 One answer covers everyone waiting. Tapping Check in again re-notifies at most every 2 minutes. Set
 your name under Settings, Following, so the person knows who's asking ("Someone who follows you"

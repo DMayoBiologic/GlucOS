@@ -251,6 +251,15 @@ small layout read from `\.activityFamily == .small`:
  In range · 0:42
 ```
 
+While there's a check-in (the owner has someone waiting; a follower's person is low or heading low,
+or there's a check-in on the card) the rail and status row give way to it, and the age moves up:
+
+```
+ 3.4 ↘︎        0:42
+ ✋ Sam checking in
+ [ ✓ I'm okay ][ Help ]
+```
+
 On the watch's Always On (`isLuminanceReduced`) the field and rail dim to 50 % and the value turns
 white unless out of range. Without the small family the watch would show only the compact views.
 

@@ -15,11 +15,11 @@ import {
 } from "./checkins.ts";
 import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
 import {
-  cleanLabel, type Follower, hashShareToken, maxShareLifetime, maxShares, newShareToken, type Share, type ShareStore,
+  type AnsweredCheckIn, cleanLabel, type Follower, hashShareToken, maxShareLifetime, maxShares, newShareToken, type Share, type ShareStore,
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.3.1";
+export const version = "2.4.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -393,8 +393,35 @@ export class RelayEngine {
         });
         if (result.kind === "tokenInvalid") await shares.clearFollowerDeviceToken(a.checkIn.followerId, a.deviceToken);
       }
+      // Everyone else was told about a missed check-in: they hear the answer too.
+      if (answered.some((a) => a.checkIn.remindedAt !== null)) await this.tellOthersAnswer(answered, answer, now);
     }
     return await this.status();
+  }
+
+  private async tellOthersAnswer(answered: AnsweredCheckIn[], answer: CheckInAnswer, now: number) {
+    const shares = this.shares;
+    const asked = new Set(answered.map((a) => a.checkIn.followerId));
+    let all: Follower[];
+    try {
+      all = await shares.followers(now);
+    } catch (e) {
+      console.error("followers", e);
+      return;
+    }
+    for (const f of all) {
+      if (!f.active || asked.has(f.id) || !f.alertsEnabled || !f.deviceToken) continue;
+      try {
+        const result = await this.sender!.send({
+          deviceToken: f.deviceToken, type: "alert", topic: this.config.bundleId, priority: 10,
+          payload: checkInPayloads.othersAnswer(f.label, f.shareId, answer, this.config.criticalAlerts),
+          collapseId: `glucos.checkin.${f.shareId}`.slice(0, 64), expiration: now + checkInOpenFor, sandbox: f.sandbox,
+        });
+        if (result.kind === "tokenInvalid") await shares.clearFollowerDeviceToken(f.id, f.deviceToken);
+      } catch (e) {
+        console.error("follower", f.id, e);
+      }
+    }
   }
 
   sendTest(): Promise<RelayStatus> {
@@ -651,6 +678,7 @@ export class RelayEngine {
                                 now: number, checkIns: CheckIn[] = [], dueCheckIns: CheckIn[] = []) {
     const checkInOf = new Map(checkIns.map((c) => [c.followerId, c]));
     const due = new Set(dueCheckIns.map((c) => c.followerId));
+    const asker = dueCheckIns.find((c) => c.name)?.name ?? "";
     const urgent = notices.length > 0;
     const forFollowers = notices.filter((n) => followerAlertKinds.has(n.kind));
     const shares = this.config.shares;
@@ -673,8 +701,10 @@ export class RelayEngine {
           return;
         }
         if (forFollowers.length && f.alertsEnabled && f.deviceToken) await this.alertFollower(f, forFollowers, now);
-        // They asked, so they hear about no answer whatever their alert switch says.
+        // They asked, so they hear about no answer whatever their alert switch says. Everyone
+        // else following hears too (with their alerts on), so someone can call.
         if (due.has(f.id) && f.deviceToken) await this.tellNoAnswer(f, now);
+        else if (dueCheckIns.length && f.alertsEnabled && f.deviceToken) await this.tellOthersNoAnswer(f, asker, now);
         if (!card || !f.liveActivityEnabled) return;
         const seen = { activityToken: f.activityToken, pushToStartToken: f.pushToStartToken };
         const content = withCheckIn(card, followerCheckInCard(checkInOf.get(f.id), now));
@@ -781,6 +811,17 @@ export class RelayEngine {
     const result = await this.sender!.send({
       deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
       payload: checkInPayloads.noAnswer(f.label, f.shareId),
+      collapseId: `glucos.checkin.${f.shareId}`.slice(0, 64), expiration: now + checkInOpenFor, sandbox: f.sandbox,
+    });
+    if (result.kind === "tokenInvalid") await this.config.shares!.clearFollowerDeviceToken(f.id, token);
+  }
+
+  /// Someone else's check-in went unanswered.
+  private async tellOthersNoAnswer(f: Follower, asker: string, now: number) {
+    const token = f.deviceToken!;
+    const result = await this.sender!.send({
+      deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
+      payload: checkInPayloads.othersNoAnswer(f.label, f.shareId, asker),
       collapseId: `glucos.checkin.${f.shareId}`.slice(0, 64), expiration: now + checkInOpenFor, sandbox: f.sandbox,
     });
     if (result.kind === "tokenInvalid") await this.config.shares!.clearFollowerDeviceToken(f.id, token);

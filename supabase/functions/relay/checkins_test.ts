@@ -238,3 +238,65 @@ Deno.test("check-in names are tidied", () => {
   assertEquals(cleanName(42), "");
   assertEquals([...cleanName("x".repeat(80))].length, 30);
 });
+
+Deno.test("check-in: no answer tells everyone else following too, and then they hear the answer", async () => {
+  const t = await setup();
+  const otherPhone = "99ff99ff99ff99ff";
+  const quietPhone = "77cc77cc77cc77cc";
+  for (const [installation, deviceToken, alerts] of [["phone-5678", otherPhone, true], ["phone-9999", quietPhone, false]] as const) {
+    const res = await t.share("/v1/follow", { installation, deviceToken, alertsEnabled: alerts });
+    assertEquals(res.status, 200);
+    await res.body?.cancel();
+  }
+  await t.engine.tick();
+  (await t.share("/v1/checkin", { installation: "phone-1234", name: "Sam" })).body?.cancel();
+
+  // Before the 5 minutes, nobody else hears anything.
+  t.advance(60);
+  t.sent.length = 0;
+  await t.engine.tick();
+  assertEquals(t.to(otherPhone).filter((p) => p.type === "alert"), []);
+
+  t.advance(checkInRemindAfter);
+  t.sent.length = 0;
+  await t.engine.tick();
+  const told = t.to(otherPhone).filter((p) => p.type === "alert");
+  assertEquals(told.length, 1);
+  assertEquals(aps(told[0]).alert?.title, "No answer from Declan");
+  assertEquals(aps(told[0]).alert?.body, "Sam checked in on Declan 5 minutes ago and hasn't heard back. If you can, call them.");
+  // With a Check in button of their own.
+  assertEquals(aps(told[0]).category, "glucos.follow.low");
+  // The one who asked gets their own wording, once; a follower with alerts off isn't told.
+  const asker = t.to(followerPhone).filter((p) => p.type === "alert");
+  assertEquals(asker.length, 1);
+  assert(aps(asker[0]).alert?.body.includes("your check-in"));
+  assertEquals(t.to(quietPhone).filter((p) => p.type === "alert"), []);
+
+  // Once only.
+  t.advance(60);
+  t.sent.length = 0;
+  await t.engine.tick();
+  assertEquals(t.to(otherPhone).filter((p) => p.type === "alert"), []);
+
+  t.sent.length = 0;
+  await t.engine.answerCheckIns("okay");
+  assertEquals(aps(t.to(followerPhone)[0]).alert?.title, "Declan is okay");
+  const relief = t.to(otherPhone);
+  assertEquals(relief.length, 1);
+  assertEquals(aps(relief[0]).alert?.title, "Declan is okay");
+  assertEquals(aps(relief[0]).alert?.body, "Declan answered the check-in you heard about.");
+  assertEquals(t.to(quietPhone), []);
+});
+
+Deno.test("check-in: an answer within 5 minutes only goes to whoever asked", async () => {
+  const t = await setup();
+  const otherPhone = "99ff99ff99ff99ff";
+  (await t.share("/v1/follow", { installation: "phone-5678", deviceToken: otherPhone, alertsEnabled: true })).body?.cancel();
+  await t.engine.tick();
+  (await t.share("/v1/checkin", { installation: "phone-1234", name: "Sam" })).body?.cancel();
+  t.advance(120);
+  t.sent.length = 0;
+  await t.engine.answerCheckIns("help");
+  assertEquals(t.to(followerPhone).length, 1);
+  assertEquals(t.to(otherPhone), []);
+});
