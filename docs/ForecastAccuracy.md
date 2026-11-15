@@ -20,7 +20,7 @@ The results appear on the Mac's Outlook page under **How Accurate It's Been**.
 
 ## 2. The forecast log (what the forecast did say)
 
-`ForecastLedger` keeps one forecast per 15 minutes from each device (Mac and iPhone), exactly as
+`ForecastLedger` keeps one forecast per 15 minutes from each app (Mac and iPhone; the relay keeps its own, below), exactly as
 it was shown. Once the readings are in, it scores each one at 15, 30, 45, 60, 90, 120, 150 and 180
 minutes, as far as the forecast looked. A forecast settles 20 minutes after its last point, which
 allows for late readings and for food logged afterwards with an earlier time. A point is marked
