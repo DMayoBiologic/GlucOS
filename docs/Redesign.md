@@ -345,7 +345,7 @@ old, last 6.2." Follower: prefixed with the person's name.
 | Sign in, Setup | Steps slide horizontally (push), progress dots fill; the field follows the range being set in the range step. |
 | Logbook | Day headers stick with a blur; rows enter with `dsEntrance`; swipe actions unchanged. |
 | Insights | Cards use the draw-in rings (existing `drawsIn:`); 7-day columns grow from the baseline on first appearance. |
-| Settings | Unchanged layout; section jumps scroll with `.standard`. |
+| Settings | Unchanged layout; section jumps scroll with `.standard`; rows a toggle reveals slide in. The target range editor is the range rail, with a marker at the latest fresh reading. |
 | Sharing / Follow | Follower cards get a small range field strip on their leading edge and a rail. |
 | Log sheet | The moment chips slide their selection; the saved toast rises (existing). |
 | Sensor scan | The scan ring pulses during NFC reads (system NFC sheet aside); result value rolls in. |
@@ -374,7 +374,9 @@ the menu bar (it's peripheral vision; motion there is distracting).
 
 ### 8.4 Onboarding, Settings, Log sheet, Quick log
 
-Onboarding steps push horizontally with progress dots; Settings unchanged; log sheets as iPhone.
+Onboarding steps push horizontally with progress dots; Settings unchanged in layout, its target range
+editor drawn as the range rail (as on iPhone); log sheets as iPhone. The Outlook and Insights pages
+assemble with `dsEntrance` like the popover, and the Logbook's filter is a `SlidingSegments`.
 
 ## 9. Widgets
 
@@ -414,6 +416,7 @@ Widgets in accented or vibrant rendering modes drop the field and keep the rail 
 | 7 | Sharing surfaces: the web view behind share links (`web/share`) and the Messages extension's bubble, tapped card, composer and bubble picture (`ShareStage`) on the range field with the needle, rail and forecast ghost, forecast note, freshness meter and drawn strike line | #67 | merged |
 | 8 | Widgets finished to §9: the range field and urgent-low border behind the Glucose widget, direction-aware pill swap, drawn strike line, live age timer, forecast note and freshness meter footer; rolling figures and growing bars in Time in Range and Sensor; live age on the Lock Screen rectangular | #80 | merged |
 | 9 | Mac popover finished to §8.2: the shared `FreshnessMeter` under the age row in place of the live dot and hand-drawn hairline (fills live, amber once stale), and the cards assembling under the hero with `dsEntrance` on opening | #84 | merged |
+| 10 | Remaining screens (§7.2, §8.3, §8.4): the target range editor in Settings (iPhone and Mac), Mac onboarding and iPhone Setup redrawn as the range rail (same log scale and segment colours), with a marker at the latest fresh reading and a line saying what it would count as; iPhone Settings rows that a toggle reveals slide in, and section jumps scroll with `.standard` under Reduce Motion rules; Mac Outlook and Insights pages assemble with `dsEntrance`; Mac Logbook filter on `SlidingSegments`; follower check-in status pushes in with a haptic for "okay" and "needs help" | this PR | open |
 
 Every part of this design is now built.
 

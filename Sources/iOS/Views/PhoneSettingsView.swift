@@ -140,6 +140,7 @@ struct PhoneSettingsView: View {
     @ObservedObject private var relay = RelaySettings.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var notificationsAllowed: Bool?
     @State private var relaySecret = ""
     @State private var confirmsSignOut = false
@@ -155,7 +156,7 @@ struct PhoneSettingsView: View {
                     guard let scrollTo else { return }
                     // After the sheet has finished arriving, or the scroll is lost.
                     try? await Task.sleep(nanoseconds: 350_000_000)
-                    withAnimation(.smooth) { proxy.scrollTo(scrollTo, anchor: .top) }
+                    DS.animate(.standard, reduceMotion: reduceMotion) { proxy.scrollTo(scrollTo, anchor: .top) }
                 }
         }
         .confirmationDialog("Sign out of LibreLinkUp?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
@@ -185,6 +186,14 @@ struct PhoneSettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        // Rows a toggle reveals or hides slide in and out with the toggle, instead of popping.
+        .dsAnimation(.standard, value: settings.alertsEnabled)
+        .dsAnimation(.standard, value: settings.alertOnPredictedLow || settings.alertOnPredictedHigh)
+        .dsAnimation(.standard, value: services.liveActivityEnabled)
+        .dsAnimation(.standard, value: logbookSync.enabled)
+        .dsAnimation(.standard, value: logbookSync.isProblem)
+        .dsAnimation(.standard, value: settings.therapy.logsInsulin)
+        .dsAnimation(.standard, value: relay.isConfigured)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -212,7 +221,7 @@ struct PhoneSettingsView: View {
             Picker("Units", selection: $settings.unit) {
                 ForEach(GlucoseUnit.allCases) { Text($0.label).tag($0) }
             }
-            TargetRangeEditor(settings: settings)
+            TargetRangeEditor(settings: settings, readingMgdl: freshMgdl)
                 .padding(.vertical, DS.Space.xs)
             Toggle("Show forecast on the chart", isOn: $settings.showForecast)
         } header: {
@@ -374,6 +383,13 @@ struct PhoneSettingsView: View {
         } footer: {
             Text("Send family a link in Messages that shows your glucose live, and on their Lock Screen if they have GlucOS.")
         }
+    }
+
+    /// The latest reading while it's fresh, for the range editor's marker.
+    private var freshMgdl: Double? {
+        let s = store.snapshot
+        guard let cur = s.current, !s.isStale() else { return nil }
+        return cur.mgdl
     }
 
     private var liveActivityStatus: String {
