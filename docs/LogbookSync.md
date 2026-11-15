@@ -23,8 +23,9 @@ LibreLinkUp account they already use.
   delete's tombstone, so the server takes them back and the other devices pull them again (a
   deleted-then-undone entry reappears on the Mac rather than staying gone). This device's own
   tombstone coming back on the next pull leaves Undo available; only a change made elsewhere after
-  the delete ends it (`LogbookUndo`). On iPhone the Undo toast stays up 5 seconds after the last
-  delete (20 under VoiceOver).
+  the delete ends it (`LogbookUndo`). On iPhone and Mac the Undo toast stays up 5 seconds after the
+  last delete (20 under VoiceOver); on the Mac, ⌘Z undoes and holding the pointer over the toast
+  keeps it up.
 - **First sync.** A device's existing entries are uploaded as older than anything already on the
   server: entries the server lacks are added, and a delete made elsewhere still wins.
 - **Sign-in.** The `account` edge function checks the LibreLinkUp login with Abbott once, finds or

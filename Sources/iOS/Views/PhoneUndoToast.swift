@@ -61,14 +61,8 @@ struct PhoneUndoToast: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// "Deleted 4 u NovoRapid", or "3 entries deleted".
-    static func title(_ deleted: [LogEntry]) -> String {
-        if deleted.count == 1, let e = deleted.first {
-            let what = e.phoneTitle
-            return what.isEmpty ? "Entry deleted" : "Deleted \(what)"
-        }
-        return "\(deleted.count) entries deleted"
-    }
+    /// "Deleted 4 u NovoRapid", or "3 entries deleted" (`LogbookUndo.title`, shared with the Mac).
+    static func title(_ deleted: [LogEntry]) -> String { LogbookUndo.title(deleted) }
 }
 
 /// Clears the undo buffer `LogbookUndo.toastSeconds` after the last delete, so the toast springs

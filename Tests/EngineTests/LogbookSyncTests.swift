@@ -308,4 +308,16 @@ extension LogbookSyncTests {
         let other = LogbookRecord(id: UUID(), kind: "dose", payload: nil, deleted: true, modified: 9000, rev: 10)
         XCTAssertTrue(LogbookUndo.superseded(by: [other], deletedAt: deletedAt).isEmpty)
     }
+
+    func testUndoToastNamesOneEntryAndCountsSeveral() {
+        // One title for the iPhone and Mac toasts.
+        let d = LogEntry.dose(dose(4))
+        XCTAssertEqual(LogbookUndo.title([d]), "Deleted 4 u NovoRapid")
+        let toast = LogEntry.meal(MealEntry(timestamp: Date(timeIntervalSince1970: 1_790_000_000), carbs: 45, food: "Toast"))
+        XCTAssertEqual(LogbookUndo.title([toast]), "Deleted 45 g · Toast")
+        XCTAssertEqual(LogbookUndo.title([d, toast]), "2 entries deleted")
+        // A context with no tags has nothing to name.
+        let empty = LogEntry.context(ContextEvent(timestamp: Date(timeIntervalSince1970: 1_790_000_000), tags: []))
+        XCTAssertEqual(LogbookUndo.title([empty]), "Entry deleted")
+    }
 }
