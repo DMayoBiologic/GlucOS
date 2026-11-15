@@ -26,6 +26,17 @@ struct PopoverHero: View {
     }
 
     var body: some View {
+        // Drawn once more at the moment the reading goes stale, so an open popover fades the number
+        // to grey and strikes it through right then rather than at the next refresh.
+        TimelineView(.explicit(staleMoments)) { _ in hero }
+    }
+
+    private var staleMoments: [Date] {
+        s.current.map { [$0.timestamp.addingTimeInterval(GlucoseSnapshot.staleAfter + 1)] } ?? []
+    }
+
+    @ViewBuilder
+    private var hero: some View {
         let stale = s.isStale()
         let tone = s.displayTone()
         let tint = tone.color
@@ -56,6 +67,11 @@ struct PopoverHero: View {
         .padding(.top, 14)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Losing the signal or getting it back: the trend line, needle and rail fade over with the
+        // number (whose own fade and strike come from `.staleStrike`). The first reading after
+        // waiting fades in. Only fades remain under Reduce Motion.
+        .dsAnimation(.sweep, value: stale)
+        .dsAnimation(.standard, value: s.current == nil)
         // One element for VoiceOver: the whole reading in a sentence, with the card's actions.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)

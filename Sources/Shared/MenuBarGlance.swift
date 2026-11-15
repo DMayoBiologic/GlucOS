@@ -49,6 +49,60 @@ struct MenuBarGlance: Equatable {
 }
 
 extension MenuBarGlance {
+    /// What moves when the item goes from one glance to the next. The item draws a short run of
+    /// frames for anything but `.none`, once, and never on a timer.
+    enum Change: Equatable {
+        /// Swaps at once: a setting, the age of a stale reading ticking over.
+        case none
+        /// A new value rolls in, up or down with the change.
+        case roll
+        /// The signal is lost: the value fades to grey and the strike draws in.
+        case goingStale
+        /// Data is back: the strike retracts and the colour returns (rolling too if the value moved).
+        case comingBack
+        /// The first reading after waiting (a sensor warming up, a new sign-in): it fades in.
+        case firstReading
+
+        /// Whether the value cross-fades between two colours rather than only rolling.
+        var fadesColour: Bool { self == .goingStale || self == .comingBack }
+        /// Whether the move is only a fade, so it still plays under Reduce Motion (as a quicker
+        /// cross-fade with the strike whole) while rolls are dropped.
+        var keepsUnderReduceMotion: Bool { self != .roll && self != .none }
+    }
+
+    static func change(from old: MenuBarGlance?, to new: MenuBarGlance) -> Change {
+        guard let old else { return .none }
+        if !old.hasReading { return new.hasReading ? .firstReading : .none }
+        guard new.hasReading else { return .none }
+        if old.state == .live && new.state == .stale { return .goingStale }
+        if old.state == .stale && new.state == .live { return .comingBack }
+        return old.valueText != new.valueText ? .roll : .none
+    }
+
+    /// How much of the strike is drawn at `progress` (0...1) through a change: it draws in over
+    /// the first part going stale, retracts coming back, and is whole or absent otherwise. Under
+    /// Reduce Motion it doesn't travel; the line is whole and fades with the value instead.
+    static func strikeDrawn(_ change: Change, state: State, progress: Double, reduceMotion: Bool) -> Double {
+        let p = min(1, max(0, progress))
+        // The line finishes drawing before the colour has finished fading, as in the apps.
+        let lead = min(1, p / 0.4)
+        switch change {
+        case .goingStale: return reduceMotion ? 1 : lead
+        case .comingBack: return reduceMotion ? 1 : 1 - lead
+        case .none, .roll, .firstReading: return state == .stale ? 1 : 0
+        }
+    }
+
+    /// The strike's opacity: it only fades (rather than draws) under Reduce Motion.
+    static func strikeOpacity(_ change: Change, state: State, progress: Double, reduceMotion: Bool) -> Double {
+        let p = min(1, max(0, progress))
+        switch change {
+        case .goingStale: return reduceMotion ? p : 1
+        case .comingBack: return reduceMotion ? 1 - p : 1
+        case .none, .roll, .firstReading: return state == .stale ? 1 : 0
+        }
+    }
+
     /// Sparkline buckets: twelve five-minute slots over the last hour.
     static let sparklineBuckets = 12
     static let sparklineWindow: TimeInterval = 3600

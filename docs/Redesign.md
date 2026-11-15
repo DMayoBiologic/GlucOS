@@ -134,6 +134,16 @@ When data goes stale the field desaturates to grey (`.ambient`), the strike line
 value left to right (0.35 s, a trim), the needle fades to a question mark, the meter turns amber and
 stays full. Reversed when data returns.
 
+The number fades to grey on `.sweep` as the line draws, and the trend line, needle, rail and pill
+fade over with it, everywhere a reading is shown: the iPhone hero and follower cards, the Mac
+popover, the menu bar item, the Live Activity in every presentation, and the Home Screen widget
+between timeline entries. `.staleStrike` keeps no state, so the same modifier animates between two
+Live Activity states or widget entries. The Mac popover redraws at the exact stale moment
+(`TimelineView(.explicit)`), and the menu bar item plays it as a one-off run of frames
+(`MenuBarGlance.Change`: `.goingStale`, `.comingBack`, `.firstReading`). The first reading after
+waiting (a sensor warming up, a new sign-in) fades in over the placeholder. Under Reduce Motion
+nothing travels: the colour and the whole line cross-fade in 0.25 s. Nothing loops (§4.6).
+
 ### 4.4 Ambient field drift
 
 The range field's mesh nodes drift on a 14 s loop, at most 6 % of the field's size. Only on app

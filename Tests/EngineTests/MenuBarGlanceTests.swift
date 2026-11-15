@@ -115,4 +115,56 @@ final class MenuBarGlanceTests: XCTestCase {
         XCTAssertEqual(glance(s, delta: true).deltaText, "+0.3")
         XCTAssertNil(glance(s).deltaText)
     }
+
+    // MARK: State changes
+
+    func testChangeBetweenGlances() {
+        let live = glance(snapshot(mgdl: 115, ageSeconds: 60))
+        let moved = glance(snapshot(mgdl: 140, ageSeconds: 60))
+        let stale = glance(snapshot(mgdl: 115, ageSeconds: GlucoseSnapshot.staleAfter + 60))
+        let olderStale = glance(snapshot(mgdl: 115, ageSeconds: GlucoseSnapshot.staleAfter + 120))
+        let waiting = MenuBarGlance.make(snapshot: GlucoseSnapshot(), recent: [], hasCredentials: true,
+                                         showDelta: false, showSparkline: false, colorByRange: true, now: referenceNow)
+        XCTAssertEqual(MenuBarGlance.change(from: nil, to: live), .none)
+        XCTAssertEqual(MenuBarGlance.change(from: live, to: moved), .roll)
+        XCTAssertEqual(MenuBarGlance.change(from: live, to: stale), .goingStale)
+        XCTAssertEqual(MenuBarGlance.change(from: stale, to: moved), .comingBack)
+        XCTAssertEqual(MenuBarGlance.change(from: stale, to: live), .comingBack)
+        // A stale reading's age ticking over just swaps.
+        XCTAssertEqual(MenuBarGlance.change(from: stale, to: olderStale), .none)
+        // The first reading after waiting (warm-up, a new sign-in) fades in; losing it swaps.
+        XCTAssertEqual(MenuBarGlance.change(from: waiting, to: live), .firstReading)
+        XCTAssertEqual(MenuBarGlance.change(from: live, to: waiting), .none)
+        XCTAssertEqual(MenuBarGlance.change(from: live, to: live), .none)
+    }
+
+    func testOnlyFadesPlayUnderReduceMotion() {
+        XCTAssertFalse(MenuBarGlance.Change.roll.keepsUnderReduceMotion)
+        XCTAssertFalse(MenuBarGlance.Change.none.keepsUnderReduceMotion)
+        XCTAssertTrue(MenuBarGlance.Change.goingStale.keepsUnderReduceMotion)
+        XCTAssertTrue(MenuBarGlance.Change.comingBack.keepsUnderReduceMotion)
+        XCTAssertTrue(MenuBarGlance.Change.firstReading.keepsUnderReduceMotion)
+    }
+
+    func testStrikeDrawsInGoingStaleAndRetractsComingBack() {
+        func drawn(_ c: MenuBarGlance.Change, _ state: MenuBarGlance.State, _ p: Double, rm: Bool = false) -> Double {
+            MenuBarGlance.strikeDrawn(c, state: state, progress: p, reduceMotion: rm)
+        }
+        XCTAssertEqual(drawn(.goingStale, .stale, 0), 0)
+        XCTAssertEqual(drawn(.goingStale, .stale, 0.2), 0.5, accuracy: 1e-9)
+        // Whole before the colour fade ends.
+        XCTAssertEqual(drawn(.goingStale, .stale, 0.4), 1)
+        XCTAssertEqual(drawn(.goingStale, .stale, 1), 1)
+        XCTAssertEqual(drawn(.comingBack, .live, 0), 1)
+        XCTAssertEqual(drawn(.comingBack, .live, 1), 0)
+        XCTAssertEqual(drawn(.none, .stale, 0), 1)
+        XCTAssertEqual(drawn(.none, .live, 0.5), 0)
+        // Reduce Motion: the line doesn't travel, it fades.
+        XCTAssertEqual(drawn(.goingStale, .stale, 0.1, rm: true), 1)
+        XCTAssertEqual(MenuBarGlance.strikeOpacity(.goingStale, state: .stale, progress: 0.3, reduceMotion: true), 0.3,
+                       accuracy: 1e-9)
+        XCTAssertEqual(MenuBarGlance.strikeOpacity(.comingBack, state: .live, progress: 0.3, reduceMotion: true), 0.7,
+                       accuracy: 1e-9)
+        XCTAssertEqual(MenuBarGlance.strikeOpacity(.goingStale, state: .stale, progress: 0.3, reduceMotion: false), 1)
+    }
 }

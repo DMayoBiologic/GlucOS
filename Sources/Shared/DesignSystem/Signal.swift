@@ -475,12 +475,32 @@ struct RangeBadgeSwap: View {
 // MARK: - Stale strike
 
 extension View {
-    /// The line across a stale value (§4.3). It draws in left to right over 0.35 s when the reading
-    /// goes stale and retracts when data returns; it's simply there, complete, when a view is first
-    /// drawn stale (widgets included). It jumps under Reduce Motion.
+    /// A value going stale or coming back (§4.3): its colour fades to grey and the line across it
+    /// draws in left to right, then fades back and retracts when data returns. It's simply there,
+    /// complete, when a view is first drawn stale. It has no state of its own, so it animates
+    /// between two Live Activity states and two widget timeline entries as well as in the apps.
+    /// Under Reduce Motion nothing travels: the colour and the whole line cross-fade instead.
+    /// One-shot only. Apply it after the value's `foregroundStyle`.
     func staleStrike(_ stale: Bool, color: Color = Color.secondary.opacity(0.7), thickness: CGFloat = 3,
                      angle: Double = -8) -> some View {
         modifier(StaleStrike(stale: stale, color: color, thickness: thickness, angle: angle))
+    }
+}
+
+/// How the strike is drawn for a stale flag: how much of the line, and how opaque.
+private struct StaleStrikeLook: Equatable {
+    var drawn: Double
+    var opacity: Double
+
+    init(stale: Bool, reduceMotion: Bool) {
+        // Under Reduce Motion the line is always whole and fades; otherwise it draws.
+        drawn = stale || reduceMotion ? 1 : 0
+        opacity = stale ? 1 : 0
+    }
+
+    /// The strike's own timing: a short draw, or the shorter cross-fade under Reduce Motion.
+    static func animation(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeInOut(duration: 0.25) : .easeInOut(duration: 0.35)
     }
 }
 
@@ -489,31 +509,23 @@ private struct StaleStrike: ViewModifier {
     let color: Color
     let thickness: CGFloat
     let angle: Double
-
-    @State private var drawn: Double
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(stale: Bool, color: Color, thickness: CGFloat, angle: Double) {
-        self.stale = stale
-        self.color = color
-        self.thickness = thickness
-        self.angle = angle
-        _drawn = State(initialValue: stale ? 1 : 0)
-    }
-
     func body(content: Content) -> some View {
+        let look = StaleStrikeLook(stale: stale, reduceMotion: reduceMotion)
         content
+            // The fade to grey (or back to the range colour) on the colour-sweep timing.
+            .animation(DSMotion.sweep.animation(reduceMotion: reduceMotion), value: stale)
             .overlay {
                 StrikeLine()
-                    .trim(from: 0, to: drawn)
+                    .trim(from: 0, to: look.drawn)
                     .stroke(color, style: StrokeStyle(lineWidth: thickness, lineCap: .round))
+                    .opacity(look.opacity)
                     .rotationEffect(.degrees(angle))
                     .padding(.horizontal, -2)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
-            }
-            .onChange(of: stale) { _, now in
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) { drawn = now ? 1 : 0 }
+                    .animation(StaleStrikeLook.animation(reduceMotion: reduceMotion), value: look)
             }
     }
 }
