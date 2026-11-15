@@ -14,6 +14,9 @@ struct OutlookModel: Hashable {
     /// How much wider the likely range is drawn, from how the forecasts shown on this device
     /// actually did (`ForecastLedger.rangeScale`). Set by the app from its forecast log.
     var rangeScale: ForecastRangeScale = .unchanged
+    /// How far ahead the forecast may be drawn, from how this device's own forecasts did against
+    /// no change (`ForecastLedger.liveHorizon`). Set by the app from its forecast log.
+    var liveHorizon: ForecastLiveHorizon = .unlimited
 
     static let empty = OutlookModel(profile: .empty, calibration: nil, patterns: [], learnedAt: .distantPast)
 }
@@ -31,6 +34,15 @@ struct Outlook {
     var glucoseForecast: GlucoseForecast? {
         if case .success(let f) = forecast { return f }
         return nil
+    }
+
+    /// What goes in the forecast log: the drawn forecast with its cut-off part, or, when live
+    /// checks cut it back to nothing, the forecast that wasn't drawn.
+    var forecastToLog: GlucoseForecast? {
+        switch forecast {
+        case .success(let f): return f
+        case .failure(let e): return e.unshown
+        }
     }
 
     var limitations: [ForecastLimitation] {
@@ -51,6 +63,7 @@ struct Outlook {
         s.lowExpectedAt = f?.firstBelow(lowMgdl)
         s.lowPossibleAt = f?.firstRangeBelow(lowMgdl)
         if case .failure(let e) = forecast { s.unavailableReason = e.reason.message }
+        s.caveat = ForecastCaveat.pick(forecast)
         s.morning = f?.morning.map {
             MorningAdjustmentSnapshot(wokeAt: $0.wokeAt, addedMgdl: $0.addedMgdl, confidence: $0.confidence ?? .low)
         }
@@ -93,6 +106,7 @@ enum OutlookEngine {
                                    morning: model.morning.isUsable ? model.morning : nil,
                                    tuning: model.tuning.tuning, rangeScale: model.rangeScale, now: now)
         input.unloggedMealTimes = unloggedMeals
+        input.liveHorizon = model.liveHorizon
         let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
             + unloggedMeals
         return Outlook(at: now,

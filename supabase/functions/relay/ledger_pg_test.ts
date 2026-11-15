@@ -51,7 +51,9 @@ Deno.test({
       const second = { ...first, id: crypto.randomUUID(), issuedAt: start + 40 * 60, startMgdl: 140, points: points(140) };
       assert(await ledger.record(user, second));
       // Not yet due: the third forecast's points are in the future.
-      const third = { ...first, id: crypto.randomUUID(), issuedAt: now - 60, startMgdl: 189, points: points(189) };
+      // Its 30-minute point was past the drawn horizon (live cut), kept only to be scored.
+      const third = { ...first, id: crypto.randomUUID(), issuedAt: now - 60, startMgdl: 189,
+                      points: [points(189)[0], { ...points(189)[1], shown: false as const }] };
       assert(await ledger.record(user, third));
 
       // A meal logged 20 minutes after the second forecast: its 30-minute point comes after it.
@@ -83,6 +85,17 @@ Deno.test({
         where user_id = ${user}::uuid and device = 'relay' order by minutes`;
       assertEquals(acc.map((a) => [a.minutes, a.clean, Number(a.checks)]), [[15, true, 2], [30, true, 1]]);
       assertAlmostEquals(Number(acc[0].mae), 5, 0.01);
+
+      // What the live horizon is worked out from: every point of the last week, scored or not.
+      const live = (await ledger.livePoints(user)).sort((a, b) => a.issuedAt - b.issuedAt || a.minutes - b.minutes);
+      assertEquals(live.map((p) => [p.minutes, p.actual, p.afterLog, p.shown]), [
+        [15, 115, false, true], [30, 130, false, true],
+        [15, 155, false, true], [30, null, true, true],
+        [15, null, false, true], [30, null, false, false],
+      ]);
+      assertEquals(live[0].startMgdl, 100);
+      assertEquals(live[0].mgdl, 110);
+      assertEquals(live[0].issuedAt, start);
 
       // Interpolation between readings up to 20 minutes apart.
       const mid = await sql`select glucos.reading_at(to_timestamp(${start + 150})) as v`;

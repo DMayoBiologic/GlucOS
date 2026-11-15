@@ -458,9 +458,16 @@ export interface Forecast {
   basis: "trend";
   trendPerMinute: number;
   samples: ForecastSample[];
+  /// The part past the drawn horizon that the live checks cut off (GlucoseForecast.unshown):
+  /// never drawn, alerted on or shared, only kept in the ledger so those horizons go on being scored.
+  unshown?: ForecastSample[];
+  /// Set when the live checks cut the forecast short (ForecastLimitation.liveHorizon).
+  liveCut?: LiveCut;
 }
 
-export type ForecastResult = { ok: true; forecast: Forecast } | { ok: false; reason: string };
+/// When the live checks cut the forecast back to nothing, `unshown` is the forecast that wasn't
+/// drawn, for the ledger only (ForecastFailure.unshown).
+export type ForecastResult = { ok: true; forecast: Forecast } | { ok: false; reason: string; unshown?: Forecast };
 
 const unavailable = {
   noReading: "No reading yet.",
@@ -489,6 +496,7 @@ export function trendAt(series: Series, at: number, window = standardTuning.tren
 /// half an hour or the tuned time (no insulin or carbs, since the logbook lives on the Mac).
 export function forecast(series: Series, calibration: Calibration | null, now: number, maxHorizon?: number,
                          tuning: Tuning = calibration?.tuning ?? standardTuning,
+                         live: LiveCut | null = null,
                          rangeScale: RangeScale | null = null): ForecastResult {
   const latest = series.last;
   if (!latest) return { ok: false, reason: unavailable.noReading };
@@ -509,6 +517,12 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
       if (horizon <= 0) return { ok: false, reason: unavailable.notAccurateEnough };
     }
   }
+
+  // How far it's drawn: the relay's own live checks can cut it shorter, never longer. The rest is
+  // still worked out, for the ledger to score.
+  let shownHorizon = horizon;
+  const cut = maxHorizon === undefined && live && live.failedAt * 60 <= horizon ? live : null;
+  if (cut) shownHorizon = cut.shownMinutes * 60;
 
   // Widened from the relay's own shown forecasts (rangeScaleFrom), never in a replay.
   const widen = (minutes: number) => (maxHorizon === undefined ? rangeFactor(rangeScale, minutes, trend) : 1);
@@ -538,7 +552,66 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
       });
     }
   }
-  return { ok: true, forecast: { issuedAt: t0, startMgdl: latest.mgdl, basis: "trend", trendPerMinute: trend, samples } };
+  const f: Forecast = { issuedAt: t0, startMgdl: latest.mgdl, basis: "trend", trendPerMinute: trend, samples };
+  if (!cut) return { ok: true, forecast: f };
+  const drawn = { ...f, samples: samples.filter((s) => s.t <= t0 + shownHorizon),
+                  unshown: samples.filter((s) => s.t > t0 + shownHorizon), liveCut: cut };
+  if (shownHorizon <= 0) return { ok: false, reason: unavailable.notAccurateEnough, unshown: drawn };
+  return { ok: true, forecast: drawn };
+}
+
+// MARK: - Live horizon (ForecastLedger.liveHorizon)
+
+/// How far the forecast is drawn (the checked horizon before `failedAt`, or 0), after the first
+/// checked horizon that lost to no change.
+export interface LiveCut {
+  shownMinutes: number;
+  failedAt: number;
+}
+
+/// One point of the relay's own ledger. `actual` is null until scored.
+export interface LivePoint {
+  issuedAt: number;
+  minutes: number;
+  mgdl: number;
+  startMgdl: number;
+  actual: number | null;
+  afterLog: boolean;
+  shown: boolean;
+}
+
+export const liveHorizonWindow = 7 * 86_400;
+export const liveMinimumChecks = 30;
+/// A drawn horizon is cut once its error reaches this share of no change's...
+export const liveCutRatio = 1.05;
+/// ...and drawn again once it's back to this share. In between it stays as it is.
+export const liveRestoreRatio = requiredImprovement;
+
+/// How far ahead the relay may draw its forecast, from how its own forecasts in the last week did
+/// against no change on points with nothing logged in between (ForecastLedger.liveHorizon): a drawn
+/// horizon is cut when clearly worse, a cut one comes back once clearly better and stays cut while
+/// it has too few checks, and everything past the first cut goes with it. Null: no cut.
+export function liveHorizon(points: LivePoint[], now: number): LiveCut | null {
+  const mine = points.filter((p) => p.issuedAt >= now - liveHorizonWindow && p.issuedAt <= now);
+  let shown = 0;
+  for (const h of [...calibrationHorizons].sort((a, b) => a - b)) {
+    const at = mine.filter((p) => p.minutes === h);
+    const latest = at.reduce<LivePoint | null>((a, p) => (!a || p.issuedAt > a.issuedAt ? p : a), null);
+    const cutNow = latest !== null && !latest.shown;
+    const clean = at.filter((p) => !p.afterLog && p.actual !== null);
+    let isCut: boolean;
+    if (clean.length >= liveMinimumChecks) {
+      const mae = clean.reduce((s, p) => s + Math.abs(p.actual! - p.mgdl), 0) / clean.length;
+      const nc = clean.reduce((s, p) => s + Math.abs(p.actual! - p.startMgdl), 0) / clean.length;
+      const ratio = nc > 0 ? mae / nc : (mae > 0 ? Infinity : 1);
+      isCut = cutNow ? ratio > liveRestoreRatio : ratio >= liveCutRatio;
+    } else {
+      isCut = cutNow;
+    }
+    if (isCut) return { shownMinutes: shown, failedAt: h };
+    shown = h;
+  }
+  return null;
 }
 
 /// One replayed forecast point compared with what happened (ForecastBacktest.Check).
@@ -1035,12 +1108,15 @@ export function processTick(args: {
   calibration: Calibration | null;
   /// The relay's range widening from its own ledger. Missing: none.
   rangeScale?: RangeScale | null;
+  /// How far its own live checks let the relay draw the forecast (liveHorizon). Missing: no cut.
+  live?: LiveCut | null;
   now: number;
 }): TickResult {
   const { stored, now } = args;
   const snapshot = makeSnapshot(stored, args.current, args.sensor, args.display, args.lastError);
   const recent = stored.filter((r) => now - r.t <= 3600);
-  const result = forecast(new Series(recent), args.calibration, now, undefined, undefined, args.rangeScale ?? null);
+  const result = forecast(new Series(recent), args.calibration, now, undefined,
+    args.calibration?.tuning ?? standardTuning, args.live ?? null, args.rangeScale ?? null);
   if (snapshot.current) snapshot.outlook = outlookSnapshot(result, now, snapshot.lowMgdl);
   const notices = evaluateAlerts(args.planner, snapshot, args.prefs, now);
   const p = evaluatePrediction(args.planner, snapshot, result.ok ? result.forecast : null, args.prefs, now);

@@ -9,7 +9,8 @@
 // to sync) means nothing is kept.
 
 import {
-  calibrationHorizons, type Calibration, type Forecast, isStandardTuning, rangeFactor, type RangeScale, type ShownForecast,
+  calibrationHorizons, type Calibration, type Forecast, isStandardTuning, type LiveCut, type LivePoint, liveHorizonWindow,
+  rangeFactor, type RangeScale, type ShownForecast,
 } from "./core.ts";
 import { syntheticEmail } from "./libre.ts";
 import type postgres from "npm:postgres@3.4.5";
@@ -31,6 +32,8 @@ export interface LedgerPoint {
   upper: number;
   /// How much the range was widened when shown (rangeFactor). Missing: not widened.
   scale?: number;
+  /// Only ever false: a point past the drawn horizon, kept to go on scoring it.
+  shown?: false;
 }
 
 export interface LedgerRecord {
@@ -57,6 +60,9 @@ export interface LedgerState {
   /// How much wider to draw the range, from the relay's own scored forecasts (rangeScaleFrom),
   /// worked out after each scoring. Missing or null: not widened.
   rangeScale?: RangeScale | null;
+  /// How far the relay's own live checks let it draw the forecast, worked out when it scores
+  /// (`liveHorizon`). Missing on old rows; null: no cut.
+  live?: LiveCut | null;
 }
 
 export interface ForecastLedger {
@@ -68,6 +74,8 @@ export interface ForecastLedger {
   score(owner: string): Promise<number>;
   /// The owner's relay forecasts issued since `since` (unix seconds), as scored so far.
   shown(owner: string, since: number): Promise<ShownForecast[]>;
+  /// The owner's relay ledger points from the last `liveHorizonWindow`, for `liveHorizon`.
+  livePoints(owner: string): Promise<LivePoint[]>;
 }
 
 /// The forecast as a ledger record, or null when it's within `ledgerSpacing` of the last one or
@@ -78,9 +86,13 @@ export function ledgerRecord(f: Forecast, calibration: Calibration | null, lastI
   const points: LedgerPoint[] = [];
   for (const m of calibrationHorizons) {
     const target = f.issuedAt + m * 60;
-    const s = f.samples.find((x) => Math.abs(x.t - target) < 30);
-    if (!s) continue;
-    const point: LedgerPoint = { minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl };
+    const near = (x: { t: number }) => Math.abs(x.t - target) < 30;
+    const s = f.samples.find(near);
+    const kept = s ? undefined : f.unshown?.find(near);
+    const at = s ?? kept;
+    if (!at) continue;
+    const point: LedgerPoint = { minutes: m, mgdl: at.mgdl, lower: at.lowerMgdl, upper: at.upperMgdl };
+    if (!s) point.shown = false;
     // Kept so the next widening is measured against the range before this one (no compounding).
     if (rangeScale) point.scale = rangeFactor(rangeScale, m, f.trendPerMinute);
     points.push(point);
@@ -138,6 +150,23 @@ export class PostgresForecastLedger implements ForecastLedger {
         afterLog: p.after_log === true,
         scale: typeof p.scale === "number" ? p.scale : null,
       })),
+    }));
+  }
+
+  async livePoints(owner: string): Promise<LivePoint[]> {
+    const rows = await this.sql`
+      select extract(epoch from f.issued_at)::float8 as issued, (p ->> 'minutes')::int as minutes,
+             (p ->> 'mgdl')::float8 as mgdl, f.start_mgdl,
+             case when jsonb_typeof(p -> 'actual') = 'number' then (p ->> 'actual')::float8 end as actual,
+             coalesce((p ->> 'after_log')::boolean, false) as after_log,
+             coalesce((p ->> 'shown')::boolean, true) as shown
+      from glucos.forecast_checks f
+      cross join lateral jsonb_array_elements(f.points) p
+      where f.user_id = ${owner}::uuid and f.device = ${ledgerDevice}
+        and f.issued_at > now() - make_interval(secs => ${liveHorizonWindow})`;
+    return rows.map((r) => ({
+      issuedAt: Number(r.issued), minutes: Number(r.minutes), mgdl: Number(r.mgdl), startMgdl: Number(r.start_mgdl),
+      actual: r.actual === null ? null : Number(r.actual), afterLog: Boolean(r.after_log), shown: Boolean(r.shown),
     }));
   }
 }

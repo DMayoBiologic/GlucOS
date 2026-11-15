@@ -116,7 +116,7 @@ select * from glucos.forecast_points order by issued_at desc limit 100;
   instead of compounding. The Outlook page says when the range has been widened. The forecast line
   itself never moves. Since 15 Nov 2026 it also widens forecasts that start with glucose moving
   fast on their own, widens the range the same day when the last 12 hours miss more often, and
-  counts ranges cut off at the sensor's limit; the relay does the same (§8).
+  counts ranges cut off at the sensor's limit; the relay does the same (§9).
 - **Short history**: the held-out profiles for the replay split the history there actually is into
   5 stretches, so a new user's insulin-and-carb forecasts get checked (and given a measured range
   and horizon) within days rather than after 30.
@@ -236,7 +236,38 @@ the iPhone app is awake; `glucos.forecast_scorecard` lists every device side by 
 shows the user's own figures (#71); and a dose with no food near it now asks whether it was for a
 meal (#73, docs/DoseQuestion.md), which addresses the unlogged-meal cause above at the source.
 
-## 8. Ranges that hold 8 in 10 (15 Nov 2026)
+## 8. Drawn only as far as it holds, live (15 Nov 2026)
+
+The replay (§1) sets how far ahead each kind of forecast may look, but it judges forecasts GlucOS
+*would* have made from history. On 15 Nov the Insights card showed the iPhone's own forecasts
+losing to no change at 60 minutes (47.7 against 39.8 mg/dL, 28 checks) while the replay still
+allowed that far. So each device now also cuts the forecast back by its own live record
+(`ForecastLedger.liveHorizon`, `ForecastLiveHorizon`):
+
+- Per kind of forecast (trend, insulin-and-carbs), over the last 7 days of this device's forecast
+  log (the same week the card shows), clean points only, at each checked horizon in turn.
+- A drawn horizon is cut once it has 30 checks and its error is at least 5% more than no change's
+  (what the card calls "further off than no change"). Everything after it goes too. "About the same"
+  (within 5%) leaves it as it is, so the 15-minute iPhone figure (14.8 against 14.4) doesn't hide
+  the forecast.
+- A cut horizon comes back once its error is at least 5% less than no change's (the replay's own
+  bar), and stays cut while it has fewer than 30 checks. Between the two it stays as it is, so it
+  doesn't flicker.
+- The forecast is still worked out to the replay's limit. The part past the cut is never drawn,
+  alerted on, put in the widget or shared (`GlucoseForecast.unshown`), but it's kept in the
+  forecast log with `"shown": false` on its points, so the cut horizon goes on being scored and can
+  earn its way back. When 15 minutes itself is cut, there's no forecast ("Past forecasts haven't
+  been accurate enough to show one") and the whole forecast is logged as not shown
+  (`ForecastFailure.unshown`). The Outlook detail says why (`ForecastLimitation.liveHorizon`).
+- The relay does the same for the Lock Screen from its own `relay` rows (`liveHorizon` in
+  `core.ts`, worked out each time it scores, kept in `work.forecastLog.live`). Its forecast only
+  reaches 30 minutes, so in practice it can drop to 15 minutes or to none.
+
+The scorecard and `glucos.forecast_scorecard` count the points that weren't drawn, which is what
+shows a cut horizon recovering. Range widening counts them too: their range was worked out the
+same way.
+
+## 9. Ranges that hold 8 in 10 (15 Nov 2026)
 
 `glucos.forecast_scorecard` on 15 Nov showed readings inside the range 54–75% of the time on every
 device and horizon (Mac 75 / 71 / 66% at 15 / 30 / 60 minutes, iPhone 69 / 68 / 54%, Lock Screen
@@ -286,4 +317,4 @@ actually like.
 its own ledger (`rangeScaleFrom` in `supabase/functions/relay/core.ts`, worked out after each
 scoring from its `glucos.forecast_checks` rows, kept in `relay.work.forecastLog.rangeScale`), and
 records each point's widening as `scale` in the points JSON so the figure settles. Replaying the
-relay's forecast the same way: 72 / 76% at 15 / 30 minutes before, 80 / 82% after. Relay 2.6.0.
+relay's forecast the same way: 72 / 76% at 15 / 30 minutes before, 80 / 82% after. Relay 2.7.0.

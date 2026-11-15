@@ -30,13 +30,14 @@ final class OutlookStore: ObservableObject {
             recent.append(current)
             recent.sort { $0.timestamp < $1.timestamp }
         }
-        // The range follows how this device's shown forecasts actually did.
+        // The range, and how far ahead it's drawn, follow how this device's forecasts actually did.
         var current = model
         current.rangeScale = ledger.rangeScale
+        current.liveHorizon = ledger.liveHorizon
         let o = OutlookEngine.outlook(readings: recent, doses: logbook?.doses ?? [], meals: logbook?.meals ?? [],
                                       contexts: logbook?.contexts ?? [], model: current, now: now)
         outlook = o
-        ledger.update(forecast: o.glucoseForecast, tuned: model.tuning.isTuned, archive: archive,
+        ledger.update(forecast: o.forecastToLog, tuned: model.tuning.isTuned, archive: archive,
                       current: snapshot.current, logTimes: Self.logTimes(logbook), now: now)
         return o
     }

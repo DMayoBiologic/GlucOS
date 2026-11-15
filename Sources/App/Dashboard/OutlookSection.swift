@@ -44,6 +44,8 @@ struct OutlookSection: View {
                                  hours: 3, interactive: true, forecast: current?.forecast ?? [])
                         .frame(height: layout.chartHeight(reserving: 420, minimum: 220, maximum: 380))
                     legend(current)
+                    // Why it's trend-only, shorter or wider. No forecast at all has its own banner below.
+                    ForecastCaveatLine(caveat: current?.caveat.flatMap { $0.kind == .hidden ? nil : $0 })
                 }
                 if let current, !current.forecast.isEmpty {
                     ForecastTiles(outlook: current, snapshot: snapshot, now: now)
@@ -58,8 +60,9 @@ struct OutlookSection: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if let o = outlook, !o.limitations.isEmpty, current != nil {
-                    LimitationList(limitations: o.limitations)
+                if let o = outlook, o.limitations.contains(where: { $0.code != current?.caveat?.source }), current != nil {
+                    // The caveat line already says the first of these.
+                    LimitationList(limitations: o.limitations.filter { $0.code != current?.caveat?.source })
                 }
             }
             .dashboardCard()
