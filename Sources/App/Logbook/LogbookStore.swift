@@ -33,6 +33,9 @@ final class LogbookStore: ObservableObject {
     private(set) var syncState = LogbookSyncState()
     /// Fires after every change made on this device (not ones pulled from another).
     let localChanges = PassthroughSubject<Void, Never>()
+    /// A dose newly logged on this device (not an edit, and not one pulled from another device),
+    /// so only the device it was logged on schedules "Was it for a meal?" (`DoseQuestion`).
+    let newLocalDose = PassthroughSubject<InsulinDose, Never>()
 
     private struct File: Codable {
         var version = 1
@@ -108,10 +111,22 @@ final class LogbookStore: ObservableObject {
             // an insulin the user deleted.
             let before = doses.first { $0.id == d.id }
             entry = .dose(rememberInsulin(of: d, addIfMissing: before.map { InsulinLibrary.key($0.name) != InsulinLibrary.key(d.name) } ?? true))
+            upsert(entry)
+            touch(entry.id, kind: entry.recordKind)
+            persist()
+            if before == nil, case .dose(let saved) = entry { newLocalDose.send(saved) }
+            return
         }
         upsert(entry)
         touch(entry.id, kind: entry.recordKind)
         persist()
+    }
+
+    /// Records the answer to "Was it for a meal?" (or clears it, for Undo). Syncs like any edit.
+    func setPurpose(_ purpose: DosePurpose?, forDose id: UUID) {
+        guard var d = doses.first(where: { $0.id == id }), d.purpose != purpose else { return }
+        d.purpose = purpose
+        save(.dose(d))
     }
 
     private func upsert(_ entry: LogEntry) {
@@ -155,7 +170,7 @@ final class LogbookStore: ObservableObject {
     /// A copy of `entry` at `time` with a fresh id ("Log again now").
     func duplicate(_ entry: LogEntry, at time: Date = Date()) {
         switch entry {
-        case .dose(var d): d.id = UUID(); d.timestamp = time; d.calculation = nil; save(.dose(d))
+        case .dose(var d): d.id = UUID(); d.timestamp = time; d.calculation = nil; d.purpose = nil; save(.dose(d))
         case .meal(var m): m.id = UUID(); m.timestamp = time; save(.meal(m))
         case .siteChange(var s): s.id = UUID(); s.timestamp = time; save(.siteChange(s))
         case .context(var c): c.id = UUID(); c.timestamp = time; save(.context(c))

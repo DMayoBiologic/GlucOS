@@ -11,7 +11,8 @@ import Foundation
 //     Δglucose = −S × (insulin acting in the interval) + K × (carbs absorbed in the interval) + drift(time of day)
 //
 // with the amounts acting taken from the population timing curves. Intervals the model can't
-// describe are left out (lows and the hour after them, untimed food, hypo treatments, exercise,
+// describe are left out (lows and the hour after them, untimed food, doses marked as for a meal
+// that isn't logged, hypo treatments, exercise,
 // illness and other context tags, data gaps). The fit is robust (Huber-weighted least squares),
 // so a few odd intervals (an unlogged snack, a compression low) don't drag it.
 
@@ -144,7 +145,9 @@ enum EffectProfileLearner {
             .map { (id: $0.id, meal: TimedCarbs(date: $0.timestamp, grams: $0.carbs)) }
             .sorted { $0.meal.date < $1.meal.date }
         let untimedFood = (meals.filter { $0.carbs <= 0 }.map(\.timestamp)
-            + contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)).sorted()
+            + contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
+            // Doses the user said were for a meal that isn't logged.
+            + DoseMealCheck.unloggedMealTimes(doses: doses, meals: meals)).sorted()
         let tagged = contexts.filter { c in c.tags.contains { $0 != .hypoTreatment && $0.affectsResponses } }
 
         // Start on a half-hour boundary.

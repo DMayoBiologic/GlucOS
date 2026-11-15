@@ -79,6 +79,9 @@ struct MenuBarView: View {
             }
             PopoverNotices(notices: notices)
                 .accessibilitySortPriority(3)
+            if PopoverDosePrompt.isRelevant(logbook: logbook) {
+                PopoverDosePrompt()
+            }
             if PopoverWakePrompt.isRelevant(logbook: logbook) {
                 PopoverWakePrompt()
             }
@@ -227,6 +230,7 @@ struct MenuBarView: View {
 
     /// Logging opens its own small window, since a sheet can't hang off the popover.
     private func showLogSheet() {
+        LogWindowRequest.shared.target = .new
         openWindow(id: LogWindow.id)
         NSApp.activate()
     }

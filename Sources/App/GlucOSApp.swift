@@ -19,7 +19,11 @@ struct GlucOSApp: App {
         _logbook = StateObject(wrappedValue: logbook)
         _logbookSync = StateObject(wrappedValue: sync)
         // The Mac app runs all the time, so sync starts with it and keeps going.
-        Task { @MainActor in sync.start() }
+        Task { @MainActor in
+            sync.start()
+            // "Was that dose for a meal?" after a dose with no food near it.
+            DoseQuestion.shared.start(logbook: logbook)
+        }
     }
 
     var body: some Scene {

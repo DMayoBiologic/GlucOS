@@ -215,7 +215,9 @@ Two changes were tried for the first hour, and neither went in:
 There were about ten logged meals in the history, so a few dozen checks per bucket. Both are
 worth trying again once there are a few weeks of logged meals. The quickest way to improve these
 forecasts is to log meals: 2026-11-14 and 15 have four fast doses (1.5–10 U) with no meal logged
-near them, and the forecast then expects the full drop from the insulin.
+near them, and the forecast then expects the full drop from the insulin. GlucOS now asks about
+doses like these ([DoseQuestion.md](DoseQuestion.md)); one marked as for a meal is treated as food
+it can't count.
 
 Uploads: `forecast_checks` arrive every 15 minutes from the Mac while it's awake, and from the
 iPhone while the app is open, about 1–2 hours after the forecast (each waits for its last checked

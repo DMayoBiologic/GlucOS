@@ -244,6 +244,7 @@ enum MorningPatternLearner {
         let carbs = meals.filter { $0.carbs > 0 }.map { TimedCarbs(date: $0.timestamp, grams: $0.carbs) }
         let untimedFood = meals.filter { $0.carbs <= 0 }.map(\.timestamp)
             + contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
+            + DoseMealCheck.unloggedMealTimes(doses: doses, meals: meals)
         let foodReach = CarbAbsorptionCurve.standard.totalDuration
         let S = profile.reliableInsulin?.value
         let K = profile.reliableCarbs?.value

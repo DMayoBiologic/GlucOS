@@ -4,11 +4,14 @@ import AppKit
 /// What the log sheet is for: a new entry, or editing one.
 enum LogSheetTarget: Identifiable {
     case new
+    /// Food at an earlier time: the meal a dose was for ("Was it for a meal?" → Meal → Add Food).
+    case meal(at: Date)
     case edit(LogEntry)
 
     var id: String {
         switch self {
         case .new: return "new"
+        case .meal(let at): return "meal-\(at.timeIntervalSince1970)"
         case .edit(let e): return e.id.uuidString
         }
     }
@@ -33,6 +36,8 @@ struct LogSheet: View {
 
     /// Closes the host. Nil for a sheet, which uses `dismiss`.
     private let onClose: (() -> Void)?
+    /// Opened to add the meal a logged dose was for: no "bolus for it" step, the dose is in already.
+    private let forLoggedDose: Bool
 
     /// Set when editing: only that part is shown.
     private let editing: Part?
@@ -99,6 +104,10 @@ struct LogSheet: View {
         var note = ""
         var items: [MealItem] = []
 
+        if case .meal(let at) = target {
+            time = min(at, Date())
+            parts = [.food]
+        }
         if case .edit(let entry) = target {
             time = entry.timestamp
             editingID = entry.id
@@ -139,6 +148,7 @@ struct LogSheet: View {
         }
 
         self.onClose = onClose
+        if case .meal = target { forLoggedDose = true } else { forLoggedDose = false }
         self.editing = editing
         self.editingID = editingID
         self.doseID = doseID
@@ -568,7 +578,7 @@ struct LogSheet: View {
     // MARK: Next step
 
     private var nextStep: LogNextStep? {
-        guard isNew else { return nil }
+        guard isNew, !forLoggedDose else { return nil }
         return LogFlow.nextStep(picked: parts, available: availableParts, carbs: foodValid ? (carbs ?? 0) : 0,
                                 mealtimeDose: kind.isBolus)
     }
@@ -1076,7 +1086,7 @@ struct LogSheet: View {
             logbook.save(.dose(InsulinDose(id: doseID, timestamp: time, units: units, kind: kind,
                                            name: trimmedName,
                                            site: viaPump ? nil : injectionSite, viaPump: viaPump,
-                                           note: trimmedNote, calculation: calculation)))
+                                           note: trimmedNote, calculation: calculation, purpose: existing?.purpose)))
         }
         if logsFood, let carbs {
             let described = foodText.isEmpty ? mealItems.map(\.name).joined(separator: ", ") : foodText
@@ -1216,11 +1226,24 @@ struct InjectionSitePicker: View {
 struct LogWindow: View {
     static let id = "log"
     @Environment(\.dismissWindow) private var dismissWindow
+    @ObservedObject private var request = LogWindowRequest.shared
 
     var body: some View {
-        LogSheet(target: .new) { dismissWindow(id: Self.id) }
-            .onAppear { NSApp.activate() }
+        LogSheet(target: request.target) {
+            request.target = .new
+            dismissWindow(id: Self.id)
+        }
+        // A new request (Add Food for a dose) starts the sheet afresh, even if the window is open.
+        .id(request.target.id)
+        .onAppear { NSApp.activate() }
     }
+}
+
+/// What the quick-log window opens on: usually a new entry, or the meal a dose was for.
+@MainActor
+final class LogWindowRequest: ObservableObject {
+    static let shared = LogWindowRequest()
+    @Published var target: LogSheetTarget = .new
 }
 
 // MARK: - Therapy setup

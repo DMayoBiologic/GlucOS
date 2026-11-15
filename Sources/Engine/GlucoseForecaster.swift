@@ -72,7 +72,7 @@ enum ForecastLimitation: Hashable {
         case .carbsNotLearned:
             return "Carbs are still being absorbed, but GlucOS hasn't seen enough of your meals to estimate their effect, so this only follows the trend."
         case .uncountedFood:
-            return "Food was logged without carbs recently, so its effect can't be included. This only follows the trend."
+            return "Food was logged without carbs recently, or a dose was for a meal that isn't logged, so the food's effect can't be included. This only follows the trend."
         case .deliveryProblem:
             return "A site or delivery problem was logged, so insulin isn't included. This only follows the trend."
         case .context(let tag):
@@ -285,6 +285,9 @@ enum GlucoseForecaster {
         let uncounted = input.meals.contains { $0.carbs <= 0 && $0.timestamp <= t0 && t0.timeIntervalSince($0.timestamp) < foodReach }
             || input.contexts.contains { $0.tags.contains(.hypoTreatment) && $0.timestamp <= t0
                                          && t0.timeIntervalSince($0.timestamp) < foodReach }
+            // A dose the user said was for a meal that isn't logged: food it can't count.
+            || DoseMealCheck.unloggedMealTimes(doses: input.doses, meals: input.meals)
+                .contains { $0 <= t0 && t0.timeIntervalSince($0) < foodReach }
         if uncounted { limitations.append(.uncountedFood) }
         if input.contexts.contains(where: { $0.tags.contains(.siteProblem) && $0.timestamp <= t0
                                             && t0.timeIntervalSince($0.timestamp) < 6 * 3600 }), insulinMatters {
