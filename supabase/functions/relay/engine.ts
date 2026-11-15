@@ -6,7 +6,7 @@
 import {
   type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
   type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
-  type Sensor, unitOf,
+  rangeScaleFrom, rangeWindow, type Sensor, unitOf,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
 import {
@@ -22,7 +22,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.6.0";
+export const version = "2.7.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -521,7 +521,8 @@ export class RelayEngine {
 
         const result = processTick({
           stored, current: w.current, sensor: w.sensor, lastError: w.lastError, display: row.prefs.display,
-          prefs: row.prefs.alerts, planner: w.planner, calibration: w.calibration, live: w.forecastLog?.live ?? null, now,
+          prefs: row.prefs.alerts, planner: w.planner, calibration: w.calibration, live: w.forecastLog?.live ?? null,
+          rangeScale: w.forecastLog?.rangeScale ?? null, now,
         });
 
         const token = row.prefs.deviceToken;
@@ -595,7 +596,7 @@ export class RelayEngine {
       // A forecast cut back to nothing is still kept, so its horizons go on being scored.
       const kept = result.ok ? result.forecast : result.unshown;
       if (kept) {
-        const record = ledgerRecord(kept, w.calibration, log.lastIssuedAt);
+        const record = ledgerRecord(kept, w.calibration, log.lastIssuedAt, undefined, log.rangeScale ?? null);
         if (record) {
           await ledger.record(owner, record);
           // Kept or not (one was already there), this 15 minutes is done.
@@ -606,6 +607,8 @@ export class RelayEngine {
         await ledger.score(owner);
         log.scoredAt = now;
         log.live = liveHorizon(await ledger.livePoints(owner), now);
+        // Widen the next forecasts from how the shown ones turned out (core.ts rangeScaleFrom).
+        log.rangeScale = rangeScaleFrom(await ledger.shown(owner, now - rangeWindow), now);
       }
     } catch (e) {
       console.error("forecast ledger", e);

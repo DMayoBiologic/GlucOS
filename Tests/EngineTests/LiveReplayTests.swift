@@ -112,6 +112,23 @@ struct LiveReplay {
                     if pts.count >= 3 { lines.append(Self.row("LAST 2 DAYS", m, "clean", pts)) }
                 }
             }
+            // How the range held up day by day, at the horizons the Insights card shows: the figure
+            // the widening is meant to keep at about 8 in 10 as the errors change.
+            lines.append("")
+            lines.append("inside the range by day, clean points (UTC day: 15 / 30 / 60 min, n, mean 30-min range width mg/dL)")
+            let day = DateFormatter(); day.dateFormat = "MM-dd"; day.timeZone = TimeZone(identifier: "UTC")
+            let byDay = Dictionary(grouping: ledger.records) { day.string(from: $0.issuedAt) }
+            for key in byDay.keys.sorted() {
+                let cells = [15, 30, 60].map { m -> String in
+                    let pts = byDay[key]!.flatMap { $0.points.filter { $0.minutes == m && !$0.afterLog && $0.actual != nil } }
+                    guard !pts.isEmpty else { return "   -" }
+                    return String(format: "%3.0f%%", Double(pts.filter { $0.insideRange == true }.count) / Double(pts.count) * 100)
+                }
+                let n = byDay[key]!.flatMap { $0.points.filter { [15, 30, 60].contains($0.minutes) && !$0.afterLog && $0.actual != nil } }.count
+                let widths = byDay[key]!.flatMap { $0.points.filter { $0.minutes == 30 && !$0.afterLog && $0.actual != nil }.map { $0.upper - $0.lower } }
+                let width = widths.isEmpty ? "-" : String(format: "%.0f", widths.reduce(0, +) / Double(widths.count))
+                lines.append("\(key)  \(cells.joined(separator: " / "))  \(n)  \(width)")
+            }
             if ProcessInfo.processInfo.environment["GLUCOS_REPLAY_VERBOSE"] == "3" {
                 let f = DateFormatter(); f.dateFormat = "MM-dd HH:mm"; f.timeZone = TimeZone(identifier: "UTC")
                 for r in ledger.records where r.basis == .trendInsulinCarbs || r.points.contains(where: \.afterLog) {

@@ -199,9 +199,20 @@ struct ForecastRangeScale: Hashable, Codable {
     var byHorizon: [ForecastBasis: [Int: Double]] = [:]
     /// Shown forecast points the figures came from.
     var checks: Int = 0
+    /// Extra widening for forecasts that start with glucose moving at least
+    /// `fastTrendPerMinute`, which miss far more often than the rest.
+    var fastTrend: Double = 1
+    /// Extra widening while the last 12 hours have missed more often than the last two weeks.
+    var recent: Double = 1
+    /// Shown points in the last 12 hours.
+    var recentChecks: Int = 0
 
     static let unchanged = ForecastRangeScale()
     static let maximum = 2.5
+    /// The most the corrections together can widen it.
+    static let totalMaximum = 4.0
+    /// mg/dL per minute (about 0.08 mmol/L): between the single and double arrows.
+    static let fastTrendPerMinute = 1.5
 
     private static func clamp(_ x: Double) -> Double { min(maximum, max(1, x)) }
 
@@ -221,10 +232,17 @@ struct ForecastRangeScale: Hashable, Codable {
         return Self.clamp(last.value)
     }
 
+    /// The widening `minutes` ahead for a forecast starting from `trendPerMinute`: the steady
+    /// figure, times the fast-trend and recent corrections, never more than `totalMaximum`.
+    func factor(for basis: ForecastBasis, minutes: Double, trendPerMinute: Double) -> Double {
+        let fast = abs(trendPerMinute) >= Self.fastTrendPerMinute ? fastTrend : 1
+        return min(Self.totalMaximum, factor(for: basis, minutes: minutes) * Self.clamp(fast) * Self.clamp(recent))
+    }
+
     var isWidened: Bool { largest > 1.005 }
-    /// The largest widening in use.
+    /// The largest widening in use (the steady figures, with the recent correction).
     var largest: Double {
-        (byBasis.values + byHorizon.values.flatMap(\.values)).max().map(Self.clamp) ?? 1
+        min(Self.totalMaximum, ((byBasis.values + byHorizon.values.flatMap(\.values)).max().map(Self.clamp) ?? 1) * Self.clamp(recent))
     }
 }
 
@@ -424,7 +442,7 @@ enum GlucoseForecaster {
 
         // Integrate the rate minute by minute.
         let scaled = maxHorizon == nil
-        let rangeScale = scaled ? input.rangeScale.factor(for: basis) : 1
+        let rangeScale = scaled ? min(ForecastRangeScale.totalMaximum, input.rangeScale.factor(for: basis) * max(1, input.rangeScale.recent)) : 1
         let contextWiden = activeTags.isEmpty ? 1.0 : 1.5
         var rangeScales: [Int: Double] = [:]
         let fade = max(60, input.tuning.trendFade)
@@ -447,7 +465,7 @@ enum GlucoseForecaster {
         func band(_ minutes: Double) -> (Double, Double) {
             let q = stats.flatMap { ForecastCalibration.interpolate($0, minutes: minutes) }
                 ?? ForecastCalibration.defaultBand(minutes: minutes)
-            let scale = scaled ? input.rangeScale.factor(for: basis, minutes: minutes) : 1
+            let scale = scaled ? input.rangeScale.factor(for: basis, minutes: minutes, trendPerMinute: trend) : 1
             rangeScales[Int(minutes.rounded())] = scale
             let widen = contextWiden * scale
             return (q.lower * widen, q.upper * widen)
