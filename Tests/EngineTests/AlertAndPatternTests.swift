@@ -81,6 +81,30 @@ final class PredictiveAlertTests: XCTestCase {
         s.lows = false
         XCTAssertNil(PredictiveAlertRules.evaluate(forecast(endingAt: 90, slope: -2), settings: s, now: now))
     }
+
+    func testLowsLookPastTheDrawnForecast() {
+        // 95 falling 2/min crosses 70 at about 20 minutes. Drawn only to 15 (a calibrated horizon),
+        // the low still alerts from the trend carried on for lows (docs/ForecastAccuracy.md §13).
+        let full = forecast(endingAt: 95, slope: -2)
+        let cut = full.issuedAt.addingTimeInterval(15 * 60)
+        var short = GlucoseForecast(issuedAt: full.issuedAt, startMgdl: full.startMgdl, basis: full.basis,
+                                    trendPerMinute: full.trendPerMinute, samples: full.samples.filter { $0.date <= cut },
+                                    limitations: full.limitations, calibrated: full.calibrated)
+        XCTAssertNil(PredictiveAlertRules.evaluate(short, settings: settings, now: now))
+        short.lowLookahead = full.samples.filter { $0.date > cut }
+        XCTAssertEqual(PredictiveAlertRules.evaluate(short, settings: settings, now: now)?.kind, .low)
+        var near = settings
+        near.leadTime = 15 * 60
+        XCTAssertNil(PredictiveAlertRules.evaluate(short, settings: near, now: now))
+        // The cut-off part (live checks) counts for lows too.
+        short.lowLookahead = []
+        short.unshown = full.samples.filter { $0.date > cut }
+        XCTAssertEqual(PredictiveAlertRules.evaluate(short, settings: settings, now: now)?.kind, .low)
+    }
+
+    func testDefaultLeadIsHalfAnHour() {
+        XCTAssertEqual(AlertPreferences().predictiveMinutes, 30)
+    }
 }
 
 final class RecurringPatternTests: XCTestCase {

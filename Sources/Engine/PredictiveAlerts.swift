@@ -42,8 +42,10 @@ enum PredictiveAlertRules {
     static let minimumFall = -0.3
     /// …and a predicted high, rising at least this fast.
     static let minimumRise = 0.3
-    /// Highs are slower and less urgent; allow a little more lead time but never less than the setting.
+    /// Highs are slower and less urgent; allow a little more lead time but never less than the setting…
     static let highLeadFactor = 1.5
+    /// …and no further than they looked at the old 20-minute default (§13 moved it to 30 for lows).
+    static let highLeadMaximum: TimeInterval = 30 * 60
 
     /// The most urgent predicted excursion, if any. Nothing when the forecast isn't current, the
     /// reading is already past the threshold (the reading alerts cover that), or the trend doesn't
@@ -51,8 +53,14 @@ enum PredictiveAlertRules {
     static func evaluate(_ forecast: GlucoseForecast, settings: PredictiveAlertSettings, now: Date) -> PredictiveAlertDecision? {
         guard now.timeIntervalSince(forecast.issuedAt) <= GlucoseSnapshot.staleAfter else { return nil }
         let start = forecast.startMgdl
+        // On a trend forecast, lows are looked for past what's drawn too: in the part live checks
+        // cut off and in the trend carried on to its full 30 minutes (docs/ForecastAccuracy.md §13).
+        // On a fall that warns earlier with no more false alarms. Insulin-and-carb forecasts, and
+        // highs, read only what's drawn.
+        let lowSamples = forecast.basis == .trend ? forecast.samples + forecast.unshown + forecast.lowLookahead
+                                                  : forecast.samples
         func crossing(below threshold: Double, within lead: TimeInterval) -> ForecastSample? {
-            forecast.samples.first { $0.date.timeIntervalSince(forecast.issuedAt) <= lead && $0.mgdl < threshold }
+            lowSamples.first { $0.date.timeIntervalSince(forecast.issuedAt) <= lead && $0.mgdl < threshold }
         }
         func crossing(above threshold: Double, within lead: TimeInterval) -> ForecastSample? {
             forecast.samples.first { $0.date.timeIntervalSince(forecast.issuedAt) <= lead && $0.mgdl > threshold }
@@ -69,7 +77,7 @@ enum PredictiveAlertRules {
             }
         }
         if settings.highs, forecast.trendPerMinute >= minimumRise {
-            let lead = settings.leadTime * highLeadFactor
+            let lead = min(settings.leadTime * highLeadFactor, highLeadMaximum)
             if start <= veryHighMgdl, let s = crossing(above: veryHighMgdl, within: lead) {
                 return PredictiveAlertDecision(kind: .veryHigh, expectedAt: s.date, thresholdMgdl: veryHighMgdl,
                                                forecastMgdl: s.mgdl, basis: forecast.basis)

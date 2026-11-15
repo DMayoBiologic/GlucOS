@@ -161,3 +161,27 @@ Deno.test("live horizon: cut when clearly worse, back only when clearly better",
   assertEquals(liveHorizon(pts(40, { 15: 25 }).map((p) => ({ ...p, afterLog: true })), now), null);
   assertEquals(liveHorizon(pts(40, { 15: 25 }), now + 8 * 86_400), null);
 });
+
+Deno.test("predicted lows look the trend's 30 minutes ahead past a 15-minute calibrated horizon (§13)", async () => {
+  const { forecast, evaluatePrediction, makeSnapshot, Series, defaultAlertPreferences, newPlanner } = await import("./core.ts");
+  const now = 1_790_000_000;
+  // 95 falling 2 a minute: the fading trend passes 70 at about 20 minutes, not within 15.
+  const readings: Reading[] = [];
+  for (let m = 20; m >= 0; m--) readings.push({ t: now - m * 60, mgdl: 95 + 2 * m, trend: 2 });
+  const stat = (minutes: number, beats: boolean) => ({ minutes, samples: 100, meanAbsoluteError: beats ? 5 : 30,
+                                                       naiveError: 20, bias: 0, lower: -8, upper: 8 });
+  const calibration: Calibration = { trend: [stat(15, true), stat(30, false)], origins: 100, computedAt: now };
+  const res = forecast(new Series(readings, true), calibration, now);
+  if (!res.ok) throw new Error("no forecast");
+  assertEquals(Math.round((res.forecast.samples.at(-1)!.t - now) / 60), 15);
+  assertEquals(res.forecast.lowLookahead?.length, 3);
+  const snap = makeSnapshot(readings, readings.at(-1)!, null, { unit: "mgdl", lowMgdl: 70, highMgdl: 180 }, null);
+  const prefs = defaultAlertPreferences();
+  assertEquals(prefs.predictiveMinutes, 30);
+  assertEquals(evaluatePrediction(newPlanner(), snap, res.forecast, prefs, now)?.kind, "predictedLow");
+  assertEquals(evaluatePrediction(newPlanner(), snap, res.forecast, prefs, now, "drawn"), null);
+  assertEquals(evaluatePrediction(newPlanner(), snap, res.forecast, { ...prefs, predictiveMinutes: 15 }, now), null);
+  // Replays and the backtest (a fixed horizon) don't get one.
+  const fixed = forecast(new Series(readings, true), calibration, now, 15 * 60);
+  assertEquals(fixed.ok && fixed.forecast.lowLookahead, undefined);
+});

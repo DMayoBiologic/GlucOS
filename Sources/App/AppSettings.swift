@@ -78,8 +78,8 @@ final class AppSettings: ObservableObject {
         alertOnSensorExpiry = d.object(forKey: "alertSensor") as? Bool ?? true
         alertOnPredictedLow = d.object(forKey: "alertPredictedLow") as? Bool ?? true
         alertOnPredictedHigh = d.object(forKey: "alertPredictedHigh") as? Bool ?? true
-        let lead = d.object(forKey: "predictiveAlertMinutes") as? Int ?? 20
-        predictiveAlertMinutes = [10, 15, 20, 30].contains(lead) ? lead : 20
+        let lead = d.object(forKey: "predictiveAlertMinutes") as? Int ?? 30
+        predictiveAlertMinutes = [10, 15, 20, 30].contains(lead) ? lead : 30
         showForecast = d.object(forKey: "showForecast") as? Bool ?? true
         alertCooldownMinutes = d.object(forKey: "alertCooldown") as? Int ?? 15
         sensorLifetimeDays = d.object(forKey: "sensorLifetimeDays") as? Int ?? 15   // Libre 2 Plus
