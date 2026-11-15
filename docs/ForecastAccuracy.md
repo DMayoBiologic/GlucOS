@@ -548,3 +548,23 @@ The Mac and iPhone use the same rules (`PredictiveAlertRules`) on their own fore
 lookahead applies there too whenever their forecast is the trend. Their insulin-and-carb forecasts
 still alert only on what's drawn: the insulin-only ones ran 25 mg/dL low (§12), and reading their
 cut-off part would call lows that don't come.
+
+## 14. Accuracy per app version (15 Nov 2026)
+
+The 7-day scorecard mixed forecasts from several releases (rounds 4 to 7 all shipped on 15 Nov),
+so a release that changed the forecast only showed up in it days later. Each forecast now carries
+the version that showed it (`ForecastRecord.appVersion`, `forecast_checks.app_version`; the relay
+records its own version, 2.12.0 on). Records from before have none.
+
+- On the device, the Insights card (and the Outlook page) keep the 7-day figure and add the
+  installed version's own figure under each horizon once it has 30 clean checks there
+  (`ForecastSinceUpdate`). Until then the card says how many checks the version has so far. When
+  the whole week is on one version there is nothing to split and the card just says so.
+- On the server, `glucos.forecast_scorecard_by_version` gives the same figures per device and
+  version over 30 days, with each version's first and last forecast:
+
+```sql
+select shown_on, app_version, minutes, checks, mae_mmol, no_change_mae_mmol, inside_range_pct, first_issued
+from glucos.forecast_scorecard_by_version order by shown_on, first_issued desc, minutes;
+```
+

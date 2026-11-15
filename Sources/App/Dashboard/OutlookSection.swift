@@ -337,7 +337,7 @@ private struct ShownForecastsCard: View {
             SectionHeader("Forecasts You Were Shown", systemImage: "checkmark.seal",
                           subtitle: "Each forecast on this \(ForecastLedgerStore.device) checked against the reading that followed (last 7 days)")
             if let card = ledger.scorecard {
-                ForecastScorecardView(card: card, unit: unit, showsHeader: false)
+                ForecastScorecardView(card: card, unit: unit, sinceUpdate: ledger.sinceUpdate, showsHeader: false)
                 Divider()
                 Text("Every checked horizon").dsFont(.headline)
             }

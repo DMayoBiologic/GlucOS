@@ -51,11 +51,7 @@ struct ForecastScorecard: Hashable {
 
     /// Nil until the 15-minute horizon has `minimumChecks` clean checks.
     init?(_ accuracy: LiveAccuracy) {
-        let rows = Self.horizons.compactMap { m -> Row? in
-            guard let h = accuracy.clean(at: m), h.checks >= Self.minimumChecks else { return nil }
-            return Row(minutes: m, checks: h.checks, error: h.meanAbsoluteError, noChange: h.naiveError,
-                       insideRange: h.insideRange)
-        }
+        let rows = Self.rows(accuracy)
         guard rows.first?.minutes == Self.horizons.first else { return nil }
         self.rows = rows
         checks = rows.map(\.checks).reduce(0, +)
@@ -65,6 +61,43 @@ struct ForecastScorecard: Hashable {
     func row(at minutes: Int) -> Row? { rows.first { $0.minutes == minutes } }
 
     var insidePercent: Int { Int((insideRange * 100).rounded()) }
+
+    /// The horizons in `accuracy` with enough clean checks, shortest first.
+    static func rows(_ accuracy: LiveAccuracy) -> [Row] {
+        horizons.compactMap { m -> Row? in
+            guard let h = accuracy.clean(at: m), h.checks >= minimumChecks else { return nil }
+            return Row(minutes: m, checks: h.checks, error: h.meanAbsoluteError, noChange: h.naiveError,
+                       insideRange: h.insideRange)
+        }
+    }
+}
+
+/// The card's figures for only the forecasts the installed version showed, next to the 7-day
+/// ones. A week mixes several releases, so a change that made the forecast better or worse only
+/// shows up slowly in the 7-day figure; this shows it from the first day.
+struct ForecastSinceUpdate: Hashable {
+    /// "1.2.0"
+    let version: String
+    /// When this device first recorded a forecast on this version.
+    let since: Date
+    /// Clean checks so far at 15 minutes.
+    let checks: Int
+    /// The horizons with enough checks (`ForecastScorecard.minimumChecks`), shortest first.
+    let rows: [ForecastScorecard.Row]
+    /// Every forecast in the 7-day figure came from this version, so there's nothing to split.
+    let coversWeek: Bool
+
+    /// Nil when this version hasn't recorded a forecast yet.
+    init?(accuracy: LiveAccuracy, version: String, since: Date?, coversWeek: Bool) {
+        guard let since else { return nil }
+        self.version = version
+        self.since = since
+        checks = accuracy.clean(at: ForecastScorecard.horizons[0])?.checks ?? 0
+        rows = ForecastScorecard.rows(accuracy)
+        self.coversWeek = coversWeek
+    }
+
+    func row(at minutes: Int) -> ForecastScorecard.Row? { rows.first { $0.minutes == minutes } }
 }
 
 /// The card's wording, shared by the Mac and iPhone so both say exactly the same thing.
@@ -104,6 +137,42 @@ enum ForecastScorecardText {
             return base + " It's held more than that, so the range may be wider than it needs to be."
         }
         return base
+    }
+
+    /// "Since you updated to 1.2.0, 9 hours ago" or, when the whole week is on it, "All on 1.2.0".
+    static func sinceUpdateTitle(_ u: ForecastSinceUpdate, now: Date = Date()) -> String {
+        if u.coversWeek { return "Every forecast here was made on \(u.version), the version you have now." }
+        return "Since you updated to \(u.version), \(ago(u.since, now: now))"
+    }
+
+    /// Under a row: "On 1.2.0: ±0.6 · Closer than no change · 42 checks". Nil when the version has
+    /// too few checks at that horizon, or the whole week is on it already.
+    static func sinceUpdateRow(_ u: ForecastSinceUpdate, minutes: Int, unit: GlucoseUnit) -> String? {
+        guard !u.coversWeek, let r = u.row(at: minutes) else { return nil }
+        return "On \(u.version): ±\(unit.format(mgdl: r.error)) · \(comparison(r)) · \(r.checks) checks"
+    }
+
+    /// While the version is still collecting: "1.2.0 has 12 of 30 checks at 15 minutes so far.
+    /// Its own figures show once it has 30." Nil once its 15-minute figure shows.
+    static func sinceUpdateCollecting(_ u: ForecastSinceUpdate) -> String? {
+        guard !u.coversWeek, u.rows.isEmpty else { return nil }
+        let m = ForecastScorecard.minimumChecks
+        return "\(u.version) has \(u.checks) of \(m) checks at 15 minutes so far. Its own figures show "
+            + "once it has \(m); until then the figures above include earlier versions."
+    }
+
+    static func sinceUpdateSpoken(_ u: ForecastSinceUpdate, minutes: Int, unit: GlucoseUnit) -> String? {
+        guard !u.coversWeek, let r = u.row(at: minutes) else { return nil }
+        return "On \(u.version) alone: typically \(unit.format(mgdl: r.error)) \(unit.label) off. "
+            + "\(comparison(r)). \(r.checks) checks."
+    }
+
+    /// "under an hour ago", "9 hours ago", "3 days ago".
+    static func ago(_ date: Date, now: Date) -> String {
+        let hours = Int(now.timeIntervalSince(date) / 3600)
+        if hours < 1 { return "under an hour ago" }
+        if hours < 48 { return hours == 1 ? "1 hour ago" : "\(hours) hours ago" }
+        return "\(hours / 24) days ago"
     }
 
     /// Where the numbers come from, and what they're not.

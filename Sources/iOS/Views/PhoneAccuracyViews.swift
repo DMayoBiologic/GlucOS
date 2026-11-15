@@ -22,7 +22,7 @@ struct PhoneForecastAccuracyCard: View {
     private func content(_ card: ForecastScorecard) -> some View {
         let unit = store.snapshot.unit
         return VStack(alignment: .leading, spacing: DS.Space.sm) {
-            ForecastScorecardView(card: card, unit: unit, tuned: outlook.model.tuning.isTuned)
+            ForecastScorecardView(card: card, unit: unit, sinceUpdate: ledger.sinceUpdate, tuned: outlook.model.tuning.isTuned)
             if let line = ForecastAccuracyText.trendLine(lastWeek: ledger.lastWeek, before: ledger.weeksBefore, unit: unit) {
                 Text(line).dsFont(.caption).fixedSize(horizontal: false, vertical: true)
             }

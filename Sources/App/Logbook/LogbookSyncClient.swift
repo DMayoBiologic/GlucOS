@@ -163,6 +163,8 @@ struct ForecastUpload: Encodable, Equatable {
     let calibrated: Bool
     let tuned: Bool
     let morning: Bool
+    /// The app version that showed it. Left out for records from before versions were kept.
+    let app_version: String?
 
     init(_ r: ForecastRecord) {
         id = r.id
@@ -178,5 +180,6 @@ struct ForecastUpload: Encodable, Equatable {
         calibrated = r.calibrated
         tuned = r.tuned
         morning = r.morning
+        app_version = r.appVersion
     }
 }
