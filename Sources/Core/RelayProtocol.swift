@@ -6,6 +6,7 @@ import Foundation
 //
 //   POST /v1/register   RelayRegistration  → RelayStatus   (send only what changed)
 //   GET  /v1/status                        → RelayStatus
+//   GET  /v1/history?since=<unix seconds>  → RelayHistory  (the relay's one-minute readings)
 //   POST /v1/test                          → RelayStatus   (sends a test alert push)
 //   POST /v1/checkins/answer CheckInAnswer → RelayStatus   (the owner answers followers' check-ins)
 //   GET  /health                           → "ok"          (no secret, for the host's health check)
@@ -48,6 +49,22 @@ struct RelayRegistration: Codable, Hashable {
     }
 
     init() {}
+}
+
+/// The relay's stored one-minute readings, oldest first, at most 30 days back. The iPhone is only
+/// open now and then, so its own history is mostly LibreLinkUp's 15-minute graph; these fill it
+/// in so its forecast learns from the same live readings it's drawn from (as the Mac's does).
+struct RelayHistory: Codable, Hashable {
+    /// [seconds since 1970, mg/dL, `Trend.rawValue`] per reading.
+    var readings: [[Double]]
+
+    var glucoseReadings: [GlucoseReading] {
+        readings.compactMap { r in
+            guard r.count >= 2, r[1].isFinite, r[1] > 0 else { return nil }
+            let trend = r.count > 2 ? Trend(rawValue: Int(r[2])) ?? .unknown : .unknown
+            return GlucoseReading(timestamp: Date(timeIntervalSince1970: r[0]), mgdl: r[1], trend: trend)
+        }
+    }
 }
 
 /// What the relay reports back, for the app's Settings.

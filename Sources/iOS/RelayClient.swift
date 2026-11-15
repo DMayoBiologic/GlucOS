@@ -129,6 +129,13 @@ struct RelayClient {
 
     func status() async throws -> RelayStatus { try await RelayRetry.run { try await call("v1/status", method: "GET") } }
 
+    /// The relay's readings since `since`, to fill in this phone's history.
+    func history(since: Date) async throws -> [GlucoseReading] {
+        let query = [URLQueryItem(name: "since", value: String(Int(since.timeIntervalSince1970)))]
+        let h: RelayHistory = try await RelayRetry.run { try await call("v1/history", method: "GET", query: query) }
+        return h.glucoseReadings
+    }
+
     func sendTest() async throws -> RelayStatus { try await call("v1/test", method: "POST") }
 
     /// Answers every follower waiting on a check-in.
@@ -148,8 +155,14 @@ struct RelayClient {
         try await call("v1/shares/revoke", method: "POST", body: try JSONEncoder().encode(RevokeShare(id: id)))
     }
 
-    private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil) async throws -> T {
-        var req = URLRequest(url: baseURL.appendingPathComponent(path))
+    private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil,
+                                    query: [URLQueryItem] = []) async throws -> T {
+        var url = baseURL.appendingPathComponent(path)
+        if !query.isEmpty, var c = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            c.queryItems = query
+            url = c.url ?? url
+        }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Accept")

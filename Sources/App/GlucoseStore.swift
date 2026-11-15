@@ -231,6 +231,24 @@ final class GlucoseStore: ObservableObject {
         historyArchive.save()
     }
 
+    /// Adds readings that came from elsewhere (the iPhone gets the push relay's one-minute readings)
+    /// to the archive, where they fill the 5-minute slots LibreLinkUp's 15-minute graph leaves
+    /// empty. An hour or more of new ones makes the next outlook relearn from them. Returns how
+    /// many were added.
+    @discardableResult
+    func mergeHistory(_ readings: [GlucoseReading], now: Date = Date()) -> Int {
+        let before = historyArchive.readings.count
+        guard historyArchive.merge(readings, now: now) else { return 0 }
+        let added = max(0, historyArchive.readings.count - before)
+        archive = historyArchive.readings
+        historyArchive.save()
+        if added >= Self.relearnAfterFilledSlots { outlook.historyFilledIn() }
+        return added
+    }
+
+    /// An hour of 5-minute slots.
+    static let relearnAfterFilledSlots = 12
+
     /// Works out the outlook for the latest reading and puts it in the snapshot (the caller
     /// publishes). Starts relearning from history in the background when that's due.
     private func refreshOutlook(now: Date = Date()) {

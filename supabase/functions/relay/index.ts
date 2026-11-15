@@ -3,6 +3,7 @@
 //
 //   GET  /health                           → "ok"          (no secret)
 //   GET  /v1/status                        → RelayStatus
+//   GET  /v1/history?since=<unix seconds>  → RelayHistory  (one-minute readings, at most 30 days)
 //   POST /v1/claim      {email, password}  → {secret}      (no secret: the owner's LibreLinkUp login)
 //   POST /v1/register   RelayRegistration  → RelayStatus
 //   POST /v1/test                          → RelayStatus   (sends a test alert push)
@@ -84,6 +85,9 @@ export async function handle(req: Request): Promise<Response> {
   }
   const { engine } = services();
   if (path === "/v1/status" && req.method === "GET") return json(await engine.status());
+  if (path === "/v1/history" && req.method === "GET") {
+    return json(await engine.history(Number(url.searchParams.get("since") ?? 0)));
+  }
   if (path === "/v1/test" && req.method === "POST") return json(await engine.sendTest());
   if (path === "/v1/checkins/answer" && req.method === "POST") {
     const body = await req.json().catch(() => null);

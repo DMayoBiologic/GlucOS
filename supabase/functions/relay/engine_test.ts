@@ -282,7 +282,7 @@ Deno.test("status says the relay is delivering once it has fetched", async () =>
   assert(s.hasAccount && s.hasDeviceToken && s.alertsEnabled);
   assertEquals(s.lastFetchAt, t.clock());
   assertEquals(s.lastError, undefined);
-  assertEquals(s.version, "2.7.0");
+  assertEquals(s.version, "2.8.0");
 });
 
 Deno.test("the LibreLinkUp session is kept between ticks", async () => {
@@ -421,4 +421,20 @@ Deno.test("an in-range card is pushed at priority 10 at least every few minutes"
   assert(priorities.includes(5), "never let iOS batch an invisible change");
   // Never three minutes of priority 5 in a row.
   assertFalse(priorities.join("").includes("555"), priorities.join(","));
+});
+
+Deno.test("history hands back the stored readings since a time, at most 30 days of them", async () => {
+  const t = await registered();
+  const now = t.clock();
+  t.store.readings = [
+    { t: now - 40 * 86_400, mgdl: 90, trend: 3 },
+    { t: now - 600, mgdl: 100, trend: 3 },
+    { t: now - 540, mgdl: 104, trend: 4 },
+    { t: now - 60, mgdl: 110, trend: 4 },
+  ];
+  assertEquals((await t.engine.history(now - 600)).readings, [[now - 600, 100, 3], [now - 540, 104, 4], [now - 60, 110, 4]]);
+  assertEquals((await t.engine.history(now - 120)).readings, [[now - 60, 110, 4]]);
+  // Asking for everything still stops at 30 days.
+  assertEquals((await t.engine.history(0)).readings.length, 3);
+  assertEquals((await t.engine.history(Number.NaN)).readings.length, 3);
 });

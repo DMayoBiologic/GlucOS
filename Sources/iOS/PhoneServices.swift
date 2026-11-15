@@ -114,6 +114,9 @@ final class PhoneServices: ObservableObject {
             logbookSync?.start()
             follows?.start()
             Task {
+                // The relay's readings first, so the forecast drawn on opening is worked out from
+                // one-minute readings rather than LibreLinkUp's 15-minute graph.
+                await fillHistoryFromRelay()
                 await store.refresh()
                 await showLiveActivity(canStart: true)
                 await syncRelay()
@@ -133,6 +136,7 @@ final class PhoneServices: ObservableObject {
     func backgroundRefresh() async {
         // The logbook first, so the forecast on the Lock Screen counts what was logged on the Mac.
         await logbookSync?.sync()
+        await fillHistoryFromRelay()
         await store.refresh()
         await showLiveActivity(canStart: false)
         await syncRelay()
@@ -268,6 +272,39 @@ final class PhoneServices: ObservableObject {
             return false
         }
     }
+
+    /// The last relay reading already in this phone's history.
+    private var relayHistoryThrough: Date? {
+        get { (UserDefaults.standard.object(forKey: "relayHistoryThrough") as? Double).map(Date.init(timeIntervalSince1970:)) }
+        set { UserDefaults.standard.set(newValue?.timeIntervalSince1970, forKey: "relayHistoryThrough") }
+    }
+    private var lastHistoryFill = Date.distantPast
+
+    /// Fills in this phone's history with the relay's one-minute readings since it last did.
+    ///
+    /// The phone is only open now and then, so without these its history is mostly LibreLinkUp's
+    /// 15-minute graph. The forecast's replay then can't tell how much of a one-minute trend
+    /// carries on (it fitted 90–100% here against the Mac's 55%), so the 15-minute forecast drawn
+    /// on opening followed the trend too far and did no better than assuming no change. Quietly
+    /// does nothing without the relay, and a failure only waits for the next open.
+    func fillHistoryFromRelay(now: Date = Date()) async {
+        guard let client = relaySettings.client, now.timeIntervalSince(lastHistoryFill) >= 60 else { return }
+        lastHistoryFill = now
+        // A little overlap, for readings the relay stored late.
+        let since = relayHistoryThrough.map { $0.addingTimeInterval(-15 * 60) }
+            ?? now.addingTimeInterval(-Self.relayHistoryDays * 86_400)
+        do {
+            let readings = try await client.history(since: since)
+            store.mergeHistory(readings, now: now)
+            if let last = readings.last?.timestamp { relayHistoryThrough = last }
+        } catch {
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "history", error: error, context: [:])
+        }
+    }
+
+    /// The forecast's replay looks back 30 days.
+    nonisolated static let relayHistoryDays: Double = 30
 
     func refreshRelayStatus() async {
         guard let client = relaySettings.client else { return }
