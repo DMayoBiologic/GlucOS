@@ -385,7 +385,7 @@ old, last 6.2." Follower: prefixed with the person's name.
 | Insights | Cards use the draw-in rings (existing `drawsIn:`); 7-day columns grow from the baseline on first appearance. "Your usual day" (time-of-day pattern, `DayPatternView`, also on the Mac) is a still chart: worked out once per 15 minutes of new data off the main thread, never animated. "Today so far" (`TodaySoFarView`, iPhone Today and Mac Overview) follows the same rule: three still stat tiles, recomputed once per 5 minutes of new data. "Week in review" (`WeekInReviewView`, iPhone and Mac Insights) is the same: still tiles and two lines, recomputed once per 15 minutes of new data. |
 | Settings | Unchanged layout; section jumps scroll with `.standard`; rows a toggle reveals slide in. The target range editor is the range rail, with a marker at the latest fresh reading. |
 | Sharing / Follow | Follower cards get a small range field strip on their leading edge and a rail. |
-| Log sheet | The moment chips slide their selection; the saved toast rises (existing). |
+| Log sheet | Choosing a moment bounces its icon once and its step settles in from just under the tiles (grows from its top edge out of a soft blur, `LogStepMorph`, `.emphasized`), then scrolls into view. Saving plays the success haptic and draws a checkmark ("Logged" / "Saved", spoken to VoiceOver) for 0.75 s, then the sheet closes; the checkmark only follows the confirm steps (calculator dose, "Already logged?", the logged-twice notice). Under Reduce Motion steps fade, the check appears drawn and holds 0.5 s. Nothing loops. |
 | Sensor scan | The scan ring pulses during NFC reads (system NFC sheet aside); result value rolls in. |
 
 ## 8. Mac app
