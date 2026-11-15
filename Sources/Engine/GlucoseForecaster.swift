@@ -119,6 +119,10 @@ enum ForecastLimitation: Hashable {
         case .backgroundInsulin: return "Long-acting insulin is assumed to hold glucose level."
         case .uncalibrated: return "Cautious range: not yet checked against enough of your history."
         case .freshLog: return "Trend only for now: a meal or dose was logged in the last hour."
+        case .liveHorizon(let shown, let failedAt):
+            return shown > 0
+                ? "Drawn only \(shown) min ahead: recent \(failedAt)-min forecasts here lost to no change."
+                : "Hidden: recent \(failedAt)-min forecasts here lost to no change."
         }
     }
 

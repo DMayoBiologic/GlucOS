@@ -101,7 +101,8 @@ final class ForecastCaveatTests: XCTestCase {
 
     func testEveryLimitationHasOneShortLine() {
         let all: [ForecastLimitation] = [.insulinNotLearned, .carbsNotLearned, .uncountedFood, .deliveryProblem,
-                                         .context(.exercise), .rapidChange, .backgroundInsulin, .uncalibrated, .freshLog]
+                                         .context(.exercise), .rapidChange, .backgroundInsulin, .uncalibrated, .freshLog,
+                                         .liveHorizon(shownMinutes: 150, failedAt: 180), .liveHorizon(shownMinutes: 0, failedAt: 15)]
         for l in all {
             XCTAssertFalse(l.shortReason.contains("\n"), l.code)
             XCTAssertLessThanOrEqual(l.shortReason.count, 80, l.code)
@@ -116,5 +117,27 @@ final class ForecastCaveatTests: XCTestCase {
         model.calibration = goodCalibration
         let o = OutlookEngine.outlook(readings: flat(), doses: [], meals: [meal], contexts: [], model: model, now: now)
         XCTAssertEqual(o.snapshot(lowMgdl: 70).caveat?.source, ForecastLimitation.freshLog.code)
+    }
+
+    // MARK: Cut by this device's live checks
+
+    func liveCaveat(_ cut: ForecastLiveHorizon.Cut) -> ForecastCaveat? {
+        var input = ForecastInputs(readings: GlucoseSeries(flat()), doses: [], meals: [], contexts: [], profile: .empty,
+                                   calibration: goodCalibration, now: now)
+        input.liveHorizon = ForecastLiveHorizon(byBasis: [.trend: cut])
+        return ForecastCaveat.pick(GlucoseForecaster.forecast(input))
+    }
+
+    func testLiveCutIsShortenedAndSaysWhy() {
+        let c = liveCaveat(.init(shownMinutes: 15, failedAt: 30))
+        XCTAssertEqual(c?.kind, .shortened)
+        XCTAssertEqual(c?.text, "Drawn only 15 min ahead: recent 30-min forecasts here lost to no change.")
+        XCTAssertEqual(c?.source, "liveHorizon:15")
+    }
+
+    func testLiveCutToNothingIsHidden() {
+        let c = liveCaveat(.init(shownMinutes: 0, failedAt: 15))
+        XCTAssertEqual(c?.kind, .hidden)
+        XCTAssertEqual(c?.text, "Hidden: recent 15-min forecasts here lost to no change.")
     }
 }
