@@ -1,6 +1,6 @@
 // The relay's forecast ledger: which forecasts it keeps, and how a tick uses it.
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1";
-import { type Calibration, type Forecast, type Reading, standardTuning } from "./core.ts";
+import { type Calibration, type Forecast, forecast, type LivePoint, type Reading, Series, standardTuning } from "./core.ts";
 import { type ForecastLedger, type LedgerRecord, ledgerRecord, ledgerScoreEvery, ledgerSpacing } from "./ledger.ts";
 import { newRow, type RelayRow, RelayEngine, type Store, type Tx } from "./engine.ts";
 import { type Account, LibreLinkUpFetcher, type LibreSession } from "./libre.ts";
@@ -61,6 +61,10 @@ class FakeLedger implements ForecastLedger {
   score() {
     this.scores++;
     return Promise.resolve(0);
+  }
+  points: LivePoint[] = [];
+  livePoints() {
+    return Promise.resolve(this.points);
   }
 }
 
@@ -186,3 +190,67 @@ Deno.test("a saved session without the user id logs in once more to learn it", a
   assertFalse(calls.includes("llu/auth/login"));
 });
 
+
+// MARK: Live horizon
+
+Deno.test("a forecast cut short keeps its undrawn points, marked", () => {
+  const f = trendForecast();
+  const cut: Forecast = { ...f, samples: f.samples.slice(0, 4), unshown: f.samples.slice(4) };
+  assertEquals(ledgerRecord(cut, null, null, "id")!.points, [
+    { minutes: 15, mgdl: 135, lower: 125, upper: 145 },
+    { minutes: 30, mgdl: 150, lower: 140, upper: 160, shown: false },
+  ]);
+});
+
+/// Relay points where the 30-minute forecast was 20 off while glucose moved 15: worse than no change.
+function losingAt30(now: number, count = 40): LivePoint[] {
+  const out: LivePoint[] = [];
+  for (let i = 0; i < count; i++) {
+    const issuedAt = now - 3600 - i * 900;
+    out.push({ issuedAt, minutes: 15, mgdl: 120, startMgdl: 120, actual: 125, afterLog: false, shown: true });
+    out.push({ issuedAt, minutes: 30, mgdl: 115, startMgdl: 120, actual: 135, afterLog: false, shown: true });
+  }
+  return out;
+}
+
+Deno.test("ticks learn the live cut when they score, and the Lock Screen forecast follows it", async () => {
+  const t = ticking("llu-1");
+  t.ledger.points = losingAt30(t0);
+  for (let i = 0; i < 16; i++) {
+    await t.engine.tick();
+    t.advance(60);
+  }
+  assertEquals(t.store.row.work.forecastLog?.live, { shownMinutes: 15, failedAt: 30 });
+  const later = t.ledger.records[t.ledger.records.length - 1].r;
+  assertEquals(later.points.map((p) => [p.minutes, p.shown ?? true]), [[15, true], [30, false]]);
+});
+
+Deno.test("cut to nothing: no forecast drawn, but it's still kept", async () => {
+  const t = ticking("llu-1");
+  t.ledger.points = losingAt30(t0).map((p) => p.minutes === 15 ? { ...p, mgdl: 100 } : p);
+  for (let i = 0; i < 16; i++) {
+    await t.engine.tick();
+    t.advance(60);
+  }
+  assertEquals(t.store.row.work.forecastLog?.live, { shownMinutes: 0, failedAt: 15 });
+  const last = t.ledger.records[t.ledger.records.length - 1].r;
+  assertEquals(last.points.map((p) => p.shown ?? true), [false, false]);
+});
+
+Deno.test("forecast() draws only to the live cut", () => {
+  const readings: Reading[] = [];
+  for (let back = 30; back >= 0; back--) readings.push({ t: t0 - back * 60, mgdl: 120 - back, trend: 3 });
+  const s = new Series(readings);
+  const full = forecast(s, null, t0);
+  const cut = forecast(s, null, t0, undefined, standardTuning, { shownMinutes: 15, failedAt: 30 });
+  assert(full.ok && cut.ok);
+  assertEquals(cut.forecast.samples, full.forecast.samples.slice(0, 4));
+  assertEquals(cut.forecast.unshown, full.forecast.samples.slice(4));
+  // A cut past the trend forecast's 30 minutes changes nothing.
+  const past = forecast(s, null, t0, undefined, standardTuning, { shownMinutes: 45, failedAt: 60 });
+  assertEquals(past, full);
+  const none = forecast(s, null, t0, undefined, standardTuning, { shownMinutes: 0, failedAt: 15 });
+  assert(!none.ok);
+  assertEquals(none.reason, "Past forecasts haven't been accurate enough to show one.");
+  assertEquals(none.unshown?.samples.length, 1);
+});

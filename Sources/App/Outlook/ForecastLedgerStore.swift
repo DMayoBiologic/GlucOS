@@ -14,6 +14,8 @@ final class ForecastLedgerStore: ObservableObject {
     @Published private(set) var scorecard: ForecastScorecard?
     /// How much wider to draw the range, from how the forecasts shown here did.
     @Published private(set) var rangeScale: ForecastRangeScale = .unchanged
+    /// How far ahead the forecast may be drawn, from how this device's forecasts did against no change.
+    @Published private(set) var liveHorizon: ForecastLiveHorizon = .unlimited
 
     private(set) var ledger: ForecastLedger
     private var lastScored = Date.distantPast
@@ -72,6 +74,8 @@ final class ForecastLedgerStore: ObservableObject {
         if card != scorecard { scorecard = card }
         let scale = ledger.rangeScale(now: now)
         if scale != rangeScale { rangeScale = scale }
+        let horizon = ledger.liveHorizon(device: Self.device, now: now)
+        if horizon != liveHorizon { liveHorizon = horizon }
     }
 
     private static func load() -> ForecastLedger {

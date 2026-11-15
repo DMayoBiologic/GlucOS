@@ -64,6 +64,10 @@ enum ForecastLimitation: Hashable {
     /// A meal or dose was logged within the last hour, and forecasts made that soon after a log
     /// haven't yet beaten assuming no change.
     case freshLog
+    /// This device's own recent forecasts, checked against what happened, were further off than
+    /// assuming no change `failedAt` minutes ahead, so the forecast is drawn only `shownMinutes`
+    /// ahead (0: not at all) until that horizon earns its place again (`ForecastLiveHorizon`).
+    case liveHorizon(shownMinutes: Int, failedAt: Int)
 
     var message: String {
         switch self {
@@ -85,6 +89,9 @@ enum ForecastLimitation: Hashable {
             return "Not yet checked against enough of your history, so a cautious range is shown."
         case .freshLog:
             return "Insulin or carbs were logged in the last hour, before their effect is clear. Until your history shows forecasts this soon after a log are reliable, this only follows the trend."
+        case .liveHorizon(let shown, let failedAt):
+            let lead = shown > 0 ? "Drawn only \(shown) minutes ahead." : "Not drawn for now."
+            return "\(lead) In the last week, forecasts here \(failedAt) minutes ahead were further off than assuming glucose stays where it is. GlucOS keeps checking them and draws them again once they're closer."
         }
     }
 
@@ -100,6 +107,7 @@ enum ForecastLimitation: Hashable {
         case .backgroundInsulin: return "backgroundInsulin"
         case .uncalibrated: return "uncalibrated"
         case .freshLog: return "freshLog"
+        case .liveHorizon(let shown, _): return "liveHorizon:\(shown)"
         }
     }
 
@@ -132,6 +140,10 @@ struct GlucoseForecast: Hashable {
     var rangeScales: [Int: Double] = [:]
     /// Insulin and carbs were modelled within the first hour after a log.
     var fresh = false
+    /// The part past the drawn horizon that this device's live checks cut off
+    /// (`ForecastLimitation.liveHorizon`). Never drawn, alerted on or shared: it's kept only so the
+    /// forecast log goes on scoring those horizons and can tell when they've earned their place back.
+    var unshown: [ForecastSample] = []
 
     /// The widening `minutes` ahead.
     func rangeScale(atMinutes minutes: Int) -> Double { rangeScales[minutes] ?? rangeScale }
@@ -185,6 +197,26 @@ struct ForecastRangeScale: Hashable, Codable {
     }
 }
 
+/// How far ahead each kind of forecast may be drawn on this device, from how the forecasts this
+/// device worked out in the last week did against assuming no change (`ForecastLedger.liveHorizon`).
+/// The backtest sets the usual limit from the replayed history; this can only cut it shorter, when
+/// what was actually forecast here, live, stopped beating no change at some horizon. The cut-off
+/// part is still worked out and scored, so the horizon comes back once it's earned it.
+struct ForecastLiveHorizon: Hashable, Codable {
+    struct Cut: Hashable, Codable {
+        /// How far the forecast is drawn, minutes: the checked horizon before `failedAt`, or 0.
+        let shownMinutes: Int
+        /// The first checked horizon that lost to no change.
+        let failedAt: Int
+    }
+
+    var byBasis: [ForecastBasis: Cut] = [:]
+
+    static let unlimited = ForecastLiveHorizon()
+
+    func cut(for basis: ForecastBasis) -> Cut? { byBasis[basis] }
+}
+
 /// The forecast's own timing, tuned to the user once their history shows a different setting
 /// forecasts better (`ForecastTuner`). The standard values are Loop's.
 struct ForecastTuning: Hashable, Codable {
@@ -220,6 +252,8 @@ struct ForecastInputs {
     var tuning: ForecastTuning
     /// Range widening from this device's shown forecasts.
     var rangeScale: ForecastRangeScale
+    /// How far ahead this device's own live checks let each kind of forecast be drawn.
+    var liveHorizon: ForecastLiveHorizon = .unlimited
     /// Whether to model insulin and carbs within the first hour after a log. Nil: only once the
     /// calibration shows those forecasts beat "no change". The backtest sets it to measure both.
     var freshModel: Bool? = nil
@@ -349,6 +383,13 @@ enum GlucoseForecaster {
         let calibrated = maxHorizon == nil
             && stats?.contains { $0.samples >= ForecastCalibration.minimumSamples } == true
         if !calibrated && maxHorizon == nil { limitations.append(.uncalibrated) }
+        // How far it's drawn: this device's live checks can cut it shorter (never longer). The
+        // rest is still worked out, for the forecast log to score.
+        var shownHorizon = horizon
+        if maxHorizon == nil, let cut = input.liveHorizon.cut(for: basis), TimeInterval(cut.failedAt * 60) <= horizon {
+            shownHorizon = TimeInterval(cut.shownMinutes * 60)
+            limitations.append(.liveHorizon(shownMinutes: cut.shownMinutes, failedAt: cut.failedAt))
+        }
 
         // Integrate the rate minute by minute.
         let scaled = maxHorizon == nil
@@ -402,10 +443,17 @@ enum GlucoseForecaster {
         let morning = morningWake.map {
             AppliedMorningAdjustment(wokeAt: $0, addedMgdl: morningAdded, confidence: input.morning?.confidence)
         }
-        return .success(GlucoseForecast(issuedAt: t0, startMgdl: latest.mgdl, basis: basis, trendPerMinute: trend,
-                                        samples: samples, limitations: limitations, calibrated: calibrated,
-                                        morning: morning, rangeScale: max(rangeScale, rangeScales.values.max() ?? 1),
-                                        rangeScales: rangeScales, fresh: freshModel))
+        let cutAt = t0.addingTimeInterval(shownHorizon)
+        let drawn = samples.filter { $0.date <= cutAt }
+        let forecast = GlucoseForecast(issuedAt: t0, startMgdl: latest.mgdl, basis: basis, trendPerMinute: trend,
+                                       samples: drawn, limitations: limitations, calibrated: calibrated,
+                                       morning: morning, rangeScale: max(rangeScale, rangeScales.values.max() ?? 1),
+                                       rangeScales: rangeScales, fresh: freshModel,
+                                       unshown: samples.filter { $0.date > cutAt })
+        if shownHorizon <= 0 {
+            return .failure(.init(.notAccurateEnough, limitations: limitations, unshown: forecast))
+        }
+        return .success(forecast)
     }
 
     /// Slope of the readings in the `window` (normally 20 minutes) up to `date`, mg/dL per minute.
@@ -425,9 +473,13 @@ enum GlucoseForecaster {
 struct ForecastFailure: Error, Hashable {
     let reason: ForecastUnavailable
     var limitations: [ForecastLimitation] = []
+    /// When live checks cut the forecast back to nothing: the forecast that wasn't drawn, for the
+    /// forecast log only (`GlucoseForecast.unshown` holds its points).
+    var unshown: GlucoseForecast? = nil
 
-    init(_ reason: ForecastUnavailable, limitations: [ForecastLimitation] = []) {
+    init(_ reason: ForecastUnavailable, limitations: [ForecastLimitation] = [], unshown: GlucoseForecast? = nil) {
         self.reason = reason
         self.limitations = limitations
+        self.unshown = unshown
     }
 }

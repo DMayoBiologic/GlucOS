@@ -8,7 +8,8 @@
 // found from the LibreLinkUp user id (`syntheticEmail`). No such user (the apps never signed in
 // to sync) means nothing is kept.
 
-import { calibrationHorizons, type Calibration, type Forecast, isStandardTuning } from "./core.ts";
+import { calibrationHorizons, type Calibration, type Forecast, isStandardTuning, type LiveCut, type LivePoint,
+         liveHorizonWindow } from "./core.ts";
 import { syntheticEmail } from "./libre.ts";
 import type postgres from "npm:postgres@3.4.5";
 
@@ -27,6 +28,8 @@ export interface LedgerPoint {
   mgdl: number;
   lower: number;
   upper: number;
+  /// Only ever false: a point past the drawn horizon, kept to go on scoring it.
+  shown?: false;
 }
 
 export interface LedgerRecord {
@@ -50,6 +53,9 @@ export interface LedgerState {
   checkedAt: number;
   lastIssuedAt: number | null;
   scoredAt: number;
+  /// How far the relay's own live checks let it draw the forecast, worked out when it scores
+  /// (`liveHorizon`). Missing on old rows; null: no cut.
+  live?: LiveCut | null;
 }
 
 export interface ForecastLedger {
@@ -59,6 +65,8 @@ export interface ForecastLedger {
   record(owner: string, r: LedgerRecord): Promise<boolean>;
   /// Scores the owner's recent relay forecasts. Returns how many changed.
   score(owner: string): Promise<number>;
+  /// The owner's relay ledger points from the last `liveHorizonWindow`, for `liveHorizon`.
+  livePoints(owner: string): Promise<LivePoint[]>;
 }
 
 /// The forecast as a ledger record, or null when it's within `ledgerSpacing` of the last one or
@@ -69,8 +77,11 @@ export function ledgerRecord(f: Forecast, calibration: Calibration | null, lastI
   const points: LedgerPoint[] = [];
   for (const m of calibrationHorizons) {
     const target = f.issuedAt + m * 60;
-    const s = f.samples.find((x) => Math.abs(x.t - target) < 30);
+    const near = (x: { t: number }) => Math.abs(x.t - target) < 30;
+    const s = f.samples.find(near);
+    const kept = s ? undefined : f.unshown?.find(near);
     if (s) points.push({ minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl });
+    else if (kept) points.push({ minutes: m, mgdl: kept.mgdl, lower: kept.lowerMgdl, upper: kept.upperMgdl, shown: false });
   }
   if (!points.length) return null;
   return {
@@ -108,5 +119,22 @@ export class PostgresForecastLedger implements ForecastLedger {
   async score(owner: string): Promise<number> {
     const rows = await this.sql`select glucos.score_relay_forecasts(${owner}::uuid) as n`;
     return Number(rows[0]?.n ?? 0);
+  }
+
+  async livePoints(owner: string): Promise<LivePoint[]> {
+    const rows = await this.sql`
+      select extract(epoch from f.issued_at)::float8 as issued, (p ->> 'minutes')::int as minutes,
+             (p ->> 'mgdl')::float8 as mgdl, f.start_mgdl,
+             case when jsonb_typeof(p -> 'actual') = 'number' then (p ->> 'actual')::float8 end as actual,
+             coalesce((p ->> 'after_log')::boolean, false) as after_log,
+             coalesce((p ->> 'shown')::boolean, true) as shown
+      from glucos.forecast_checks f
+      cross join lateral jsonb_array_elements(f.points) p
+      where f.user_id = ${owner}::uuid and f.device = ${ledgerDevice}
+        and f.issued_at > now() - make_interval(secs => ${liveHorizonWindow})`;
+    return rows.map((r) => ({
+      issuedAt: Number(r.issued), minutes: Number(r.minutes), mgdl: Number(r.mgdl), startMgdl: Number(r.start_mgdl),
+      actual: r.actual === null ? null : Number(r.actual), afterLog: Boolean(r.after_log), shown: Boolean(r.shown),
+    }));
   }
 }
