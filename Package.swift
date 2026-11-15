@@ -34,6 +34,7 @@ let package = Package(
                 "Shared/ChartSpan.swift",
                 "Shared/ChartScrub.swift",
                 "Shared/MenuBarGlance.swift",
+                "Shared/WidgetGlance.swift",
                 "Core/RelayProtocol.swift",
                 "Core/RelayRetry.swift",
                 "Core/FunctionRegion.swift",

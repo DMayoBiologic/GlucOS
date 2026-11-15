@@ -427,7 +427,9 @@ assemble with `dsEntrance` like the popover, and the Logbook's filter is a `Slid
 | Glucose (all sizes) | On the range field (still, no drift), grey once stale; urgent low adds the 2 pt crimson border inside the widget's edge. The range pill pushes in the direction of travel between timelines (a fade under Reduce Motion), and a stale value gets the drawn strike line in every rendering mode. |
 | Glucose small | Value + needle, rail along the bottom, age timer. |
 | Glucose medium | Value + needle + rail on the left, chart on the right, forecast note and meter in the footer. |
-| Glucose large / extra large | As medium with a taller chart and the On board line; the meter sits beside the chart's caption. |
+| Glucose large / extra large | As medium with a taller chart and the On board line; the meter sits beside the chart's caption. The summary at the bottom is Today so far against your usual day (same words as the iPhone card, neutral colours, "Midnight to 2:30 pm" so it stays true when stale), or the last 12 hours until today has an hour of readings. |
+| VoiceOver (Glucose) | The value is read for its freshness: fresh gives range, trend, change and age in words; stale says "Stale" and the age only, never range or trend; expired says when the last reading was. The chart reads the same `ChartSummary` sentence as the app's charts. |
+| Reloads | The app reloads only the widgets a snapshot changes (`WidgetReload`): the Glucose and Lock Screen widgets when anything they draw moves, Time in Range and Sensor at most once per 15 minutes of readings, or on a new sensor or setting. A logbook edit or relearn that leaves the forecast where it was reloads nothing. |
 | Time in Range | Unchanged (rings and bars), numbers roll and bars grow between timelines. |
 | Sensor | Unchanged, days left as a ring; the count rolls down. |
 | Lock Screen circular | Value in a gauge ring whose fill is the freshness (live), trend arrow under the value. |
