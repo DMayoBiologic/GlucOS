@@ -227,3 +227,9 @@ logbook has him waking at 10:59 Perth time, and the Mac's first forecast came 32
 The iPhone's own gap was shorter (its forecasts stopped at 02:21 and started again at 08:42 Perth
 time, the times they were made), because the iPhone records a forecast whenever the app is open.
 No uploads were missed.
+
+Follow-ups shipped with this round (v0.39.0): the relay now records and scores its own Lock Screen
+forecast every 15 minutes (device `relay`, #72), so nights are covered whether or not the Mac or
+the iPhone app is awake; `glucos.forecast_scorecard` lists every device side by side and Insights
+shows the user's own figures (#71); and a dose with no food near it now asks whether it was for a
+meal (#73, docs/DoseQuestion.md), which addresses the unlogged-meal cause above at the source.
