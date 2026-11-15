@@ -157,7 +157,8 @@ minutes, worse than no change, and inside their range 55–59% of the time. Bias
 forecast, so these forecasts ran **low**: glucose ended up higher than they said.
 
 Replaying the server's 4.6 days of readings and logbook (`LiveReplayTests`, with
-`GLUCOS_REPLAY_VERBOSE=3` to list each forecast) gives the same figures (+12 / +20 / +26), and
+`GLUCOS_REPLAY_VERBOSE=3` to list every insulin-and-carb forecast and every forecast with a log
+after it, at 15–120 minutes; clean trend-only forecasts are left out) gives the same figures (+12 / +20 / +26), and
 the listing shows where they come from. Nearly every one is a forecast made before food that
 hadn't been eaten yet: a burrito bowl logged after a low (forecast 45, actual 207 an hour on), a
 sports drink for a low, and a late rise after a burger that a correction dose then answered. A
@@ -193,5 +194,7 @@ near them, and the forecast then expects the full drop from the insulin.
 
 Uploads: `forecast_checks` arrive every 15 minutes from the Mac while it's awake, and from the
 iPhone while the app is open, about 1–2 hours after the forecast (each waits for its last checked
-point plus 20 minutes). The quiet stretch from 2026-11-14 18:42 to 2026-11-15 03:31 UTC was
-overnight in Perth with the Mac asleep. No uploads were missed.
+point plus 20 minutes). The quiet stretch from 2026-11-14 18:42 to 2026-11-15 03:31 UTC
+(02:42–11:31 on 15 Nov in Perth) was Declan asleep: the logbook has him waking at 10:59 Perth
+time, the iPhone sent its next forecasts from 08:42, and the Mac's came half an hour after the
+wake-up. No uploads were missed.

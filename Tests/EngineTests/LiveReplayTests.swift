@@ -14,8 +14,9 @@ import XCTest
 //     GLUCOS_REPLAY_DIR=/path swift test --filter LiveReplayTests
 //
 // GLUCOS_REPLAY_VERBOSE=1 also prints what each relearn picked (2: the range widening; 3: every
-// model forecast and every forecast with a log after it, point by point as forecast/actual, `*`
-// marking a point with a log in between), and
+// insulin-and-carb forecast and every forecast with a log after it, as forecast/actual at 15, 30,
+// 45, 60, 90 and 120 minutes, `*` marking a point with a log in between; clean trend-only
+// forecasts are left out), and
 // GLUCOS_REPLAY_GAIN=0.5 forces the trend's strength, to compare against what the tuner chose.
 
 final class LiveReplayTests: XCTestCase {
@@ -114,7 +115,7 @@ struct LiveReplay {
             if ProcessInfo.processInfo.environment["GLUCOS_REPLAY_VERBOSE"] == "3" {
                 let f = DateFormatter(); f.dateFormat = "MM-dd HH:mm"; f.timeZone = TimeZone(identifier: "UTC")
                 for r in ledger.records where r.basis == .trendInsulinCarbs || r.points.contains(where: \.afterLog) {
-                    let pts = r.points.filter { [15, 30, 60, 90, 120].contains($0.minutes) }.map {
+                    let pts = r.points.filter { [15, 30, 45, 60, 90, 120].contains($0.minutes) }.map {
                         "\($0.minutes):\(Int($0.mgdl))/\($0.actual.map { String(Int($0)) } ?? "-")\($0.afterLog ? "*" : "")"
                     }.joined(separator: " ")
                     lines.append("\(f.string(from: r.issuedAt)) \(r.basis == .trend ? "trend" : "model") s\(Int(r.startMgdl)) tr\(String(format: "%.1f", r.trendPerMinute)) \(r.limitations.joined(separator: ",")) | \(pts)")
