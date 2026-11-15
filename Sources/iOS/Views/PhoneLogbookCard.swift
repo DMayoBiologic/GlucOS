@@ -7,6 +7,7 @@ struct PhoneLogbookCard: View {
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var sync: LogbookSyncService
     @EnvironmentObject var router: PhoneLogRouter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let window: TimeInterval = 24 * 3600
     private static let maxRows = 8
@@ -30,18 +31,6 @@ struct PhoneLogbookCard: View {
                     .accessibilityLabel("See the whole logbook")
                 }
             }
-            if !logbook.lastDeleted.isEmpty {
-                HStack {
-                    Label(logbook.lastDeleted.count == 1 ? "Entry deleted" : "\(logbook.lastDeleted.count) entries deleted",
-                          systemImage: "trash")
-                        .dsFont(.callout)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Undo") { logbook.undoDelete(); Haptics.tap() }
-                        .dsFont(.headline)
-                }
-                .transition(.opacity)
-            }
             if recent.isEmpty {
                 Text(logbook.isEmpty
                      ? "Use the buttons at the bottom of the screen to log insulin, food or an event. Entries from GlucOS on your Mac show up here too."
@@ -60,8 +49,12 @@ struct PhoneLogbookCard: View {
                             .padding(.bottom, DS.Space.xxs)
                             .accessibilityAddTraits(.isHeader)
                         ForEach(Array(group.entries.enumerated()), id: \.element.id) { index, entry in
-                            if index > 0 { Divider().padding(.leading, 28) }
-                            row(entry)
+                            VStack(spacing: 0) {
+                                if index > 0 { Divider().padding(.leading, 28) }
+                                row(entry)
+                            }
+                            // New entries slide down into place; deletes fold away.
+                            .transition(Self.rowTransition(reduceMotion: reduceMotion))
                         }
                     }
                 }
@@ -80,7 +73,13 @@ struct PhoneLogbookCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .dsCard(.standard, padding: DS.Space.lg)
-        .animation(DSMotion.quick.animation, value: logbook.lastDeleted.count)
+        // Rows in and out (an undo, a sync from the Mac, a new entry). Instant under Reduce Motion.
+        .dsAnimation(.standard, value: recent.prefix(Self.maxRows).map(\.id))
+    }
+
+    static func rowTransition(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .identity : .asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
+                                               removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
     }
 
     private struct DayGroup {

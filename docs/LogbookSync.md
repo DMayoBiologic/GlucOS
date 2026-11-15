@@ -19,6 +19,12 @@ LibreLinkUp account they already use.
   minutes ahead of its own). A delete is an edit that leaves a tombstone, so it reaches the other
   devices and an older copy can't bring the entry back. Logic: `Sources/App/Logbook/LogbookSync.swift`,
   with the server's half in `logbook_push`.
+- **Undo.** Undoing a delete saves the entries again with a fresh edit time, later than the
+  delete's tombstone, so the server takes them back and the other devices pull them again (a
+  deleted-then-undone entry reappears on the Mac rather than staying gone). This device's own
+  tombstone coming back on the next pull leaves Undo available; only a change made elsewhere after
+  the delete ends it (`LogbookUndo`). On iPhone the Undo toast stays up 5 seconds after the last
+  delete (20 under VoiceOver).
 - **First sync.** A device's existing entries are uploaded as older than anything already on the
   server: entries the server lacks are added, and a delete made elsewhere still wins.
 - **Sign-in.** The `account` edge function checks the LibreLinkUp login with Abbott once, finds or
