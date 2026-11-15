@@ -186,3 +186,69 @@ struct DrawIn: ViewModifier {
         }
     }
 }
+
+// MARK: - Rolling figure
+
+private struct FiguresCountUpKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Figures on this screen count up when their card appears (`RollingFigure`). Set on the
+    /// iPhone Insights screen only. Off everywhere else, including widgets and the Mac, where a
+    /// figure just rolls to a new value as it always has.
+    var figuresCountUp: Bool {
+        get { self[FiguresCountUpKey.self] }
+        set { self[FiguresCountUpKey.self] = newValue }
+    }
+}
+
+/// A statistic's figure: the same digit roll as a reading (`.numericText(value:)`, as on the
+/// widgets and the Live Activity) on the `.arrival` spring, so it rolls from the old value to the
+/// new one when the value changes (a new period, new readings). Where `figuresCountUp` is on, it
+/// also counts up from zero the first time it appears, alongside the rings and bars drawing in.
+///
+/// Plays once per change and never repeats. Under Reduce Motion it shows the value at once.
+/// VoiceOver only ever hears the final value, never a figure on its way there. Style it like a
+/// `Text` (font, weight, colour).
+struct RollingFigure: View {
+    let value: Double
+    let text: (Double) -> String
+    /// Steps after the first on the same card, so a row of figures settles left to right.
+    var order: Int = 0
+
+    @Environment(\.figuresCountUp) private var countsUp
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// What's on screen while it counts; nil until the first count has started.
+    @State private var shown: Double?
+
+    init(_ value: Double, order: Int = 0, text: @escaping (Double) -> String) {
+        self.value = value
+        self.order = order
+        self.text = text
+    }
+
+    private var animates: Bool { !reduceMotion }
+
+    var body: some View {
+        let display = countsUp && animates ? (shown ?? 0) : (shown ?? value)
+        Text(text(display))
+            .contentTransition(.numericText(value: display))
+            .accessibilityLabel(text(value))
+            .onAppear {
+                guard countsUp, animates, shown == nil else { return }
+                // Next frame, so the zero is drawn before it rolls.
+                DispatchQueue.main.async {
+                    // A new value may have arrived meanwhile, and already rolled to it.
+                    guard shown == nil else { return }
+                    withAnimation(DSMotion.arrival.animation.delay(0.1 + Double(min(order, 8)) * 0.045)) {
+                        shown = value
+                    }
+                }
+            }
+            .onChange(of: value) { _, new in
+                guard animates else { shown = new; return }
+                withAnimation(DSMotion.arrival.animation) { shown = new }
+            }
+    }
+}

@@ -2,9 +2,10 @@ import SwiftUI
 
 /// The Insights "Week in review" card on the Mac and iPhone: time in range, the average and lows
 /// over the last 7 days beside the 7 before, and the best and hardest part of the day this week.
-/// Worked out off the main thread once per data change (`WeekInReviewCache`) and drawn still:
-/// nothing here animates or runs a timer (docs/Redesign.md power rules). Callers give it their own
-/// card surface.
+/// Worked out off the main thread once per data change (`WeekInReviewCache`). Nothing here runs a
+/// timer or loops (docs/Redesign.md power rules): the in-range and average figures roll once to a
+/// new value, and count up when the card appears where `figuresCountUp` is on (iPhone Insights).
+/// Callers give it their own card surface.
 struct WeekInReviewView: View {
     let readings: [GlucoseReading]
     let unit: GlucoseUnit
@@ -50,10 +51,12 @@ struct WeekInReviewView: View {
             DSAccessibleStack(verticalAlignment: .top, spacing: DS.Space.md) {
                 StatTile("In range", value: Format.percent(w.thisWeek.timeInRange),
                          caption: WeekInReviewText.rangeCaption(w),
-                         tone: w.rangeChange == .better ? .success : .neutral)
+                         tone: w.rangeChange == .better ? .success : .neutral,
+                         rolling: .init(w.thisWeek.timeInRange) { Format.percent($0) })
                 StatTile("Average", value: unit.format(mgdl: w.thisWeek.meanMgdl), unit: unit.label,
                          caption: WeekInReviewText.meanCaption(w, unit: unit),
-                         tone: .glucose(GlucoseRange.classify(mgdl: w.thisWeek.meanMgdl, low: lowMgdl, high: highMgdl)))
+                         tone: .glucose(GlucoseRange.classify(mgdl: w.thisWeek.meanMgdl, low: lowMgdl, high: highMgdl)),
+                         rolling: .init(w.thisWeek.meanMgdl) { unit.format(mgdl: $0) })
                 StatTile("Lows", value: WeekInReviewText.lowsValue(w.thisWeek.lows),
                          caption: WeekInReviewText.lowsCaption(w),
                          tone: w.thisWeek.lows > 0 ? .glucose(.low) : .neutral)

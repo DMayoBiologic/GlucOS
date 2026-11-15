@@ -399,10 +399,10 @@ struct TimeInRangeRing: View {
             }
             if showsLabel {
                 VStack(spacing: -1) {
-                    Text(Format.percent(inRange))
+                    // Counts up with the arcs on a screen that has `figuresCountUp` on.
+                    RollingFigure(inRange) { Format.percent($0) }
                         .font(.system(.title3, design: .rounded).weight(.bold))
                         .monospacedDigit()
-                        .contentTransition(.numericText(value: inRange))
                         .minimumScaleFactor(0.6)
                         .lineLimit(1)
                     Text(caption)
