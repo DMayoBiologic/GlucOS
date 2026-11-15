@@ -951,8 +951,9 @@ Try this again once there are about ten corrections that each have 4 hours with 
 after. Logging low treatments is what makes a correction window usable. Without them, every
 window ends at the first low. To find candidate windows:
 
-    select payload->>'units' u, to_timestamp((payload->>'timestamp')::float) at time zone 'Australia/Perth' t
-    from glucos.logbook d where kind = 'dose' and not deleted and payload->>'kind' in ('rapid', 'ultraRapid')
-      and not exists (select 1 from glucos.logbook m where m.kind = 'meal' and not m.deleted
+    select d.user_id, d.payload->>'units' u,
+      to_timestamp((d.payload->>'timestamp')::float) at time zone 'Australia/Perth' t
+    from glucos.logbook d where d.kind = 'dose' and not d.deleted and d.payload->>'kind' in ('rapid', 'ultraRapid')
+      and not exists (select 1 from glucos.logbook m where m.user_id = d.user_id and m.kind = 'meal' and not m.deleted
         and abs((m.payload->>'timestamp')::float - (d.payload->>'timestamp')::float) < 4 * 3600)
-    order by t;
+    order by d.user_id, t;
