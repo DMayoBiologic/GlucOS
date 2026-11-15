@@ -104,3 +104,8 @@ jobs:
         env:
           GLUCOS_TEST_DB_URL: postgres://postgres:postgres@127.0.0.1:54329/postgres
         run: deno test --allow-read --allow-env --allow-net supabase/functions/
+      - name: Share page tests
+        # The follower web page's working-out (web/share/follow.js), in Perth time and in New York's.
+        run: |
+          TZ=Australia/Perth deno test web/
+          TZ=America/New_York deno test web/
