@@ -13,7 +13,9 @@
 // LibreLinkUp user id at a reserved domain. JWT verification is off for this function
 // (supabase/config.toml) because the caller isn't signed in yet.
 
-import { type Account, isRegion, LibreError, LibreLinkUpFetcher } from "../relay/libre.ts";
+import { type Account, isRegion, LibreError, LibreLinkUpFetcher, syntheticEmail } from "../relay/libre.ts";
+
+export { syntheticEmail };
 
 const env = (k: string) => Deno.env.get(k)?.trim() || undefined;
 
@@ -30,16 +32,6 @@ export interface Session {
 /// Who a LibreLinkUp login belongs to.
 export interface Identifier {
   identify(account: Account): Promise<string>;
-}
-
-async function sha256Hex(s: string): Promise<string> {
-  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/// The Supabase user's (never mailed) email for a LibreLinkUp user id.
-export async function syntheticEmail(lluUserId: string): Promise<string> {
-  return `llu-${(await sha256Hex(`glucos:llu:${lluUserId}`)).slice(0, 40)}@users.glucos.invalid`;
 }
 
 /// Supabase Auth's admin API: make the user if needed, then mint a session for it the way a

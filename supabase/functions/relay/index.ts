@@ -24,6 +24,7 @@ import { constantTimeEqual, type CreateShareRequest, RelayEngine, type RelayRegi
 import { LibreLinkUpFetcher } from "./libre.ts";
 import { connect, PostgresStore } from "./store.ts";
 import { PostgresShareStore } from "./sharing.ts";
+import { PostgresForecastLedger } from "./ledger.ts";
 
 const env = (k: string) => Deno.env.get(k)?.trim() || undefined;
 
@@ -42,6 +43,7 @@ function services() {
     bundleId: env("APNS_BUNDLE_ID") ?? "au.com.declanmayo.glucos.ios",
     criticalAlerts: env("APNS_CRITICAL_ALERTS") === "true",
     shares: new PostgresShareStore(sql),
+    ledger: new PostgresForecastLedger(sql),
   });
   cached = { store, engine };
   return cached;
