@@ -1217,6 +1217,16 @@ struct PatternChart: View {
         }
         .chartLegend(position: .top, alignment: .leading)
         .accessibilityLabel("Glucose by time of day")
+        .accessibilityValue(spokenSummary)
+    }
+
+    /// When the typical (median) day runs lowest and highest, for VoiceOver.
+    private var spokenSummary: String {
+        guard let lo = bins.min(by: { $0.p50 < $1.p50 }), let hi = bins.max(by: { $0.p50 < $1.p50 }) else {
+            return "Not enough readings yet"
+        }
+        func at(_ b: PatternBin) -> String { ClockLabel.time(x(b.minute)) }
+        return "Typically lowest around \(at(lo)), \(unit.format(mgdl: lo.p50)), and highest around \(at(hi)), \(unit.format(mgdl: hi.p50)) \(unit.spokenLabel)"
     }
 }
 
@@ -1323,5 +1333,20 @@ struct DailyRangeChart: View {
         }
         .chartLegend(position: .top, alignment: .leading)
         .accessibilityLabel("Time in range by day")
+        .accessibilityValue(spokenSummary)
+    }
+
+    /// The average, best and worst day, for VoiceOver. Each bar is also its own element.
+    private var spokenSummary: String {
+        func inRange(_ d: DaySummary) -> Double { d.breakdown.rows.first { $0.range == .inRange }?.fraction ?? 0 }
+        guard !days.isEmpty, let best = days.max(by: { inRange($0) < inRange($1) }),
+              let worst = days.min(by: { inRange($0) < inRange($1) }) else { return "No days yet" }
+        let mean = days.map(inRange).reduce(0, +) / Double(days.count)
+        let name = { (d: DaySummary) in d.day.formatted(.dateTime.weekday(.wide).day().month(.wide)) }
+        var out = "\(days.count) days, \(Format.percent(mean)) in range on average"
+        if days.count > 1 {
+            out += ". Best \(name(best)), \(Format.percent(inRange(best))). Lowest \(name(worst)), \(Format.percent(inRange(worst)))"
+        }
+        return out
     }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import Accessibility
 
 /// Line chart of readings with the target band shaded. Compiled into both the app and the widget.
 struct GlucoseChart: View {
@@ -236,8 +237,72 @@ struct GlucoseChart: View {
         .scrubFeedback(interactive, trigger: hovered?.timestamp)
         // A new reading slides the trace along instead of jumping it.
         .dsAnimation(.standard, value: interactive ? window.last?.timestamp : nil)
-        .accessibilityLabel(projection.isEmpty ? "Glucose, last \(Int(hours)) hours"
-                                                : "Glucose, last \(Int(hours)) hours, with an estimated forecast")
+        // One VoiceOver element rather than hundreds of marks: a spoken summary, and the trace (with
+        // the forecast as a second series) as an audio graph under "Chart Details" in the rotor.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(projection.isEmpty ? "Glucose chart" : "Glucose chart, with an estimated forecast")
+        .accessibilityValue(ChartSummary.sentence(.init(
+            readings: window, lowMgdl: lowMgdl, highMgdl: highMgdl, unit: unit, hours: hours, stale: stale,
+            forecastEnd: projection.last,
+            loggedCount: events.filter { $0.date >= (window.first?.timestamp ?? .distantFuture) }.count)))
+        .accessibilityChartDescriptor(GlucoseAudioGraph(readings: window, forecast: projection, unit: unit,
+                                                        lowMgdl: lowMgdl, highMgdl: highMgdl, yDomain: yd))
+    }
+}
+
+// MARK: - Audio graph
+
+/// The chart for VoiceOver's audio graph and data table: readings as one series, the forecast (if
+/// shown) as another, with the target's edges as gridlines. Shared by every target that draws a
+/// `GlucoseChart`; the Mac dashboard's own chart has `GlucoseChartDescriptor`.
+struct GlucoseAudioGraph: AXChartDescriptorRepresentable {
+    let readings: [GlucoseReading]
+    let forecast: [ForecastSample]
+    let unit: GlucoseUnit
+    let lowMgdl: Double
+    let highMgdl: Double
+    let yDomain: ClosedRange<Double>
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let unit = self.unit
+        // A few hundred points keep audio-graph navigation quick.
+        let step = max(1, readings.count / 300)
+        let sampled = stride(from: 0, to: readings.count, by: step).map { readings[$0] }
+        let first = readings.first?.timestamp ?? Date()
+        let last = forecast.last?.date ?? readings.last?.timestamp ?? first.addingTimeInterval(3600)
+        let x = AXNumericDataAxisDescriptor(
+            title: "Time",
+            range: first.timeIntervalSince1970...max(last.timeIntervalSince1970, first.timeIntervalSince1970 + 60),
+            gridlinePositions: []
+        ) { value in
+            Date(timeIntervalSince1970: value).formatted(.dateTime.weekday(.abbreviated).hour().minute())
+        }
+        let y = AXNumericDataAxisDescriptor(
+            title: "Glucose, \(unit.spokenLabel)",
+            range: yDomain,
+            gridlinePositions: [unit.value(fromMgdl: lowMgdl), unit.value(fromMgdl: highMgdl)]
+        ) { value in
+            unit == .mmol ? String(format: "%.1f", value) : String(format: "%.0f", value)
+        }
+        var series = [AXDataSeriesDescriptor(
+            name: "Readings",
+            isContinuous: true,
+            dataPoints: sampled.map {
+                AXDataPoint(x: $0.timestamp.timeIntervalSince1970, y: unit.value(fromMgdl: $0.mgdl),
+                            label: GlucoseRange.classify(mgdl: $0.mgdl, low: lowMgdl, high: highMgdl).label)
+            }
+        )]
+        if !forecast.isEmpty {
+            series.append(AXDataSeriesDescriptor(
+                name: "Forecast, an estimate",
+                isContinuous: true,
+                dataPoints: forecast.map { AXDataPoint(x: $0.date.timeIntervalSince1970, y: unit.value(fromMgdl: $0.mgdl)) }
+            ))
+        }
+        return AXChartDescriptor(
+            title: "Glucose",
+            summary: "Target \(unit.format(mgdl: lowMgdl)) to \(unit.format(mgdl: highMgdl)) \(unit.spokenLabel).",
+            xAxis: x, yAxis: y, additionalAxes: [], series: series)
     }
 }
 

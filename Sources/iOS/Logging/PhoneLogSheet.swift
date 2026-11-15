@@ -16,6 +16,7 @@ struct PhoneLogSheet: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var store: GlucoseStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private let editing: PhoneLogPart?
     /// The part a new entry was opened for (the Event button, `glucos://log/event`…).
@@ -528,6 +529,11 @@ struct PhoneLogSheet: View {
         }
     }
 
+    /// `count` equal columns with the sheet's spacing.
+    private func gridColumns(_ count: Int) -> [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: DS.Space.sm), count: count)
+    }
+
     /// "What's happening?": the moments to pick from. More than one can be on (eating and a bolus).
     private var momentPicker: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
@@ -535,7 +541,8 @@ struct PhoneLogSheet: View {
                 .dsFont(.title)
                 .padding(.horizontal, DS.Space.xs)
                 .accessibilityAddTraits(.isHeader)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.Space.sm), count: 3), spacing: DS.Space.sm) {
+            // Three across; two at the accessibility text sizes, so "Going to sleep" never breaks mid-word.
+            LazyVGrid(columns: gridColumns(typeSize.dsLargeText ? 2 : 3), spacing: DS.Space.sm) {
                 ForEach(moments) { m in
                     PartTile(title: m.title, systemImage: m.systemImage, tint: tint(m), isOn: isOn(m)) { toggle(m) }
                         .accessibilityHint(m.detail)
@@ -770,7 +777,7 @@ struct PhoneLogSheet: View {
                     showsFoodPicker = true
                 } label: {
                     Label("Find the carbs in \u{201C}\(foodText)\u{201D}", systemImage: "sparkle.magnifyingglass")
-                        .lineLimit(1)
+                        .dsLineLimit(1)
                 }
                 .buttonStyle(ChipButtonStyle(tint: Palette.food))
             }
@@ -834,7 +841,7 @@ struct PhoneLogSheet: View {
 
     private var siteCard: some View {
         PhoneLogPanel(part: .site, title: "Infusion site change") {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.Space.sm), GridItem(.flexible())], spacing: DS.Space.sm) {
+            LazyVGrid(columns: gridColumns(typeSize.dsLargeText ? 1 : 2), spacing: DS.Space.sm) {
                 ForEach(InjectionSite.allCases) { s in
                     Button { newSite = s; Haptics.tap() } label: {
                         Text(s.title).frame(maxWidth: .infinity)
@@ -858,7 +865,7 @@ struct PhoneLogSheet: View {
 
     private var eventCard: some View {
         PhoneLogPanel(part: .event, title: isNew ? "What else is going on?" : "Event") {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.Space.sm), GridItem(.flexible())],
+            LazyVGrid(columns: gridColumns(typeSize.dsLargeText ? 1 : 2),
                       alignment: .leading, spacing: DS.Space.sm) {
                 ForEach(tagChoices) { t in
                     Button {
@@ -928,7 +935,8 @@ struct PhoneLogSheet: View {
         Button { save() } label: {
             HStack(spacing: DS.Space.sm) {
                 if canSave { Image(systemName: "checkmark.circle.fill") }
-                Text(canSave ? saveSummary : (missing ?? saveSummary)).lineLimit(1).minimumScaleFactor(0.8)
+                Text(canSave ? saveSummary : (missing ?? saveSummary)).dsLineLimit(1).minimumScaleFactor(0.8)
+                    .multilineTextAlignment(.center)
             }
             .dsFont(.headline)
             .frame(maxWidth: .infinity)
@@ -1173,7 +1181,7 @@ private struct BridgeButton: View {
             HStack(spacing: DS.Space.sm) {
                 Image(systemName: systemImage)
                     .font(.system(size: 14, weight: .semibold))
-                Text(title).dsFont(.headline).lineLimit(1).minimumScaleFactor(0.8)
+                Text(title).dsFont(.headline).dsLineLimit(1).minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
                 Image(systemName: "plus.circle.fill")
             }
@@ -1214,7 +1222,7 @@ private struct PartTile: View {
                 }
                 Text(title)
                     .dsFont(.label)
-                    .lineLimit(2)
+                    .dsLineLimit(2)
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.85)
                     .foregroundStyle(isOn ? AnyShapeStyle(tint) : AnyShapeStyle(Color.primary))
@@ -1256,9 +1264,9 @@ private struct QuickAddTile: View {
                     .frame(width: 28, height: 28)
                     .background(tint.opacity(0.14), in: Circle())
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(title).dsFont(.headline).lineLimit(1)
+                    Text(title).dsFont(.headline).dsLineLimit(1)
                     if !detail.isEmpty {
-                        Text(detail).dsFont(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(detail).dsFont(.caption).foregroundStyle(.secondary).dsLineLimit(1)
                     }
                 }
             }
@@ -1390,7 +1398,7 @@ private struct PhoneInjectionSitePicker: View {
                     Text(selection?.title ?? "Not recorded")
                         .dsFont(.headline)
                         .foregroundStyle(.primary)
-                        .lineLimit(1)
+                        .dsLineLimit(1)
                     Image(systemName: "chevron.down")
                         .imageScale(.small)
                         .foregroundStyle(.secondary)
@@ -1410,7 +1418,7 @@ private struct PhoneInjectionSitePicker: View {
                 if let suggested, selection != suggested {
                     Button { selection = suggested; Haptics.tap() } label: {
                         Label("Use \(suggested.title)", systemImage: "sparkle")
-                            .lineLimit(1)
+                            .dsLineLimit(1)
                     }
                     .dsFont(.caption)
                     .foregroundStyle(Palette.insulin)

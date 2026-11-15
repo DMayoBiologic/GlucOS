@@ -150,11 +150,18 @@ struct PopoverChartCard: View {
         return .handled
     }
 
+    /// The pinned reading while stepping through with the arrow keys, so VoiceOver reads each one;
+    /// otherwise the whole chart in a sentence (`ChartSummary`).
     private func chartSummary(_ window: [GlucoseReading]) -> String {
-        guard let lo = window.min(by: { $0.mgdl < $1.mgdl }), let hi = window.max(by: { $0.mgdl < $1.mgdl }) else {
-            return "No readings"
+        if let date = pinned, let r = window.first(where: { $0.timestamp == date }) {
+            let range = GlucoseRange.classify(mgdl: r.mgdl, low: s.lowMgdl, high: s.highMgdl)
+            return "\(s.unit.format(mgdl: r.mgdl)) \(s.unit.spokenLabel) at \(ClockLabel.time(r.timestamp)), \(range.spokenLabel)"
         }
-        return "\(window.count) readings, lowest \(s.unit.format(mgdl: lo.mgdl)) at \(lo.timestamp.formatted(date: .omitted, time: .shortened)), highest \(s.unit.format(mgdl: hi.mgdl)) at \(hi.timestamp.formatted(date: .omitted, time: .shortened))"
+        let outlook = settings.showForecast && !s.isStale() ? s.currentOutlook() : nil
+        let cutoff = (window.last?.timestamp ?? Date()).addingTimeInterval(-Double(settings.chartHours) * 3600)
+        return ChartSummary.sentence(.init(readings: window.filter { $0.timestamp >= cutoff }, lowMgdl: s.lowMgdl,
+                                           highMgdl: s.highMgdl, unit: s.unit, hours: Double(settings.chartHours),
+                                           stale: s.isStale(), forecastEnd: outlook?.forecast.last))
     }
 }
 
