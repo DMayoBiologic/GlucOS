@@ -148,3 +148,50 @@ way as the apps: every 3 hours it fits the trend's strength and timing to the la
 own one-minute readings (`tuneTrend` in `supabase/functions/relay/core.ts`, a port of
 `ForecastTuner`) and replays them every 15 minutes for the range and horizon. The parity fixture
 (`RelayParityTests`) covers a tuned timing and a tuned strength.
+
+## 7. Forecasts with a log after them (15 Nov 2026)
+
+`glucos.forecast_accuracy` for the week of 9 Nov showed Mac insulin-and-carb forecasts with
+something logged afterwards (`clean = false`) at a bias of +17 / +23 / +27 mg/dL at 30 / 45 / 60
+minutes, worse than no change, and inside their range 55–59% of the time. Bias is actual −
+forecast, so these forecasts ran **low**: glucose ended up higher than they said.
+
+Replaying the server's 4.6 days of readings and logbook (`LiveReplayTests`, with
+`GLUCOS_REPLAY_VERBOSE=3` to list each forecast) gives the same figures (+12 / +20 / +26), and
+the listing shows where they come from. Nearly every one is a forecast made before food that
+hadn't been eaten yet: a burrito bowl logged after a low (forecast 45, actual 207 an hour on), a
+sports drink for a low, and a late rise after a burger that a correction dose then answered. A
+forecast says what happens if nothing else is eaten or dosed, so it can't see those, and
+`clean = false` points are kept out of the range widening, the backtest and the tuner on
+purpose. They are not a forecasting fault to tune away.
+
+The clean points by time since the last meal or fast dose (replay, mg/dL):
+
+| Since the log | 30 min error | No change | Bias | Inside range |
+| --- | --- | --- | --- | --- |
+| Under 30 min | 33.2 | 33.4 | +4.0 | 55% |
+| 30–60 min | 24.4 | 19.9 | −11.2 | 68% |
+| 1–2 h | 13.1 | 18.7 | +8.8 | 87% |
+| 2–4 h | 17.4 | 21.7 | −5.7 | 81% |
+| Over 4 h | 15.9 | 17.9 | −0.3 | 80% |
+
+Two changes were tried for the first hour, and neither went in:
+
+- **A separate range for trend forecasts in the hour after a log**, from backtest checks made
+  that soon after a log. Inside-range rose from 48% to 68% at 15 minutes in the first half hour,
+  but fell at 30 minutes in the half hour after that, and taking those checks out of the quiet-time
+  range narrowed it below 80% (82% → 79% at 15 minutes). Overall coverage went down.
+- **A trend strength fitted to the hour after a log** (as `trendGain`, from those checks alone,
+  allowed down to none). Forced to 0, 30-minute error in the 30–60 minute window fell from 24.4 to
+  19.0, but rose in the first half hour, and the fitted version gained nothing overall
+  (30 minutes: 17.6 → 17.8). The tuner only had enough after-log checks for it in some relearns.
+
+There were about ten logged meals in the history, so a few dozen checks per bucket. Both are
+worth trying again once there are a few weeks of logged meals. The quickest way to improve these
+forecasts is to log meals: 2026-11-14 and 15 have four fast doses (1.5–10 U) with no meal logged
+near them, and the forecast then expects the full drop from the insulin.
+
+Uploads: `forecast_checks` arrive every 15 minutes from the Mac while it's awake, and from the
+iPhone while the app is open, about 1–2 hours after the forecast (each waits for its last checked
+point plus 20 minutes). The quiet stretch from 2026-11-14 18:42 to 2026-11-15 03:31 UTC was
+overnight in Perth with the Mac asleep. No uploads were missed.
