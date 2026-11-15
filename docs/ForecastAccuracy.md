@@ -1084,3 +1084,76 @@ To get the jitter for each forecast:
 Next: try range widening by jitter, the same way as §19 and §21 (miss ratio, held-out days,
 interval score), with the noisiest third as its own band. Retest damping with about three weeks of
 points if the noisy third ever shows a best k under 1.
+
+## 23. Re-check of §15–§22 on the latest data (16 Nov 2026)
+
+Each of §15–§22 changed nothing and said what data would settle it. This re-runs each one on
+what the server held at 16 Nov 07:50 Perth, and runs the one new test §22 asked for: widening
+the range when readings are noisy. **Nothing cleared its bar, so nothing changed.** The data has
+barely grown since those sections were written a few hours ago, and none of the stated
+thresholds (three weeks of points, 14 nights, 10 slow meals) is close.
+
+**What the data allows now.** 471 clean points at 15 and 30 minutes in
+`glucos.forecast_checks` (12 Nov 15:23 to 16 Nov 07:19 Perth; §19 had 459, §21 467, §22 469),
+109 at 60 minutes, and one-minute readings from 10 Nov 22:45 to 16 Nov 07:50 (7,108 readings, five
+full nights and most of a sixth). No meal has been logged since the Big Mac on 14 Nov apart from
+a Coke for tonight's low.
+
+| Section | Bar it set | Re-run on 16 Nov | Verdict |
+|---|---|---|---|
+| §15 slow-meal curve | 10+ slow meals with forecasts, fat and protein in the food data | Not re-run: still 3 slow meals, no new meal | Unchanged |
+| §16 "Your usual day" overnight | 14+ nights; 30 and 60 min forecasts through the night | Not re-run: 6 nights. The relay now forecasts all night (36 clean checks 22:00–07:30), but it only scores 15 minutes | Unchanged |
+| §17 compression-low guard | A compression low that crosses 70 | `scripts/compression-lows.ts` on 16 Nov 00:00–07:50: no compression-shaped dip. One new low, 04:50 (83 → 53 over 20 minutes, 16 minutes under 70, nothing logged), falls slowly, which is a real low's shape | Unchanged |
+| §19 range by time of day | Three weeks of points | Held out, 471 points: one figure 79.0% inside at 70.2 mg/dL (interval score 116.0); four parts of the day 77.7% at 70.7 (122.2) | Unchanged |
+| §21 range by speed | Three weeks of points | Steady / fast at 1.5 (what §9 does) 79.2% at 69.7 (116.0); flat / slow / fast 79.4% at 69.8 (116.7) | Unchanged |
+| §22 trend damping by noise | The noisy third showing a best k under 1 | Not re-run: 2 more points than §22 had | Unchanged |
+| §22 next: range widening by noise | Better interval score than §9 on held-out days | Looked better at first, then didn't once LinkUp's graph points were taken out (below) | Not shipped |
+
+**Range widening by noise.** Jitter is §22's second difference: the mean size of reading − 2 ×
+previous + the one before, over the 15 minutes before each forecast. It was tested two ways,
+holding each day out in turn. The first is §19's and §21's method: one 80th-percentile miss ratio
+per band, learnt on the other days. The second copies how `ForecastLedger.rangeScale` actually
+works: a steady figure for each horizon, then a correction for the noisy band learnt on what's
+left over, used in place of the fast-trend correction, or on top of it. The noisy band is either
+the noisiest third of the training days or a fixed jitter of 2.3 or 3 mg/dL.
+
+On the readings as stored, it looked like a clear win:
+
+| Held-out days, 15 + 30 min, as `rangeScale` works | Inside | Mean width | Interval score |
+|---|---|---|---|
+| Steady / fast at 1.5 (now) | 80.3% | 74.6 mg/dL | 116.7 |
+| Steady / noisy third, in place of fast | 79.8% | 75.3 mg/dL | 108.2 |
+| Steady / jitter 3 or more, in place of fast | 80.5% | 72.2 mg/dL | 106.1 |
+| Fast and noisy third, both | 83.2% | 87.6 mg/dL | 115.2 |
+
+That's 7–8% better at both 15 and 30 minutes, though only on 3 of the 5 days (14 and 16 Nov
+were worse). It didn't hold up. `glucos.readings` keeps LinkUp's 15-minute graph point beside the
+live reading, a second or so apart (§17, §18), and the two often differ by 5 mg/dL or more. Those
+pairs were most of the "jitter". With the graph point dropped where it sits within 30 seconds of a
+live reading, so jitter is measured on the live readings alone, the gain goes away:
+
+| Same test, jitter from live readings only | Inside | Mean width | Interval score |
+|---|---|---|---|
+| Steady / fast at 1.5 (now) | 80.3% | 74.6 mg/dL | 116.7 |
+| Steady / noisy third, in place of fast | 80.7% | 75.2 mg/dL | 118.4 |
+| Steady / jitter 3 or more, in place of fast | 78.1% | 69.9 mg/dL | 116.5 |
+| Fast and noisy third, both | 79.8% | 76.7 mg/dL | 118.2 |
+
+So the signal was mostly the gap between LinkUp's smoothed graph value and the live reading,
+which grows when glucose is moving fast. That is closer to speed, which §9 already uses, than to
+sensor noise. It also isn't something the Mac or iPhone could measure the same way, because their
+stored history keeps one reading per 5-minute slot. A range rule built on it would be tuned to a quirk
+of the server's store. Nothing shipped.
+
+To get jitter from live readings only (join on the forecast's id, as in §22):
+
+    with rd as (select r.at, r.mgdl from glucos.readings r
+      where not (r.trend = 0 and exists (select 1 from glucos.readings o
+        where o.at <> r.at and abs(extract(epoch from o.at - r.at)) < 30)))
+    -- then §22's query with rd in place of glucos.readings
+
+**When to look again.** Around 3 December, with three weeks of points, for §19, §21 and noise
+widening on live readings only. §16 needs the relay to score 30 and 60 minutes as well as 15
+before its overnight checks can settle it. §15 needs slow meals logged. Logging low treatments
+would help everywhere: tonight's 04:50 low and the rise to 140 straight after it have nothing in
+the logbook, so the points after it count as "clean" when they weren't.
