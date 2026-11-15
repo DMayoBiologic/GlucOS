@@ -26,58 +26,11 @@ struct PhoneLogbookView: View {
 
     var body: some View {
         let all = logbook.entries
-        let kinds = LogPart.allCases.filter { k in all.contains { $0.part == k } }
+        let kinds: [LogPart] = LogPart.allCases.filter { k in all.contains { $0.part == k } }
         let shown = filtered(all)
-        let now = Date()
-        List {
-            if kinds.count > 1 {
-                Section {
-                    filterBar(kinds)
-                        .listRowInsets(EdgeInsets(top: DS.Space.xs, leading: 0, bottom: DS.Space.xs, trailing: 0))
-                        .listRowBackground(Color.clear)
-                }
-            }
-            if shown.isEmpty {
-                Section {
-                    emptyState(hasEntries: !all.isEmpty)
-                        .listRowBackground(Color.clear)
-                }
-            } else {
-                // Headers total the whole day, not just what the filter or search left showing.
-                let totals = Dictionary(PhoneLogbookDay.group(all, now: now).map { ($0.id, $0.totals) },
-                                        uniquingKeysWith: { a, _ in a })
-                let days = PhoneLogbookDay.group(shown, now: now)
-                let starts = PhoneLogbookDay.rowStarts(days)
-                ForEach(Array(days.enumerated()), id: \.element.id) { i, day in
-                    Section {
-                        ForEach(Array(day.entries.enumerated()), id: \.element.id) { j, entry in
-                            // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
-                            let order = starts[i] + j
-                            row(entry)
-                                .dsEntrance(min(order, 8), enabled: !assembled && order < 12)
-                                .listRowBackground(Color(uiColor: .systemBackground)
-                                    .overlay(entry.part.logbookTint.opacity(fresh.contains(entry.id) ? 0.14 : 0)))
-                        }
-                    } header: {
-                        // Day headers stay pinned, on a blur, while their day scrolls under them.
-                        dayHeader(day, totals: totals[day.id] ?? day.totals)
-                            .padding(.horizontal, DS.Space.lg)
-                            .padding(.vertical, DS.Space.xs + 2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.bar)
-                            .listRowInsets(EdgeInsets())
-                    }
-                }
-            }
-            if sync.status != .off {
-                Section {
-                    Label(sync.summary, systemImage: sync.isProblem ? "exclamationmark.icloud" : "arrow.triangle.2.circlepath.icloud")
-                        .dsFont(.caption)
-                        .foregroundStyle(sync.isProblem ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(HierarchicalShapeStyle.tertiary))
-                        .listRowBackground(Color.clear)
-                }
-            }
-        }
+        let shownIDs: [UUID] = shown.map(\.id)
+        let allIDs: [UUID] = all.map(\.id)
+        list(all: all, kinds: kinds, shown: shown)
         // Plain, so day headers stick to the top as their day scrolls.
         .listStyle(.plain)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Food, insulin, notes")
@@ -95,8 +48,8 @@ struct PhoneLogbookView: View {
         .animation(DSMotion.quick.animation, value: kind)
         // New rows slide in and deleted rows fold away, whether from here, an undo or a sync.
         // Instant under Reduce Motion.
-        .dsAnimation(.standard, value: shown.map(\.id))
-        .onChange(of: all.map(\.id)) { old, new in
+        .dsAnimation(.standard, value: shownIDs)
+        .onChange(of: allIDs) { old, new in
             markFresh(Set(new).subtracting(old))
         }
         .onChange(of: kinds) { _, now in
@@ -106,6 +59,67 @@ struct PhoneLogbookView: View {
             try? await Task.sleep(for: .seconds(1))
             assembled = true
         }
+    }
+
+    private func list(all: [LogEntry], kinds: [LogPart], shown: [LogEntry]) -> some View {
+        List {
+            if kinds.count > 1 {
+                Section {
+                    filterBar(kinds)
+                        .listRowInsets(EdgeInsets(top: DS.Space.xs, leading: 0, bottom: DS.Space.xs, trailing: 0))
+                        .listRowBackground(Color.clear)
+                }
+            }
+            if shown.isEmpty {
+                Section {
+                    emptyState(hasEntries: !all.isEmpty)
+                        .listRowBackground(Color.clear)
+                }
+            } else {
+                daySections(all: all, shown: shown, now: Date())
+            }
+            if sync.status != .off {
+                Section {
+                    Label(sync.summary, systemImage: sync.isProblem ? "exclamationmark.icloud" : "arrow.triangle.2.circlepath.icloud")
+                        .dsFont(.caption)
+                        .foregroundStyle(sync.isProblem ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(HierarchicalShapeStyle.tertiary))
+                        .listRowBackground(Color.clear)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func daySections(all: [LogEntry], shown: [LogEntry], now: Date) -> some View {
+        // Headers total the whole day, not just what the filter or search left showing.
+        let totals: [String: String] = Dictionary(PhoneLogbookDay.group(all, now: now).map { ($0.id, $0.totals) },
+                                                  uniquingKeysWith: { a, _ in a })
+        let days = PhoneLogbookDay.group(shown, now: now)
+        let starts = PhoneLogbookDay.rowStarts(days)
+        ForEach(Array(days.enumerated()), id: \.element.id) { i, day in
+            Section {
+                ForEach(Array(day.entries.enumerated()), id: \.element.id) { j, entry in
+                    // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
+                    listRow(entry, order: starts[i] + j)
+                }
+            } header: {
+                // Day headers stay pinned, on a blur, while their day scrolls under them.
+                dayHeader(day, totals: totals[day.id] ?? day.totals)
+                    .padding(.horizontal, DS.Space.lg)
+                    .padding(.vertical, DS.Space.xs + 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.bar)
+                    .listRowInsets(EdgeInsets())
+            }
+        }
+    }
+
+    private func listRow(_ entry: LogEntry, order: Int) -> some View {
+        let tint: Color = entry.part.logbookTint
+        let lit: Double = fresh.contains(entry.id) ? 0.14 : 0
+        return row(entry)
+            .dsEntrance(min(order, 8), enabled: !assembled && order < 12)
+            .listRowBackground(Color(uiColor: .systemBackground).overlay(tint.opacity(lit)))
     }
 
     /// Lights the rows that just arrived, then lets the colour fade out once.
