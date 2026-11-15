@@ -144,6 +144,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Low and high alerts have two buttons.** *Snooze 30 min* quiets your own alerts (followers still
   get every one), and *I'm treating it* opens the log sheet on your usual low treatment or a
   correction. Urgent lows can't be snoozed. See [AlertActions.md](AlertActions.md).
+- **Pull down on Today to refresh.** A ring fills as your readings arrive and you feel a light tap when there's something new. Under Reduce Motion you get the standard system indicator.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
