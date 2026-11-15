@@ -24,6 +24,9 @@ struct GlucoseChart: View {
     /// range, never in a reading's colour. Pass only a current forecast (`OutlookSnapshot.isCurrent`);
     /// it's hidden anyway while the newest reading is stale.
     var forecast: [ForecastSample] = []
+    /// How much of the forecast is drawn, from its starting reading (0) to its end (1), while it
+    /// draws in (`ForecastMotion`). The axes always make room for all of it, so they hold still.
+    var forecastReveal: Double = 1
     /// Logged doses and food, drawn as small markers along the bottom of the chart.
     var events: [ChartLogMarker] = []
     /// How many time labels to aim for along the bottom.
@@ -176,6 +179,9 @@ struct GlucoseChart: View {
             ?? (window.last.map { Date().timeIntervalSince($0.timestamp) > GlucoseSnapshot.staleAfter } ?? true)
         let currentTint = stale ? Palette.stale : (window.last.map { color(for: $0.mgdl) } ?? Palette.stale)
         let projection = stale ? [] : forecast
+        // What's drawn of it so far. Indexed rather than keyed by time, so the marks keep their
+        // identity while a new forecast slides and bends into place (`ForecastMotion`).
+        let drawn = Array(ForecastMorph.revealed(projection, progress: forecastReveal).enumerated())
         Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
@@ -221,7 +227,7 @@ struct GlucoseChart: View {
             }
 
             // The forecast: a neutral band and dashed line, so it can't be mistaken for readings.
-            ForEach(projection) { p in
+            ForEach(drawn, id: \.offset) { _, p in
                 AreaMark(
                     x: .value("Time", p.date),
                     yStart: .value("Forecast low", min(max(unit.value(fromMgdl: p.lowerMgdl), yd.lowerBound), yd.upperBound)),
@@ -235,7 +241,7 @@ struct GlucoseChart: View {
                                    startPoint: .leading, endPoint: .trailing)
                 )
             }
-            ForEach(projection) { p in
+            ForEach(drawn, id: \.offset) { _, p in
                 LineMark(
                     x: .value("Time", p.date),
                     y: .value("Forecast", unit.value(fromMgdl: p.mgdl)),
