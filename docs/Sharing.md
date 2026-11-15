@@ -162,6 +162,9 @@ Rules and wording are in `supabase/functions/relay/checkins.ts`; tests in `check
 
 The functions and migration deploy on merge, like the rest of `supabase/`. The web view deploys on merge
 through Vercel's GitHub integration (pushes that don't touch `web/` or `vercel.json` skip the build).
+Branches named `claude/…` don't deploy at all (`git.deploymentEnabled` in `vercel.json`): every push
+used to create a deployment, even one the skip then cancelled, and the improvement loop's pushes ran the
+Hobby plan's 100 deployments a day out on 2026-11-15, which blocks production deploys too.
 
 ### The Messages app
 
