@@ -54,9 +54,12 @@ struct AccessoryGlucoseView: View {
         guard freshness.showsValue, let c = s.current else { return "––" }
         return s.unit.format(mgdl: c.mgdl)
     }
-    private var symbol: String {
-        guard freshness == .fresh, let c = s.current else { return "clock.badge.exclamationmark" }
-        return c.trend.systemImage
+    private var trend: Trend { s.current?.trend ?? .unknown }
+    /// Lock Screen accessories are drawn monochrome, so the tone only times the figure's change
+    /// (`readingChange`); the colour itself is the system's.
+    private var tone: Tone {
+        guard freshness == .fresh, let range = s.range else { return .stale }
+        return .glucose(range)
     }
     private var age: String {
         s.current.map { Format.age($0.age(at: entry.date)) } ?? "No data"
@@ -85,9 +88,8 @@ struct AccessoryGlucoseView: View {
                         .monospacedDigit()
                         .minimumScaleFactor(0.5)
                         .strikethrough(freshness == .stale)
-                        .contentTransition(.numericText(value: s.current?.mgdl ?? 0))
-                    Image(systemName: symbol).font(.system(size: 11, weight: .bold))
-                        .contentTransition(.symbolEffect(.replace))
+                        .readingChange(mgdl: s.current?.mgdl ?? 0, tone: tone)
+                    TrendArrow(trend: trend, stale: freshness != .fresh).font(.system(size: 11, weight: .bold))
                 }
                 .padding(4)
             }
@@ -100,9 +102,8 @@ struct AccessoryGlucoseView: View {
                         .font(.system(size: 26, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .strikethrough(freshness == .stale)
-                        .contentTransition(.numericText(value: s.current?.mgdl ?? 0))
-                    Image(systemName: symbol).font(.system(size: 15, weight: .bold))
-                        .contentTransition(.symbolEffect(.replace))
+                        .readingChange(mgdl: s.current?.mgdl ?? 0, tone: tone)
+                    TrendArrow(trend: trend, stale: freshness != .fresh).font(.system(size: 15, weight: .bold))
                     Text(s.unit.label).font(.caption2).foregroundStyle(.secondary)
                 }
                 if freshness == .fresh, let o = s.currentOutlook(at: entry.date), let h = OutlookFormat.headlineSample(o) {

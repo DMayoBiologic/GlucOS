@@ -95,6 +95,20 @@ enum Trend: Int, Codable {
         }
     }
 
+    /// The direction of travel as a turn of a right-pointing arrow, in degrees clockwise: −90 points
+    /// up (rising quickly), 90 points down. One arrow turned to this angle replaces the five arrow
+    /// glyphs wherever the trend can change in place, so a new trend swings the arrow round rather
+    /// than swapping one glyph for another (`TrendDial`, `TrendArrow`). Unknown sits level.
+    var needleAngle: Double {
+        switch self {
+        case .risingQuickly: return -90
+        case .rising: return -45
+        case .flat, .unknown: return 0
+        case .falling: return 45
+        case .fallingQuickly: return 90
+        }
+    }
+
     var isRapid: Bool { self == .fallingQuickly || self == .risingQuickly }
     var isFalling: Bool { self == .fallingQuickly || self == .falling }
 }
