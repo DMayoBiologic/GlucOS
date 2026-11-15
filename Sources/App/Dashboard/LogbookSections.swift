@@ -336,10 +336,13 @@ struct InsightsSection: View {
             } else {
                 TherapySetupView().dashboardCard().dsEntrance(0)
             }
-            DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
+            WeekInReviewView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
                 .dsEntrance(5)
-            ForecastScorecardCard(outlook: outlookStore).dsEntrance(6)
+            DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
+                .dashboardCard()
+                .dsEntrance(6)
+            ForecastScorecardCard(outlook: outlookStore).dsEntrance(7)
             Disclaimer()
         }
     }

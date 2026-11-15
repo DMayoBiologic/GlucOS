@@ -93,6 +93,8 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   the middle half and 8 in 10 readings shaded, with a spoken summary and audio graph for VoiceOver.
   **Today so far** (on the dashboard Overview and the iPhone Today screen) puts today's time in
   range, average and lows since midnight beside the same hours on your usual day.
+  **Week in review** puts the last 7 days beside the 7 before (time in range, average, lows) and
+  names the best and hardest part of the day this week; it shows this week alone until last week has readings.
   These are observations, not advice. GlucOS never suggests or calculates a dose, and the
   "drop per unit" is not a correction factor. Talk to your care team before changing anything.
 - **Logging** (⌘L, from the popover or dashboard) opens a quick-log window that asks **What's
