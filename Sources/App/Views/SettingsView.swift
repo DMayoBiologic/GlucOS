@@ -361,7 +361,15 @@ struct FollowerAccountHelp: View {
 // MARK: - Glucose
 
 private struct GlucoseSettingsTab: View {
+    @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
+
+    /// The latest reading while it's fresh, for the range editor's marker.
+    private var freshMgdl: Double? {
+        let s = store.snapshot
+        guard let cur = s.current, !s.isStale() else { return nil }
+        return cur.mgdl
+    }
 
     var body: some View {
         Form {
@@ -373,7 +381,7 @@ private struct GlucoseSettingsTab: View {
             }
 
             Section {
-                TargetRangeEditor(settings: settings)
+                TargetRangeEditor(settings: settings, readingMgdl: freshMgdl)
                     .padding(.vertical, 4)
             } header: {
                 Text("Target Range")

@@ -211,71 +211,131 @@ enum TargetRangeLimits {
     }
 }
 
-/// The glucose scale with each band in its range colour and the user's thresholds marked.
-/// Updates live as the thresholds change, so it's obvious what "low" and "high" will mean.
+/// The glucose scale with each band in its range colour and the user's thresholds marked, drawn as
+/// the Signal range rail (docs/Redesign.md §5.3): the same log scale from 40 to 300 mg/dL and the
+/// same segment colours, so the range set here looks exactly like the rail under every reading.
+/// Updates live as the thresholds change. With `readingMgdl`, a marker shows where the latest
+/// reading sits, and takes the colour of the range it would count as under these thresholds.
 struct RangeBar: View {
     let lowMgdl: Double
     let highMgdl: Double
     let unit: GlucoseUnit
+    /// The latest reading, only while it's fresh. Nil hides the marker.
+    var readingMgdl: Double? = nil
 
-    private let scaleMin = 36.0
-    private let scaleMax = 360.0
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private static let ranges: [GlucoseRange] = [.urgentLow, .low, .inRange, .high, .veryHigh]
+    private let thickness: CGFloat = 10
+    private let marker: CGFloat = 16
+    /// Fixed edge labels (3.0, 13.9) closer than this to a threshold label are left out, so the
+    /// labels never overprint.
+    private let labelGap: CGFloat = 30
+
+    private func segmentColor(_ r: GlucoseRange) -> Color {
+        let strong = contrast == .increased
+        return r.tint.opacity(r == .inRange ? (strong ? 1 : 0.8) : (strong ? 0.85 : 0.5))
+    }
 
     var body: some View {
+        let edges = RangeScale.edges(lowMgdl: lowMgdl, highMgdl: highMgdl)
         VStack(alignment: .leading, spacing: 4) {
             GeometryReader { geo in
                 let w = geo.size.width
-                HStack(spacing: 2) {
-                    band(.urgentLow, from: scaleMin, to: 54, width: w)
-                    band(.low, from: 54, to: lowMgdl, width: w)
-                    band(.inRange, from: lowMgdl, to: highMgdl, width: w)
-                    band(.high, from: highMgdl, to: 250, width: w)
-                    band(.veryHigh, from: 250, to: scaleMax, width: w)
+                ZStack(alignment: .leading) {
+                    HStack(spacing: contrast == .increased ? 1 : 0) {
+                        ForEach(Array(Self.ranges.enumerated()), id: \.offset) { i, r in
+                            Rectangle()
+                                .fill(segmentColor(r))
+                                .frame(width: max(0, (edges[i + 1] - edges[i]) * w))
+                        }
+                    }
+                    .frame(width: w, height: thickness)
+                    .clipShape(Capsule())
+
+                    if let readingMgdl {
+                        let r = GlucoseRange.classify(mgdl: readingMgdl, low: lowMgdl, high: highMgdl)
+                        Circle()
+                            .fill(r.tint)
+                            .overlay {
+                                Circle().strokeBorder(.background, lineWidth: contrast == .increased ? 3 : 2)
+                            }
+                            .frame(width: marker, height: marker)
+                            .offset(x: RangeScale.position(readingMgdl) * w - marker / 2)
+                    }
                 }
+                .frame(height: marker)
             }
-            .frame(height: 14)
+            .frame(height: marker)
             GeometryReader { geo in
                 let w = geo.size.width
+                let lowX = x(lowMgdl, w), highX = x(highMgdl, w)
                 ZStack(alignment: .topLeading) {
-                    tick(54, width: w)
+                    if abs(x(RangeScale.urgentLowMgdl, w) - lowX) >= labelGap {
+                        tick(RangeScale.urgentLowMgdl, width: w)
+                    }
                     tick(lowMgdl, width: w, bold: true)
                     tick(highMgdl, width: w, bold: true)
-                    tick(250, width: w)
+                    if abs(x(RangeScale.veryHighMgdl, w) - highX) >= labelGap {
+                        tick(RangeScale.veryHighMgdl, width: w)
+                    }
                 }
             }
             .frame(height: 16)
+            if let readingMgdl {
+                readingLine(readingMgdl)
+            }
         }
-        .animation(.smooth(duration: 0.25), value: lowMgdl)
-        .animation(.smooth(duration: 0.25), value: highMgdl)
+        .dsAnimation(.emphasized, value: lowMgdl)
+        .dsAnimation(.emphasized, value: highMgdl)
+        .dsAnimation(.arrival, value: readingMgdl)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Target range \(unit.format(mgdl: lowMgdl)) to \(unit.format(mgdl: highMgdl, withUnit: true))")
+        .accessibilityValue(readingMgdl.map { readingText($0) } ?? "")
     }
 
     private func x(_ mgdl: Double, _ width: CGFloat) -> CGFloat {
-        CGFloat((min(scaleMax, max(scaleMin, mgdl)) - scaleMin) / (scaleMax - scaleMin)) * width
-    }
-
-    private func band(_ range: GlucoseRange, from: Double, to: Double, width: CGFloat) -> some View {
-        let w = max(2, x(to, width) - x(from, width) - 2)
-        return RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(range.tint.gradient)
-            .frame(width: to > from ? w : 0)
+        RangeScale.position(mgdl) * width
     }
 
     private func tick(_ mgdl: Double, width: CGFloat, bold: Bool = false) -> some View {
         Text(unit.format(mgdl: mgdl))
             .font(.caption2.weight(bold ? .bold : .regular))
             .monospacedDigit()
+            .contentTransition(.numericText(value: mgdl))
             .foregroundStyle(bold ? Color.primary : Color.secondary)
             .fixedSize()
             .frame(width: 40)
             .offset(x: x(mgdl, width) - 20)
     }
+
+    private func readingText(_ mgdl: Double) -> String {
+        let r = GlucoseRange.classify(mgdl: mgdl, low: lowMgdl, high: highMgdl)
+        return "Your latest reading, \(unit.format(mgdl: mgdl)), would count as \(r.label.lowercased())"
+    }
+
+    /// "Your latest reading, 6.2, would count as in range": the marker in words, with the range's symbol
+    /// so it never relies on colour alone.
+    private func readingLine(_ mgdl: Double) -> some View {
+        let r = GlucoseRange.classify(mgdl: mgdl, low: lowMgdl, high: highMgdl)
+        return Label {
+            Text(readingText(mgdl))
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: r.systemImage)
+                .foregroundStyle(r.tint)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .dsFont(.caption)
+        .foregroundStyle(.secondary)
+    }
 }
 
 /// Presets, two thresholds with steppers, and the live range bar. Used by Settings and onboarding.
+/// Pass `readingMgdl` (the latest reading, only while fresh) to show it on the bar.
 struct TargetRangeEditor: View {
     @ObservedObject var settings: AppSettings
+    var readingMgdl: Double? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -290,7 +350,8 @@ struct TargetRangeEditor: View {
                 }
                 Spacer(minLength: 0)
             }
-            RangeBar(lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl, unit: settings.unit)
+            RangeBar(lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl, unit: settings.unit,
+                     readingMgdl: readingMgdl)
             HStack(spacing: 18) {
                 ThresholdStepper(title: "Low below", mgdl: $settings.lowMgdl, unit: settings.unit,
                                  range: TargetRangeLimits.safe(TargetRangeLimits.low.lowerBound,

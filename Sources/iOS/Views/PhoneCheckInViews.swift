@@ -59,6 +59,7 @@ struct FollowCheckInRow: View {
     let follow: Follow
     let card: GlucoseActivityState
     @State private var error: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let checkIn = follows.checkIns[follow.id]
@@ -67,7 +68,12 @@ struct FollowCheckInRow: View {
         let urgent = (card.offersCheckIn && !card.isStale()) || checkIn?.status == .noAnswer
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(spacing: DS.Space.sm) {
-                if let checkIn { status(checkIn) }
+                if let checkIn {
+                    // A new answer pushes the old line up and out, so "is okay" arriving is seen.
+                    status(checkIn)
+                        .id(checkIn.status)
+                        .transition(reduceMotion ? .opacity : .push(from: .bottom))
+                }
                 Spacer(minLength: 0)
                 if checkIn.map({ !$0.isWaiting || $0.status == .noAnswer }) ?? true {
                     askButton(title: checkIn?.status == .noAnswer ? "Ask again" : "Check in", urgent: urgent)
@@ -80,6 +86,18 @@ struct FollowCheckInRow: View {
             } else if checkIn == nil, follows.myName.isEmpty {
                 Text("Add your name in Settings so \(follow.label) knows who's asking.")
                     .dsFont(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .clipped()
+        .dsAnimation(.emphasized, value: checkIn?.status)
+        // The answer is felt as well as seen: success for "okay", a warning for "needs help" or
+        // no answer. Only on a change while this screen is open, never on first draw.
+        .sensoryFeedback(trigger: checkIn?.status) { old, new in
+            guard old != nil, old != new else { return nil }
+            switch new {
+            case .okay: return .success
+            case .help, .noAnswer: return .warning
+            case .asked, nil: return nil
             }
         }
     }
