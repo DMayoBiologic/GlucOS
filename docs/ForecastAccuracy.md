@@ -694,3 +694,83 @@ better tied to waking than to the clock: `MorningPatternLearner` (docs/Mornings.
 the rise after a logged wake-up, and that's the lever to strengthen. Rerun as is: per-night hold-out,
 shape and level weights, ship only if 30 and 60 minutes both improve, including 04:00–08:00. The
 prototype was a scratch script; it's simple to redo from the description above.
+
+## 17. Compression lows overnight: is a guard worth it? (16 Nov 2026)
+
+A compression low is a sensor reading low because it's been lain on: a sudden drop, often into
+the 50s or 60s, that bounces back within about 20 minutes once you roll over, with nothing eaten.
+The question was whether these send false low alerts or throw out the 15–30 minute forecast at
+night, and whether a guard (for example, holding the alert until a second reading agrees) would
+cut those false alerts **without delaying any real low**. That last part was the bar, after a real
+low to 51 mg/dL (2.8 mmol/L) at 00:52–01:42 Perth tonight. **No guard cleared it, so nothing
+changed.**
+
+**What was looked at.** All of `glucos.readings` (10 Nov 22:45 to 16 Nov 03:08 Perth: five and a
+half nights, about 112 hours of one-minute readings), the logbook, and the overnight
+`forecast_checks`. `scripts/compression-lows.ts` lists every dip of 20+ mg/dL at 2+ mg/dL a
+minute that bounced back two thirds of the way within 20 minutes, and every low (readings under
+70). Overnight here is 22:00–07:00 Perth.
+
+**No compression low reached the low line.** There were 22 such dips, 9 of them overnight and 7
+of those with nothing logged. All 7 bottomed out between 95 and 238 mg/dL, far above 70, so none
+could set off a low alert from a reading. Only one dip went under 70 at all (12 Nov 23:39, 105 →
+66): it was treated, with carbs logged at 23:42. Of the 8 lows in the data, the two overnight
+ones were both real and treated (12 Nov 23:39 and tonight).
+
+**Tonight's real low started out looking like a compression low.** Readings fell 96 → 67 in six
+minutes (00:47–00:53), the steepest fall of the night at 4–5 mg/dL a minute, and came back up to
+78 by 00:57. That's the textbook shape. Then they fell again from 01:01 and stayed under 70 for 40
+minutes, down to 51, until the carbs at 01:05 brought it back. A guard that held the 00:52 alert
+because the drop was sudden, overnight and bouncing back would have put off the first warning of a
+genuine 2.8 by around ten minutes.
+
+**Predicted lows.** The forecast-based alerts are where night-time falls do cause false alarms.
+Replaying the alert rules on the full 30-minute trend at every one-minute reading (the most
+predicted-low alerts the relay could send, before its calibration cuts the forecast short) gives
+40 alerts, every one of the 7 lows in the window warned (median 18 minutes ahead), and 10 false
+alarms. Four were overnight: 13 Nov 00:40 and 03:42, 14 Nov 00:52 and 01:32, falls from about
+110 that levelled off at 90–100. The live overnight checks show the same thing: of 14 forecasts
+issued in a fall of 1.5+ mg/dL a minute, three ran 17–45 mg/dL low at 15–30 minutes because the
+fall bounced back, but none of those three called a low. The one that did (Mac, 12 Nov 23:36,
+forecasting 52) was right until the carbs.
+
+**Every guard tried would have delayed tonight's warning.** Measured at the moment of each first
+warning, the false alarms and the real lows look alike:
+
+| At the first alert | Real lows (7) | False alarms (8) |
+| --- | --- | --- |
+| Reading | 86–129 | 91–113 |
+| Change over the last 15 min | −18 to −67 | −21 to −52 |
+| Rose in the 15 minutes before that | 2 of 6 | 5 of 7 |
+
+Tonight's low is the hardest case: the first warning came at 00:34 at 126 mg/dL, after a rise
+(+34 over 00:04–00:19) and then a fall of 61 in 15 minutes, which is exactly the shape of the
+false alarms. So:
+
+- *A second reading to confirm a low reading* saves nothing here (no compression low crossed 70)
+  and delays every real low by at least a minute, or 15 minutes on LinkUp's 15-minute history.
+- *Holding predicted lows for sudden, overnight or after-a-rise falls* would have held tonight's
+  00:34 and 00:40 warnings. §13 already rejected confirmation ticks and a no-recent-rise gate for
+  the same reason.
+- *A steeper fall needed to alert* misses lows that start slowly (12 Nov 23:34 and 15 Nov 21:34
+  fell 18–22 in 15 minutes), and §13 found it gave no earlier warnings either.
+
+So the alerts stay as #90 left them. A missed real low costs far more than a false alarm at
+night, and nothing in five nights tells the two apart in time.
+
+**Something to look at next.** The readings table holds a second reading a second or so from a
+live one at most 15-minute marks: LinkUp's graph points, merged by exact time
+(`mergeReadings`). In 100 of 255 such pairs the two differ by 5 mg/dL or more, which puts small
+false blips and dips into the one-minute series. It also makes the low-alert replay depend on
+which of each pair is kept. On today's export, §13's replay draws no forecast on about 80% of
+ticks and warns of 1–3 of the 7 lows, where the live relay forecast through tonight's low
+(00:40, 110 falling 3.7 a minute, forecast 89 at 15 minutes against 71). Keeping one reading per
+minute in the store and in exports would remove those blips. It's a data fix, not a guard, and
+it should be checked against the replay before it ships.
+
+    GLUCOS_REPLAY_DIR=dir deno run --allow-read --allow-env scripts/compression-lows.ts
+    # DROP=mg/dL and RATE=mg/dL a minute change what counts as a dip; TZ_HOURS for another time zone
+
+Rerun this once there are a few weeks of nights. A guard is worth trying again only if
+compression lows that cross 70 start to show up, and only if it holds no warning of a low that
+the readings then confirm.
