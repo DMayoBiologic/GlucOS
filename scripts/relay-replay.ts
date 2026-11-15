@@ -13,12 +13,22 @@
 //   UNGATED=1      draw every horizon at every origin, to judge the forecast itself
 //   GAIN=x         force the trend's strength
 //   LIST=1         list each 15-minute point from LIST_FROM (default the last day)
+//   ONE_PER_MINUTE=1 keep one of each pair of readings under 30 s apart, the live one (trend known) first.
+//                  Needs the trend as a third column ([[t, mg/dL, trend], …]); see docs/ForecastAccuracy.md §18
 import * as core from "../supabase/functions/relay/core.ts";
 
 const env = (k: string) => Deno.env.get(k) ?? "";
 const dir = env("GLUCOS_REPLAY_DIR") || ".";
-const readings: core.Reading[] = JSON.parse(Deno.readTextFileSync(`${dir}/readings.json`))
-  .map(([t, mgdl]: number[]) => ({ t, mgdl, trend: 0 as core.Trend }));
+const exported: core.Reading[] = JSON.parse(Deno.readTextFileSync(`${dir}/readings.json`))
+  .map(([t, mgdl, trend]: number[]) => ({ t, mgdl, trend: (trend ?? 0) as core.Trend }))
+  .sort((a: core.Reading, b: core.Reading) => a.t - b.t);
+// LinkUp's 15-minute graph points (trend 0) land a second or so from the live reading.
+const readings: core.Reading[] = env("ONE_PER_MINUTE") ? exported.reduce((out: core.Reading[], r) => {
+  const prev = out[out.length - 1];
+  if (!prev || r.t - prev.t >= 30) out.push(r);
+  else if (prev.trend === 0 && r.trend !== 0) out[out.length - 1] = r;
+  return out;
+}, []) : exported;
 const logs: number[] = JSON.parse(Deno.readTextFileSync(`${dir}/log.json`));
 const series = new core.Series(readings);
 const end = series.last!.t;
