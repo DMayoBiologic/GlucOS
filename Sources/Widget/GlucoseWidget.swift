@@ -22,7 +22,8 @@ struct GlucoseWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: kind, intent: GlucoseWidgetIntent.self, provider: GlucoseProvider()) { entry in
             GlucoseWidgetView(entry: entry)
-                .containerBackground(for: .widget) { WidgetBackdrop(tint: entry.tint) }
+                .modifier(UrgentLowBorder(entry: entry))
+                .containerBackground(for: .widget) { SignalWidgetBackdrop(entry: entry) }
                 // Click anywhere else on the widget to open the popover (handled in AppDelegate).
                 .widgetURL(URL(string: "glucos://open"))
         }
@@ -131,6 +132,7 @@ struct GlucoseWidgetView: View {
                     if showsRefresh { RefreshButton(size: 20) }
                 }
                 chart(axes: false)
+                WidgetSignalFooter(entry: entry, meterWidth: 32)
             }
         }
     }
@@ -160,7 +162,11 @@ struct GlucoseWidgetView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                WidgetCaption(text: chartCaption)
+                HStack(spacing: 6) {
+                    WidgetCaption(text: chartCaption)
+                    Spacer(minLength: 0)
+                    meter
+                }
                 chart(axes: true)
             }
             .frame(maxHeight: .infinity)
@@ -220,9 +226,22 @@ struct GlucoseWidgetView: View {
             .frame(minWidth: 210, maxWidth: 250, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
-                WidgetCaption(text: chartCaption, systemImage: "waveform.path.ecg")
+                HStack(spacing: 6) {
+                    WidgetCaption(text: chartCaption, systemImage: "waveform.path.ecg")
+                    Spacer(minLength: 0)
+                    meter
+                }
                 chart(axes: true, lineWidth: 2.75)
             }
+        }
+    }
+
+    /// The freshness meter on its own, beside the chart's caption on the larger sizes, where the
+    /// forecast already has its own row (`outlookRow`).
+    @ViewBuilder private var meter: some View {
+        if let cur = s.current, entry.freshness.showsValue {
+            FreshnessMeter(readingDate: cur.timestamp, stale: entry.freshness != .fresh, tint: entry.tint, width: 40)
+                .widgetAccentable()
         }
     }
 
@@ -246,14 +265,18 @@ struct GlucoseWidgetView: View {
                     Text("Avg \(s.unit.format(mgdl: st.meanMgdl))")
                         .font(.system(size: 10.5, weight: .semibold))
                         .monospacedDigit()
+                        .contentTransition(.numericText(value: st.meanMgdl))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 TimeInRangeBar(stats: st, height: 7)
                 HStack(spacing: 8) {
-                    WidgetStat(title: "Below", value: Format.percent(st.timeBelowRange), dot: GlucoseRange.low.tint, valueSize: 13)
-                    WidgetStat(title: "In range", value: Format.percent(st.timeInRange), dot: GlucoseRange.inRange.tint, valueSize: 13)
-                    WidgetStat(title: "Above", value: Format.percent(st.timeAboveRange), dot: GlucoseRange.high.tint, valueSize: 13)
+                    WidgetStat(title: "Below", value: Format.percent(st.timeBelowRange), dot: GlucoseRange.low.tint, valueSize: 13,
+                               numeric: st.timeBelowRange)
+                    WidgetStat(title: "In range", value: Format.percent(st.timeInRange), dot: GlucoseRange.inRange.tint, valueSize: 13,
+                               numeric: st.timeInRange)
+                    WidgetStat(title: "Above", value: Format.percent(st.timeAboveRange), dot: GlucoseRange.high.tint, valueSize: 13,
+                               numeric: st.timeAboveRange)
                 }
             }
         }

@@ -22,7 +22,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.8.0";
+export const version = "2.9.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -173,6 +173,8 @@ export const newRow = (): RelayRow => ({
 export interface Tx {
   row: RelayRow;
   account(): Promise<Account | null>;
+  /// Whether an account is stored, without decrypting it (all a status read needs).
+  hasAccount(): Promise<boolean>;
   setAccount(a: Account | null): Promise<void>;
   libreSession(): Promise<LibreSession | null>;
   setLibreSession(s: LibreSession | null): Promise<void>;
@@ -186,7 +188,8 @@ export interface Tx {
 
 export interface Store {
   /// `readOnly` neither locks the relay row nor writes it back: a status read mustn't wait behind
-  /// a tick that holds the row while it sends pushes.
+  /// a tick that holds the row while it sends pushes. It reads the row in one statement, with no
+  /// transaction around it, so a status read is one round trip to the database.
   transaction<T>(fn: (tx: Tx) => Promise<T>, options?: { readOnly?: boolean }): Promise<T>;
   /// Only one tick at a time: false while another holds the lease.
   /// A token for the lease, or null when another tick holds it.
@@ -246,6 +249,13 @@ export interface CreateShareRequest {
   label?: string;
   /// Seconds from now; null or missing: until revoked.
   expiresIn?: number | null;
+  /// Followers also see the recent logbook. Missing: yes.
+  showsLogbook?: boolean;
+}
+
+export interface UpdateShareRequest {
+  id: string;
+  showsLogbook?: boolean;
 }
 
 export interface CreatedShare {
@@ -364,7 +374,7 @@ export class RelayEngine {
 
   async status(): Promise<RelayStatus> {
     return await this.attachCheckIn(
-      await this.store.transaction(async (tx) => this.statusOf(tx.row, (await tx.account()) !== null),
+      await this.store.transaction(async (tx) => this.statusOf(tx.row, await tx.hasAccount()),
         { readOnly: true }),
     );
   }
@@ -726,8 +736,19 @@ export class RelayEngine {
       expiresAt = now + Math.min(Math.max(r.expiresIn, 600), maxShareLifetime);
     }
     const token = newShareToken();
-    const share = await shares.createShare(cleanLabel(r.label), await hashShareToken(token), expiresAt);
+    const share = await shares.createShare(cleanLabel(r.label), await hashShareToken(token), expiresAt,
+                                           r.showsLogbook !== false);
     return { share, token, url: shareURL(token) };
+  }
+
+  /// Changes what a live share's followers see. Returns the live shares.
+  async updateShare(r: UpdateShareRequest): Promise<Share[]> {
+    const now = this.clock();
+    if (typeof r?.id !== "string") throw new ShareError("bad request", 400);
+    if (typeof r.showsLogbook === "boolean" && !(await this.shares.setShowsLogbook(r.id, r.showsLogbook, now))) {
+      throw new ShareError("No such share", 404);
+    }
+    return await this.shares.listShares(now);
   }
 
   /// Ends a share now: the link stops working and followers' Lock Screen cards are taken down.

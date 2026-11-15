@@ -29,6 +29,8 @@ export interface Share {
   expiresAt: number | null;
   lastViewedAt: number | null;
   followers: number;
+  /// Followers also see the owner's recent logbook (the share function's /v1/detail).
+  showsLogbook: boolean;
 }
 
 export interface Follower {
@@ -72,7 +74,9 @@ export interface FollowRegistration {
 }
 
 export interface ShareStore {
-  createShare(label: string, tokenHash: string, expiresAt: number | null): Promise<Share>;
+  createShare(label: string, tokenHash: string, expiresAt: number | null, showsLogbook?: boolean): Promise<Share>;
+  /// Turns a live share's logbook on or off for its followers. False when there's no such live share.
+  setShowsLogbook(id: string, on: boolean, now: number): Promise<boolean>;
   /// Live shares, newest first.
   listShares(now: number): Promise<Share[]>;
   /// Ends a share and forgets its followers, returning them so their Lock Screen cards can be
@@ -167,24 +171,24 @@ function followerOf(r: Record<string, unknown>): Follower {
 
 const shareOf = (r: Record<string, unknown>): Share => ({
   id: String(r.id), label: String(r.label), createdAt: Number(r.created_at), expiresAt: epoch(r.expires_at),
-  lastViewedAt: epoch(r.last_viewed_at), followers: Number(r.followers ?? 0),
+  lastViewedAt: epoch(r.last_viewed_at), followers: Number(r.followers ?? 0), showsLogbook: r.shows_logbook !== false,
 });
 
 export class PostgresShareStore implements ShareStore {
   constructor(private readonly sql: SQL) {}
 
-  async createShare(label: string, tokenHash: string, expiresAt: number | null): Promise<Share> {
+  async createShare(label: string, tokenHash: string, expiresAt: number | null, showsLogbook = true): Promise<Share> {
     const rows = await this.sql`
-      insert into glucos.shares (token_hash, label, expires_at)
-      values (${tokenHash}, ${label}, ${expiresAt === null ? null : this.sql`to_timestamp(${expiresAt})`})
-      returning id, label, extract(epoch from created_at)::float8 as created_at,
+      insert into glucos.shares (token_hash, label, expires_at, shows_logbook)
+      values (${tokenHash}, ${label}, ${expiresAt === null ? null : this.sql`to_timestamp(${expiresAt})`}, ${showsLogbook})
+      returning id, label, shows_logbook, extract(epoch from created_at)::float8 as created_at,
                 extract(epoch from expires_at)::float8 as expires_at, null::float8 as last_viewed_at, 0 as followers`;
     return shareOf(rows[0]);
   }
 
   async listShares(now: number): Promise<Share[]> {
     const rows = await this.sql`
-      select s.id, s.label, extract(epoch from s.created_at)::float8 as created_at,
+      select s.id, s.label, s.shows_logbook, extract(epoch from s.created_at)::float8 as created_at,
              extract(epoch from s.expires_at)::float8 as expires_at,
              extract(epoch from s.last_viewed_at)::float8 as last_viewed_at,
              (select count(*) from glucos.followers f where f.share_id = s.id)::int as followers
@@ -192,6 +196,15 @@ export class PostgresShareStore implements ShareStore {
       where s.revoked_at is null and (s.expires_at is null or s.expires_at > to_timestamp(${now}))
       order by s.created_at desc`;
     return rows.map(shareOf);
+  }
+
+  async setShowsLogbook(id: string, on: boolean, now: number): Promise<boolean> {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
+    const rows = await this.sql`
+      update glucos.shares set shows_logbook = ${on}
+      where id = ${id}::uuid and revoked_at is null and (expires_at is null or expires_at > to_timestamp(${now}))
+      returning id`;
+    return rows.length > 0;
   }
 
   async revokeShare(id: string, now: number): Promise<Follower[] | null> {
@@ -213,7 +226,7 @@ export class PostgresShareStore implements ShareStore {
       update glucos.shares s set last_viewed_at = to_timestamp(${now})
       where s.token_hash = ${tokenHash} and s.revoked_at is null
         and (s.expires_at is null or s.expires_at > to_timestamp(${now}))
-      returning s.id, s.label, extract(epoch from s.created_at)::float8 as created_at,
+      returning s.id, s.label, s.shows_logbook, extract(epoch from s.created_at)::float8 as created_at,
                 extract(epoch from s.expires_at)::float8 as expires_at,
                 extract(epoch from s.last_viewed_at)::float8 as last_viewed_at,
                 (select count(*) from glucos.followers f where f.share_id = s.id)::int as followers`;
@@ -305,6 +318,9 @@ export class PostgresShareStore implements ShareStore {
 
   async askCheckIn(f: Follower, name: string, now: number): Promise<{ checkIn: CheckIn; ping: boolean }> {
     return await this.sql.begin(async (sql) => {
+      // Old ones are no use to anyone. Pruned here, where a check-in is written anyway, so the
+      // owner's status read stays a read.
+      await sql`delete from glucos.check_ins where asked_at < ${now - 7 * 86_400}`;
       // One open check-in per follower, however fast they tap.
       await sql`select id from glucos.followers where id = ${f.id}::uuid for update`;
       const open = await sql`
@@ -345,8 +361,6 @@ export class PostgresShareStore implements ShareStore {
 
   async checkIns(now: number): Promise<CheckIn[]> {
     const keep = Math.max(checkInOpenFor, checkInAnswerShownFor);
-    // Old ones are no use to anyone.
-    await this.sql`delete from glucos.check_ins where asked_at < ${now - 7 * 86_400}`;
     const rows = await this.sql`
       select distinct on (follower_id) * from glucos.check_ins
       where asked_at > ${now - keep} or answered_at > ${now - checkInAnswerShownFor}
@@ -439,13 +453,24 @@ export class MemoryShareStore implements ShareStore {
     return this.rows.filter((f) => f.shareId === id).length;
   }
   private view(s: Share): Share {
-    return { id: s.id, label: s.label, createdAt: s.createdAt, expiresAt: s.expiresAt, lastViewedAt: s.lastViewedAt, followers: this.count(s.id) };
+    return {
+      id: s.id, label: s.label, createdAt: s.createdAt, expiresAt: s.expiresAt, lastViewedAt: s.lastViewedAt,
+      followers: this.count(s.id), showsLogbook: s.showsLogbook,
+    };
   }
 
-  createShare(label: string, tokenHash: string, expiresAt: number | null) {
-    const s = { id: crypto.randomUUID(), label, createdAt: Date.now() / 1000, expiresAt, lastViewedAt: null, followers: 0, tokenHash, revokedAt: null };
+  createShare(label: string, tokenHash: string, expiresAt: number | null, showsLogbook = true) {
+    const s = {
+      id: crypto.randomUUID(), label, createdAt: Date.now() / 1000, expiresAt, lastViewedAt: null, followers: 0,
+      showsLogbook, tokenHash, revokedAt: null,
+    };
     this.shares.push(s);
     return Promise.resolve(this.view(s));
+  }
+  setShowsLogbook(id: string, on: boolean, now: number) {
+    const s = this.shares.find((x) => x.id === id && this.live(x, now));
+    if (s) s.showsLogbook = on;
+    return Promise.resolve(!!s);
   }
   listShares(now: number) {
     return Promise.resolve(this.shares.filter((s) => this.live(s, now)).reverse().map((s) => this.view(s)));

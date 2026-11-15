@@ -23,6 +23,7 @@ class MemoryStore implements Store {
       const tx: Tx = {
         row,
         account: () => Promise.resolve(this.account),
+        hasAccount: () => Promise.resolve(this.account !== null),
         setAccount: (a) => { this.account = a; return Promise.resolve(); },
         libreSession: () => Promise.resolve(this.session),
         setLibreSession: (s) => { this.session = s; return Promise.resolve(); },
@@ -282,7 +283,7 @@ Deno.test("status says the relay is delivering once it has fetched", async () =>
   assert(s.hasAccount && s.hasDeviceToken && s.alertsEnabled);
   assertEquals(s.lastFetchAt, t.clock());
   assertEquals(s.lastError, undefined);
-  assertEquals(s.version, "2.8.0");
+  assertEquals(s.version, "2.9.0");
 });
 
 Deno.test("the LibreLinkUp session is kept between ticks", async () => {

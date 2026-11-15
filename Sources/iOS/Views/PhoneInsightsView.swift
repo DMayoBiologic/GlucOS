@@ -81,14 +81,23 @@ struct PhoneInsightsView: View {
 /// to 100%, with the day's time in range under it. Shows at a glance which days went well.
 struct PhoneDaysCard: View {
     @EnvironmentObject var store: GlucoseStore
+
+    var body: some View {
+        DayColumnsCard(days: PhoneDayStats.lastDays(7, readings: store.readings(lastHours: 7 * 24),
+                                                    low: store.snapshot.lowMgdl, high: store.snapshot.highMgdl))
+    }
+}
+
+/// The Day by day columns for any readings: the owner's own, or someone they follow.
+struct DayColumnsCard: View {
+    let days: [PhoneDayStats]
+    var emptyText = "Each day's time in range shows here once GlucOS has a day of readings."
     /// The columns have grown from the baseline (docs/Redesign.md §7.2). App screen only; drawn
     /// grown at once under Reduce Motion.
     @State private var grown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let days = PhoneDayStats.lastDays(7, readings: store.readings(lastHours: 7 * 24),
-                                          low: store.snapshot.lowMgdl, high: store.snapshot.highMgdl)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: "Day by day", systemImage: "calendar", trailing: "Time in range")
             if days.contains(where: { $0.stats != nil }) {
@@ -104,7 +113,7 @@ struct PhoneDaysCard: View {
                     }
                 }
             } else {
-                Text("Each day's time in range shows here once GlucOS has a day of readings.")
+                Text(emptyText)
                     .dsFont(.callout)
                     .foregroundStyle(.secondary)
             }

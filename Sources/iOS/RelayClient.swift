@@ -110,6 +110,7 @@ struct RelayClient {
         var req = URLRequest(url: baseURL.appendingPathComponent("v1/claim"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        FunctionRegion.pin(&req)
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["email": email, "password": password])
         guard let (data, resp) = try? await session.data(for: req) else { return .unavailable }
         switch (resp as? HTTPURLResponse)?.statusCode ?? 0 {
@@ -155,6 +156,10 @@ struct RelayClient {
         try await call("v1/shares/revoke", method: "POST", body: try JSONEncoder().encode(RevokeShare(id: id)))
     }
 
+    func updateShare(_ request: UpdateShare) async throws -> [ShareInfo] {
+        try await call("v1/shares/update", method: "POST", body: try JSONEncoder().encode(request))
+    }
+
     private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil,
                                     query: [URLQueryItem] = []) async throws -> T {
         var url = baseURL.appendingPathComponent(path)
@@ -166,6 +171,7 @@ struct RelayClient {
         req.httpMethod = method
         req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+        FunctionRegion.pin(&req)
         if let body {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")

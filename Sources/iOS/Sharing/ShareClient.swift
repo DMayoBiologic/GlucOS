@@ -50,7 +50,9 @@ struct ShareClient {
                                    body: try JSONEncoder().encode(FollowRegistration(installation: installation)))
     }
 
-    private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil,
+    /// Not private: the app's follower view adds a call (ShareClient+Detail.swift) that the
+    /// Messages app, which builds this file too, doesn't have the types for.
+    func call<T: Decodable>(_ path: String, method: String, body: Data? = nil,
                                     query: [URLQueryItem]? = nil) async throws -> T {
         var url = Self.baseURL.appendingPathComponent(path)
         if let query { url.append(queryItems: query) }
@@ -58,6 +60,7 @@ struct ShareClient {
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+        FunctionRegion.pin(&req)
         if let body {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")

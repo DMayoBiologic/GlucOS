@@ -337,7 +337,7 @@ the same engine; what differs is the history each has:
 
 So the iPhone now fills its history from the push relay, which polls every minute whether or not
 the app is open and keeps those readings in `glucos.readings`: `GET /v1/history?since=` (relay
-2.8.0, at most 30 days back) returns them, and on every open and background refresh the phone asks
+2.9.0, at most 30 days back) returns them, and on every open and background refresh the phone asks
 for what's new since the last time (`PhoneServices.fillHistoryFromRelay`), before fetching from
 LibreLinkUp. They fill the 5-minute slots the graph leaves empty (`GlucoseStore.mergeHistory`), and
 an hour or more of new ones makes the outlook relearn straight away. The forecast drawn on opening

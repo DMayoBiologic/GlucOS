@@ -2,7 +2,8 @@
 
 GlucOS can share your glucose live with family, the way Find My shares a location: you send a link in
 Messages, and whoever opens it sees your reading, trend and the last 3 hours, updated every minute. With
-GlucOS on their iPhone, the reading also stays on their Lock Screen and in their Dynamic Island.
+GlucOS on their iPhone they get close to your own screen (see "What followers see"), the reading stays
+on their Lock Screen and in their Dynamic Island, and they can check in on you at any time.
 
 GlucOS is also in the Messages **+** drawer. From there it sends a live bubble that keeps updating in
 the chat for anyone with GlucOS. Messages has no public API for Apple's own Live Location bubble, which
@@ -24,8 +25,9 @@ on the follower's phone, and the live web page for anyone without the app, cover
   app, which puts the reading on your Lock Screen and sends you their alerts. You can also paste a link
   with **+** on the Following screen or **Follow Someone** in Settings.
 - **Following without a sensor**: a new install asks "I wear a sensor" or "I'm following someone". The
-  second needs no sensor or LibreLinkUp account: the app shows only the people you follow (no logging,
-  no alerts of your own), with **See an Example** until you have a link. Opening a share link before
+  second needs no sensor or LibreLinkUp account: the app's home is the person you follow, shown the way
+  they see themselves (no logging, no alerts of your own), with **See an Example** until you have a link.
+  Following more than one person puts a row of them, each with their reading, at the top to switch. Opening a share link before
   choosing picks it for you. **I Wear a Sensor Too** in its Settings signs in later and keeps your follows.
 - **Their alerts**: each follow has an **Alerts** switch (on by default; in the card's ⋯ menu and in
   Settings). With it on, the relay sends you the sharer's glucose alerts as they fire for them (lows,
@@ -37,6 +39,36 @@ on the follower's phone, and the live web page for anyone without the app, cover
 
 Followers need GlucOS on their iPhone for the Lock Screen card and alerts: send them the public TestFlight
 link (docs/TestFlight.md). The web view works anywhere.
+
+## What followers see
+
+In GlucOS, a followed person's screen is built from the same Signal pieces as the owner's home
+(`FollowPersonView`, Sources/iOS/Views/FollowPersonViews.swift). On a follower-only phone it's the home
+screen; on a phone that also wears a sensor, tapping a following card opens it.
+
+- **Stage**: range pill and how long they've been in it, the value with its needle, the range rail with
+  the forecast's ghost marker, the forecast note and the freshness meter, on their range field.
+- **Check in**: a card under the stage and a bar along the bottom, at any reading. While they're low or
+  forecast low it turns amber and says so. It shows the latest check-in (waiting, no answer, okay, needs
+  help) and asks for the follower's name right there if it's missing.
+- **On board**: insulin and carbs still acting, worked out from their logbook (`OnBoardNow`), and the
+  forecast's headline. The forecast is the relay's trend-only one, the same as their Lock Screen card.
+- **Chart**: 3, 6, 12 or 24 hours, with their insulin, food and wake-ups marked and the forecast past Now.
+- **Logbook**: the last 24 hours grouped by day, read-only, with See All for 48 hours.
+- **Time in range**: 24 hours, 7 or 14 days (ring, average, GMI, CV, range bar), and the last seven days
+  as columns.
+
+The data is the share function's `GET /v1/detail?since=<seconds>` (supabase/functions/share/detail.ts):
+readings from `glucos.readings` in 5-minute buckets (14 days on the first load, then only what's new,
+`FollowHistory`), and the owner's doses, meals, site changes and moments from the last 48 hours. The
+owner's Supabase user is the one the relay's forecast ledger found from its LibreLinkUp login
+(`work.forecastLog.owner`); until the owner's apps have signed in to logbook sync, there's no logbook.
+Notes are blanked and bolus calculator workings left out. Saved insulins, foods, presets and settings
+are never shared.
+
+Each link has a **Show my logbook** switch (Sharing, on each link, and when making one; on by default,
+`glucos.shares.shows_logbook`, relay `POST /v1/shares/update`). Off, followers still get readings, chart
+and time in range.
 
 ## How it works
 
@@ -133,6 +165,9 @@ the extension can't make links. Links made in Messages keep their token in the a
 
 ## Privacy
 
-Followers see the same card as your Lock Screen: reading, trend, delta, 3 hours of history and the
-forecast. They get your glucose alerts if they leave Alerts on, but never your logbook, insulin or account. Anyone with the link can see it, so
+In a browser, followers see the same card as your Lock Screen: reading, trend, delta, 3 hours of history
+and the forecast. In GlucOS they also see up to 14 days of readings and, unless you turn off **Show my
+logbook** for that link, your insulin, food, site changes and moments from the last two days, without
+notes. They get your glucose alerts if they leave Alerts on, but never your saved insulins, foods,
+settings or account. Anyone with the link can see it, so
 send it only to people you trust, and use an expiry for one-off shares.
