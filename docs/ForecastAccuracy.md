@@ -568,3 +568,67 @@ select shown_on, app_version, minutes, checks, mae_mmol, no_change_mae_mmol, ins
 from glucos.forecast_scorecard_by_version order by shown_on, first_issued desc, minutes;
 ```
 
+
+## 15. Do slow meals need a longer, flatter curve? (15 Nov 2026)
+
+Every meal is absorbed on one curve (`CarbAbsorptionCurve.standard`: starts 10 minutes after
+eating, done 3 hours later). Burgers, fried food and big mixed meals are often absorbed later and
+for longer, so the question was whether giving those meals a longer, flatter curve would make the
+30- and 60-minute forecasts after them better. The bar for shipping it: better than the standard
+curve at both 30 and 60 minutes on meals the curve wasn't chosen from. **It didn't clear that bar,
+so nothing changed.**
+
+**What the data allows.** The logbook stores only carbs for a meal, and the bundled food data
+(AUSNUT, Open Food Facts carbs) has no fat or protein, so "slow" can't be worked out from the
+food; the meals were sorted by hand from their names. Of the 14 meals logged, 7 have live
+insulin-and-carb forecasts after them (the forecast log starts on 12 Nov). Three are slow: the
+burrito bowl (12 Nov, 37.5 g), eggs and hash browns (13 Nov, 35.8 g) and the Big Mac (14 Nov,
+38.5 g, whose forecasts only start 80 minutes after eating). The sushi had no forecasts of its own
+(the green juice was logged 74 minutes later), and the rest are drinks. None of the slow meals
+was over 50 g, so "large" couldn't be tested apart. That's 56 checks at 30 minutes and 46 at 60
+from three meals: enough to rule out a large, consistent gain, not enough to find a small one.
+
+**How it was tested.** For each clean insulin-and-carb point in `glucos.forecast_points` within 4
+hours after a meal, the standard curve's carb term was swapped for the candidate curve's, with the
+same blend into the trend over the first 30 minutes and the learnt carb effect (2.8 mg/dL per g;
+2.0 and 3.5 give the same verdict). Candidates: a start 10–60 minutes after eating and absorption
+over 3–6 hours, 30 timings. Each slow meal was held out in turn, the timing chosen on the other
+two and scored on the held-out one. Typical error, mg/dL:
+
+| Held-out meal | Timing chosen on the other two | 30 min, standard → slow | 60 min, standard → slow |
+| --- | --- | --- | --- |
+| Burrito bowl | starts at 60 min, 4 h | 27.5 → 30.2 | 47.6 → 58.6 |
+| Eggs and hash browns | standard | 10.6 → 10.6 | 24.3 → 24.3 |
+| Big Mac | starts at 60 min, 4 h | 14.4 → 15.9 | 21.8 → 18.8 (4 checks) |
+| All three | | 17.1 → 18.3 | 32.2 → 35.7 |
+| No change | | 22.9 | 38.4 |
+
+Held out, the slow curve was worse at both horizons. The three meals each wanted something
+different: on its own the burrito bowl fits the standard curve best, eggs and hash browns a start
+at 60 minutes over 4 hours, and the Big Mac a start at 60 minutes over 3 hours.
+
+Fixed slow timings chosen up front rather than fitted gave the same picture (all three meals,
+30 / 60 min):
+
+| Slow-meal curve | Burrito bowl | Eggs and hash browns | Big Mac | All three |
+| --- | --- | --- | --- | --- |
+| Standard (10 min, 3 h) | 27.5 / 47.6 | 10.6 / 24.3 | 14.4 / 21.8 | 17.1 / 32.2 |
+| 20 min, 4 h | 29.3 / 54.2 | 9.2 / 17.3 | 14.9 / 19.4 | 17.1 / 30.3 |
+| 20 min, 4.5 h | 29.8 / 55.7 | 8.8 / 15.2 | 15.7 / 22.1 | 17.3 / 29.9 |
+| 30 min, 5 h | 30.1 / 56.8 | 8.7 / 14.1 | 16.6 / 24.6 | 17.5 / 29.9 |
+| 30 min, 6 h | 30.2 / 56.5 | 9.0 / 15.2 | 17.5 / 28.6 | 17.9 / 30.7 |
+
+A 4–5 hour curve helps the eggs and hash browns at 60 minutes (24.3 → about 15) and costs the
+burrito bowl about as much (47.6 → 55), with 30 minutes no better overall. The pooled 60-minute
+gain (32.2 → 29.9) is that one meal, and it fails the 30-minute half of the bar. Giving every meal
+the slower curve is worse for the drinks (60 min 39.9 → 43.1), as expected.
+
+The burrito bowl's misses aren't timing: its forecasts ran 31 mg/dL high at 60 minutes because
+glucose fell from 264 to about 150 two to three hours after eating, which is the insulin (or less
+carbohydrate than logged), not carbs arriving late.
+
+**What would settle it.** Ten or more slow meals logged with forecasts from the start, and the
+food data carrying fat and protein so "slow" comes from the food rather than its name (AUSNUT
+has both; the build script keeps carbs only). The test then reruns as is: per-meal hold-out, ship
+only if 30 and 60 minutes both improve. The prototype was a scratch script; it's simple to redo
+from the description above.
