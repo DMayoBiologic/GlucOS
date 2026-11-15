@@ -413,7 +413,7 @@ Widgets in accented or vibrant rendering modes drop the field and keep the rail 
 | 6 | iPhone stage adopts the directional range sweep and the drawn strike line on the hero value and the collapsed title | #64 | merged |
 | 7 | Sharing surfaces: the web view behind share links (`web/share`) and the Messages extension's bubble, tapped card, composer and bubble picture (`ShareStage`) on the range field with the needle, rail and forecast ghost, forecast note, freshness meter and drawn strike line | #67 | merged |
 | 8 | Widgets finished to §9: the range field and urgent-low border behind the Glucose widget, direction-aware pill swap, drawn strike line, live age timer, forecast note and freshness meter footer; rolling figures and growing bars in Time in Range and Sensor; live age on the Lock Screen rectangular | #80 | merged |
-| 9 | Mac popover finished to §8.2: the shared `FreshnessMeter` under the age row in place of the live dot and hand-drawn hairline (fills live, amber once stale), and the cards assembling under the hero with `dsEntrance` on opening | this PR | open |
+| 9 | Mac popover finished to §8.2: the shared `FreshnessMeter` under the age row in place of the live dot and hand-drawn hairline (fills live, amber once stale), and the cards assembling under the hero with `dsEntrance` on opening | #84 | merged |
 
 Every part of this design is now built.
 
