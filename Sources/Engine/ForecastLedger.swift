@@ -24,7 +24,12 @@ struct ForecastRecord: Codable, Hashable, Identifiable {
         /// How much this point's range was widened when shown. Nil in records from before ranges
         /// were widened per horizon: the record's `rangeScale` applies.
         var scale: Double? = nil
+        /// False when this point was past the horizon the forecast was drawn to: live checks had
+        /// cut it off (`ForecastLiveHorizon`), and it's kept only to go on scoring that horizon.
+        /// Nil (older records) or true: drawn.
+        var shown: Bool? = nil
 
+        var wasShown: Bool { shown ?? true }
         var error: Double? { actual.map { $0 - mgdl } }
         var insideRange: Bool? { actual.map { $0 >= lower && $0 <= upper } }
     }
@@ -78,13 +83,19 @@ struct ForecastLedger: Codable, Equatable {
     static var checkedMinutes: [Int] { ForecastCalibration.horizons }
 
     /// Keeps `forecast` if it's the first in its 15 minutes. Returns whether it was added.
+    /// The part live checks cut off (`GlucoseForecast.unshown`) is kept too, marked as not shown.
     @discardableResult
     mutating func note(_ forecast: GlucoseForecast, device: String, tuned: Bool, now: Date = Date()) -> Bool {
         guard now.timeIntervalSince(forecast.issuedAt) <= GlucoseSnapshot.staleAfter else { return false }
         if let last = records.last, forecast.issuedAt.timeIntervalSince(last.issuedAt) < Self.spacing { return false }
         let points: [ForecastRecord.Point] = Self.checkedMinutes.compactMap { m in
             let target = forecast.issuedAt.addingTimeInterval(TimeInterval(m * 60))
-            guard let s = forecast.samples.first(where: { abs($0.date.timeIntervalSince(target)) < 30 }) else { return nil }
+            let near = { (x: ForecastSample) in abs(x.date.timeIntervalSince(target)) < 30 }
+            if let s = forecast.unshown.first(where: near), !forecast.samples.contains(where: near) {
+                return ForecastRecord.Point(minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl,
+                                            scale: forecast.rangeScale(atMinutes: m), shown: false)
+            }
+            guard let s = forecast.samples.first(where: near) else { return nil }
             return ForecastRecord.Point(minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl,
                                         scale: forecast.rangeScale(atMinutes: m))
         }
@@ -197,6 +208,63 @@ struct ForecastLedger: Codable, Equatable {
             }
         }
         return ForecastRangeScale(byBasis: out, byHorizon: outHorizon, checks: pooled.count)
+    }
+
+    /// How far back this device's forecasts count towards cutting a horizon: the same week the
+    /// Insights card shows, so a horizon it calls "further off than no change" isn't drawn.
+    static let liveHorizonWindow: TimeInterval = 7 * 86_400
+    /// Clean checks a horizon needs before its live figures can cut it or bring it back
+    /// (`ForecastScorecard.minimumChecks`).
+    static let minimumForLiveHorizon = 30
+    /// A drawn horizon is cut once its error reaches this share of no change's ("further off than
+    /// no change" on the Insights card)...
+    static let liveCutRatio = 1.05
+    /// ...and drawn again once it's back to this share ("closer than no change"). In between, it
+    /// stays as it is, so it doesn't flicker on and off from one check to the next.
+    static let liveRestoreRatio = ForecastCalibration.requiredImprovement
+
+    /// How far ahead each kind of forecast may be drawn on `device`, from how its forecasts in
+    /// the last week did against no change, horizon by horizon, on points with nothing logged in
+    /// between. Each horizon that's drawn now is cut when it's clearly worse than no change;
+    /// one that's cut (its points in the latest forecast were kept back) comes back once it's
+    /// clearly better, and stays cut while it has too few checks to say. Everything past the
+    /// first cut horizon goes with it. The relay's records are never mixed in.
+    func liveHorizon(device: String, now: Date = Date()) -> ForecastLiveHorizon {
+        let from = now.addingTimeInterval(-Self.liveHorizonWindow)
+        let mine = records.filter { $0.device == device && $0.issuedAt >= from && $0.issuedAt <= now }
+            .sorted { $0.issuedAt < $1.issuedAt }
+        var out = ForecastLiveHorizon()
+        for basis in ForecastBasis.allCases {
+            let ofBasis = mine.filter { $0.basis == basis }
+            var shown = 0
+            for h in Self.checkedMinutes.sorted() {
+                let latest = ofBasis.last { r in r.points.contains { $0.minutes == h } }
+                let cutNow = latest?.points.first { $0.minutes == h }?.wasShown == false
+                var errors: [Double] = [], naive: [Double] = []
+                for r in ofBasis {
+                    for p in r.points where p.minutes == h && !p.afterLog {
+                        guard let actual = p.actual, let e = p.error else { continue }
+                        errors.append(abs(e))
+                        naive.append(abs(actual - r.startMgdl))
+                    }
+                }
+                let cut: Bool
+                if errors.count >= Self.minimumForLiveHorizon {
+                    let mae = errors.reduce(0, +) / Double(errors.count)
+                    let nc = naive.reduce(0, +) / Double(naive.count)
+                    let ratio = nc > 0 ? mae / nc : (mae > 0 ? .infinity : 1)
+                    cut = cutNow ? ratio > Self.liveRestoreRatio : ratio >= Self.liveCutRatio
+                } else {
+                    cut = cutNow
+                }
+                if cut {
+                    out.byBasis[basis] = .init(shownMinutes: shown, failedAt: h)
+                    break
+                }
+                shown = h
+            }
+        }
+        return out
     }
 
     private static func anyLog(in sorted: [Date], after start: Date, before end: Date) -> Bool {

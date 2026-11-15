@@ -23,6 +23,10 @@ extension ForecastCaveat {
     private static func hidden(_ failure: ForecastFailure) -> ForecastCaveat {
         let reason = failure.reason
         let source = "unavailable:\(reason.code)"
+        // This device's own recent forecasts lost to no change even 15 minutes ahead.
+        if let live = failure.limitations.first(where: \.isLiveHorizon) {
+            return ForecastCaveat(live, kind: .hidden)
+        }
         // Even the trend alone hasn't beaten "no change" in this situation: say which situation.
         if case .notAccurateEnough = reason, let forcing = trendOnlyOrder.first(where: { failure.limitations.contains($0) }) {
             return ForecastCaveat(kind: .hidden, text: "No forecast: past forecasts weren't accurate enough here.",
@@ -47,6 +51,7 @@ extension ForecastCaveat {
     }
 
     private static func shortened(_ f: GlucoseForecast) -> ForecastCaveat? {
+        if let live = f.limitations.first(where: \.isLiveHorizon) { return ForecastCaveat(live, kind: .shortened) }
         let usual = usualHorizon(f)
         guard f.horizon > 0, f.horizon < usual - 60 else { return nil }
         let minutes = Int((f.horizon / 60).rounded())
@@ -77,6 +82,10 @@ extension ForecastCaveat {
         }
         return nil
     }
+}
+
+extension ForecastLimitation {
+    var isLiveHorizon: Bool { if case .liveHorizon = self { return true } else { return false } }
 }
 
 extension ForecastCaveat {

@@ -128,3 +128,34 @@ Deno.test("formatting matches printf, ties included", () => {
   assertEquals(formatGlucose("mmol", 65, true), "3.6 mmol/L");
   assertEquals(formatGlucose("mgdl", 65, true), "65 mg/dL");
 });
+
+// MARK: Live horizon (ForecastLiveHorizonTests.swift)
+
+Deno.test("live horizon: cut when clearly worse, back only when clearly better", async () => {
+  const { liveHorizon } = await import("./core.ts");
+  const now = 1_790_000_000;
+  const pts = (n: number, errors: Record<number, number>, moved = 20, hiddenLatest: number[] = []) => {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      for (const [m, e] of Object.entries(errors)) {
+        const minutes = Number(m);
+        out.push({ issuedAt: now - (n - i) * 900, minutes, mgdl: 100 + moved - e, startMgdl: 100, actual: 100 + moved,
+                   afterLog: false, shown: !(i === n - 1 && hiddenLatest.includes(minutes)) });
+      }
+    }
+    return out;
+  };
+  assertEquals(liveHorizon(pts(40, { 15: 20.3, 30: 15 }), now), null);
+  assertEquals(liveHorizon(pts(40, { 15: 10, 30: 22 }), now), { shownMinutes: 15, failedAt: 30 });
+  assertEquals(liveHorizon(pts(40, { 15: 25 }), now), { shownMinutes: 0, failedAt: 15 });
+  assertEquals(liveHorizon(pts(29, { 15: 40 }), now), null);
+  // Level with no change: stays cut if it was cut, stays drawn if it was drawn.
+  assertEquals(liveHorizon(pts(40, { 15: 10, 30: 19.6 }, 20, [30]), now), { shownMinutes: 15, failedAt: 30 });
+  assertEquals(liveHorizon(pts(40, { 15: 10, 30: 19.6 }), now), null);
+  assertEquals(liveHorizon(pts(40, { 15: 10, 30: 18 }, 20, [30]), now), null);
+  // Too few checks while cut: stays cut.
+  assertEquals(liveHorizon(pts(5, { 15: 10, 30: 1 }, 20, [30]), now), { shownMinutes: 15, failedAt: 30 });
+  // Points after a log, or older than a week, don't count.
+  assertEquals(liveHorizon(pts(40, { 15: 25 }).map((p) => ({ ...p, afterLog: true })), now), null);
+  assertEquals(liveHorizon(pts(40, { 15: 25 }), now + 8 * 86_400), null);
+});

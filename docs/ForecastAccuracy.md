@@ -233,3 +233,34 @@ forecast every 15 minutes (device `relay`, #72), so nights are covered whether o
 the iPhone app is awake; `glucos.forecast_scorecard` lists every device side by side and Insights
 shows the user's own figures (#71); and a dose with no food near it now asks whether it was for a
 meal (#73, docs/DoseQuestion.md), which addresses the unlogged-meal cause above at the source.
+
+## 8. Drawn only as far as it holds, live (15 Nov 2026)
+
+The replay (§1) sets how far ahead each kind of forecast may look, but it judges forecasts GlucOS
+*would* have made from history. On 15 Nov the Insights card showed the iPhone's own forecasts
+losing to no change at 60 minutes (47.7 against 39.8 mg/dL, 28 checks) while the replay still
+allowed that far. So each device now also cuts the forecast back by its own live record
+(`ForecastLedger.liveHorizon`, `ForecastLiveHorizon`):
+
+- Per kind of forecast (trend, insulin-and-carbs), over the last 7 days of this device's forecast
+  log (the same week the card shows), clean points only, at each checked horizon in turn.
+- A drawn horizon is cut once it has 30 checks and its error is at least 5% more than no change's
+  (what the card calls "further off than no change"). Everything after it goes too. "About the same"
+  (within 5%) leaves it as it is, so the 15-minute iPhone figure (14.8 against 14.4) doesn't hide
+  the forecast.
+- A cut horizon comes back once its error is at least 5% less than no change's (the replay's own
+  bar), and stays cut while it has fewer than 30 checks. Between the two it stays as it is, so it
+  doesn't flicker.
+- The forecast is still worked out to the replay's limit. The part past the cut is never drawn,
+  alerted on, put in the widget or shared (`GlucoseForecast.unshown`), but it's kept in the
+  forecast log with `"shown": false` on its points, so the cut horizon goes on being scored and can
+  earn its way back. When 15 minutes itself is cut, there's no forecast ("Past forecasts haven't
+  been accurate enough to show one") and the whole forecast is logged as not shown
+  (`ForecastFailure.unshown`). The Outlook detail says why (`ForecastLimitation.liveHorizon`).
+- The relay does the same for the Lock Screen from its own `relay` rows (`liveHorizon` in
+  `core.ts`, worked out each time it scores, kept in `work.forecastLog.live`). Its forecast only
+  reaches 30 minutes, so in practice it can drop to 15 minutes or to none.
+
+The scorecard and `glucos.forecast_scorecard` count the points that weren't drawn, which is what
+shows a cut horizon recovering. Range widening counts them too: their range was worked out the
+same way.

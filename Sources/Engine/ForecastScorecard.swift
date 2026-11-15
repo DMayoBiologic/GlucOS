@@ -108,7 +108,7 @@ enum ForecastScorecardText {
 
     /// Where the numbers come from, and what they're not.
     static func footnote(device: String) -> String {
-        "From the forecasts shown on this \(ForecastRecord.displayName(device: device)) in the last 7 days, checked "
+        "From the forecasts made on this \(ForecastRecord.displayName(device: device)) in the last 7 days, checked "
             + "only when nothing was logged before the reading. \"No change\" is how far off you'd have been "
             + "assuming glucose stayed where it was. This shows how the forecast has done, not what to do: "
             + "it's never a guide to dosing."
