@@ -5,6 +5,7 @@
   "buildCommand": "",
   "outputDirectory": "web",
   "ignoreCommand": "git diff --quiet HEAD^ HEAD -- web vercel.json",
+  "git": { "deploymentEnabled": { "claude/**": false } },
   "headers": [
     {
       "source": "/share/(.*)",

@@ -95,6 +95,19 @@ and time in range.
 - The web view is `web/share/index.html`, served by the `gluc-os` Vercel project at
   `https://gluc-os-seven.vercel.app/share/` (`vercel.json` serves `web/` as static files, no build). The
   token is in the URL fragment, so it never reaches Vercel or Messages' link-preview fetch.
+- The web view matches the apps (loop round 14): the stage fades to grey and draws its strike
+  line when the reading goes stale, and draws it back out when readings return (`.staleStrike`, a
+  0.25 s fade under Reduce Motion); the last 3 hours are drawn like `GlucoseChart` (target band, glow,
+  out-of-range fills, range-coloured trace, forecast cone, "Now", the newest reading's dot) with a
+  readout on drag, hover or the arrow keys; and **Today so far** compares midnight-to-now with the
+  median of the last 14 days at the same hours. Readings come from `GET /v1/detail` (14 days once, then
+  every 5 minutes from the newest bucket). Logged insulin, food and wake-ups are marked on the chart
+  only when the link has **Show my logbook** on; notes, food names and calculator working are never
+  shown (the share function blanks notes and drops the working anyway). "Today" is midnight in the
+  viewer's own time zone, since the share carries no time zone. The working-out is in
+  `web/share/follow.js`, ported from `TodaySoFar`, `ChartSummary` and `ChartLogMarker` and tested by
+  `deno test web/` in CI. Screen readers get the stage's sentence, a chart summary (as `ChartSummary`)
+  and the Today so far card as one sentence each.
 
 Limits: 20 live links, 10 follower phones per link, and expiry between 10 minutes and 90 days (or none).
 
@@ -149,6 +162,9 @@ Rules and wording are in `supabase/functions/relay/checkins.ts`; tests in `check
 
 The functions and migration deploy on merge, like the rest of `supabase/`. The web view deploys on merge
 through Vercel's GitHub integration (pushes that don't touch `web/` or `vercel.json` skip the build).
+Branches named `claude/…` don't deploy at all (`git.deploymentEnabled` in `vercel.json`): every push
+used to create a deployment, even one the skip then cancelled, and the improvement loop's pushes ran the
+Hobby plan's 100 deployments a day out on 2026-11-15, which blocks production deploys too.
 
 ### The Messages app
 
