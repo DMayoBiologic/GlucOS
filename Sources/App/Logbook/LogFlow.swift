@@ -191,4 +191,17 @@ enum LogFlow {
         }
         return nil
     }
+
+    // MARK: Saving
+
+    /// What the checkmark says after saving.
+    static func savedTitle(isNew: Bool) -> String { isNew ? "Logged" : "Saved" }
+
+    /// How long the checkmark shows before the sheet closes: long enough to see the check draw,
+    /// shorter under Reduce Motion where it simply appears.
+    static func savedHold(reduceMotion: Bool) -> TimeInterval { reduceMotion ? 0.5 : 0.75 }
+
+    /// How long to wait before scrolling to a step that just opened: until the card has mostly
+    /// settled, so the scroll follows it rather than racing it. No wait under Reduce Motion.
+    static func stepScrollDelay(reduceMotion: Bool) -> TimeInterval { reduceMotion ? 0.05 : 0.2 }
 }

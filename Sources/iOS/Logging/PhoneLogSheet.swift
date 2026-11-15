@@ -75,6 +75,8 @@ struct PhoneLogSheet: View {
     @State private var filledByRepeat = false
     @State private var repeatWarning: String?
     @State private var confirmingRepeat = false
+    /// Saved: the checkmark shows for a moment, then the sheet closes. Nothing more can be logged.
+    @State private var saved = false
     @FocusState private var focus: LogFieldFocus?
 
     init(target: PhoneLogTarget) {
@@ -194,7 +196,7 @@ struct PhoneLogSheet: View {
                                 bridge(before: part)
                                 card(for: part)
                                     .id(part)
-                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                    .transition(LogStepMorph.transition(reduceMotion: reduceMotion))
                                 bridge(after: part)
                             }
                             extras
@@ -215,29 +217,31 @@ struct PhoneLogSheet: View {
                     .padding(.horizontal, DS.Space.lg)
                     .padding(.top, DS.Space.sm)
                     .padding(.bottom, DS.Space.xxl)
-                    .animation(DSMotion.standard.animation, value: parts)
-                    .animation(DSMotion.quick.animation, value: tags)
+                    .animation(LogStepMorph.animation(reduceMotion: reduceMotion), value: parts)
+                    .animation(DSMotion.quick.animation(reduceMotion: reduceMotion), value: tags)
                 }
                 .onChange(of: parts) { old, new in
                     // Bring the part that was just opened into view.
                     guard isNew, let part = LogFlow.focusPart(from: old, to: new, available: availableParts) else { return }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        withAnimation(DSMotion.standard.animation) { proxy.scrollTo(part, anchor: .top) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + LogFlow.stepScrollDelay(reduceMotion: reduceMotion)) {
+                        DS.animate(.emphasized, reduceMotion: reduceMotion) { proxy.scrollTo(part, anchor: .top) }
                     }
                 }
             }
             .scrollDismissesKeyboard(.interactively)
+            .allowsHitTesting(!saved)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(saved)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isNew ? "Log" : "Save") { save() }
                         .fontWeight(.semibold)
-                        .disabled(!canSave)
+                        .disabled(!canSave || saved)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -248,6 +252,13 @@ struct PhoneLogSheet: View {
                 if !needsTherapy { saveBar }
             }
         }
+        .overlay {
+            if saved {
+                SavedCheckmark(title: LogFlow.savedTitle(isNew: isNew))
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.85)))
+            }
+        }
+        .interactiveDismissDisabled(saved)
         .onAppear { startDose(); applyTreatingUsual(); focusFirstField() }
         .onChange(of: settings.therapy) { _, therapy in
             // Picked in the setup step: keep the part the sheet was opened for if this therapy
@@ -1114,7 +1125,7 @@ struct PhoneLogSheet: View {
                         in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(!canSave)
+        .disabled(!canSave || saved)
         .padding(.horizontal, DS.Space.lg)
         .padding(.top, DS.Space.sm)
         .padding(.bottom, DS.Space.xs)
@@ -1244,7 +1255,7 @@ struct PhoneLogSheet: View {
     }
 
     private func save() {
-        guard canSave else { return }
+        guard canSave, !saved else { return }
         refreshLiveSuggestion()
         if includes(.insulin) && usedSuggestion != nil && !suggestionStillApplies {
             dropSuggestionIfStale()
@@ -1268,7 +1279,7 @@ struct PhoneLogSheet: View {
     }
 
     private func commit() {
-        guard canSave else { return }
+        guard canSave, !saved else { return }
         // Checked again here: the confirm step can sit open past the calculator's window.
         refreshLiveSuggestion()
         if includes(.insulin) && usedSuggestion != nil && !suggestionStillApplies {
@@ -1312,9 +1323,19 @@ struct PhoneLogSheet: View {
                                          food: logsFood ? foodText : "",
                                          tags: logsTags ? tags : []))
         }
+        finishSaving()
+    }
+
+    /// Saved: a success haptic and a checkmark, held just long enough to see, then the sheet closes.
+    /// Only reached after the confirm steps (the calculator dose, "Already logged?" and #54's
+    /// logged-twice notice on it), so the checkmark never stands in for a warning.
+    private func finishSaving() {
+        focus = nil
         Haptics.success()
         PhoneLogRouter.shared.noteSaved()
-        dismiss()
+        DS.animate(.emphasized, reduceMotion: reduceMotion) { saved = true }
+        AccessibilityNotification.Announcement(LogFlow.savedTitle(isNew: isNew)).post()
+        DispatchQueue.main.asyncAfter(deadline: .now() + LogFlow.savedHold(reduceMotion: reduceMotion)) { dismiss() }
     }
 }
 
@@ -1381,11 +1402,14 @@ private struct BridgeButton: View {
 
 /// A large tile for one moment ("Eating", "Bolus", "Woke up"), on or off.
 private struct PartTile: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     let systemImage: String
     let tint: Color
     let isOn: Bool
     let action: () -> Void
+    /// Counts turn-ons, so the icon bounces once on each and never on turning off.
+    @State private var bounces = 0
 
     var body: some View {
         Button(action: action) {
@@ -1397,7 +1421,10 @@ private struct PartTile: View {
                     Image(systemName: systemImage)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(isOn ? AnyShapeStyle(Color.white) : AnyShapeStyle(tint))
+                        // One bounce as it turns on, never on turning off and never looping.
+                        .symbolEffect(.bounce, options: .nonRepeating, value: bounces)
                 }
+                .animation(DSMotion.quick.animation(reduceMotion: reduceMotion), value: isOn)
                 Text(title)
                     .dsFont(.label)
                     .dsLineLimit(2)
@@ -1419,6 +1446,7 @@ private struct PartTile: View {
             .contentShape(RoundedRectangle(cornerRadius: DS.Radius.tile, style: .continuous))
         }
         .buttonStyle(PressScaleStyle())
+        .onChange(of: isOn) { _, on in if on && !reduceMotion { bounces += 1 } }
         .accessibilityLabel(title)
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
@@ -1467,6 +1495,74 @@ private struct QuickAddTile: View {
         .buttonStyle(PressScaleStyle())
         .accessibilityLabel(spokenLabel ?? "\(title), \(detail)")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// How a step opens when its moment is chosen: the card settles in from just under the tiles,
+/// growing from its top edge out of a soft blur, so the tap reads as turning into that step.
+/// Under Reduce Motion it only fades. Plays once per change; nothing loops (#94).
+enum LogStepMorph {
+    static func transition(reduceMotion: Bool) -> AnyTransition {
+        if reduceMotion { return .opacity }
+        return .asymmetric(
+            insertion: .modifier(active: Effect(progress: 0), identity: Effect(progress: 1)),
+            removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+    }
+
+    static func animation(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : DSMotion.emphasized.animation
+    }
+
+    private struct Effect: ViewModifier {
+        let progress: Double
+        func body(content: Content) -> some View {
+            content
+                .scaleEffect(0.92 + 0.08 * progress, anchor: .top)
+                .offset(y: -18 * (1 - progress))
+                .blur(radius: 6 * (1 - progress))
+                .opacity(progress)
+        }
+    }
+}
+
+/// The moment after saving: a checkmark that draws itself over the sheet, then the sheet closes.
+private struct SavedCheckmark: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let title: String
+    @State private var drawn: CGFloat = 0
+
+    var body: some View {
+        VStack(spacing: DS.Space.md) {
+            ZStack {
+                Circle().fill(Palette.brandGradient)
+                CheckShape()
+                    .trim(from: 0, to: reduceMotion ? 1 : drawn)
+                    .stroke(.white, style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
+                    .padding(22)
+            }
+            .frame(width: 84, height: 84)
+            Text(title).dsFont(.headline)
+        }
+        .padding(DS.Space.xl)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.08))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 0.3).delay(0.08)) { drawn = 1 }
+        }
+    }
+
+    private struct CheckShape: Shape {
+        func path(in rect: CGRect) -> Path {
+            var p = Path()
+            p.move(to: CGPoint(x: rect.minX, y: rect.midY + rect.height * 0.05))
+            p.addLine(to: CGPoint(x: rect.minX + rect.width * 0.38, y: rect.maxY - rect.height * 0.12))
+            p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.12))
+            return p
+        }
     }
 }
 

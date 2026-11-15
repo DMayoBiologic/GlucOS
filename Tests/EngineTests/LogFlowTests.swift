@@ -112,4 +112,13 @@ final class LogFlowTests: XCTestCase {
         let dose = InsulinDose(timestamp: Date(), units: 10, kind: .intermediate, name: "protaphane")
         XCTAssertEqual(InsulinLibrary.preferredBasal(in: [rapid, nph, lantus], doses: [dose])?.name, "Protaphane")
     }
+
+    func testSavedCheckmarkIsBriefAndShorterUnderReduceMotion() {
+        XCTAssertEqual(LogFlow.savedTitle(isNew: true), "Logged")
+        XCTAssertEqual(LogFlow.savedTitle(isNew: false), "Saved")
+        XCTAssertLessThan(LogFlow.savedHold(reduceMotion: true), LogFlow.savedHold(reduceMotion: false))
+        XCTAssertLessThanOrEqual(LogFlow.savedHold(reduceMotion: false), 1)
+        XCTAssertGreaterThan(LogFlow.savedHold(reduceMotion: true), 0.3)
+        XCTAssertLessThan(LogFlow.stepScrollDelay(reduceMotion: true), LogFlow.stepScrollDelay(reduceMotion: false))
+    }
 }
