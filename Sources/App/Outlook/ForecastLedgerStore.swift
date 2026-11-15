@@ -9,6 +9,9 @@ final class ForecastLedgerStore: ObservableObject {
     /// whether accuracy is improving.
     @Published private(set) var lastWeek: LiveAccuracy = .empty
     @Published private(set) var weeksBefore: LiveAccuracy = .empty
+    /// The Insights card: the last 7 days at 15, 30 and 60 minutes against no change. Nil until
+    /// there are enough checks.
+    @Published private(set) var scorecard: ForecastScorecard?
     /// How much wider to draw the range, from how the forecasts shown here did.
     @Published private(set) var rangeScale: ForecastRangeScale = .unchanged
 
@@ -62,8 +65,11 @@ final class ForecastLedgerStore: ObservableObject {
 
     private func summarise(now: Date = Date()) {
         let weekAgo = now.addingTimeInterval(-7 * 86_400)
-        lastWeek = ledger.accuracy(from: weekAgo, to: now.addingTimeInterval(3600))
-        weeksBefore = ledger.accuracy(from: now.addingTimeInterval(-28 * 86_400), to: weekAgo)
+        // This device's own forecasts: what was shown here.
+        lastWeek = ledger.accuracy(from: weekAgo, to: now.addingTimeInterval(3600), device: Self.device)
+        weeksBefore = ledger.accuracy(from: now.addingTimeInterval(-28 * 86_400), to: weekAgo, device: Self.device)
+        let card = ForecastScorecard(lastWeek)
+        if card != scorecard { scorecard = card }
         let scale = ledger.rangeScale(now: now)
         if scale != rangeScale { rangeScale = scale }
     }
