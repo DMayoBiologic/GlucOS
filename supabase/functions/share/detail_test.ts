@@ -2,7 +2,7 @@
 // logbook unless the link hides it, notes blanked. detail_pg_test.ts runs the Postgres queries.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { hashShareToken, MemoryShareStore, newShareToken } from "../relay/sharing.ts";
-import { clampSince, detailReadingDays, followerPayload, MemoryDetailSource } from "./detail.ts";
+import { clampSince, detailReadingDays, followerPayload, MemoryDetailSource, sharedLogKinds } from "./detail.ts";
 import { handle } from "./index.ts";
 
 const now = 1_790_000_000;
@@ -84,4 +84,10 @@ Deno.test("detail: a wrong token sees nothing", async () => {
 Deno.test("detail: follower payloads keep the shape the apps decode", () => {
   assertEquals(followerPayload({ note: "x", units: 1 }), { note: "", units: 1 });
   assertEquals(followerPayload({ units: 1 }), { units: 1 });
+});
+
+Deno.test("detail: followers never see alerts or the app's own records", () => {
+  // Alert rows (docs/AlertLog.md), low answers and settings are the owner's alone.
+  assertEquals(sharedLogKinds, ["dose", "meal", "siteChange", "context"]);
+  for (const k of ["alert", "lowAnswer", "preset", "food", "insulin", "bolusSettings"]) assert(!sharedLogKinds.includes(k));
 });

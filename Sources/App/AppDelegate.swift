@@ -65,11 +65,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let action = response.actionIdentifier
         let userInfo = response.notification.request.content.userInfo
+        let date = response.notification.date
         Task { @MainActor in
             // Meal, Correction or dismissing "Was that dose for a meal?" is answered on the spot.
             if DoseQuestion.shared.handle(action: action, userInfo: userInfo),
                action != UNNotificationDefaultActionIdentifier { return }
             if let tap = AlertNotifications.button(action: action, userInfo: userInfo) {
+                AlertLogRecorder.shared.tapped(tap, userInfo: userInfo, firedAt: date)
                 if let minutes = tap.snoozeMinutes { AlertSnoozeStore.shared.snooze(tap.kind, minutes: minutes) }
                 if case .treat(_, let treatment) = tap {
                     // The quick-log window, opened by the menu bar label (it can reach openWindow).

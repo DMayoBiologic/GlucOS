@@ -10,7 +10,7 @@ struct LogbookSection: View {
     let open: (LogSheetTarget) -> Void
 
     enum Filter: String, CaseIterable, Identifiable {
-        case all, insulin, food, site, context
+        case all, insulin, food, site, context, alerts
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -19,6 +19,7 @@ struct LogbookSection: View {
             case .food: return "Food"
             case .site: return "Sites"
             case .context: return "Context"
+            case .alerts: return "Alerts"
             }
         }
 
@@ -28,6 +29,13 @@ struct LogbookSection: View {
             default: return false
             }
         }
+
+        func includes(_ row: LogbookTableRow) -> Bool {
+            switch row {
+            case .entry(let e): return includes(e)
+            case .alert: return self == .all || self == .alerts
+            }
+        }
     }
 
     @EnvironmentObject var logbook: LogbookStore
@@ -35,6 +43,8 @@ struct LogbookSection: View {
     @State private var selection = Set<UUID>()
     @State private var filter: Filter = .all
     @State private var search = ""
+    /// Low and high alerts show as quiet rows between the entries unless turned off.
+    @AppStorage(AlertLogRow.showsKey) private var showsAlerts = true
     /// Entries that just arrived, tinted with their colour for a moment so the eye finds them.
     @State private var fresh: Set<UUID> = []
     @Environment(\.dashboardPadding) private var padding
@@ -42,7 +52,9 @@ struct LogbookSection: View {
 
     var body: some View {
         let inRange = logbook.entries.filter { data.domain.contains($0.timestamp) }
-        let entries = inRange.filter { filter.includes($0) && matches($0) }
+        let alerts: [AlertLogRow] = showsAlerts
+            ? AlertLog.rows(logbook.alerts).filter { data.domain.contains($0.timestamp) } : []
+        let entries = LogbookTableRow.merge(inRange, alerts).filter { filter.includes($0) && matches($0) }
         VStack(alignment: .leading, spacing: 0) {
             if settings.therapy == .notSet {
                 TherapySetupView()
@@ -51,7 +63,7 @@ struct LogbookSection: View {
                     .padding(padding)
                 DSDivider()
             }
-            if inRange.isEmpty {
+            if inRange.isEmpty && alerts.isEmpty {
                 EmptyStateView(systemImage: "book", title: "Nothing Logged in This Period",
                                message: logbook.isEmpty
                                    ? "Log insulin, food and site changes with the + button or ⌘L. Save the things you log often as presets for one-tap entry next time."
@@ -98,6 +110,15 @@ struct LogbookSection: View {
         .onChange(of: Set(entries.map(\.id))) { _, visible in
             selection.formIntersection(visible)
         }
+        .onChange(of: showsAlerts) { _, on in
+            if !on, filter == .alerts { filter = .all }
+        }
+    }
+
+    /// The selected rows that are entries. Alert rows are records of what the Mac or iPhone said,
+    /// so they can't be edited, logged again or deleted.
+    private var selectedEntries: Set<UUID> {
+        selection.filter { logbook.entry(id: $0) != nil }
     }
 
     private var filterBar: some View {
@@ -110,15 +131,19 @@ struct LogbookSection: View {
             TextField("Search", text: $search, prompt: Text("Search food, insulin or notes"))
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 260)
+            Toggle(isOn: $showsAlerts) { Label("Alerts", systemImage: "bell") }
+                .toggleStyle(.checkbox)
+                .help("Show low and high alerts, and what was tapped on them, between the entries")
             Spacer()
-            if selection.count == 1, let id = selection.first, let entry = logbook.entry(id: id) {
+            let chosen = selectedEntries
+            if chosen.count == 1, let id = chosen.first, let entry = logbook.entry(id: id) {
                 Button("Edit…") { open(.edit(entry)) }
                 Button("Log Again Now") { logbook.duplicate(entry) }
                     .help("Log a copy of this entry at the current time")
             }
-            if !selection.isEmpty {
+            if !chosen.isEmpty {
                 Button(role: .destructive) { deleteSelection() } label: {
-                    Label(selection.count == 1 ? "Delete" : "Delete \(selection.count)", systemImage: "trash")
+                    Label(chosen.count == 1 ? "Delete" : "Delete \(chosen.count)", systemImage: "trash")
                 }
             }
         }
@@ -132,18 +157,26 @@ struct LogbookSection: View {
         switch f {
         case .site: return settings.therapy == .pump || !logbook.siteChanges.isEmpty
         case .insulin: return settings.therapy.logsInsulin || !logbook.doses.isEmpty
+        case .alerts: return showsAlerts && !logbook.alerts.isEmpty
         default: return true
         }
     }
 
-    private func matches(_ e: LogEntry) -> Bool {
+    private func matches(_ row: LogbookTableRow) -> Bool {
         let q = search.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return true }
-        return [title(e), details(e), amount(e), site(e) ?? ""].contains { $0.localizedCaseInsensitiveContains(q) }
+        switch row {
+        case .entry(let e):
+            return [title(e), details(e), amount(e), site(e) ?? ""].contains { $0.localizedCaseInsensitiveContains(q) }
+        case .alert(let a):
+            return a.searchText.localizedCaseInsensitiveContains(q)
+        }
     }
 
     private func deleteSelection() {
-        DS.animate(.standard, reduceMotion: reduceMotion) { logbook.delete(ids: selection) }
+        let ids = selectedEntries
+        guard !ids.isEmpty else { return }
+        DS.animate(.standard, reduceMotion: reduceMotion) { logbook.delete(ids: ids) }
         selection = []
     }
 
@@ -178,47 +211,29 @@ struct LogbookSection: View {
         }
     }
 
-    private func table(_ entries: [LogEntry]) -> some View {
-        let u = data.unit
-        return Table(entries, selection: $selection) {
-            TableColumn("Time") { (e: LogEntry) in
-                Text(e.timestamp.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))
+    private func table(_ entries: [LogbookTableRow]) -> some View {
+        Table(entries, selection: $selection) {
+            TableColumn("Time") { (r: LogbookTableRow) in
+                Text(r.timestamp.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))
                     .monospacedDigit()
+                    .foregroundStyle(r.isAlert ? Color.secondary : Color.primary)
             }
             .width(min: 140, ideal: 170)
-            TableColumn("Entry") { (e: LogEntry) in
-                let k = kind(e)
-                Label(title(e), systemImage: k.systemImage)
-                    .foregroundStyle(k.color)
-                    .padding(.horizontal, DS.Space.xs + 2)
-                    .padding(.vertical, 1)
-                    .background(k.color.opacity(fresh.contains(e.id) ? 0.18 : 0), in: Capsule())
-                    .padding(.horizontal, -(DS.Space.xs + 2))
-            }
-            .width(min: 110, ideal: 140)
-            TableColumn("Amount") { (e: LogEntry) in
-                Text(amount(e)).monospacedDigit().fontWeight(.semibold)
+            TableColumn("Entry") { (r: LogbookTableRow) in entryCell(r) }
+                .width(min: 110, ideal: 140)
+            TableColumn("Amount") { (r: LogbookTableRow) in
+                Text(r.entry.map { amount($0) } ?? "").monospacedDigit().fontWeight(.semibold)
             }
             .width(min: 60, ideal: 80)
-            TableColumn("Details") { (e: LogEntry) in
-                Text(details(e)).foregroundStyle(.secondary).help(details(e))
-            }
-            TableColumn("Site") { (e: LogEntry) in
-                Text(site(e) ?? "–").foregroundStyle(site(e) == nil ? Color.secondary : Color.primary)
-            }
-            .width(min: 90, ideal: 130)
-            TableColumn("Glucose") { (e: LogEntry) in
-                if let r = GlucoseAnalytics.nearest(to: e.timestamp, in: data.readings, tolerance: 10 * 60) {
-                    Text(u.format(mgdl: r.mgdl)).monospacedDigit()
-                        .foregroundStyle(GlucoseRange.classify(mgdl: r.mgdl, low: data.lowMgdl, high: data.highMgdl).valueColor)
-                } else {
-                    Text("–").foregroundStyle(.tertiary)
-                }
-            }
-            .width(min: 60, ideal: 70)
+            TableColumn("Details") { (r: LogbookTableRow) in detailsCell(r) }
+            TableColumn("Site") { (r: LogbookTableRow) in siteCell(r) }
+                .width(min: 90, ideal: 130)
+            TableColumn("Glucose") { (r: LogbookTableRow) in glucoseCell(r) }
+                .width(min: 60, ideal: 70)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
-        .contextMenu(forSelectionType: UUID.self) { ids in
+        .contextMenu(forSelectionType: UUID.self) { picked in
+            let ids = picked.filter { logbook.entry(id: $0) != nil }
             if ids.count == 1, let id = ids.first, let entry = logbook.entry(id: id) {
                 Button("Edit…") { open(.edit(entry)) }
                 Button("Log Again Now") { logbook.duplicate(entry) }
@@ -237,6 +252,56 @@ struct LogbookSection: View {
         // New rows slide into place and deleted rows fold away, whether from here, an undo or a
         // sync. Instant under Reduce Motion.
         .dsAnimation(.standard, value: entries.map(\.id))
+    }
+
+    @ViewBuilder
+    private func entryCell(_ r: LogbookTableRow) -> some View {
+        switch r {
+        case .entry(let e):
+            let k = kind(e)
+            Label(title(e), systemImage: k.systemImage)
+                .foregroundStyle(k.color)
+                .padding(.horizontal, DS.Space.xs + 2)
+                .padding(.vertical, 1)
+                .background(k.color.opacity(fresh.contains(e.id) ? 0.18 : 0), in: Capsule())
+                .padding(.horizontal, -(DS.Space.xs + 2))
+        case .alert(let a):
+            // Quiet: only the bell carries the range's colour.
+            Label {
+                Text(a.title).foregroundStyle(.secondary)
+            } icon: {
+                Image(systemName: a.systemImage).foregroundStyle(a.tint)
+            }
+            .help(a.title)
+        }
+    }
+
+    @ViewBuilder
+    private func detailsCell(_ r: LogbookTableRow) -> some View {
+        switch r {
+        case .entry(let e): Text(details(e)).foregroundStyle(.secondary).help(details(e))
+        case .alert(let a): Text(a.detail).foregroundStyle(.tertiary).help(a.detail)
+        }
+    }
+
+    @ViewBuilder
+    private func siteCell(_ r: LogbookTableRow) -> some View {
+        if let e = r.entry {
+            let s = site(e)
+            Text(s ?? "–").foregroundStyle(s == nil ? Color.secondary : Color.primary)
+        } else {
+            Text("")
+        }
+    }
+
+    @ViewBuilder
+    private func glucoseCell(_ r: LogbookTableRow) -> some View {
+        if let reading = GlucoseAnalytics.nearest(to: r.timestamp, in: data.readings, tolerance: 10 * 60) {
+            Text(data.unit.format(mgdl: reading.mgdl)).monospacedDigit()
+                .foregroundStyle(GlucoseRange.classify(mgdl: reading.mgdl, low: data.lowMgdl, high: data.highMgdl).valueColor)
+        } else {
+            Text("–").foregroundStyle(.tertiary)
+        }
     }
 
     private func kind(_ e: LogEntry) -> ChartEvent.Kind {
@@ -738,5 +803,37 @@ struct ResponseCurveChart: View {
         }
         .chartLegend(position: .top, alignment: .leading)
         .accessibilityLabel("Median change in glucose over time")
+    }
+}
+
+/// One row of the Mac Logbook table: something logged, or a low or high alert (`AlertLogRow`).
+enum LogbookTableRow: Identifiable {
+    case entry(LogEntry)
+    case alert(AlertLogRow)
+
+    var id: UUID {
+        switch self {
+        case .entry(let e): return e.id
+        case .alert(let a): return a.id
+        }
+    }
+
+    var timestamp: Date {
+        switch self {
+        case .entry(let e): return e.timestamp
+        case .alert(let a): return a.timestamp
+        }
+    }
+
+    var entry: LogEntry? {
+        if case .entry(let e) = self { return e }
+        return nil
+    }
+
+    var isAlert: Bool { entry == nil }
+
+    /// Entries and alert rows together, newest first.
+    static func merge(_ entries: [LogEntry], _ alerts: [AlertLogRow]) -> [LogbookTableRow] {
+        (entries.map(LogbookTableRow.entry) + alerts.map(LogbookTableRow.alert)).sorted { $0.timestamp > $1.timestamp }
     }
 }

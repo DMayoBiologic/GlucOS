@@ -15,7 +15,9 @@ struct PhoneLogbookView: View {
     @EnvironmentObject var router: PhoneLogRouter
     @EnvironmentObject var sync: LogbookSyncService
     @State private var query = ""
-    @State private var kind: LogPart?
+    @State private var kind: PhoneLogbookFilter?
+    /// Low and high alerts show as quiet rows between the entries unless turned off here.
+    @AppStorage(AlertLogRow.showsKey) private var showsAlerts = true
     /// The first rows have played their entrance; rows built after this (scrolled to, filtered in)
     /// are just there.
     @State private var assembled = false
@@ -26,8 +28,9 @@ struct PhoneLogbookView: View {
 
     var body: some View {
         let all = logbook.entries
-        let kinds: [LogPart] = LogPart.allCases.filter { k in all.contains { $0.part == k } }
-        let shown = filtered(all)
+        let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
+        let kinds: [PhoneLogbookFilter] = PhoneLogbookFilter.available(entries: all, hasAlerts: !alerts.isEmpty)
+        let shown = filtered(PhoneLogbookItem.merge(all, alerts))
         let shownIDs: [UUID] = shown.map(\.id)
         let allIDs: [UUID] = all.map(\.id)
         list(all: all, kinds: kinds, shown: shown)
@@ -37,6 +40,7 @@ struct PhoneLogbookView: View {
         .navigationTitle("Logbook")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { alertsMenu }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { router.open(nil) } label: { Image(systemName: "plus") }
                     .accessibilityLabel("Log something")
@@ -61,7 +65,20 @@ struct PhoneLogbookView: View {
         }
     }
 
-    private func list(all: [LogEntry], kinds: [LogPart], shown: [LogEntry]) -> some View {
+    /// Show or hide alert rows. Remembered on this phone.
+    private var alertsMenu: some View {
+        Menu {
+            Toggle(isOn: $showsAlerts) { Label("Show Alerts", systemImage: "bell") }
+        } label: {
+            Image(systemName: showsAlerts ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+        }
+        .accessibilityLabel("Logbook options")
+        .onChange(of: showsAlerts) { _, on in
+            if !on, kind == .alerts { kind = nil }
+        }
+    }
+
+    private func list(all: [LogEntry], kinds: [PhoneLogbookFilter], shown: [PhoneLogbookItem]) -> some View {
         List {
             if kinds.count > 1 {
                 Section {
@@ -90,17 +107,18 @@ struct PhoneLogbookView: View {
     }
 
     @ViewBuilder
-    private func daySections(all: [LogEntry], shown: [LogEntry], now: Date) -> some View {
+    private func daySections(all: [LogEntry], shown: [PhoneLogbookItem], now: Date) -> some View {
         // Headers total the whole day, not just what the filter or search left showing.
-        let totals: [String: String] = Dictionary(PhoneLogbookDay.group(all, now: now).map { ($0.id, $0.totals) },
+        let totals: [String: String] = Dictionary(PhoneLogbookDay.group(all.map(PhoneLogbookItem.entry), now: now)
+                                                    .map { ($0.id, $0.totals) },
                                                   uniquingKeysWith: { a, _ in a })
         let days = PhoneLogbookDay.group(shown, now: now)
         let starts = PhoneLogbookDay.rowStarts(days)
         ForEach(Array(days.enumerated()), id: \.element.id) { i, day in
             Section {
-                ForEach(Array(day.entries.enumerated()), id: \.element.id) { j, entry in
+                ForEach(Array(day.items.enumerated()), id: \.element.id) { j, item in
                     // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
-                    listRow(entry, order: starts[i] + j)
+                    itemRow(item, order: starts[i] + j)
                 }
             } header: {
                 // Day headers stay pinned, on a blur, while their day scrolls under them.
@@ -112,6 +130,22 @@ struct PhoneLogbookView: View {
                     .listRowInsets(EdgeInsets())
             }
         }
+    }
+
+    @ViewBuilder
+    private func itemRow(_ item: PhoneLogbookItem, order: Int) -> some View {
+        switch item {
+        case .entry(let entry): listRow(entry, order: order)
+        case .alert(let alert): alertRow(alert, order: order)
+        }
+    }
+
+    /// A low or high alert: just a record of what the phone or Mac said, so nothing to edit,
+    /// delete or log again.
+    private func alertRow(_ alert: AlertLogRow, order: Int) -> some View {
+        AlertLogRowView(row: alert)
+            .dsEntrance(min(order, 8), enabled: !assembled && order < 12)
+            .listRowBackground(Color(uiColor: .systemBackground))
     }
 
     private func listRow(_ entry: LogEntry, order: Int) -> some View {
@@ -132,21 +166,21 @@ struct PhoneLogbookView: View {
         }
     }
 
-    private func filtered(_ entries: [LogEntry]) -> [LogEntry] {
+    private func filtered(_ items: [PhoneLogbookItem]) -> [PhoneLogbookItem] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return entries.filter { e in
-            (kind == nil || e.part == kind) && (q.isEmpty || e.phoneSearchText.localizedStandardContains(q))
+        return items.filter { item in
+            (kind == nil || item.filter == kind) && (q.isEmpty || item.searchText.localizedStandardContains(q))
         }
     }
 
     // MARK: Pieces
 
-    private func filterBar(_ kinds: [LogPart]) -> some View {
+    private func filterBar(_ kinds: [PhoneLogbookFilter]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.sm) {
                 chip("All", systemImage: nil, tint: Palette.brand, selected: kind == nil) { kind = nil }
                 ForEach(kinds) { k in
-                    chip(k.logbookTitle, systemImage: k.logbookSymbol, tint: k.logbookTint, selected: kind == k) {
+                    chip(k.title, systemImage: k.symbol, tint: k.tint, selected: kind == k) {
                         kind = kind == k ? nil : k
                     }
                 }
@@ -230,11 +264,99 @@ struct PhoneLogbookView: View {
     }
 }
 
+/// What the Logbook's chips filter by: a part of the log sheet, or the alert rows.
+enum PhoneLogbookFilter: Hashable, Identifiable {
+    case part(LogPart)
+    case alerts
+
+    var id: String {
+        switch self {
+        case .part(let p): return "\(p)"
+        case .alerts: return "alerts"
+        }
+    }
+
+    /// The chips worth showing: kinds that have entries, then Alerts when there are any.
+    static func available(entries: [LogEntry], hasAlerts: Bool) -> [PhoneLogbookFilter] {
+        LogPart.allCases.filter { k in entries.contains { $0.part == k } }.map(PhoneLogbookFilter.part)
+            + (hasAlerts ? [.alerts] : [])
+    }
+
+    var title: String {
+        switch self {
+        case .part(let p): return p.logbookTitle
+        case .alerts: return "Alerts"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .part(let p): return p.logbookSymbol
+        case .alerts: return "bell"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .part(let p): return p.logbookTint
+        case .alerts: return .secondary
+        }
+    }
+}
+
+/// One row of the Logbook: something logged, or an alert that went off.
+enum PhoneLogbookItem: Identifiable {
+    case entry(LogEntry)
+    case alert(AlertLogRow)
+
+    var id: UUID {
+        switch self {
+        case .entry(let e): return e.id
+        case .alert(let a): return a.id
+        }
+    }
+
+    var timestamp: Date {
+        switch self {
+        case .entry(let e): return e.timestamp
+        case .alert(let a): return a.timestamp
+        }
+    }
+
+    var filter: PhoneLogbookFilter {
+        switch self {
+        case .entry(let e): return .part(e.part)
+        case .alert: return .alerts
+        }
+    }
+
+    var searchText: String {
+        switch self {
+        case .entry(let e): return e.phoneSearchText
+        case .alert(let a): return a.searchText
+        }
+    }
+
+    var entry: LogEntry? {
+        if case .entry(let e) = self { return e }
+        return nil
+    }
+
+    /// Entries and alert rows together, newest first.
+    static func merge(_ entries: [LogEntry], _ alerts: [AlertLogRow]) -> [PhoneLogbookItem] {
+        (entries.map(PhoneLogbookItem.entry) + alerts.map(PhoneLogbookItem.alert))
+            .sorted { $0.timestamp > $1.timestamp }
+    }
+}
+
 /// One day of the logbook, newest first, with what was taken and eaten that day.
 struct PhoneLogbookDay: Identifiable {
     let id: String
     let title: String
-    let entries: [LogEntry]
+    let items: [PhoneLogbookItem]
+
+    /// What was logged that day, without the alerts.
+    var entries: [LogEntry] { items.compactMap(\.entry) }
 
     /// "14 u · 120 g carbs", only the parts that were logged.
     var totals: String {
@@ -258,22 +380,22 @@ struct PhoneLogbookDay: Identifiable {
         var n = 0
         for day in days {
             out.append(n)
-            n += day.entries.count
+            n += day.items.count
         }
         return out
     }
 
-    /// Consecutive entries by calendar day, titled "Today", "Yesterday" or the date.
-    static func group(_ entries: [LogEntry], now: Date, calendar: Calendar = .autoupdatingCurrent) -> [PhoneLogbookDay] {
+    /// Consecutive rows by calendar day, titled "Today", "Yesterday" or the date.
+    static func group(_ items: [PhoneLogbookItem], now: Date, calendar: Calendar = .autoupdatingCurrent) -> [PhoneLogbookDay] {
         var out: [PhoneLogbookDay] = []
-        for e in entries {
+        for e in items {
             let start = calendar.startOfDay(for: e.timestamp)
             let id = "\(Int(start.timeIntervalSince1970))"
             if let last = out.last, last.id == id {
-                out[out.count - 1] = PhoneLogbookDay(id: id, title: last.title, entries: last.entries + [e])
+                out[out.count - 1] = PhoneLogbookDay(id: id, title: last.title, items: last.items + [e])
             } else {
                 out.append(PhoneLogbookDay(id: id, title: ClockLabel.dayTitle(ClockLabel.day(of: e.timestamp, now: now)),
-                                           entries: [e]))
+                                           items: [e]))
             }
         }
         return out

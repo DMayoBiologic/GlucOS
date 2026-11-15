@@ -30,6 +30,8 @@ final class GlucoseStore: ObservableObject {
     /// The logbook, for the outlook. Set once at launch.
     weak var logbook: LogbookStore? {
         didSet {
+            // Low and high alerts are noted in the logbook (`AlertLogRecorder`).
+            AlertLogRecorder.shared.logbook = logbook
             logbookObserver = logbook?.objectWillChange
                 .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
                 .sink { [weak self] _ in

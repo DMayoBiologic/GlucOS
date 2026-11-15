@@ -76,6 +76,54 @@ final class AlertManager {
         content.userInfo = ["kind": notice.kind.rawValue]
         let req = UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req)
+        AlertLogRecorder.shared.fired(notice.kind)
+    }
+}
+
+// MARK: - Alerts in the Logbook
+
+/// Keeps a logbook record of each low or high alert this device shows, and of the button tapped on
+/// it (`AlertLog`, docs/AlertLog.md). Records only: nothing here logs a treatment.
+@MainActor
+final class AlertLogRecorder {
+    static let shared = AlertLogRecorder()
+    /// Set once at launch by each app.
+    weak var logbook: LogbookStore?
+
+    /// A local alert just shown by this device.
+    func fired(_ kind: AlertNotice.Kind, at time: Date = Date()) {
+        logbook?.alertFired(kind, at: time)
+    }
+
+    /// The user's own alert, local or pushed, as the notification arrived. A follower's copy of
+    /// someone else's alert (it names the share it's from) is never theirs to record.
+    func arrived(userInfo: [AnyHashable: Any], at time: Date) {
+        guard let kind = Self.ownKind(userInfo) else { return }
+        logbook?.alertFired(kind, at: time)
+    }
+
+    /// A button tapped on one of the user's own alerts that arrived at `firedAt`.
+    func tapped(_ tap: AlertNotifications.Tap, userInfo: [AnyHashable: Any], firedAt: Date) {
+        guard Self.ownKind(userInfo) != nil else { return }
+        let response: AlertRecord.Response
+        switch tap {
+        case .snooze: response = .snoozed
+        case .treat: response = .treating
+        }
+        logbook?.alertAnswered(tap.kind, response, snoozeMinutes: tap.snoozeMinutes, firedAt: firedAt)
+    }
+
+    /// The user's own alerts still in Notification Center, which arrived as pushes while GlucOS
+    /// wasn't running. Already recorded ones are skipped.
+    func collectDelivered() async {
+        let shown = await UNUserNotificationCenter.current().deliveredNotifications()
+        for n in shown { arrived(userInfo: n.request.content.userInfo, at: n.date) }
+    }
+
+    private static func ownKind(_ userInfo: [AnyHashable: Any]) -> AlertNotice.Kind? {
+        guard userInfo["followID"] == nil, let raw = userInfo["kind"] as? String,
+              let kind = AlertNotice.Kind(rawValue: raw), AlertLog.isLogged(kind) else { return nil }
+        return kind
     }
 }
 

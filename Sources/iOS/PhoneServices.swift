@@ -114,6 +114,8 @@ final class PhoneServices: ObservableObject {
             logbookSync?.start()
             follows?.start()
             Task {
+                // Alerts the relay pushed while the app was closed go in the logbook.
+                await AlertLogRecorder.shared.collectDelivered()
                 // The relay's readings first, so the forecast drawn on opening is worked out from
                 // one-minute readings rather than LibreLinkUp's 15-minute graph.
                 await fillHistoryFromRelay()
@@ -134,6 +136,7 @@ final class PhoneServices: ObservableObject {
 
     /// A background app refresh: fetch once, update the card, and alert if the relay isn't.
     func backgroundRefresh() async {
+        await AlertLogRecorder.shared.collectDelivered()
         // The logbook first, so the forecast on the Lock Screen counts what was logged on the Mac.
         await logbookSync?.sync()
         await fillHistoryFromRelay()
