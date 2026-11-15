@@ -36,6 +36,8 @@ struct LogSheet: View {
 
     /// Closes the host. Nil for a sheet, which uses `dismiss`.
     private let onClose: (() -> Void)?
+    /// Opened to add the meal a logged dose was for: no "bolus for it" step, the dose is in already.
+    private let forLoggedDose: Bool
 
     /// Set when editing: only that part is shown.
     private let editing: Part?
@@ -146,6 +148,7 @@ struct LogSheet: View {
         }
 
         self.onClose = onClose
+        if case .meal = target { forLoggedDose = true } else { forLoggedDose = false }
         self.editing = editing
         self.editingID = editingID
         self.doseID = doseID
@@ -575,7 +578,7 @@ struct LogSheet: View {
     // MARK: Next step
 
     private var nextStep: LogNextStep? {
-        guard isNew else { return nil }
+        guard isNew, !forLoggedDose else { return nil }
         return LogFlow.nextStep(picked: parts, available: availableParts, carbs: foodValid ? (carbs ?? 0) : 0,
                                 mealtimeDose: kind.isBolus)
     }

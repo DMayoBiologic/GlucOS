@@ -100,6 +100,8 @@ final class DoseMealCheckTests: XCTestCase {
         XCTAssertEqual(DoseMealCheck.unloggedMealTimes(doses: [marked], meals: []), [marked.timestamp])
         // Food logged with it afterwards (even an hour on, for a long pre-bolus) is that meal.
         XCTAssertEqual(DoseMealCheck.unloggedMealTimes(doses: [marked], meals: [meal(minutesAgo: 5)]), [])
+        // A meal-marked dose edited into basal insulin isn't food either.
+        XCTAssertEqual(DoseMealCheck.unloggedMealTimes(doses: [dose(minutesAgo: 60, kind: .long, purpose: .meal)], meals: []), [])
         // Corrections and unanswered doses aren't food.
         XCTAssertEqual(DoseMealCheck.unloggedMealTimes(doses: [dose(minutesAgo: 60, purpose: .correction),
                                                                dose(minutesAgo: 60)], meals: []), [])

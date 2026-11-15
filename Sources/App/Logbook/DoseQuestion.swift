@@ -111,13 +111,14 @@ final class DoseQuestion: ObservableObject {
     private func withdrawAnswered() async {
         guard let logbook else { return }
         let center = UNUserNotificationCenter.current()
+        let waiting = await center.pendingNotificationRequests().map(\.identifier)
+        let shown = await center.deliveredNotifications().map(\.request.identifier)
+        // After the queries, so a dose logged while they ran keeps its question.
         let now = Date()
         let stillAsking = Set(logbook.doses.filter {
             now.timeIntervalSince($0.timestamp) <= DoseMealCheck.askUntil
                 && DoseMealCheck.isUnexplained($0, meals: logbook.meals, contexts: logbook.contexts)
         }.map { Self.idPrefix + $0.id.uuidString })
-        let waiting = await center.pendingNotificationRequests().map(\.identifier)
-        let shown = await center.deliveredNotifications().map(\.request.identifier)
         let stale = Array(Set(waiting + shown).filter { $0.hasPrefix(Self.idPrefix) && !stillAsking.contains($0) })
         guard !stale.isEmpty else { return }
         center.removePendingNotificationRequests(withIdentifiers: stale)
@@ -135,6 +136,8 @@ final class DoseQuestion: ObservableObject {
     @discardableResult
     func handle(action: String, userInfo: [AnyHashable: Any]) -> Bool {
         guard let id = Self.doseID(in: userInfo) else { return false }
+        // Already answered (in the app, or on another device): a late tap mustn't overwrite it.
+        guard logbook?.doses.first(where: { $0.id == id })?.purpose == nil else { return true }
         switch action {
         case Self.mealAction: answer(.meal, doseID: id, inApp: false)
         case Self.correctionAction: answer(.correction, doseID: id, inApp: false)

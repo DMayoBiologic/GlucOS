@@ -21,6 +21,8 @@ struct PhoneLogSheet: View {
     private let editing: PhoneLogPart?
     /// The part a new entry was opened for (the Event button, `glucos://log/event`…).
     private let start: PhoneLogPart?
+    /// Opened to add the meal a logged dose was for: no "bolus for it" step, the dose is in already.
+    private let forLoggedDose: Bool
     private let editingID: UUID?
     private let doseID: UUID
     private let mealID: UUID
@@ -132,6 +134,7 @@ struct PhoneLogSheet: View {
 
         self.editing = editing
         self.start = startPart
+        if case .meal = target { forLoggedDose = true } else { forLoggedDose = false }
         self.editingID = editingID
         self.doseID = doseID
         self.mealID = mealID
@@ -584,7 +587,7 @@ struct PhoneLogSheet: View {
     // MARK: Next step
 
     private var nextStep: LogNextStep? {
-        guard isNew else { return nil }
+        guard isNew, !forLoggedDose else { return nil }
         return LogFlow.nextStep(picked: parts, available: availableParts, carbs: foodValid ? (carbs ?? 0) : 0,
                                 mealtimeDose: kind.isBolus)
     }

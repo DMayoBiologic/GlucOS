@@ -84,6 +84,8 @@ enum OutlookEngine {
     /// The quick part, run on every new reading. `readings` only needs the last hour or so.
     static func outlook(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
                         model: OutlookModel, now: Date = Date()) -> Outlook {
+        // Doses marked as for a meal are matched against every meal entry, repeats included.
+        let unloggedMeals = DoseMealCheck.unloggedMealTimes(doses: doses, meals: meals)
         let meals = LogCleanup.mealsWithoutRepeats(meals)
         let series = GlucoseSeries(readings)
         let input = ForecastInputs(readings: series, doses: doses, meals: meals, contexts: contexts,
@@ -91,7 +93,7 @@ enum OutlookEngine {
                                    morning: model.morning.isUsable ? model.morning : nil,
                                    tuning: model.tuning.tuning, rangeScale: model.rangeScale, now: now)
         let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
-            + DoseMealCheck.unloggedMealTimes(doses: doses, meals: meals)
+            + unloggedMeals
         return Outlook(at: now,
                        forecast: GlucoseForecaster.forecast(input),
                        insulin: InsulinActivity.compute(doses: doses, at: now),

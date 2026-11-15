@@ -69,7 +69,7 @@ enum DoseMealCheck {
     /// Everything that models glucose treats these like food logged without carbs.
     static func unloggedMealTimes(doses: [InsulinDose], meals: [MealEntry]) -> [Date] {
         doses.filter { d in
-            d.purpose == .meal && !meals.contains { m in
+            d.purpose == .meal && d.kind.isBolus && !meals.contains { m in
                 let dt = m.timestamp.timeIntervalSince(d.timestamp)
                 return dt >= -mealBefore && dt <= mealAfter
             }
