@@ -114,7 +114,9 @@ select * from glucos.forecast_points order by issued_at desc limit 100;
   widens it at most 2.5 times. Each point is measured against its range before any earlier
   widening (each point records its own, `ForecastRecord.Point.scale`), so the figure settles
   instead of compounding. The Outlook page says when the range has been widened. The forecast line
-  itself never moves.
+  itself never moves. Since 15 Nov 2026 it also widens forecasts that start with glucose moving
+  fast on their own, widens the range the same day when the last 12 hours miss more often, and
+  counts ranges cut off at the sensor's limit; the relay does the same (§8).
 - **Short history**: the held-out profiles for the replay split the history there actually is into
   5 stretches, so a new user's insulin-and-carb forecasts get checked (and given a measured range
   and horizon) within days rather than after 30.
@@ -233,3 +235,55 @@ forecast every 15 minutes (device `relay`, #72), so nights are covered whether o
 the iPhone app is awake; `glucos.forecast_scorecard` lists every device side by side and Insights
 shows the user's own figures (#71); and a dose with no food near it now asks whether it was for a
 meal (#73, docs/DoseQuestion.md), which addresses the unlogged-meal cause above at the source.
+
+## 8. Ranges that hold 8 in 10 (15 Nov 2026)
+
+`glucos.forecast_scorecard` on 15 Nov showed readings inside the range 54–75% of the time on every
+device and horizon (Mac 75 / 71 / 66% at 15 / 30 / 60 minutes, iPhone 69 / 68 / 54%, Lock Screen
+71%), against the 80% the range promises. The widening from shown forecasts was running, but
+replaying the server's history (`LiveReplayTests`, which now prints the hit rate by day with the
+30-minute range width) showed three reasons it couldn't catch up:
+
+- **It learnt too slowly.** Every point of the last 14 days counted the same, and the errors grew
+  through the week (15-minute error ±14 mg/dL over the history, ±19.5 over the last two days). The
+  figure trailed the misses by days: 64 / 62 / 58% at 15 / 30 / 60 minutes on the last day.
+- **Fast-moving glucose missed about half the time.** With the trend at 2 mg/dL a minute or more,
+  52–54% of readings landed inside the range (server, 7 days), against 75–83% below that. One
+  figure for both widened the steady forecasts for the sake of the fast ones and still left the
+  fast ones short.
+- **Ranges cut off at the sensor's limit were left out**, 9–21% of points at 30–60 minutes, and
+  they are the volatile ones.
+
+The cap (2.5×) wasn't the problem: raising it to 4 changed nothing on its own.
+
+`ForecastLedger.rangeScale` now works out three things, each measured against the range the one
+before would have drawn, so none of them double-counts:
+
+1. The steady figure, as before, from forecasts that started with glucose moving less than
+   1.5 mg/dL a minute (`ForecastRangeScale.fastTrendPerMinute`, between the single and double
+   arrows).
+2. A figure for the fast ones (`fastTrend`), once there are 25 of their points.
+3. A figure for the last 12 hours alone (`recent`), once there are 20 of their points, so a bad
+   day widens the range that day and lets go of it 12 hours later.
+
+Their product is capped at 4× (`totalMaximum`). Where the range was cut off on one side, the other
+side's width stands in for it. It still never narrows the range.
+
+Walk-forward replay of the server's 4.6 days, clean points, inside the range:
+
+| | 15 min | 30 min | 60 min | 30-min range, last day |
+| --- | --- | --- | --- | --- |
+| Before, whole history | 74% | 77% | 63% | 70 mg/dL |
+| After, whole history | 80% | 81% | 70% | 96 mg/dL |
+| Before, last day | 64% | 62% | 58% | |
+| After, last day | 76% | 81% | 74% | |
+
+The 60-minute figure rests on 40 points, so it is the least settled. The price is a wider range on
+bad days: ±2.7 mmol/L at 30 minutes on 15 Nov rather than ±1.9, which is what those days were
+actually like.
+
+**The relay** had no widening at all: its range was the replay's alone. It now does the same from
+its own ledger (`rangeScaleFrom` in `supabase/functions/relay/core.ts`, worked out after each
+scoring from its `glucos.forecast_checks` rows, kept in `relay.work.forecastLog.rangeScale`), and
+records each point's widening as `scale` in the points JSON so the figure settles. Replaying the
+relay's forecast the same way: 72 / 76% at 15 / 30 minutes before, 80 / 82% after. Relay 2.6.0.

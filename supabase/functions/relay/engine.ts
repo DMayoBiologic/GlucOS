@@ -6,7 +6,7 @@
 import {
   type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
   type Display, type ForecastResult, formatGlucose, learnCalibration, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
-  type Sensor, unitOf,
+  rangeScaleFrom, rangeWindow, type Sensor, unitOf,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
 import {
@@ -22,7 +22,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.5.0";
+export const version = "2.6.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -521,7 +521,8 @@ export class RelayEngine {
 
         const result = processTick({
           stored, current: w.current, sensor: w.sensor, lastError: w.lastError, display: row.prefs.display,
-          prefs: row.prefs.alerts, planner: w.planner, calibration: w.calibration, now,
+          prefs: row.prefs.alerts, planner: w.planner, calibration: w.calibration,
+          rangeScale: w.forecastLog?.rangeScale ?? null, now,
         });
 
         const token = row.prefs.deviceToken;
@@ -593,7 +594,7 @@ export class RelayEngine {
       const owner = log.owner;
       if (owner === null) return;
       if (result.ok) {
-        const record = ledgerRecord(result.forecast, w.calibration, log.lastIssuedAt);
+        const record = ledgerRecord(result.forecast, w.calibration, log.lastIssuedAt, undefined, log.rangeScale ?? null);
         if (record) {
           await ledger.record(owner, record);
           // Kept or not (one was already there), this 15 minutes is done.
@@ -603,6 +604,8 @@ export class RelayEngine {
       if (now - log.scoredAt >= ledgerScoreEvery) {
         await ledger.score(owner);
         log.scoredAt = now;
+        // Widen the next forecasts from how the shown ones turned out (core.ts rangeScaleFrom).
+        log.rangeScale = rangeScaleFrom(await ledger.shown(owner, now - rangeWindow), now);
       }
     } catch (e) {
       console.error("forecast ledger", e);

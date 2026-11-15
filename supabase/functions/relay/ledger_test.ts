@@ -1,6 +1,9 @@
 // The relay's forecast ledger: which forecasts it keeps, and how a tick uses it.
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1";
-import { type Calibration, type Forecast, type Reading, standardTuning } from "./core.ts";
+import {
+  type Calibration, type Forecast, forecast, rangeFactor, type RangeScale, rangeScaleFrom, rangeWindow, type Reading, Series,
+  type ShownForecast, standardTuning,
+} from "./core.ts";
 import { type ForecastLedger, type LedgerRecord, ledgerRecord, ledgerScoreEvery, ledgerSpacing } from "./ledger.ts";
 import { newRow, type RelayRow, RelayEngine, type Store, type Tx } from "./engine.ts";
 import { type Account, LibreLinkUpFetcher, type LibreSession } from "./libre.ts";
@@ -61,6 +64,12 @@ class FakeLedger implements ForecastLedger {
   score() {
     this.scores++;
     return Promise.resolve(0);
+  }
+  shownSince: number[] = [];
+  shownForecasts: ShownForecast[] = [];
+  shown(_owner: string, since: number) {
+    this.shownSince.push(since);
+    return Promise.resolve(this.shownForecasts);
   }
 }
 
@@ -186,3 +195,66 @@ Deno.test("a saved session without the user id logs in once more to learn it", a
   assertFalse(calls.includes("llu/auth/login"));
 });
 
+
+// MARK: Widening the range from the relay's own forecasts
+
+/// A shown 30-minute relay forecast whose reading landed `miss` × its 20 mg/dL half-width away.
+function shownAt(i: number, hoursAgo: number, miss: number, trend = 0, scale?: number): ShownForecast {
+  const half = 20 * (scale ?? 1);
+  return {
+    issuedAt: t0 - hoursAgo * 3600, trendPerMinute: trend,
+    points: [{ minutes: 30, mgdl: 120, lower: 120 - half, upper: 120 + half, actual: 120 + (i % 2 ? -1 : 1) * miss * 20, scale }],
+  };
+}
+
+Deno.test("the relay widens its range like the apps: steady, fast-moving, and the last 12 hours", () => {
+  const close = (a: number, b: number) => assert(Math.abs(a - b) < 0.01, `${a} vs ${b}`);
+  assertEquals(rangeScaleFrom(Array.from({ length: 20 }, (_, i) => shownAt(i, 13 + i, 2)), t0), null);
+
+  // Two weeks on the edge, fast-moving ones twice as far out, and the last 12 hours 1.8 out.
+  const shown = [
+    ...Array.from({ length: 100 }, (_, i) => shownAt(i, 13 + i * 3, 1)),
+    ...Array.from({ length: 30 }, (_, i) => shownAt(i, 14 + i * 5, 2, i % 2 ? 2 : -2)),
+    ...Array.from({ length: 20 }, (_, i) => shownAt(i, 0.5 + i * 0.5, 1.8)),
+  ];
+  const s = rangeScaleFrom(shown, t0)!;
+  close(rangeFactor(s, 30, 0), 1.8);
+  close(s.fastTrend, 2);
+  close(s.recent, 1.8);
+  close(rangeFactor(s, 30, -2), 3.6);
+  // Twelve hours later the bad stretch no longer counts on its own.
+  close(rangeFactor(rangeScaleFrom(shown, t0 + 13 * 3600)!, 30, 0), 1);
+  // Shown already widened, landing at the edge of what was shown: settles, doesn't compound.
+  close(rangeFactor(rangeScaleFrom(Array.from({ length: 50 }, (_, i) => shownAt(i, 13 + i, 1.6, 0, 1.6)), t0)!, 30, 0), 1.6);
+  assertEquals(rangeFactor(null, 30, 3), 1);
+});
+
+Deno.test("the forecast draws the wider range and the ledger records what each point was shown with", () => {
+  const readings: Reading[] = [];
+  for (let back = 30; back >= 0; back--) readings.push({ t: t0 - back * 60, mgdl: 150 - back, trend: 3 });
+  const scale: RangeScale = { byHorizon: { 15: 1.5, 30: 2 }, overall: 1.5, fastTrend: 1, recent: 1, checks: 60, recentChecks: 0 };
+  const plain = forecast(new Series(readings), null, t0);
+  const wider = forecast(new Series(readings), null, t0, undefined, undefined, scale);
+  assert(plain.ok && wider.ok);
+  const half = (f: Forecast, m: number) => { const p = f.samples.find((x) => x.t === f.issuedAt + m * 60)!; return p.upperMgdl - p.mgdl; };
+  assert(Math.abs(half(wider.forecast, 15) - half(plain.forecast, 15) * 1.5) < 0.01);
+  assert(Math.abs(half(wider.forecast, 30) - half(plain.forecast, 30) * 2) < 0.01);
+  const r = ledgerRecord(wider.forecast, null, null, "id", scale)!;
+  assertEquals(r.points.map((p) => p.scale), [1.5, 2]);
+});
+
+Deno.test("ticks work the range out after scoring and widen the next forecasts", async () => {
+  const t = ticking("llu-1");
+  t.ledger.shownForecasts = Array.from({ length: 50 }, (_, i) => shownAt(i, 13 + i, 1.5));
+  await t.engine.tick();
+  assertEquals(t.ledger.shownSince, [t0 - rangeWindow]);
+  near(t.store.row.work.forecastLog?.rangeScale?.overall ?? 0, 1.5);
+  t.advance(ledgerSpacing);
+  await t.engine.tick();
+  const [first, second] = t.ledger.records.map((x) => x.r);
+  assertEquals(first.points[0].scale, undefined, "The first tick's forecast came before any widening");
+  assertEquals(second.points.map((p) => p.scale), [1.5, 1.5]);
+  assert(second.points[0].upper - second.points[0].mgdl > first.points[0].upper - first.points[0].mgdl);
+});
+
+function near(a: number, b: number) { assert(Math.abs(a - b) < 0.01, `${a} vs ${b}`); }

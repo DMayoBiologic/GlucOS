@@ -338,6 +338,111 @@ export function interpolateBand(stats: HorizonStats[], minutes: number): { lower
   return widen(last.lower * f, last.upper * f);
 }
 
+// MARK: - Range widening
+
+// A port of ForecastLedger.rangeScale (Sources/Engine/ForecastLedger.swift): how much wider the
+// relay's range needs to be to have held 4 in 5 of the readings that followed the forecasts it
+// showed, from its own ledger (device "relay"). A steady figure per checked horizon over 14 days,
+// a separate figure for forecasts that started with glucose moving fast, and a correction from
+// the last 12 hours alone so a bad day widens the range that day. Widen-only.
+
+/// One scored relay forecast, as kept in glucos.forecast_checks.
+export interface ShownForecast {
+  issuedAt: number;
+  trendPerMinute: number;
+  points: {
+    minutes: number; mgdl: number; lower: number; upper: number;
+    actual?: number | null; afterLog?: boolean;
+    /// How much the point's range was widened when shown.
+    scale?: number | null;
+  }[];
+}
+
+export interface RangeScale {
+  /// The steady widening by minutes ahead, for horizons with enough points of their own.
+  byHorizon: Record<number, number>;
+  /// The steady widening across all horizons.
+  overall: number;
+  /// Extra widening when the forecast starts from glucose moving at least `fastTrendPerMinute`.
+  fastTrend: number;
+  /// Extra widening while the last 12 hours missed more than the last two weeks.
+  recent: number;
+  checks: number;
+  recentChecks: number;
+}
+
+export const rangeWindow = 14 * 86_400;
+export const recentRangeWindow = 12 * 3600;
+const minimumForRange = 40, minimumForHorizon = 25, minimumRecent = 20;
+export const rangeMaximum = 2.5, rangeTotalMaximum = 4, fastTrendPerMinute = 1.5;
+
+const clampScale = (x: number) => Math.min(rangeMaximum, Math.max(1, x));
+
+/// The steady widening `minutes` ahead: interpolated between horizons that have their own
+/// figure, held flat outside them, the overall figure without any.
+function steadyFactor(s: RangeScale, minutes: number): number {
+  const pts = Object.entries(s.byHorizon).map(([m, v]) => [Number(m), v] as const).sort((a, b) => a[0] - b[0]);
+  if (pts.length === 0) return clampScale(s.overall);
+  if (minutes <= pts[0][0]) return clampScale(pts[0][1]);
+  const last = pts[pts.length - 1];
+  if (minutes >= last[0]) return clampScale(last[1]);
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [am, av] = pts[i], [bm, bv] = pts[i + 1];
+    if (minutes <= bm) return clampScale(av + (bv - av) * ((minutes - am) / (bm - am)));
+  }
+  return clampScale(last[1]);
+}
+
+/// The widening `minutes` ahead of a forecast starting from `trendPerMinute`. 1 without a scale.
+export function rangeFactor(s: RangeScale | null | undefined, minutes: number, trendPerMinute: number): number {
+  if (!s) return 1;
+  const fast = Math.abs(trendPerMinute) >= fastTrendPerMinute ? s.fastTrend : 1;
+  return Math.min(rangeTotalMaximum, steadyFactor(s, minutes) * clampScale(fast) * clampScale(s.recent));
+}
+
+interface RangeMiss { minutes: number; ratio: number; fast: boolean; recent: boolean }
+
+export function rangeScaleFrom(shown: ShownForecast[], now: number): RangeScale | null {
+  const steady: RangeMiss[] = [], fast: RangeMiss[] = [], recent: RangeMiss[] = [];
+  for (const r of shown) {
+    if (r.issuedAt < now - rangeWindow || r.issuedAt > now) continue;
+    const isFast = Math.abs(r.trendPerMinute) >= fastTrendPerMinute;
+    const isRecent = r.issuedAt >= now - recentRangeWindow;
+    for (const p of r.points) {
+      if (p.afterLog || typeof p.actual !== "number") continue;
+      const k = Math.max(1, p.scale ?? 1);
+      let above = (p.upper - p.mgdl) / k, below = (p.mgdl - p.lower) / k;
+      const cutHigh = p.upper >= sensorHigh + 0.5, cutLow = p.lower <= sensorLow - 0.5;
+      if (cutHigh && cutLow) continue;
+      if (cutHigh) above = below;
+      if (cutLow) below = above;
+      if (!(above > 0.5 && below > 0.5)) continue;
+      const e = p.actual - p.mgdl;
+      const m: RangeMiss = { minutes: p.minutes, ratio: e >= 0 ? e / above : -e / below, fast: isFast, recent: isRecent };
+      (isFast ? fast : steady).push(m);
+      if (isRecent) recent.push(m);
+    }
+  }
+  if (steady.length < minimumForRange) return null;
+  const needed = (xs: number[]) => clampScale(quantile([...xs].sort((a, b) => a - b), 0.8));
+  const byHorizon: Record<number, number> = {};
+  const groups = new Map<number, number[]>();
+  for (const m of steady) groups.set(m.minutes, [...(groups.get(m.minutes) ?? []), m.ratio]);
+  for (const [m, xs] of groups) if (xs.length >= minimumForHorizon) byHorizon[m] = needed(xs);
+  const scale: RangeScale = {
+    byHorizon, overall: needed(steady.map((m) => m.ratio)), fastTrend: 1, recent: 1,
+    checks: steady.length + fast.length, recentChecks: 0,
+  };
+  if (fast.length >= minimumForHorizon) {
+    scale.fastTrend = needed(fast.map((m) => m.ratio / steadyFactor(scale, m.minutes)));
+  }
+  if (recent.length >= minimumRecent) {
+    scale.recent = needed(recent.map((m) => m.ratio / (steadyFactor(scale, m.minutes) * (m.fast ? scale.fastTrend : 1))));
+    scale.recentChecks = recent.length;
+  }
+  return scale;
+}
+
 // MARK: - Forecast
 
 export interface ForecastSample {
@@ -383,7 +488,8 @@ export function trendAt(series: Series, at: number, window = standardTuning.tren
 /// The relay's forecast: the recent trend, at the strength it has earned, fading to level over
 /// half an hour or the tuned time (no insulin or carbs, since the logbook lives on the Mac).
 export function forecast(series: Series, calibration: Calibration | null, now: number, maxHorizon?: number,
-                         tuning: Tuning = calibration?.tuning ?? standardTuning): ForecastResult {
+                         tuning: Tuning = calibration?.tuning ?? standardTuning,
+                         rangeScale: RangeScale | null = null): ForecastResult {
   const latest = series.last;
   if (!latest) return { ok: false, reason: unavailable.noReading };
   if (now - latest.t > staleAfter) return { ok: false, reason: unavailable.stale };
@@ -404,7 +510,13 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
     }
   }
 
-  const band = (minutes: number) => (stats ? interpolateBand(stats, minutes) : null) ?? defaultBand(minutes);
+  // Widened from the relay's own shown forecasts (rangeScaleFrom), never in a replay.
+  const widen = (minutes: number) => (maxHorizon === undefined ? rangeFactor(rangeScale, minutes, trend) : 1);
+  const band = (minutes: number) => {
+    const b = (stats ? interpolateBand(stats, minutes) : null) ?? defaultBand(minutes);
+    const k = widen(minutes);
+    return { lower: b.lower * k, upper: b.upper * k };
+  };
   const samples: ForecastSample[] = [{ t: t0, mgdl: latest.mgdl, lowerMgdl: latest.mgdl, upperMgdl: latest.mgdl }];
   let g = latest.mgdl;
   let minute = 0;
@@ -921,12 +1033,14 @@ export function processTick(args: {
   prefs: AlertPreferences;
   planner: PlannerState;
   calibration: Calibration | null;
+  /// The relay's range widening from its own ledger. Missing: none.
+  rangeScale?: RangeScale | null;
   now: number;
 }): TickResult {
   const { stored, now } = args;
   const snapshot = makeSnapshot(stored, args.current, args.sensor, args.display, args.lastError);
   const recent = stored.filter((r) => now - r.t <= 3600);
-  const result = forecast(new Series(recent), args.calibration, now);
+  const result = forecast(new Series(recent), args.calibration, now, undefined, undefined, args.rangeScale ?? null);
   if (snapshot.current) snapshot.outlook = outlookSnapshot(result, now, snapshot.lowMgdl);
   const notices = evaluateAlerts(args.planner, snapshot, args.prefs, now);
   const p = evaluatePrediction(args.planner, snapshot, result.ok ? result.forecast : null, args.prefs, now);

@@ -8,7 +8,9 @@
 // found from the LibreLinkUp user id (`syntheticEmail`). No such user (the apps never signed in
 // to sync) means nothing is kept.
 
-import { calibrationHorizons, type Calibration, type Forecast, isStandardTuning } from "./core.ts";
+import {
+  calibrationHorizons, type Calibration, type Forecast, isStandardTuning, rangeFactor, type RangeScale, type ShownForecast,
+} from "./core.ts";
 import { syntheticEmail } from "./libre.ts";
 import type postgres from "npm:postgres@3.4.5";
 
@@ -27,6 +29,8 @@ export interface LedgerPoint {
   mgdl: number;
   lower: number;
   upper: number;
+  /// How much the range was widened when shown (rangeFactor). Missing: not widened.
+  scale?: number;
 }
 
 export interface LedgerRecord {
@@ -50,6 +54,9 @@ export interface LedgerState {
   checkedAt: number;
   lastIssuedAt: number | null;
   scoredAt: number;
+  /// How much wider to draw the range, from the relay's own scored forecasts (rangeScaleFrom),
+  /// worked out after each scoring. Missing or null: not widened.
+  rangeScale?: RangeScale | null;
 }
 
 export interface ForecastLedger {
@@ -59,18 +66,24 @@ export interface ForecastLedger {
   record(owner: string, r: LedgerRecord): Promise<boolean>;
   /// Scores the owner's recent relay forecasts. Returns how many changed.
   score(owner: string): Promise<number>;
+  /// The owner's relay forecasts issued since `since` (unix seconds), as scored so far.
+  shown(owner: string, since: number): Promise<ShownForecast[]>;
 }
 
 /// The forecast as a ledger record, or null when it's within `ledgerSpacing` of the last one or
 /// reaches none of the checked horizons (ForecastLedger.note).
 export function ledgerRecord(f: Forecast, calibration: Calibration | null, lastIssuedAt: number | null,
-                             id: string = crypto.randomUUID()): LedgerRecord | null {
+                             id: string = crypto.randomUUID(), rangeScale: RangeScale | null = null): LedgerRecord | null {
   if (lastIssuedAt !== null && f.issuedAt - lastIssuedAt < ledgerSpacing) return null;
   const points: LedgerPoint[] = [];
   for (const m of calibrationHorizons) {
     const target = f.issuedAt + m * 60;
     const s = f.samples.find((x) => Math.abs(x.t - target) < 30);
-    if (s) points.push({ minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl });
+    if (!s) continue;
+    const point: LedgerPoint = { minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl };
+    // Kept so the next widening is measured against the range before this one (no compounding).
+    if (rangeScale) point.scale = rangeFactor(rangeScale, m, f.trendPerMinute);
+    points.push(point);
   }
   if (!points.length) return null;
   return {
@@ -108,5 +121,23 @@ export class PostgresForecastLedger implements ForecastLedger {
   async score(owner: string): Promise<number> {
     const rows = await this.sql`select glucos.score_relay_forecasts(${owner}::uuid) as n`;
     return Number(rows[0]?.n ?? 0);
+  }
+
+  async shown(owner: string, since: number): Promise<ShownForecast[]> {
+    const rows = await this.sql`
+      select extract(epoch from issued_at)::float8 as issued_at, trend_per_minute, points
+      from glucos.forecast_checks
+      where user_id = ${owner}::uuid and device = ${ledgerDevice} and issued_at >= to_timestamp(${since})
+      order by issued_at`;
+    return rows.map((r) => ({
+      issuedAt: Number(r.issued_at),
+      trendPerMinute: Number(r.trend_per_minute),
+      points: ((r.points ?? []) as Record<string, unknown>[]).map((p) => ({
+        minutes: Number(p.minutes), mgdl: Number(p.mgdl), lower: Number(p.lower), upper: Number(p.upper),
+        actual: typeof p.actual === "number" ? p.actual : null,
+        afterLog: p.after_log === true,
+        scale: typeof p.scale === "number" ? p.scale : null,
+      })),
+    }));
   }
 }

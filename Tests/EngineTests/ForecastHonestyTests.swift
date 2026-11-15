@@ -155,6 +155,72 @@ final class ForecastHonestyTests: XCTestCase {
         XCTAssertEqual(shown.records.first?.points.first { $0.minutes == 30 }?.scale ?? 0, 1.3, accuracy: 0.01)
     }
 
+    /// A shown 30-minute trend forecast, `hoursAgo` back, whose reading landed `miss` × its
+    /// 20 mg/dL half-width away (alternating sides by `i`).
+    func shown(_ i: Int, hoursAgo: Double, miss: Double, trend: Double = 0, central: Double = 120,
+               lower: Double? = nil) -> ForecastRecord {
+        let actual = central + (i % 2 == 0 ? 1 : -1) * miss * 20
+        let p = ForecastRecord.Point(minutes: 30, mgdl: central, lower: lower ?? central - 20, upper: central + 20, actual: actual)
+        return ForecastRecord(id: UUID(), issuedAt: now.addingTimeInterval(-hoursAgo * 3600), device: "Mac", basis: .trend,
+                              startMgdl: central, trendPerMinute: trend, points: [p], limitations: [], calibrated: true,
+                              tuned: false, morning: false, settled: true)
+    }
+
+    func testFastMovingForecastsGetTheirOwnWidening() throws {
+        // Steady forecasts land right on the edge; ones that started with glucose moving
+        // 2 mg/dL a minute land twice as far out.
+        var l = ForecastLedger()
+        for i in 0..<60 { l.records.append(shown(i, hoursAgo: 24 + Double(i) * 3, miss: 1)) }
+        for i in 0..<30 { l.records.append(shown(i, hoursAgo: 25 + Double(i) * 5, miss: 2, trend: i % 2 == 0 ? 2 : -2)) }
+        let s = l.rangeScale(now: now)
+        XCTAssertEqual(s.factor(for: .trend, minutes: 30), 1, accuracy: 0.01, "The fast ones don't widen the rest")
+        XCTAssertEqual(s.fastTrend, 2, accuracy: 0.01)
+        XCTAssertEqual(s.factor(for: .trend, minutes: 30, trendPerMinute: -2), 2, accuracy: 0.01)
+        XCTAssertEqual(s.factor(for: .trend, minutes: 30, trendPerMinute: 1), 1, accuracy: 0.01)
+
+        // And the forecast draws it only when glucose is moving that fast.
+        let falling = readings(endingAt: now, minutes: 30) { 200 - 2 * $0 }
+        let level = readings(endingAt: now, minutes: 30) { _ in 150 }
+        func half(_ r: [GlucoseReading], _ scale: ForecastRangeScale) throws -> Double {
+            var input = ForecastInputs(readings: GlucoseSeries(r), doses: [], meals: [], contexts: [], profile: .empty, now: now)
+            input.rangeScale = scale
+            let f = try GlucoseForecaster.forecast(input).get()
+            let p = f.samples.first { Int($0.date.timeIntervalSince(f.issuedAt) / 60) == 15 }!
+            return p.upperMgdl - p.mgdl
+        }
+        XCTAssertEqual(try half(falling, s), try half(falling, .unchanged) * 2, accuracy: 0.01)
+        XCTAssertEqual(try half(level, s), try half(level, .unchanged), accuracy: 0.01)
+    }
+
+    func testABadDayWidensTheRangeTheSameDay() {
+        // Two weeks of forecasts landing right on the edge, then the last 12 hours landing 1.8
+        // half-widths out: too few to move the two-week figure, enough to widen it now.
+        var l = ForecastLedger()
+        for i in 0..<100 { l.records.append(shown(i, hoursAgo: 13 + Double(i) * 3, miss: 1)) }
+        for i in 0..<20 { l.records.append(shown(i, hoursAgo: 0.5 + Double(i) * 0.5, miss: 1.8)) }
+        let s = l.rangeScale(now: now)
+        XCTAssertEqual(s.factor(for: .trend, minutes: 30), 1, accuracy: 0.01)
+        XCTAssertEqual(s.recent, 1.8, accuracy: 0.01)
+        XCTAssertEqual(s.recentChecks, 20)
+        XCTAssertEqual(s.factor(for: .trend, minutes: 30, trendPerMinute: 0), 1.8, accuracy: 0.01)
+        XCTAssertEqual(s.largest, 1.8, accuracy: 0.01)
+        XCTAssertTrue(ForecastAccuracyText.rangeLine(s)?.contains("last 12 hours") == true)
+
+        // Twelve hours later those misses have aged out of the recent check.
+        XCTAssertEqual(l.rangeScale(now: now.addingTimeInterval(13 * 3600)).recent, 1, accuracy: 0.01)
+    }
+
+    func testRangesCutOffAtTheSensorLimitStillCount() {
+        // Forecasts heading low, their range cut off at the sensor's floor: they used to be left
+        // out, and they're the ones that miss. The uncut side stands in for the cut one.
+        var l = ForecastLedger()
+        for i in 0..<50 {
+            l.records.append(shown(i, hoursAgo: 13 + Double(i), miss: 1.5, central: 55,
+                                   lower: GlucoseForecaster.sensorRange.lowerBound - 1))
+        }
+        XCTAssertEqual(l.rangeScale(now: now).factor(for: .trend, minutes: 30), 1.5, accuracy: 0.01)
+    }
+
     func testOldRecordsWithoutAScaleStillDecode() throws {
         let json = """
         {"records":[{"id":"\(UUID().uuidString)","issuedAt":1789999200,"device":"Mac","basis":"trend","startMgdl":120,

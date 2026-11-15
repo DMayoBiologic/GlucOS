@@ -153,50 +153,93 @@ struct ForecastLedger: Codable, Equatable {
     /// Shown points needed before the range is widened, per kind of forecast (or all kinds
     /// together when one kind has too few).
     static let minimumForRange = 40
-    /// Shown points needed at one horizon before it gets its own widening.
+    /// Shown points needed at one horizon before it gets its own widening, and among fast-moving
+    /// forecasts before they get theirs.
     static let minimumForHorizon = 25
     /// How far back shown forecasts count towards the range.
     static let rangeWindow: TimeInterval = 14 * 86_400
+    /// The last few hours are checked again on their own, so a day of bigger misses widens the
+    /// range that day rather than days later, once it outweighs the two weeks before it.
+    static let recentWindow: TimeInterval = 12 * 3600
+    /// Shown points needed in `recentWindow` before they can widen the range.
+    static let minimumRecent = 20
 
     /// How much wider the range needs to be to have held 4 in 5 of the readings that followed
     /// the forecasts shown in the last 14 days (points with nothing logged in between). Each
     /// point is measured against the range before any earlier widening, so the figure settles
-    /// rather than compounding. Points where the range was cut off at the sensor's limits are
-    /// left out. Each checked horizon with enough points of its own gets its own figure.
+    /// rather than compounding. Each checked horizon with enough points of its own gets its own
+    /// figure. On top of that, two corrections, each measured against the range the steady
+    /// figures would have drawn:
+    /// - forecasts that started with glucose moving fast (`ForecastRangeScale.fastTrendPerMinute`)
+    ///   get their own figure, because they miss far more often (about half the time, 8–15 Nov
+    ///   2026) and would otherwise widen every other forecast to cover them;
+    /// - the last 12 hours on their own, so the range keeps up when misses grow.
+    /// Where the range was cut off at the sensor's limit on one side, the other side's width
+    /// stands in for it (they were left out before, and they're the volatile ones).
     func rangeScale(now: Date = Date()) -> ForecastRangeScale {
         let from = now.addingTimeInterval(-Self.rangeWindow)
-        var ratios: [ForecastBasis: [Double]] = [:]
-        var perHorizon: [ForecastBasis: [Int: [Double]]] = [:]
+        let recentFrom = now.addingTimeInterval(-Self.recentWindow)
+        var steady: [RangeMiss] = [], fast: [RangeMiss] = [], recent: [RangeMiss] = []
         for r in records where r.issuedAt >= from && r.issuedAt <= now && r.device != ForecastRecord.relayDevice {
-            for p in r.points where !p.afterLog {
-                let shown = max(1, p.scale ?? r.rangeScale ?? 1)
-                guard let actual = p.actual,
-                      p.lower > GlucoseForecaster.sensorRange.lowerBound - 0.5,
-                      p.upper < GlucoseForecaster.sensorRange.upperBound + 0.5 else { continue }
-                let above = (p.upper - p.mgdl) / shown, below = (p.mgdl - p.lower) / shown
-                guard above > 0.5, below > 0.5 else { continue }
-                let e = actual - p.mgdl
-                let ratio = e >= 0 ? e / above : -e / below
-                ratios[r.basis, default: []].append(ratio)
-                perHorizon[r.basis, default: [:]][p.minutes, default: []].append(ratio)
+            for m in Self.rangeMisses(r) {
+                if m.fast { fast.append(m) } else { steady.append(m) }
+                if r.issuedAt >= recentFrom { recent.append(m) }
             }
         }
-        func needed(_ xs: [Double]) -> Double {
-            min(ForecastRangeScale.maximum, max(1, EngineMath.quantile(xs.sorted(), 0.8)))
+        guard steady.count >= Self.minimumForRange else {
+            return ForecastRangeScale(byBasis: [:], checks: steady.count + fast.count)
         }
-        let pooled = ratios.values.flatMap { $0 }
-        guard pooled.count >= Self.minimumForRange else { return ForecastRangeScale(byBasis: [:], checks: pooled.count) }
-        let overall = needed(pooled)
+        func needed(_ ratios: [Double]) -> Double {
+            min(ForecastRangeScale.maximum, max(1, EngineMath.quantile(ratios.sorted(), 0.8)))
+        }
+        let overall = needed(steady.map(\.ratio))
         var out: [ForecastBasis: Double] = [:]
         var outHorizon: [ForecastBasis: [Int: Double]] = [:]
         for basis in ForecastBasis.allCases {
-            let xs = ratios[basis] ?? []
-            out[basis] = xs.count >= Self.minimumForRange ? needed(xs) : overall
-            for (m, hs) in perHorizon[basis] ?? [:] where hs.count >= Self.minimumForHorizon {
-                outHorizon[basis, default: [:]][m] = needed(hs)
+            let xs = steady.filter { $0.basis == basis }
+            out[basis] = xs.count >= Self.minimumForRange ? needed(xs.map(\.ratio)) : overall
+            for (m, hs) in Dictionary(grouping: xs, by: \.minutes) where hs.count >= Self.minimumForHorizon {
+                outHorizon[basis, default: [:]][m] = needed(hs.map(\.ratio))
             }
         }
-        return ForecastRangeScale(byBasis: out, byHorizon: outHorizon, checks: pooled.count)
+        var scale = ForecastRangeScale(byBasis: out, byHorizon: outHorizon, checks: steady.count + fast.count)
+        if fast.count >= Self.minimumForHorizon {
+            scale.fastTrend = needed(fast.map { $0.ratio / scale.factor(for: $0.basis, minutes: Double($0.minutes)) })
+        }
+        if recent.count >= Self.minimumRecent {
+            scale.recent = needed(recent.map {
+                $0.ratio / (scale.factor(for: $0.basis, minutes: Double($0.minutes)) * ($0.fast ? scale.fastTrend : 1))
+            })
+            scale.recentChecks = recent.count
+        }
+        return scale
+    }
+
+    /// One shown point, as how far off it landed in units of its range before any widening:
+    /// 1 is right on the edge.
+    struct RangeMiss {
+        let basis: ForecastBasis
+        let minutes: Int
+        let ratio: Double
+        let fast: Bool
+    }
+
+    /// The points of `r` that count towards the range: scored, with nothing logged in between.
+    static func rangeMisses(_ r: ForecastRecord) -> [RangeMiss] {
+        let low = GlucoseForecaster.sensorRange.lowerBound - 0.5, high = GlucoseForecaster.sensorRange.upperBound + 0.5
+        let fast = abs(r.trendPerMinute) >= ForecastRangeScale.fastTrendPerMinute
+        return r.points.compactMap { p in
+            guard !p.afterLog, let actual = p.actual else { return nil }
+            let shown = max(1, p.scale ?? r.rangeScale ?? 1)
+            var above = (p.upper - p.mgdl) / shown, below = (p.mgdl - p.lower) / shown
+            let cutHigh = p.upper >= high, cutLow = p.lower <= low
+            if cutHigh && cutLow { return nil }
+            if cutHigh { above = below }
+            if cutLow { below = above }
+            guard above > 0.5, below > 0.5 else { return nil }
+            let e = actual - p.mgdl
+            return RangeMiss(basis: r.basis, minutes: p.minutes, ratio: e >= 0 ? e / above : -e / below, fast: fast)
+        }
     }
 
     private static func anyLog(in sorted: [Date], after start: Date, before end: Date) -> Bool {
@@ -282,7 +325,10 @@ enum ForecastAccuracyText {
     static func rangeLine(_ s: ForecastRangeScale) -> String? {
         guard s.isWidened else { return nil }
         let pct = Int(((s.largest - 1) * 100).rounded())
-        return "The likely range is drawn \(pct)% wider than the replay suggests, because readings landed outside it more than 1 time in 5 across the last \(s.checks) forecast points shown here."
+        var line = "The likely range is drawn \(pct)% wider than the replay suggests, because readings landed outside it more than 1 time in 5 across the last \(s.checks) forecast points shown here."
+        if s.recent > 1.005 { line += " The last 12 hours missed more often, so it's wider for now." }
+        if s.fastTrend > 1.005 { line += " It's wider still while glucose is moving fast." }
+        return line
     }
 
     /// "At 30 minutes ahead: ±0.8 mmol/L this week, ±1.0 in the 3 weeks before. Getting better."
