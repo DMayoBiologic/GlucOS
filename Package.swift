@@ -33,6 +33,7 @@ let package = Package(
                 "Shared/ChartSummary.swift",
                 "Shared/ChartSpan.swift",
                 "Shared/ChartScrub.swift",
+                "Shared/PullRefresh.swift",
                 "Shared/MenuBarGlance.swift",
                 "Shared/WidgetGlance.swift",
                 "Core/RelayProtocol.swift",
