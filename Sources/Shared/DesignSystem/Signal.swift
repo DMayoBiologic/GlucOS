@@ -216,6 +216,41 @@ struct ForecastNote: View {
     }
 }
 
+// MARK: - Forecast caveat
+
+/// One plain line saying why the forecast is hidden, follows the trend alone, stops sooner or has
+/// a wider range than usual ("Trend only for now: a meal or dose was logged in the last hour").
+/// The fuller explanation is the tooltip and the VoiceOver hint. A new reason swaps in place with
+/// the design system's swap; under Reduce Motion it changes without moving. Nothing when nil.
+struct ForecastCaveatLine: View {
+    let caveat: ForecastCaveat?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            if let caveat {
+                Label {
+                    Text(caveat.text)
+                } icon: {
+                    Image(systemName: caveat.kind.systemImage).foregroundStyle(Palette.stale)
+                }
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .help(caveat.detail ?? caveat.text)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(caveat.text)
+                .accessibilityHint(caveat.detail ?? "")
+                .id(caveat.source)
+                .transition(DS.Transition.swap(reduceMotion: reduceMotion))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .dsAnimation(.standard, value: caveat?.source)
+    }
+}
+
 // MARK: - Range field
 
 /// The living colour behind a reading. A soft 3×3 mesh in the range's hue (macOS 15 / iOS 18), with

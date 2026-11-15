@@ -51,6 +51,9 @@ struct OutlookSnapshot: Codable, Hashable {
     var unavailableReason: String?
     /// The user's usual post-wake rise, when the forecast includes it.
     var morning: MorningAdjustmentSnapshot?
+    /// Why the forecast is hidden, trend-only, shorter or wider than usual, in one plain line.
+    /// Nil when it's an ordinary forecast.
+    var caveat: ForecastCaveat?
 
     /// Only usable while the reading it started from is still current.
     func isCurrent(at now: Date = Date()) -> Bool {
@@ -69,6 +72,43 @@ struct OutlookSnapshot: Codable, Hashable {
     /// The insulin numbers are worth showing.
     var showsInsulin: Bool { (insulinOnBoard ?? 0) >= 0.05 }
     var showsCarbs: Bool { (carbsOnBoard ?? 0) >= 1 }
+}
+
+// MARK: - Caveat
+
+/// The one thing that most limits the forecast right now, said in one plain line ("Trend only for
+/// now: a meal or dose was logged in the last hour"). Worked out by the engine
+/// (`ForecastCaveat.pick`) from the forecast's limitations; the Outlook detail on iPhone and Mac
+/// shows it next to the forecast it explains.
+struct ForecastCaveat: Codable, Hashable {
+    /// What happened to the forecast, most serious first.
+    enum Kind: String, Codable, Hashable, CaseIterable {
+        /// No forecast is shown.
+        case hidden
+        /// The forecast follows the trend alone, though insulin or carbs are acting.
+        case trendOnly
+        /// The forecast stops sooner than it usually would.
+        case shortened
+        /// The likely range is drawn wider than usual.
+        case widened
+
+        var systemImage: String {
+            switch self {
+            case .hidden: return "eye.slash"
+            case .trendOnly: return "arrow.forward"
+            case .shortened: return "arrow.right.to.line"
+            case .widened: return "arrow.up.and.down"
+            }
+        }
+    }
+
+    var kind: Kind
+    /// The line itself.
+    var text: String
+    /// The fuller explanation, for a tooltip or VoiceOver hint.
+    var detail: String?
+    /// The limitation (or unavailable reason) it came from, by its stable code.
+    var source: String
 }
 
 // MARK: - Mornings

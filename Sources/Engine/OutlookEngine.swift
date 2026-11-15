@@ -63,6 +63,7 @@ struct Outlook {
         s.lowExpectedAt = f?.firstBelow(lowMgdl)
         s.lowPossibleAt = f?.firstRangeBelow(lowMgdl)
         if case .failure(let e) = forecast { s.unavailableReason = e.reason.message }
+        s.caveat = ForecastCaveat.pick(forecast)
         s.morning = f?.morning.map {
             MorningAdjustmentSnapshot(wokeAt: $0.wokeAt, addedMgdl: $0.addedMgdl, confidence: $0.confidence ?? .low)
         }
