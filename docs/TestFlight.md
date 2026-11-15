@@ -2,10 +2,10 @@
 
 Every merge to main ships the iPhone app to two TestFlight groups:
 
-- **Team** (internal, you): every build, straight after Apple processes it, no review. CI creates
-  this group and adds the App Store Connect users to it (step 5 below); TestFlight emails each
-  one an invite to accept once. Turn on **Automatic Updates** for GlucOS in the TestFlight app so
-  the phone installs each build by itself.
+- **Internal** (you): every build, straight after Apple processes it, no review. The app's
+  existing internal group already has *access to all builds*; CI only creates one (**Team**) if
+  none does, and adds App Store Connect users who aren't in it yet. Turn on **Automatic Updates**
+  for GlucOS in the TestFlight app so the phone installs each build by itself.
 - **Public** (anyone with the link): the same build, after Apple's Beta App Review.
 
 Send people the **public link** (it looks like `https://testflight.apple.com/join/XXXXXXXX`). They
@@ -25,7 +25,7 @@ the upload, and every hour from `testflight-link.yml`. It is idempotent:
 4. Waits for the build to process, adds this release's PR titles as **What to Test**, adds it to
    **Public** and submits it for Beta App Review.
 5. Makes sure an internal group gets every build (creates **Team** with *access to all builds*
-   if none does) and adds every App Store Connect user to it, then prints a table of the last
+   only if no internal group does) and adds every App Store Connect user to it, then prints a table of the last
    six builds: processing, internal and external (Beta App Review) state. Look there first when
    a phone seems stuck on an old version.
 6. Turns on the public link (Apple allows that only once a build has passed review, so the
