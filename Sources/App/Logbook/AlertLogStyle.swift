@@ -39,6 +39,8 @@ extension AlertLogRow {
 /// One alert row, for lists (the iPhone Logbook).
 struct AlertLogRowView: View {
     let row: AlertLogRow
+    /// The Logbook search's words, picked out in the title.
+    var highlight: [String] = []
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -49,7 +51,8 @@ struct AlertLogRowView: View {
                 .frame(width: 20)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {
-                Text(row.title).dsFont(.caption).foregroundStyle(.secondary)
+                Text(SearchHighlight.attributed(row.title, terms: highlight, tint: row.tint))
+                    .dsFont(.caption).foregroundStyle(.secondary)
                 Text(row.detail).dsFont(.caption).foregroundStyle(.tertiary)
                 if typeSize.dsLargeText { time }
             }
@@ -64,5 +67,21 @@ struct AlertLogRowView: View {
             .dsFont(.caption)
             .monospacedDigit()
             .foregroundStyle(.tertiary)
+    }
+}
+
+/// A line with the Logbook search's words picked out: bold, on a faint wash of the row's colour, so
+/// "pizza" stands out in "45 g · Pizza, ham and pineapple". Plain when nothing is being searched.
+enum SearchHighlight {
+    static func attributed(_ text: String, terms: [String], tint: Color) -> AttributedString {
+        var out = AttributedString(text)
+        guard !terms.isEmpty else { return out }
+        for r in LogbookSearch.highlights(in: text, terms: terms) {
+            guard let range = Range(r, in: out) else { continue }
+            out[range].inlinePresentationIntent = .stronglyEmphasized
+            // Spelled out: on the Mac, AppKit has a background colour attribute of its own.
+            out[range][AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] = tint.opacity(0.2)
+        }
+        return out
     }
 }

@@ -247,6 +247,8 @@ struct PhoneLogRow: View {
     let site: InjectionSite?
     /// Off where the row can't be opened (someone else's logbook).
     var showsChevron = true
+    /// The Logbook search's words, picked out where they appear in the row.
+    var highlight: [String] = []
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -255,8 +257,11 @@ struct PhoneLogRow: View {
                 .foregroundStyle(tint)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 0) {
-                Text(title).dsFont(.callout)
-                if let detail { Text(detail).dsFont(.caption).foregroundStyle(.secondary) }
+                Text(SearchHighlight.attributed(title, terms: highlight, tint: tint)).dsFont(.callout)
+                if let detail {
+                    Text(SearchHighlight.attributed(detail, terms: highlight, tint: tint))
+                        .dsFont(.caption).foregroundStyle(.secondary)
+                }
                 // The time goes under the entry at the accessibility sizes, so the title keeps the width.
                 if typeSize.dsLargeText { time }
             }

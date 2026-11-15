@@ -1,0 +1,324 @@
+import Foundation
+
+// Searching the Logbook (docs/LogbookSearch.md): "pizza last week", "4 u friday", "notes".
+// Everything here works on what's already on the device (the synced logbook and the alert
+// records), so search keeps working with no connection.
+
+/// The Logbook's quick filter chips. One at a time, on top of whatever the search says.
+enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
+    case meals, insulin, lows, notes, sites, moments, alerts
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .meals: return "Meals"
+        case .insulin: return "Insulin"
+        case .lows: return "Lows"
+        case .notes: return "Notes"
+        case .sites: return "Sites"
+        case .moments: return "Moments"
+        case .alerts: return "Alerts"
+        }
+    }
+
+    /// Whether a logged entry belongs under this chip. `lowIDs` is `LogbookSearch.lowTreatmentIDs`.
+    func matches(_ entry: LogEntry, lowIDs: Set<UUID>) -> Bool {
+        switch self {
+        case .meals: if case .meal = entry { return true } else { return false }
+        case .insulin: if case .dose = entry { return true } else { return false }
+        case .lows: return lowIDs.contains(entry.id)
+        case .notes: return !entry.searchNote.isEmpty
+        case .sites: if case .siteChange = entry { return true } else { return false }
+        case .moments: if case .context = entry { return true } else { return false }
+        case .alerts: return false
+        }
+    }
+
+    /// Whether an alert row belongs under this chip: every alert under Alerts, low ones under Lows.
+    func matches(_ alert: AlertLogRow) -> Bool {
+        switch self {
+        case .alerts: return true
+        case .lows: return alert.isLow
+        default: return false
+        }
+    }
+
+    /// The chips worth showing, in order: only those that would show something.
+    static func available(entries: [LogEntry], alerts: [AlertLogRow]) -> [LogbookFilter] {
+        let lowIDs = LogbookSearch.lowTreatmentIDs(entries)
+        return allCases.filter { f in
+            entries.contains { f.matches($0, lowIDs: lowIDs) } || alerts.contains { f.matches($0) }
+        }
+    }
+}
+
+/// What was typed into the Logbook's search field, read into words to find and, when it says one,
+/// a stretch of time ("yesterday", "last week", "friday", "last 3 days").
+struct LogbookQuery: Equatable {
+    /// A stretch of time the search named.
+    struct Period: Equatable {
+        /// "Yesterday", "Since last week", "Friday": shown on the chip that says what was understood.
+        let label: String
+        /// How it reads in a sentence: "yesterday", "since last week", "on Friday".
+        let phrase: String
+        let interval: DateInterval
+    }
+
+    /// Lowercased words, every one of which must be found in an entry.
+    let terms: [String]
+    let period: Period?
+    /// The search text with the time words taken out, for "Search All Dates".
+    let withoutPeriod: String
+
+    var isEmpty: Bool { terms.isEmpty && period == nil }
+
+    /// Small words that don't help find anything ("that pizza I had last week").
+    static let fillers: Set<String> = [
+        "a", "an", "the", "that", "this", "those", "i", "my", "me", "had", "ate", "took", "some",
+        "on", "in", "at", "from", "of", "was", "when", "around", "about", "last",
+    ]
+
+    private static let weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+
+    static func parse(_ text: String, now: Date, calendar: Calendar = .autoupdatingCurrent) -> LogbookQuery {
+        let words = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let keys = words.map(normalised)
+        var period: Period?
+        var periodSpan: Range<Int>?
+        var i = 0
+        while i < keys.count, period == nil {
+            if let found = readPeriod(keys, at: i, now: now, calendar: calendar) {
+                period = found.0
+                periodSpan = i..<(i + found.1)
+            } else {
+                i += 1
+            }
+        }
+        var terms: [String] = []
+        var kept: [String] = []
+        for (j, key) in keys.enumerated() where !(periodSpan?.contains(j) ?? false) {
+            kept.append(words[j])
+            if !key.isEmpty, !fillers.contains(key) { terms.append(key) }
+        }
+        // "on friday", "from last week": the little word before the time goes with it.
+        if let span = periodSpan, span.lowerBound > 0, ["on", "from", "since", "in"].contains(keys[span.lowerBound - 1]) {
+            kept.remove(at: span.lowerBound - 1)
+        }
+        return LogbookQuery(terms: terms, period: period, withoutPeriod: kept.joined(separator: " "))
+    }
+
+    /// Lowercased, with the punctuation around a word dropped ("pizza," → "pizza"; "4.5" stays).
+    static func normalised(_ word: String) -> String {
+        word.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.symbols))
+    }
+
+    private static func readPeriod(_ k: [String], at i: Int, now: Date, calendar cal: Calendar) -> (Period, Int)? {
+        let today = cal.startOfDay(for: now)
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: today)!
+        func days(_ n: Int, from d: Date) -> Date { cal.date(byAdding: .day, value: n, to: d)! }
+        func next(_ n: Int) -> String? { i + n < k.count ? k[i + n] : nil }
+        func span(_ label: String, _ start: Date, _ end: Date, _ length: Int, phrase: String? = nil) -> (Period, Int) {
+            (Period(label: label, phrase: phrase ?? label.lowercased(),
+                    interval: DateInterval(start: start, end: max(start, end))), length)
+        }
+
+        switch k[i] {
+        case "today":
+            return span("Today", today, tomorrow, 1)
+        case "yesterday":
+            return span("Yesterday", days(-1, from: today), today, 1)
+        case "tonight":
+            return span("Tonight", cal.date(bySettingHour: 17, minute: 0, second: 0, of: today)!, tomorrow, 1)
+        case "this" where next(1) == "morning":
+            return span("This morning", today, cal.date(bySettingHour: 12, minute: 0, second: 0, of: today)!, 2)
+        case "this" where next(1) == "week":
+            let start = cal.dateInterval(of: .weekOfYear, for: now)?.start ?? days(-6, from: today)
+            return span("This week", start, tomorrow, 2)
+        case "this" where next(1) == "month":
+            let start = cal.dateInterval(of: .month, for: now)?.start ?? days(-30, from: today)
+            return span("This month", start, tomorrow, 2)
+        case "last" where next(1) == "night":
+            let yesterday = days(-1, from: today)
+            return span("Last night", cal.date(bySettingHour: 17, minute: 0, second: 0, of: yesterday)!,
+                        cal.date(bySettingHour: 7, minute: 0, second: 0, of: today)!, 2)
+        case "last" where next(1) == "week":
+            // Up to now, not just last Monday to Sunday: "that pizza last week" may well have been
+            // four days ago on a Tuesday. Wider is better than missing it.
+            let thisWeek = cal.dateInterval(of: .weekOfYear, for: now)?.start ?? days(-6, from: today)
+            return span("Since last week", days(-7, from: thisWeek), tomorrow, 2)
+        case "last" where next(1) == "month":
+            let thisMonth = cal.dateInterval(of: .month, for: now)?.start ?? days(-30, from: today)
+            let start = cal.date(byAdding: .month, value: -1, to: thisMonth) ?? days(-30, from: thisMonth)
+            return span("Since last month", start, tomorrow, 2)
+        case "last" where next(1).flatMap({ Self.weekday($0) }) != nil:
+            return weekdaySpan(Self.weekday(next(1)!)!, includingToday: false, length: 2, today: today, cal: cal)
+        case "last", "past":
+            // "last 3 days", "past 2 weeks".
+            if let n = next(1).flatMap(Int.init), (1...365).contains(n), let unit = next(2) {
+                if unit.hasPrefix("day") {
+                    let label = n == 1 ? "Today" : "Last \(n) days"
+                    return span(label, days(-(n - 1), from: today), tomorrow, 3, phrase: n == 1 ? "today" : "in the last \(n) days")
+                }
+                if unit.hasPrefix("week") {
+                    let label = n == 1 ? "Last 7 days" : "Last \(n) weeks"
+                    return span(label, days(-(7 * n - 1), from: today), tomorrow, 3, phrase: "in the \(label.lowercased())")
+                }
+            }
+            return nil
+        default:
+            // "3 days ago".
+            if let n = Int(k[i]), (0...365).contains(n), next(1)?.hasPrefix("day") == true, next(2) == "ago" {
+                let day = days(-n, from: today)
+                return span(n == 1 ? "1 day ago" : "\(n) days ago", day, days(1, from: day), 3)
+            }
+            if let w = weekday(k[i]) {
+                return weekdaySpan(w, includingToday: true, length: 1, today: today, cal: cal)
+            }
+            return nil
+        }
+    }
+
+    /// 1 (Sunday) to 7 (Saturday) for a weekday's name, its plural or its short form ("fri", "weds").
+    /// "sat" and "sun" are left out: too easily part of a note.
+    static func weekday(_ word: String) -> Int? {
+        let w = word.count > 4 && word.hasSuffix("s") ? String(word.dropLast()) : word
+        if let i = weekdays.firstIndex(of: w) { return i + 1 }
+        let short = ["mon": 2, "tue": 3, "tues": 3, "wed": 4, "weds": 4, "thu": 5, "thur": 5, "thurs": 5, "fri": 6]
+        return short[word]
+    }
+
+    /// The latest such weekday: today when it's today (unless "last"), else the one before.
+    private static func weekdaySpan(_ weekday: Int, includingToday: Bool, length: Int, today: Date,
+                                    cal: Calendar) -> (Period, Int) {
+        let todayWeekday = cal.component(.weekday, from: today)
+        var back = (todayWeekday - weekday + 7) % 7
+        if back == 0, !includingToday { back = 7 }
+        let day = cal.date(byAdding: .day, value: -back, to: today)!
+        let name = weekdays[weekday - 1].prefix(1).uppercased() + weekdays[weekday - 1].dropFirst()
+        let label = back == 0 ? "Today" : back == 1 ? "Yesterday" : (length == 2 ? "Last \(name)" : name)
+        let phrase = back <= 1 ? label.lowercased() : "on \(name)"
+        return (Period(label: label, phrase: phrase, interval: DateInterval(start: day, end: cal.date(byAdding: .day, value: 1, to: day)!)),
+                length)
+    }
+}
+
+enum LogbookSearch {
+    /// How close a meal or dose has to be to a "Hypo treatment" tag to count as treating the low.
+    /// The log sheet saves the food and the tag with one time, so this only allows for edits.
+    static let lowTreatmentWindow: TimeInterval = 5 * 60
+
+    /// Entries that were about a low: the "Hypo treatment" tags, and food or insulin logged with one.
+    static func lowTreatmentIDs(_ entries: [LogEntry]) -> Set<UUID> {
+        let tags = entries.compactMap { e -> Date? in
+            if case .context(let c) = e, c.tags.contains(.hypoTreatment) { return c.timestamp }
+            return nil
+        }
+        guard !tags.isEmpty else { return [] }
+        return Set(entries.filter { e in
+            tags.contains { abs($0.timeIntervalSince(e.timestamp)) <= lowTreatmentWindow }
+        }.map(\.id))
+    }
+
+    /// Whether an entry is found by the search: inside its time, and every word somewhere in it.
+    static func matches(_ entry: LogEntry, _ query: LogbookQuery, lowIDs: Set<UUID> = []) -> Bool {
+        if let p = query.period, !p.interval.contains(entry.timestamp) { return false }
+        let text = entry.searchText + (lowIDs.contains(entry.id) ? " low hypo" : "")
+        return query.terms.allSatisfy { contains(text, $0) }
+    }
+
+    static func matches(_ alert: AlertLogRow, _ query: LogbookQuery) -> Bool {
+        if let p = query.period, !p.interval.contains(alert.timestamp) { return false }
+        return query.terms.allSatisfy { contains(alert.searchText, $0) }
+    }
+
+    /// Case and accent blind, and forgiving of a plural ("pizzas" finds "Pizza").
+    static func contains(_ text: String, _ term: String) -> Bool {
+        stems(term).contains { text.range(of: $0, options: options) != nil }
+    }
+
+    /// Where the search's words sit in a line of the row, for highlighting. Sorted, never overlapping.
+    static func highlights(in text: String, terms: [String]) -> [Range<String.Index>] {
+        var found: [Range<String.Index>] = []
+        for term in terms {
+            // The longest spelling that's there, so "pizzas" lights "pizza" when that's all there is.
+            for stem in stems(term) {
+                var from = text.startIndex
+                var hit = false
+                while from < text.endIndex, let r = text.range(of: stem, options: options, range: from..<text.endIndex) {
+                    found.append(r)
+                    hit = true
+                    from = r.upperBound
+                }
+                if hit { break }
+            }
+        }
+        found.sort { $0.lowerBound < $1.lowerBound }
+        var merged: [Range<String.Index>] = []
+        for r in found {
+            if let last = merged.last, r.lowerBound <= last.upperBound {
+                merged[merged.count - 1] = last.lowerBound..<max(last.upperBound, r.upperBound)
+            } else {
+                merged.append(r)
+            }
+        }
+        return merged
+    }
+
+    /// The empty list's line: "Nothing in Meals matches “pizza” since last week."
+    static func noMatchMessage(_ query: LogbookQuery, filter: LogbookFilter?) -> String {
+        var s = "Nothing"
+        if let filter { s += " in \(filter.title)" }
+        if !query.terms.isEmpty { s += " matches “\(query.terms.joined(separator: " "))”" }
+        if let p = query.period {
+            s += " " + p.phrase
+        } else if query.terms.isEmpty, filter != nil {
+            s += " logged yet"
+        }
+        return s + "."
+    }
+
+    private static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+
+    /// The word, then its singular when it looks like a plural, longest first: "pizzas" → "pizza",
+    /// "sandwiches" → "sandwiche", "sandwich".
+    private static func stems(_ term: String) -> [String] {
+        var out = [term]
+        guard term.count > 3, term.hasSuffix("s"), !term.hasSuffix("ss") else { return out }
+        out.append(String(term.dropLast()))
+        let root = term.dropLast(2)
+        if term.hasSuffix("es"), ["s", "x", "z", "ch", "sh"].contains(where: { root.hasSuffix($0) }) {
+            out.append(String(root))
+        }
+        return out
+    }
+}
+
+extension LogEntry {
+    /// Everything a search looks through: the row's title and note, the foods in a meal, the
+    /// insulin's type, site and purpose, a moment's tags, and the kind of entry it is.
+    var searchText: String {
+        var parts = [shortTitle, searchNote]
+        switch self {
+        case .dose(let d):
+            parts += ["insulin", d.kind.title, d.name, d.site?.title ?? "", d.purpose?.label ?? "", d.viaPump ? "pump" : ""]
+        case .meal(let m):
+            parts += ["meal food", m.food] + (m.items ?? []).map(\.name)
+        case .siteChange(let s):
+            parts += ["site", s.site.title]
+        case .context(let c):
+            parts += c.sortedTags.map(\.title)
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// What the user wrote in the note, if anything.
+    var searchNote: String {
+        switch self {
+        case .dose(let d): return d.note
+        case .meal(let m): return m.note
+        case .siteChange(let s): return s.note
+        case .context(let c): return c.note
+        }
+    }
+}

@@ -8,14 +8,16 @@ enum PhoneRoute: Hashable {
 }
 
 /// The whole logbook, not just the last day: grouped by day with each day's insulin and carbs in
-/// its header, searchable, filterable by kind, with swipe to delete or log again. Opened from the
-/// home screen's Logbook card ("See All", or "and N more").
+/// its header, searchable ("pizza last week", docs/LogbookSearch.md) with the words it found picked
+/// out, quick filter chips (Meals, Insulin, Lows, Notes…), and swipe to delete or log again. Opened
+/// from the home screen's Logbook card ("See All", or "and N more"). Search only reads what's on the
+/// phone, so it works offline.
 struct PhoneLogbookView: View {
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var router: PhoneLogRouter
     @EnvironmentObject var sync: LogbookSyncService
     @State private var query = ""
-    @State private var kind: PhoneLogbookFilter?
+    @State private var kind: LogbookFilter?
     /// Low and high alerts show as quiet rows between the entries unless turned off here.
     @AppStorage(AlertLogRow.showsKey) private var showsAlerts = true
     /// The first rows have played their entrance; rows built after this (scrolled to, filtered in)
@@ -29,14 +31,19 @@ struct PhoneLogbookView: View {
     var body: some View {
         let all = logbook.entries
         let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
-        let kinds: [PhoneLogbookFilter] = PhoneLogbookFilter.available(entries: all, hasAlerts: !alerts.isEmpty)
-        let shown = filtered(PhoneLogbookItem.merge(all, alerts))
+        let kinds: [LogbookFilter] = LogbookFilter.available(entries: all, alerts: alerts)
+        let search: LogbookQuery = LogbookQuery.parse(query, now: Date())
+        let lowIDs: Set<UUID> = LogbookSearch.lowTreatmentIDs(all)
+        let shown: [PhoneLogbookItem] = PhoneLogbookItem.merge(all, alerts)
+            .filter { $0.matches(kind, search, lowIDs: lowIDs) }
         let shownIDs: [UUID] = shown.map(\.id)
         let allIDs: [UUID] = all.map(\.id)
-        list(all: all, kinds: kinds, shown: shown)
+        list(all: all, kinds: kinds, shown: shown, search: search)
         // Plain, so day headers stick to the top as their day scrolls.
         .listStyle(.plain)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Food, insulin, notes")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: "Food, insulin, notes, or a day")
+        .autocorrectionDisabled()
         .navigationTitle("Logbook")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -78,22 +85,29 @@ struct PhoneLogbookView: View {
         }
     }
 
-    private func list(all: [LogEntry], kinds: [PhoneLogbookFilter], shown: [PhoneLogbookItem]) -> some View {
+    private func list(all: [LogEntry], kinds: [LogbookFilter], shown: [PhoneLogbookItem],
+                      search: LogbookQuery) -> some View {
         List {
-            if kinds.count > 1 {
+            if kinds.count > 1 || kind != nil {
                 Section {
                     filterBar(kinds)
                         .listRowInsets(EdgeInsets(top: DS.Space.xs, leading: 0, bottom: DS.Space.xs, trailing: 0))
                         .listRowBackground(Color.clear)
                 }
             }
+            if !search.isEmpty && !all.isEmpty {
+                Section {
+                    searchSummary(search, found: shown.count)
+                        .listRowBackground(Color.clear)
+                }
+            }
             if shown.isEmpty {
                 Section {
-                    emptyState(hasEntries: !all.isEmpty)
+                    emptyState(hasEntries: !all.isEmpty, search: search)
                         .listRowBackground(Color.clear)
                 }
             } else {
-                daySections(all: all, shown: shown, now: Date())
+                daySections(all: all, shown: shown, now: Date(), terms: search.terms)
             }
             if sync.status != .off {
                 Section {
@@ -107,7 +121,7 @@ struct PhoneLogbookView: View {
     }
 
     @ViewBuilder
-    private func daySections(all: [LogEntry], shown: [PhoneLogbookItem], now: Date) -> some View {
+    private func daySections(all: [LogEntry], shown: [PhoneLogbookItem], now: Date, terms: [String]) -> some View {
         // Headers total the whole day, not just what the filter or search left showing.
         let totals: [String: String] = Dictionary(PhoneLogbookDay.group(all.map(PhoneLogbookItem.entry), now: now)
                                                     .map { ($0.id, $0.totals) },
@@ -118,7 +132,7 @@ struct PhoneLogbookView: View {
             Section {
                 ForEach(Array(day.items.enumerated()), id: \.element.id) { j, item in
                     // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
-                    itemRow(item, order: starts[i] + j)
+                    itemRow(item, order: starts[i] + j, terms: terms)
                 }
             } header: {
                 // Day headers stay pinned, on a blur, while their day scrolls under them.
@@ -133,25 +147,25 @@ struct PhoneLogbookView: View {
     }
 
     @ViewBuilder
-    private func itemRow(_ item: PhoneLogbookItem, order: Int) -> some View {
+    private func itemRow(_ item: PhoneLogbookItem, order: Int, terms: [String]) -> some View {
         switch item {
-        case .entry(let entry): listRow(entry, order: order)
-        case .alert(let alert): alertRow(alert, order: order)
+        case .entry(let entry): listRow(entry, order: order, terms: terms)
+        case .alert(let alert): alertRow(alert, order: order, terms: terms)
         }
     }
 
     /// A low or high alert: just a record of what the phone or Mac said, so nothing to edit,
     /// delete or log again.
-    private func alertRow(_ alert: AlertLogRow, order: Int) -> some View {
-        AlertLogRowView(row: alert)
+    private func alertRow(_ alert: AlertLogRow, order: Int, terms: [String]) -> some View {
+        AlertLogRowView(row: alert, highlight: terms)
             .dsEntrance(min(order, 8), enabled: !assembled && order < 12)
             .listRowBackground(Color(uiColor: .systemBackground))
     }
 
-    private func listRow(_ entry: LogEntry, order: Int) -> some View {
+    private func listRow(_ entry: LogEntry, order: Int, terms: [String]) -> some View {
         let tint: Color = entry.part.logbookTint
         let lit: Double = fresh.contains(entry.id) ? 0.14 : 0
-        return row(entry)
+        return row(entry, terms: terms)
             .dsEntrance(min(order, 8), enabled: !assembled && order < 12)
             .listRowBackground(Color(uiColor: .systemBackground).overlay(tint.opacity(lit)))
     }
@@ -166,16 +180,15 @@ struct PhoneLogbookView: View {
         }
     }
 
-    private func filtered(_ items: [PhoneLogbookItem]) -> [PhoneLogbookItem] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return items.filter { item in
-            (kind == nil || item.filter == kind) && (q.isEmpty || item.searchText.localizedStandardContains(q))
-        }
+    private func clearFilters() {
+        query = ""
+        kind = nil
+        Haptics.tap()
     }
 
     // MARK: Pieces
 
-    private func filterBar(_ kinds: [PhoneLogbookFilter]) -> some View {
+    private func filterBar(_ kinds: [LogbookFilter]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.sm) {
                 chip("All", systemImage: nil, tint: Palette.brand, selected: kind == nil) { kind = nil }
@@ -225,9 +238,9 @@ struct PhoneLogbookView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func row(_ entry: LogEntry) -> some View {
+    private func row(_ entry: LogEntry, terms: [String]) -> some View {
         Button { router.edit(entry) } label: {
-            PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) })
+            PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) }, highlight: terms)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -250,12 +263,56 @@ struct PhoneLogbookView: View {
         }
     }
 
+    /// What the search understood, and how much it found: "Since last week · 3 found", with a way to
+    /// drop the time part when it read a day the user didn't mean.
+    private func searchSummary(_ search: LogbookQuery, found: Int) -> some View {
+        HStack(spacing: DS.Space.sm) {
+            if let period = search.period {
+                Button {
+                    query = search.withoutPeriod
+                    Haptics.tap()
+                } label: {
+                    HStack(spacing: DS.Space.xs) {
+                        Image(systemName: "calendar").imageScale(.small)
+                        Text(period.label)
+                        Image(systemName: "xmark").imageScale(.small).foregroundStyle(.secondary)
+                    }
+                    .dsFont(.label)
+                    .padding(.horizontal, DS.Space.md)
+                    .padding(.vertical, DS.Space.xs + 2)
+                    .foregroundStyle(Palette.brand)
+                    .background(Palette.brand.opacity(0.14), in: Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(PressScaleStyle())
+                .accessibilityLabel("\(period.label). Search all dates")
+            }
+            Spacer(minLength: DS.Space.sm)
+            // Left to the empty state when nothing is found.
+            if found > 0 {
+                Text(found == 1 ? "1 found" : "\(found) found")
+                    .dsFont(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+            }
+        }
+        .animation(DSMotion.quick.animation, value: found)
+    }
+
     @ViewBuilder
-    private func emptyState(hasEntries: Bool) -> some View {
+    private func emptyState(hasEntries: Bool, search: LogbookQuery) -> some View {
         if hasEntries {
-            EmptyStateView(systemImage: "magnifyingglass", title: "No matches",
-                           message: query.isEmpty ? "Nothing of this kind logged yet." : "Nothing logged matches “\(query)”.",
-                           actionTitle: "Show Everything", action: { query = ""; kind = nil })
+            VStack(spacing: DS.Space.md) {
+                EmptyStateView(systemImage: "magnifyingglass", title: "No matches",
+                               message: LogbookSearch.noMatchMessage(search, filter: kind),
+                               actionTitle: "Clear Filters", action: clearFilters)
+                // When the day was the problem, the same words across every date may still find it.
+                if search.period != nil && (!search.terms.isEmpty || kind != nil) {
+                    Button("Search All Dates") { query = search.withoutPeriod; Haptics.tap() }
+                        .dsFont(.label)
+                }
+            }
         } else {
             EmptyStateView(systemImage: "list.bullet.rectangle", title: "Nothing logged yet",
                            message: "Log insulin, food and moments like waking up. Entries from GlucOS on your Mac show up here too.",
@@ -264,41 +321,28 @@ struct PhoneLogbookView: View {
     }
 }
 
-/// What the Logbook's chips filter by: a part of the log sheet, or the alert rows.
-enum PhoneLogbookFilter: Hashable, Identifiable {
-    case part(LogPart)
-    case alerts
-
-    var id: String {
-        switch self {
-        case .part(let p): return "\(p)"
-        case .alerts: return "alerts"
-        }
-    }
-
-    /// The chips worth showing: kinds that have entries, then Alerts when there are any.
-    static func available(entries: [LogEntry], hasAlerts: Bool) -> [PhoneLogbookFilter] {
-        LogPart.allCases.filter { k in entries.contains { $0.part == k } }.map(PhoneLogbookFilter.part)
-            + (hasAlerts ? [.alerts] : [])
-    }
-
-    var title: String {
-        switch self {
-        case .part(let p): return p.logbookTitle
-        case .alerts: return "Alerts"
-        }
-    }
-
+/// How the Logbook's quick filter chips look.
+extension LogbookFilter {
     var symbol: String {
         switch self {
-        case .part(let p): return p.logbookSymbol
+        case .meals: return LogPart.food.logbookSymbol
+        case .insulin: return LogPart.insulin.logbookSymbol
+        case .lows: return "arrow.down.circle"
+        case .notes: return "text.alignleft"
+        case .sites: return LogPart.site.logbookSymbol
+        case .moments: return LogPart.event.logbookSymbol
         case .alerts: return "bell"
         }
     }
 
     var tint: Color {
         switch self {
-        case .part(let p): return p.logbookTint
+        case .meals: return Palette.food
+        case .insulin: return Palette.insulin
+        case .lows: return Tone.critical.color
+        case .notes: return Palette.brand
+        case .sites: return Palette.site
+        case .moments: return Palette.context
         case .alerts: return .secondary
         }
     }
@@ -323,17 +367,13 @@ enum PhoneLogbookItem: Identifiable {
         }
     }
 
-    var filter: PhoneLogbookFilter {
+    /// Whether the row shows under the chosen chip (if any) and the search.
+    func matches(_ filter: LogbookFilter?, _ query: LogbookQuery, lowIDs: Set<UUID>) -> Bool {
         switch self {
-        case .entry(let e): return .part(e.part)
-        case .alert: return .alerts
-        }
-    }
-
-    var searchText: String {
-        switch self {
-        case .entry(let e): return e.phoneSearchText
-        case .alert(let a): return a.searchText
+        case .entry(let e):
+            return (filter?.matches(e, lowIDs: lowIDs) ?? true) && LogbookSearch.matches(e, query, lowIDs: lowIDs)
+        case .alert(let a):
+            return (filter?.matches(a) ?? true) && LogbookSearch.matches(a, query)
         }
     }
 
@@ -411,11 +451,6 @@ extension LogEntry {
         case .siteChange: return .site
         case .context: return .event
         }
-    }
-
-    /// What a search matches: the row's title and the note.
-    var phoneSearchText: String {
-        "\(phoneTitle) \(phoneNote)"
     }
 
     /// The row's main line: "4 u NovoRapid", "45 g · Toast", "New site: Abdomen", "Woke up".
