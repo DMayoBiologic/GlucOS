@@ -186,6 +186,23 @@ final class GlucoseStore: ObservableObject {
         await checkNotificationPermission()
     }
 
+    /// A pull to refresh. Joins a fetch already in flight instead of skipping it (`refresh()` returns
+    /// at once while one runs), and doesn't fetch again if one has only just finished, so pulling
+    /// never adds polling (power audit #94). Returns whether the fetch failed.
+    @discardableResult
+    func refreshForPull() async -> Bool {
+        while isRefreshing { try? await Task.sleep(nanoseconds: 150_000_000) }
+        if PullRefresh.needsFetch(fetchedAt: snapshot.fetchedAt, lastError: snapshot.lastError) {
+            await refresh()
+        }
+        return snapshot.lastError != nil
+    }
+
+    /// What's on screen now, to tell whether a refresh brought anything new.
+    var pullMarker: PullRefresh.Marker {
+        PullRefresh.Marker(latest: snapshot.current?.timestamp, archived: archive.count)
+    }
+
     /// Saves the account, signs in from scratch and fetches once. Returns the problem, or nil
     /// once readings are coming in. Used by onboarding and Settings → Account.
     func signIn(email: String, password: String, region: String) async -> ConnectionProblem? {

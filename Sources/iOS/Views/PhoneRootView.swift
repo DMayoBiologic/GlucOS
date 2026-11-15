@@ -175,7 +175,19 @@ struct PhoneHomeView: View {
             } action: { _, hidden in
                 DS.animate(.standard, reduceMotion: reduceMotion) { stageHidden = hidden }
             }
-            .refreshable { await store.refresh() }
+            // The same fetches as opening the app (relay readings, then LibreLinkUp), never extra
+            // polling: a pull joins a fetch in flight and skips one that has just finished.
+            .phonePullToRefresh(steps: services.relaySettings.isConfigured ? 2 : 1,
+                                tint: store.snapshot.displayTone().color) { stepDone in
+                let before = store.pullMarker
+                if services.relaySettings.isConfigured {
+                    await services.fillHistoryFromRelay()
+                    stepDone()
+                }
+                let failed = await store.refreshForPull()
+                stepDone()
+                return PullRefresh.outcome(before: before, after: store.pullMarker, failed: failed)
+            }
             // After a logbook delete: Undo, just above the log bar.
             .overlay(alignment: .bottom) { PhoneUndoToast() }
             // The one place to start logging. A bar under the content rather than a button over
