@@ -33,6 +33,10 @@ struct ForecastCalibration: Hashable, Codable {
     /// (`GlucoseForecaster.freshLogWindow`), checked apart from the rest: until these beat "no
     /// change", forecasts that soon after a log follow the trend alone.
     var freshModel: [HorizonStats]? = nil
+    /// Insulin-and-carb forecasts with insulin acting but no logged carbs being absorbed
+    /// (`ForecastLimitation.insulinOnly`), checked apart from the rest: `byBasis` then holds the
+    /// forecasts after a meal alone, so one kind's misses don't cost the other its horizon.
+    var insulinOnly: [HorizonStats]? = nil
 
     static let horizons = [15, 30, 45, 60, 90, 120, 150, 180]
     static let minimumSamples = 30
@@ -53,6 +57,9 @@ struct ForecastCalibration: Hashable, Codable {
 
     /// The same for insulin-and-carb forecasts in the first hour after a log.
     var freshModelAllowedHorizon: TimeInterval? { freshModel.flatMap(Self.allowedHorizon) }
+
+    /// The same for insulin-only forecasts.
+    var insulinOnlyAllowedHorizon: TimeInterval? { insulinOnly.flatMap(Self.allowedHorizon) }
 
     static func allowedHorizon(_ unsorted: [HorizonStats]) -> TimeInterval? {
         let stats = unsorted.sorted(by: { $0.minutes < $1.minutes })
@@ -120,6 +127,8 @@ enum ForecastBacktest {
         /// An insulin-and-carb forecast from the first hour after a log, which would have been
         /// shown as trend-only (`ForecastCalibration.freshModel`).
         var fresh = false
+        /// An insulin-only forecast (`ForecastCalibration.insulinOnly`).
+        var insulinOnly = false
         /// The trend came from live readings (one every `denseSpacing` or more often).
         var dense = true
     }
@@ -191,7 +200,7 @@ enum ForecastBacktest {
                     else { continue }
                     out.append(Check(origin: r.timestamp, basis: f.basis, minutes: h,
                                      residual: actual - predicted, naive: actual - f.startMgdl, fresh: fresh,
-                                     dense: dense))
+                                     insulinOnly: f.insulinOnly, dense: dense))
                 }
             }
         }
@@ -203,12 +212,14 @@ enum ForecastBacktest {
 
     static func calibration(from checks: [Check], origins: Int, now: Date) -> ForecastCalibration {
         var byBasis: [ForecastBasis: [HorizonStats]] = [:]
-        for (basis, ofBasis) in Dictionary(grouping: checks.filter { !$0.fresh }, by: \.basis) {
+        for (basis, ofBasis) in Dictionary(grouping: checks.filter { !$0.fresh && !$0.insulinOnly }, by: \.basis) {
             byBasis[basis] = stats(ofBasis)
         }
         let fresh = stats(checks.filter(\.fresh))
+        let insulinOnly = stats(checks.filter { $0.insulinOnly && !$0.fresh })
         return ForecastCalibration(byBasis: byBasis, origins: origins, computedAt: now,
-                                   freshModel: fresh.isEmpty ? nil : fresh)
+                                   freshModel: fresh.isEmpty ? nil : fresh,
+                                   insulinOnly: insulinOnly.isEmpty ? nil : insulinOnly)
     }
 
     static func stats(_ checks: [Check]) -> [HorizonStats] {

@@ -315,16 +315,68 @@ final class GlucoseForecasterTests: XCTestCase {
         XCTAssertNil(cal.allowedHorizon(for: .trend))
         let r = readings(endingAt: now, minutes: 30) { _ in 180 }
         let dose = InsulinDose(timestamp: now.addingTimeInterval(-70 * 60), units: 3, kind: .rapid)
-        let f = try success(GlucoseForecaster.forecast(input(r, doses: [dose], profile: learned, calibration: cal)))
+        let meal = MealEntry(timestamp: now.addingTimeInterval(-70 * 60), carbs: 40, food: "Toast")
+        let f = try success(GlucoseForecaster.forecast(input(r, doses: [dose], meals: [meal], profile: learned, calibration: cal)))
         XCTAssertEqual(f.horizon, 45 * 60)
         XCTAssertTrue(f.calibrated)
         XCTAssertFalse(f.limitations.contains(.uncalibrated))
+        XCTAssertFalse(f.insulinOnly)
 
         let useless = ForecastCalibration(byBasis: [.trend: [stats(15, mae: 12, naive: 10)]], origins: 100, computedAt: now)
         XCTAssertEqual(useless.allowedHorizon(for: .trend), 0)
         guard case .failure(let e) = GlucoseForecaster.forecast(input(readings(endingAt: now, minutes: 30) { _ in 110 },
                                                                       calibration: useless)),
               e.reason == .notAccurateEnough else { return XCTFail("expected not accurate enough") }
+    }
+
+    func testInsulinWithNoMealIsCheckedOnItsOwn() throws {
+        func stats(_ m: Int, mae: Double, naive: Double) -> HorizonStats {
+            HorizonStats(minutes: m, samples: 100, meanAbsoluteError: mae, naiveError: naive, bias: 0,
+                         lower: -Double(m), upper: Double(m))
+        }
+        let afterMeals = [stats(15, mae: 5, naive: 10), stats(30, mae: 10, naive: 15), stats(45, mae: 14, naive: 18),
+                          stats(60, mae: 18, naive: 25)]
+        var cal = ForecastCalibration(byBasis: [.trendInsulinCarbs: afterMeals], origins: 100, computedAt: now)
+        let r = readings(endingAt: now, minutes: 30) { _ in 180 }
+        let dose = InsulinDose(timestamp: now.addingTimeInterval(-70 * 60), units: 3, kind: .rapid)
+
+        // No meal: the forecasts after meals don't vouch for it, so it goes only as far as the trend.
+        let alone = try success(GlucoseForecaster.forecast(input(r, doses: [dose], profile: learned, calibration: cal)))
+        XCTAssertEqual(alone.basis, .trendInsulinCarbs)
+        XCTAssertTrue(alone.insulinOnly)
+        XCTAssertTrue(alone.limitations.contains(.insulinOnly))
+        XCTAssertEqual(alone.horizon, GlucoseForecaster.insulinOnlyUncheckedHorizon)
+        XCTAssertEqual(ForecastCaveat.pick(.success(alone))?.source, "insulinOnly")
+
+        // Its own checks set its horizon and range, whatever the forecasts after meals did.
+        cal.insulinOnly = [stats(15, mae: 8, naive: 10), stats(30, mae: 12, naive: 15), stats(45, mae: 19, naive: 18)]
+        let checked = try success(GlucoseForecaster.forecast(input(r, doses: [dose], profile: learned, calibration: cal)))
+        XCTAssertEqual(checked.horizon, 30 * 60)
+        XCTAssertTrue(checked.calibrated)
+
+        // Fully absorbed carbs don't count as a meal.
+        let old = MealEntry(timestamp: now.addingTimeInterval(-5 * 3600), carbs: 40, food: "Lunch")
+        let late = try success(GlucoseForecaster.forecast(input(r, doses: [dose], meals: [old], profile: learned, calibration: cal)))
+        XCTAssertTrue(late.insulinOnly)
+
+        // Carbs still being absorbed: the forecasts after meals apply.
+        let meal = MealEntry(timestamp: now.addingTimeInterval(-70 * 60), carbs: 40, food: "Toast")
+        let withMeal = try success(GlucoseForecaster.forecast(input(r, doses: [dose], meals: [meal], profile: learned, calibration: cal)))
+        XCTAssertFalse(withMeal.insulinOnly)
+        XCTAssertFalse(withMeal.limitations.contains(.insulinOnly))
+        XCTAssertEqual(withMeal.horizon, 60 * 60)
+    }
+
+    func testBacktestKeepsInsulinOnlyChecksApart() {
+        let o = referenceNow
+        func check(_ m: Int, residual: Double, insulinOnly: Bool) -> ForecastBacktest.Check {
+            ForecastBacktest.Check(origin: o, basis: .trendInsulinCarbs, minutes: m, residual: residual, naive: 20,
+                                   insulinOnly: insulinOnly)
+        }
+        let checks = (0..<40).flatMap { _ in [check(60, residual: 10, insulinOnly: false), check(60, residual: 30, insulinOnly: true)] }
+        let cal = ForecastBacktest.calibration(from: checks, origins: 40, now: o)
+        XCTAssertEqual(cal.stats(for: .trendInsulinCarbs)?.first?.meanAbsoluteError, 10)
+        XCTAssertEqual(cal.insulinOnly?.first?.meanAbsoluteError, 30)
     }
 
     func testCalibratedBandIsNeverFalselyNarrow() {

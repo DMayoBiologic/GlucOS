@@ -277,8 +277,11 @@ struct ForecastLedger: Codable, Equatable {
         let mine = records.filter { $0.device == device && $0.issuedAt >= from && $0.issuedAt <= now }
             .sorted { $0.issuedAt < $1.issuedAt }
         var out = ForecastLiveHorizon()
-        for basis in ForecastBasis.allCases {
-            let ofBasis = mine.filter { $0.basis == basis }
+        // Insulin-only forecasts are judged apart from those after a meal (`ForecastLimitation.insulinOnly`).
+        let only = ForecastLimitation.insulinOnly.code
+        let kinds: [(ForecastBasis, Bool)] = ForecastBasis.allCases.map { ($0, false) } + [(.trendInsulinCarbs, true)]
+        for (basis, insulinOnly) in kinds {
+            let ofBasis = mine.filter { $0.basis == basis && $0.limitations.contains(only) == insulinOnly }
             var shown = 0
             for h in Self.checkedMinutes.sorted() {
                 let latest = ofBasis.last { r in r.points.contains { $0.minutes == h } }
@@ -301,7 +304,8 @@ struct ForecastLedger: Codable, Equatable {
                     cut = cutNow
                 }
                 if cut {
-                    out.byBasis[basis] = .init(shownMinutes: shown, failedAt: h)
+                    let c = ForecastLiveHorizon.Cut(shownMinutes: shown, failedAt: h)
+                    if insulinOnly { out.insulinOnly = c } else { out.byBasis[basis] = c }
                     break
                 }
                 shown = h
