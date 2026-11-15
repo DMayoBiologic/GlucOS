@@ -826,3 +826,67 @@ To export with the trend, and to rerun:
     # and the same for scripts/relay-replay.ts, with UNGATED=1 to judge the forecast itself
 
 Worth trying again with a few weeks of readings, and only if it keeps every low warning.
+
+## 19. Should the range change with time of day? (16 Nov 2026)
+
+The range is meant to hold the actual reading 80% of the time. The question was whether some
+parts of the day miss more often than others, and if so whether each part of the day should get
+its own widening on top of `ForecastRangeScale` (§9, §11). **It shouldn't yet. A separate figure
+for each part of the day did worse on days it hadn't seen than one figure for the whole day, so
+nothing changed.**
+
+**The data.** These are the clean points (nothing logged after the forecast) in
+`glucos.forecast_checks`, from 12 Nov 15:23 to 16 Nov 04:45 Perth, on the Mac, iPhone and relay.
+That is 459 points at 15 and 30 minutes and 109 at 60 minutes, from four days and nights. The
+times of day use Perth time: night 00–06, morning 06–12, afternoon 12–18 and evening 18–24.
+
+**Shown ranges as they are.** Every part of the day is under 80% at every horizon, except the
+morning:
+
+| Inside range | Night | Morning | Afternoon | Evening |
+|---|---|---|---|---|
+| 15 min | 71% (45) | 76% (29) | 71% (89) | 69% (106) |
+| 30 min | 56% (25) | 84% (25) | 67% (70) | 73% (70) |
+| 60 min | 63% (16) | 83% (12) | 61% (51) | 63% (30) |
+
+The morning figures come from three mornings, and the 60-minute one from just one. The days
+differ from each other more than the parts of the day do. At 30 minutes, coverage by day was 55%,
+81%, 73% and 67% (12–15 Nov). Ranges also got wider through the week as §9 and §11 landed, so
+the older points are measured against narrower ranges than the apps draw now.
+
+**The test.** For each point, the miss is the distance from the forecast to the actual reading,
+divided by the range's half-width on that side. A side clipped at the sensor floor uses the upper
+half-width instead. For each day held out in turn, the widening needed to hold 80% was learnt
+from the other days. It was learnt once as a single figure for the whole day, and again as one
+figure for each part of the day. Both were then scored on the held-out day.
+
+| Held-out days, 15 + 30 min (459 points) | Inside | Mean width |
+|---|---|---|
+| As shown | 70% | 51 mg/dL |
+| One figure for the whole day | 79% | 70 mg/dL |
+| One figure per part of the day | 77% | 74 mg/dL |
+| Per part of the day, shrunk halfway to the whole-day figure, 20+ points each | 77–79% | 55 / 91 mg/dL (15 / 30 min) |
+
+Splitting by time of day made the ranges wider and coverage lower. The night is the clearest
+case. To reach 80% on a held-out night, the 30-minute range would have had to be 156 mg/dL wide
+(about 8.7 mmol/L), because one night (15 Nov, around 01:00–02:30) swung far more than the
+others. The morning looked like it could be narrowed. Held out, though, it needed as much
+widening as the rest. Shrinking each part's figure halfway towards the whole-day figure only
+matched the whole-day figure, and didn't beat it.
+
+The whole-day row isn't a new change. It is what the existing widening already does from each
+device's own shown points (§9), and those figures were learnt from ranges that are now out of
+date. Live coverage since §11 should be read from the scorecard, not from this table.
+
+To rerun, using the miss ratio described above:
+
+    with p as (select c.issued_at at time zone 'Australia/Perth' lt, (e->>'minutes')::int m,
+      (e->>'actual')::float a, (e->>'lower')::float lo, (e->>'upper')::float up, (e->>'mgdl')::float f,
+      coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al
+      from glucos.forecast_checks c, jsonb_array_elements(c.points) e)
+    select m, extract(hour from lt)::int / 6 part, count(*),
+      avg((abs(a - f) <= case when a >= f or lo <= 39 then up - f else f - lo end)::int) inside
+    from p where a is not null and not al group by 1, 2 order by 1, 2;
+
+Try this again with at least three weeks of points, so each part of the day has about 20 days.
+Look first at night, which misses the most and has the fewest points.
