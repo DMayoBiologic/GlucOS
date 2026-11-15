@@ -276,7 +276,7 @@ export interface Tuning {
 }
 
 export const standardTuning: Tuning = { trendFade: 30 * 60, trendWindow: 20 * 60, trendGain: 1 };
-const isStandardTuning = (t: Tuning) =>
+export const isStandardTuning = (t: Tuning) =>
   t.trendFade === standardTuning.trendFade && t.trendWindow === standardTuning.trendWindow &&
   t.trendGain === standardTuning.trendGain;
 

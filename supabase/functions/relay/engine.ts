@@ -5,7 +5,7 @@
 
 import {
   type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
-  type Display, formatGlucose, learnCalibration, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
+  type Display, type ForecastResult, formatGlucose, learnCalibration, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
   type Sensor, unitOf,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
@@ -15,11 +15,14 @@ import {
 } from "./checkins.ts";
 import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
 import {
+  type ForecastLedger, ledgerOwnerRetry, ledgerRecord, ledgerScoreEvery, type LedgerState,
+} from "./ledger.ts";
+import {
   type AnsweredCheckIn, cleanLabel, type Follower, hashShareToken, maxShareLifetime, maxShares, newShareToken, type Share, type ShareStore,
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.4.0";
+export const version = "2.5.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -129,6 +132,8 @@ export interface Work {
   /// them (its token upload was stuck behind a timeout) mustn't bring it back as a second card.
   /// Missing on old rows.
   retiredActivities?: string[];
+  /// The relay's own forecast ledger (ledger.ts). Missing on old rows.
+  forecastLog?: LedgerState | null;
 }
 
 export interface RelayRow {
@@ -224,6 +229,8 @@ export interface EngineConfig {
   criticalAlerts: boolean;
   /// Share links and followers. Without it the relay serves only the owner.
   shares?: ShareStore;
+  /// Where the relay keeps the forecasts it showed (ledger.ts). Missing: none are kept.
+  ledger?: ForecastLedger;
   /// Overrides `followerBudgetMs` (tests).
   followerBudgetMs?: number;
 }
@@ -557,10 +564,48 @@ export class RelayEngine {
             console.error("markReminded", e);
           }
         }
+        // Last, so keeping score never holds up an alert or a card.
+        await this.logForecast(w, result.forecast, fetched?.session ?? before.session, now);
         return "done";
       });
     } finally {
       await this.store.releaseTick(lease);
+    }
+  }
+
+  // MARK: Forecast ledger
+
+  /// Keeps the forecast this tick showed, at most one per 15 minutes, and scores the ones whose
+  /// time has come. A failure is logged and left for the next tick.
+  private async logForecast(w: Work, result: ForecastResult, session: LibreSession | null, now: number) {
+    const ledger = this.config.ledger;
+    const libreUserId = session?.userId;
+    if (!ledger || !libreUserId) return;
+    try {
+      let log = w.forecastLog;
+      if (!log || log.libreUserId !== libreUserId) {
+        log = w.forecastLog = { libreUserId, owner: null, checkedAt: 0, lastIssuedAt: null, scoredAt: 0 };
+      }
+      if (log.owner === null && now - log.checkedAt >= ledgerOwnerRetry) {
+        log.checkedAt = now;
+        log.owner = await ledger.owner(libreUserId);
+      }
+      const owner = log.owner;
+      if (owner === null) return;
+      if (result.ok) {
+        const record = ledgerRecord(result.forecast, w.calibration, log.lastIssuedAt);
+        if (record) {
+          await ledger.record(owner, record);
+          // Kept or not (one was already there), this 15 minutes is done.
+          log.lastIssuedAt = record.issuedAt;
+        }
+      }
+      if (now - log.scoredAt >= ledgerScoreEvery) {
+        await ledger.score(owner);
+        log.scoredAt = now;
+      }
+    } catch (e) {
+      console.error("forecast ledger", e);
     }
   }
 

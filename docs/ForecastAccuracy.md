@@ -34,12 +34,26 @@ and that point.
 - On the server: settled forecasts are uploaded with each logbook sync to `glucos.forecast_checks`
   through `public.forecast_push`. Uploads use the same signed-in session and row-level security as
   the logbook. Nothing is uploaded when logbook sync is off.
+- From the relay, all night: the push relay keeps the forecast its Lock Screen card and followers
+  were shown, every 15 minutes, as device `relay` (`supabase/functions/relay/ledger.ts`). It runs
+  every minute whether or not the Mac is awake or the app is open, so these rows cover the hours
+  the apps miss. The database scores them from `glucos.readings` with the same rules as the apps
+  (`glucos.score_relay_forecasts`, every 5 minutes, over the last 4 hours), and `after_log` comes
+  from the synced logbook. The relay's forecast is trend only and looks 30 minutes ahead, so it
+  has 15- and 30-minute points. Rows belong to the owner's sync user (found from the LibreLinkUp
+  login), so nothing is kept until the apps have signed in to sync once.
 
 Queries (Supabase SQL editor or MCP, project `aqlbadbyjuoruwnwyfrc`):
 
 ```sql
 -- Weekly accuracy by device and horizon; clean = nothing logged in between.
 select * from glucos.forecast_accuracy where clean order by week desc, device, minutes;
+
+-- Accuracy by Perth hour of day, all devices together: the relay's rows fill the night.
+select extract(hour from issued_perth) as hour, minutes, count(*) as checks,
+       round(avg(abs(actual - predicted))::numeric, 1) as mae_mgdl,
+       round(avg(abs(actual - start_mgdl))::numeric, 1) as no_change_mae_mgdl
+from glucos.forecast_points where not after_log group by 1, 2 order by 1, 2;
 
 -- Every scored point, e.g. to look at the misses.
 select * from glucos.forecast_points order by issued_at desc limit 100;
