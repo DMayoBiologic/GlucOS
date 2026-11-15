@@ -35,12 +35,6 @@ struct ShareClient {
         try await call("v1/snapshot", method: "GET", query: installation.map { [URLQueryItem(name: "installation", value: $0)] })
     }
 
-    /// The follower view's readings since `since` (all 14 days when nil) and recent logbook.
-    func detail(since: Double?) async throws -> ShareDetail {
-        try await call("v1/detail", method: "GET",
-                       query: since.map { [URLQueryItem(name: "since", value: String(Int($0)))] })
-    }
-
     /// Asks the person this share belongs to whether they're okay.
     func checkIn(_ request: CheckInRequest) async throws -> CheckInState {
         try await call("v1/checkin", method: "POST", body: try JSONEncoder().encode(request))
@@ -56,7 +50,9 @@ struct ShareClient {
                                    body: try JSONEncoder().encode(FollowRegistration(installation: installation)))
     }
 
-    private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil,
+    /// Not private: the app's follower view adds a call (ShareClient+Detail.swift) that the
+    /// Messages app, which builds this file too, doesn't have the types for.
+    func call<T: Decodable>(_ path: String, method: String, body: Data? = nil,
                                     query: [URLQueryItem]? = nil) async throws -> T {
         var url = Self.baseURL.appendingPathComponent(path)
         if let query { url.append(queryItems: query) }
