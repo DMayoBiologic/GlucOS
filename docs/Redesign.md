@@ -112,6 +112,16 @@ At t = 0 the number rolls to its new value (numeric text), the needle swings to 
 refills on its own). At t = 0–0.9 s one soft ripple leaves the hero (existing `readingRipple`). The
 chart's trace extends and its end dot pulses once (existing `TracePulse`).
 
+The main glucose chart (`GlucoseChart`, iPhone home, follower view, Mac popover and Outlook) sets
+both axes itself (`ChartSpan`) and animates the axes, not the data. A new reading slides the
+time axis along by one reading in one `.standard` movement, and the oldest reading slides off the
+left edge (a 10-minute lead stays plotted past it, masked) instead of vanishing inside the chart.
+Changing 3h / 6h / 12h / 24h is three steps (`ChartSpanTransition`): plot what both spans need
+(the extra readings are off the left edge, unseen), move the time and glucose axes together in one
+`.standard` movement, then drop what's off screen once it has finished. So the marks already on
+screen stretch or squeeze to the new scale instead of fading out and in. Under Reduce Motion the
+span switches at once. Nothing repeats: one movement per reading or per tap (§4.6).
+
 ### 4.2 Range change ("sweep")
 
 When the range changes, the range field's colour sweeps (`.sweep`) and the range pill swaps with a
@@ -343,8 +353,8 @@ old, last 6.2." Follower: prefixed with the person's name.
   bar, the bar's title becomes the value and trend arrow in the range colour (iOS 18
   `onScrollGeometryChange`), so the reading is never off screen.
 - Below the stage, unchanged order: banners, follows, On board, Chart, Logbook, Insights row, Sensor.
-- **Chart card**: hour chips with a sliding selection; the chart re-draws with a horizontal wipe when
-  hours change.
+- **Chart card**: hour chips with a sliding selection; the chart's axes glide to the new span when
+  hours change (§4.1).
 - **Insights row → Insights**, **Logbook card → Logbook**: zoom transitions from the card.
 - **Bottom log bar**: unchanged position; the plus symbol bounces once when the sheet closes after a
   save.

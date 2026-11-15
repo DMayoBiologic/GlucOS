@@ -497,11 +497,13 @@ struct FollowChartCard: View {
     @AppStorage("followChartHours") private var hours = 6
 
     private static let choices = [3, 6, 12, 24]
+    /// What the chart is handed whatever span is picked, plus its lead past the left edge.
+    private static let longest = Double(choices.max() ?? 24) + 0.25
 
     var body: some View {
         let unit = card.glucoseUnit
         let span = Double(hours)
-        let readings = readings(hours: span)
+        let readings = readings(hours: Self.longest)
         let forecast = card.isStale(at: now) ? [] : forecastSamples
         VStack(alignment: .leading, spacing: DS.Space.md) {
             DSAccessibleStack(spacing: DS.Space.sm) {
@@ -511,12 +513,12 @@ struct FollowChartCard: View {
                     .sensoryFeedback(.selection, trigger: hours)
                     .accessibilityLabel("Chart hours")
             }
+            // The longest span's readings, `span` of them shown: the chart glides between spans itself.
             GlucoseChart(readings: readings, unit: unit, lowMgdl: card.lowMgdl, highMgdl: card.highMgdl,
                          hours: span, showAxes: true, interactive: true, latestIsStale: card.isStale(at: now),
-                         forecast: forecast, events: events(hours: span),
+                         forecast: forecast, events: events(hours: Self.longest),
                          timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true)
                 .frame(height: 260)
-                .dsAnimation(.standard, value: hours)
             HStack(spacing: DS.Space.md) {
                 if detail?.logbook != nil {
                     LegendText(color: Palette.insulin, text: "Insulin")

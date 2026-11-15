@@ -32,6 +32,9 @@ struct GlucoseChart: View {
     var marksNow: Bool = false
 
     @State private var hoverDate: Date?
+    /// The span on screen while `hours` changes (app screens only; `nil` follows `hours`, which is
+    /// all a widget ever does since it never runs `onAppear`). See `ChartSpanTransition`.
+    @State private var range: ChartSpanTransition?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The real reading nearest the pointer. Only actual readings are ever shown, never an
@@ -44,21 +47,53 @@ struct GlucoseChart: View {
         return best
     }
 
-    private var window: [GlucoseReading] {
-        guard let last = readings.last else { return [] }
-        let cutoff = last.timestamp.addingTimeInterval(-hours * 3600)
-        return readings.filter { $0.timestamp >= cutoff }
+    /// Readings kept past the left edge so they slide off it. Only charts that move need them.
+    private var lead: TimeInterval { interactive ? ChartSpan.lead : 0 }
+
+    /// What's on screen and what's drawn, for the span currently shown.
+    private var chartWindow: ChartSpan? {
+        let r = range ?? ChartSpanTransition(hours: hours)
+        return ChartSpan(readings: readings, domainHours: r.domainHours, dataHours: r.dataHours,
+                           forecastEnd: forecast.last?.date, lead: lead)
     }
 
-    private var yDomainMgdl: ClosedRange<Double> {
-        let values = window.map(\.mgdl) + [lowMgdl, highMgdl] + forecast.map(\.mgdl)
+    /// The glucose axis fits what's on screen at the span being shown (and the few readings just
+    /// past the left edge, so they never poke out of the top or bottom as they leave). Extra data
+    /// plotted only while the range changes doesn't count, so the axis rescales in the same
+    /// movement as the time axis.
+    private func yDomainMgdl(_ onScreen: ArraySlice<GlucoseReading>) -> ClosedRange<Double> {
+        let values = onScreen.map(\.mgdl) + [lowMgdl, highMgdl] + forecast.map(\.mgdl)
         let lo = min(values.min() ?? 60, 60) - 10
         let hi = max(values.max() ?? 200, 200) + 10
         return lo...hi
     }
 
-    private var yDomain: ClosedRange<Double> {
-        unit.value(fromMgdl: yDomainMgdl.lowerBound)...unit.value(fromMgdl: yDomainMgdl.upperBound)
+    private func yDomain(_ onScreen: ArraySlice<GlucoseReading>) -> ClosedRange<Double> {
+        let mg = yDomainMgdl(onScreen)
+        return unit.value(fromMgdl: mg.lowerBound)...unit.value(fromMgdl: mg.upperBound)
+    }
+
+    /// A new span: plot what both ends of the move need, move the axis, then drop what's off
+    /// screen. Under Reduce Motion it just switches.
+    private func changeRange(from old: Double, to new: Double) {
+        var r = range ?? ChartSpanTransition(hours: old)
+        guard interactive, !reduceMotion else {
+            r.jump(to: new)
+            withTransaction(Transaction(animation: nil)) { range = r }
+            return
+        }
+        r.prepare(for: new)
+        let generation = r.generation
+        withTransaction(Transaction(animation: nil)) { range = r }
+        // On the next turn, so the extra readings are already in place (unseen, past the left
+        // edge) when the axis starts moving, and slide in rather than fading in.
+        DispatchQueue.main.async {
+            withAnimation(DSMotion.standard.animation, completionCriteria: .logicallyComplete) {
+                range?.move(to: new)
+            } completion: {
+                withTransaction(Transaction(animation: nil)) { range?.settle(generation: generation) }
+            }
+        }
     }
 
     private func color(for mgdl: Double) -> Color {
@@ -66,17 +101,24 @@ struct GlucoseChart: View {
     }
 
     var body: some View {
-        let window = self.window
-        let floor = yDomain.lowerBound
+        let cw = chartWindow
+        let window = Array(cw?.visible ?? [])
+        let plotted = Array(cw?.plotted ?? [])
+        // On screen at the span being shown, plus the lead past the left edge: not the extra
+        // data plotted only while the span changes.
+        let onScreen = ChartSpan(readings: readings, domainHours: (range ?? .init(hours: hours)).domainHours,
+                                   dataHours: 0, forecastEnd: forecast.last?.date, lead: lead)?.plotted ?? []
+        let yd = yDomain(onScreen)
+        let floor = yd.lowerBound
         let hovered = interactive ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
-        let lineStyle = ThresholdGradient.style(minMgdl: window.map(\.mgdl).min() ?? lowMgdl,
-                                                maxMgdl: window.map(\.mgdl).max() ?? highMgdl,
+        // The gradient is stretched over the drawn line, so its stops follow what's plotted.
+        let lineStyle = ThresholdGradient.style(minMgdl: plotted.map(\.mgdl).min() ?? lowMgdl,
+                                                maxMgdl: plotted.map(\.mgdl).max() ?? highMgdl,
                                                 low: lowMgdl, high: highMgdl)
         let stale = latestIsStale
             ?? (window.last.map { Date().timeIntervalSince($0.timestamp) > GlucoseSnapshot.staleAfter } ?? true)
         let currentTint = stale ? Palette.stale : (window.last.map { color(for: $0.mgdl) } ?? Palette.stale)
         let projection = stale ? [] : forecast
-        let yd = yDomain
         Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
@@ -93,7 +135,7 @@ struct GlucoseChart: View {
                 .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.45))
 
             // Soft glow under the trace, tinted with the current range.
-            ForEach(window) { r in
+            ForEach(plotted) { r in
                 AreaMark(
                     x: .value("Time", r.timestamp),
                     yStart: .value("Floor", floor),
@@ -108,10 +150,10 @@ struct GlucoseChart: View {
 
             // Time spent out of range, filled between the trace and the line it crossed, so a
             // high or a low reads as a shape before anyone looks at the numbers.
-            outOfRangeMarks(window)
+            outOfRangeMarks(plotted)
 
             // The trace changes colour as it crosses the thresholds.
-            ForEach(window) { r in
+            ForEach(plotted) { r in
                 LineMark(
                     x: .value("Time", r.timestamp),
                     y: .value("Glucose", unit.value(fromMgdl: r.mgdl))
@@ -148,8 +190,8 @@ struct GlucoseChart: View {
             }
 
             nowMark(last: projection.isEmpty ? nil : window.last)
-            midnightMarks(window)
-            eventMarks(window, yd: yd)
+            midnightMarks(plotted)
+            eventMarks(plotted, yd: yd)
 
             // Current reading: solid dot with a soft halo.
             if let last = window.last {
@@ -194,7 +236,22 @@ struct GlucoseChart: View {
                 }
             }
         }
-        .chartYScale(domain: yDomain)
+        // Both axes are set rather than worked out by Charts, so a change of span or a new
+        // reading moves them (and the marks with them) instead of redrawing the chart.
+        .chartXScale(domain: cw?.domain ?? Date().addingTimeInterval(-hours * 3600)...Date())
+        .chartYScale(domain: yd)
+        // Readings past the left edge (sliding in or out) are hidden; everything else keeps
+        // room to overhang, as before: the newest reading's halo, the "Now" label, the readout.
+        // (Charts that never move keep room on the left too, so nothing about them changes.)
+        .chartPlotStyle { plot in
+            plot.mask {
+                Rectangle()
+                    .padding(.top, -48)
+                    .padding(.bottom, -12)
+                    .padding(.trailing, -48)
+                    .padding(.leading, interactive ? 0 : -48)
+            }
+        }
         .chartXAxis {
             if showAxes {
                 AxisMarks(values: .automatic(desiredCount: timeLabelCount)) { v in
@@ -233,10 +290,13 @@ struct GlucoseChart: View {
                 TracePulse(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl), tint: currentTint)
             }
         }
+        .onAppear { if interactive, range == nil { range = ChartSpanTransition(hours: hours) } }
+        .onChange(of: hours) { old, new in changeRange(from: old, to: new) }
         .hoverSelection(interactive, $hoverDate)
         .scrubFeedback(interactive, trigger: hovered?.timestamp)
-        // A new reading slides the trace along instead of jumping it.
-        .dsAnimation(.standard, value: interactive ? window.last?.timestamp : nil)
+        // A new reading slides the trace (and the time axis) along by one reading instead of
+        // jumping it. One short movement per reading; nothing here repeats.
+        .dsAnimation(.standard, value: interactive ? readings.last?.timestamp : nil)
         // One VoiceOver element rather than hundreds of marks: a spoken summary, and the trace (with
         // the forecast as a second series) as an audio graph under "Chart Details" in the rotor.
         .accessibilityElement(children: .ignore)

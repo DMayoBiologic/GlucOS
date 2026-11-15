@@ -362,6 +362,8 @@ struct PhoneChartCard: View {
     @EnvironmentObject var logbook: LogbookStore
 
     private static let choices = [3, 6, 12, 24]
+    /// What the chart is handed whatever span is picked, plus its lead past the left edge.
+    private static let longest = Double(choices.max() ?? 24) + 0.25
 
     var body: some View {
         let s = store.snapshot
@@ -375,13 +377,13 @@ struct PhoneChartCard: View {
                     .sensoryFeedback(.selection, trigger: settings.chartHours)
                     .accessibilityLabel("Chart hours")
             }
-            GlucoseChart(readings: store.readings(lastHours: hours), unit: s.unit, lowMgdl: s.lowMgdl,
+            // The chart gets the longest span's readings and markers and shows `hours` of them,
+            // so switching 3h / 6h / 12h / 24h glides the axis (the chart animates it itself).
+            GlucoseChart(readings: store.readings(lastHours: Self.longest), unit: s.unit, lowMgdl: s.lowMgdl,
                          highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
-                         forecast: outlook?.forecast ?? [], events: events(hours: hours),
+                         forecast: outlook?.forecast ?? [], events: events(hours: Self.longest),
                          timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true)
                 .frame(height: 260)
-                // Switching 3h / 6h / 12h / 24h glides the trace to its new scale.
-                .dsAnimation(.standard, value: settings.chartHours)
             legend(outlook)
             ForecastCaveatLine(caveat: caveat(s, outlook: outlook))
             if let outlook, !outlook.forecast.isEmpty { forecastLine(outlook, unit: s.unit) }
