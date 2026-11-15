@@ -150,6 +150,9 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **The relay gets your LibreLinkUp login.** The app sends it over HTTPS (with the relay secret).
   It's kept encrypted in Supabase Vault. Signing out on the phone asks the relay to delete it; if
   the relay can't be reached then, the login stays in Vault until it can.
+- **New readings move, they don't jump.** On the Live Activity, Dynamic Island and Lock Screen
+  widgets the number counts over, the range colour cross-fades and the trend arrow turns. With
+  Reduce Motion on, the number just fades in place. Nothing loops, so it costs no extra battery.
 - **Two followers, one account.** The Mac and the relay each poll LibreLinkUp once a minute.
 - **Without the relay** the app still works while it's open, and the Lock Screen card updates
   whenever iOS gives it background time.
