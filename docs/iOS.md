@@ -160,6 +160,8 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
   low or high line and passing anything you logged; let go and the readout glides back to now.
 - **Stale readings look stale everywhere.** When data stops, the number fades to grey and a strike
   line draws across it on the app, widgets and Lock Screen; VoiceOver says the reading is stale.
+- **Saving a log entry** gives a success tap and a brief checkmark before the sheet closes, so you
+  know it went in. A warning such as the logged-twice check always stops you first.
 - **Two followers, one account.** The Mac and the relay each poll LibreLinkUp once a minute.
 - **Without the relay** the app still works while it's open, and the Lock Screen card updates
   whenever iOS gives it background time.
