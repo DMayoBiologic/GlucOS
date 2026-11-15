@@ -363,7 +363,12 @@ def ensure_internal_group(app_id):
             have.add(email.lower())
             print(f"Added an App Store Connect user to {name!r}")
         except APIError as e:
-            warn(f"Couldn't add an App Store Connect user to {name!r}: {e}")
+            # 409: Apple won't make this user a tester (an API-only or restricted account).
+            # Expected for some users on every run, so it's not a warning.
+            if e.status == 409:
+                print(f"App Store Connect won't add one user to {name!r} as a tester: {e}")
+            else:
+                warn(f"Couldn't add an App Store Connect user to {name!r}: {e}")
     summary(f"Internal group **{name}** gets every build, no review: {len(have)} tester(s).")
     return group
 
