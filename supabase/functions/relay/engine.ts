@@ -166,6 +166,8 @@ export const newRow = (): RelayRow => ({
 export interface Tx {
   row: RelayRow;
   account(): Promise<Account | null>;
+  /// Whether an account is stored, without decrypting it (all a status read needs).
+  hasAccount(): Promise<boolean>;
   setAccount(a: Account | null): Promise<void>;
   libreSession(): Promise<LibreSession | null>;
   setLibreSession(s: LibreSession | null): Promise<void>;
@@ -179,7 +181,8 @@ export interface Tx {
 
 export interface Store {
   /// `readOnly` neither locks the relay row nor writes it back: a status read mustn't wait behind
-  /// a tick that holds the row while it sends pushes.
+  /// a tick that holds the row while it sends pushes. It reads the row in one statement, with no
+  /// transaction around it, so a status read is one round trip to the database.
   transaction<T>(fn: (tx: Tx) => Promise<T>, options?: { readOnly?: boolean }): Promise<T>;
   /// Only one tick at a time: false while another holds the lease.
   /// A token for the lease, or null when another tick holds it.
@@ -364,7 +367,7 @@ export class RelayEngine {
 
   async status(): Promise<RelayStatus> {
     return await this.attachCheckIn(
-      await this.store.transaction(async (tx) => this.statusOf(tx.row, (await tx.account()) !== null),
+      await this.store.transaction(async (tx) => this.statusOf(tx.row, await tx.hasAccount()),
         { readOnly: true }),
     );
   }

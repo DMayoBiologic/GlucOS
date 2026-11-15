@@ -23,6 +23,7 @@ class MemoryStore implements Store {
       const tx: Tx = {
         row,
         account: () => Promise.resolve(this.account),
+        hasAccount: () => Promise.resolve(this.account !== null),
         setAccount: (a) => { this.account = a; return Promise.resolve(); },
         libreSession: () => Promise.resolve(this.session),
         setLibreSession: (s) => { this.session = s; return Promise.resolve(); },

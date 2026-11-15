@@ -318,6 +318,9 @@ export class PostgresShareStore implements ShareStore {
 
   async askCheckIn(f: Follower, name: string, now: number): Promise<{ checkIn: CheckIn; ping: boolean }> {
     return await this.sql.begin(async (sql) => {
+      // Old ones are no use to anyone. Pruned here, where a check-in is written anyway, so the
+      // owner's status read stays a read.
+      await sql`delete from glucos.check_ins where asked_at < ${now - 7 * 86_400}`;
       // One open check-in per follower, however fast they tap.
       await sql`select id from glucos.followers where id = ${f.id}::uuid for update`;
       const open = await sql`
@@ -358,8 +361,6 @@ export class PostgresShareStore implements ShareStore {
 
   async checkIns(now: number): Promise<CheckIn[]> {
     const keep = Math.max(checkInOpenFor, checkInAnswerShownFor);
-    // Old ones are no use to anyone.
-    await this.sql`delete from glucos.check_ins where asked_at < ${now - 7 * 86_400}`;
     const rows = await this.sql`
       select distinct on (follower_id) * from glucos.check_ins
       where asked_at > ${now - keep} or answered_at > ${now - checkInAnswerShownFor}

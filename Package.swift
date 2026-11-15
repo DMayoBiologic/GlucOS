@@ -32,6 +32,7 @@ let package = Package(
                 "Shared/ChartSummary.swift",
                 "Core/RelayProtocol.swift",
                 "Core/RelayRetry.swift",
+                "Core/FunctionRegion.swift",
                 "App/Logbook/InsulinLibrary.swift",
                 "App/Logbook/SiteRotation.swift",
                 "Core/ShareProtocol.swift",
