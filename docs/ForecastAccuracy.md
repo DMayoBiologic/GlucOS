@@ -960,3 +960,69 @@ window ends at the first low. To find candidate windows:
       and not exists (select 1 from glucos.logbook m where m.user_id = d.user_id and m.kind = 'meal' and not m.deleted
         and abs((m.payload->>'timestamp')::float - (d.payload->>'timestamp')::float) < 4 * 3600)
     order by d.user_id, t;
+
+## 21. Should the range depend on how fast glucose is moving? (16 Nov 2026)
+
+§9 already splits the range in two by speed: forecasts that start with glucose moving at
+1.5 mg/dL a minute or more (`ForecastRangeScale.fastTrendPerMinute`) get their own widening,
+and everything else shares the steady figure. The question was whether finer speed bands
+(flat, slow and fast, or rising apart from falling) would hold 80% better. **They don't. On days
+they hadn't seen, none of the finer splits beat the existing two-way split, so nothing changed.**
+
+**The data.** The same kind of points as §19: clean points (nothing logged after the forecast) in
+`glucos.forecast_checks` at 15 and 30 minutes, from 12 Nov 15:23 to 16 Nov 06:17 Perth, on the
+Mac, iPhone and relay. That is 467 points (277 at 15 minutes and 190 at 30). Speed is the trend
+the forecast started from, in mg/dL a minute: flat is under 0.5, slow is 0.5 to 1.5, fast is
+1.5 or more.
+
+**Shown ranges as they are.** Fast forecasts miss most, as §9 found. The surprise is that flat
+forecasts miss more often than slow ones:
+
+| Inside range | Flat | Slow | Fast |
+|---|---|---|---|
+| 15 min | 72% (71) | 77% (122) | 60% (84) |
+| 30 min | 68% (53) | 78% (86) | 59% (51) |
+
+Flat missed more than slow on four of the five days. One guess, not checked: a trend near zero
+is often a peak or a dip that is about to turn, so "flat" doesn't mean calm.
+
+**The test.** Same method as §19. The miss is the distance from the forecast to the actual
+reading, divided by the range's half-width on that side (a side clipped at the sensor floor uses
+the upper half-width). For each day held out in turn, the widening needed to hold 80% was learnt
+from the other days, per horizon and per speed band, and never below 1. A band with fewer than
+25 points in the other days fell back to one figure for that horizon, as the apps do. The
+interval score adds the width to ten times any miss beyond the edge, so lower is better and it
+can't be won by width alone.
+
+| Held-out days, 15 + 30 min (467 points) | Inside | Mean width | Interval score |
+|---|---|---|---|
+| As shown | 70.2% | 51.3 mg/dL | 117.2 |
+| One figure | 78.8% | 70.4 mg/dL | 116.3 |
+| Steady / fast at 1.5 (what §9 does) | 79.2% | 69.8 mg/dL | 116.3 |
+| Flat / slow / fast (0.5, 1.5) | 79.4% | 70.2 mg/dL | 117.1 |
+| Four bands (0.5, 1, 2) | 78.8% | 67.3 mg/dL | 117.4 |
+| Flat, slow and fast, rising apart from falling (five bands) | 77.3% | 67.8 mg/dL | 118.3 |
+
+Splitting flat from slow gave the same coverage at the same width. Flat needed more widening
+and slow needed less, but slow's figure was already close to 1, and the range is never narrowed,
+so nothing was saved. Four bands gave slightly narrower ranges, but coverage dropped with them
+and the score got worse at 30 minutes (151.2 against 146.9). Splitting rising from falling gave
+each band too few points (a day held out left 20–60 per band), and it lost on every measure.
+
+The days differ more than the bands do. Fast forecasts needed 4.1× on 13 Nov and 0.9× on
+16 Nov, and slow ones 0.8× on 14 Nov and 1.65× on 15 Nov. The `recent` correction (§9) is what
+follows that.
+
+To rerun, using the miss ratio above:
+
+    with p as (select (c.issued_at at time zone 'Australia/Perth')::date d, c.trend_per_minute tr,
+      (e->>'minutes')::int m, (e->>'actual')::float a, (e->>'lower')::float lo, (e->>'upper')::float up,
+      (e->>'mgdl')::float f, coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al
+      from glucos.forecast_checks c, jsonb_array_elements(c.points) e)
+    select m, case when abs(tr) < 0.5 then 'flat' when abs(tr) < 1.5 then 'slow' else 'fast' end band,
+      count(*), avg((abs(a - f) <= case when a >= f or lo <= 39.5 then up - f else f - lo end)::int) inside
+    from p where a is not null and not al and m in (15, 30) group by 1, 2 order by 1, 2;
+
+Try again with about three weeks of points, so each band has a few hundred. Look first at flat
+forecasts at turning points: if a trend near zero just after a rise or fall misses as often as a
+fast one, that is a better split than speed alone.
