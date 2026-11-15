@@ -49,6 +49,12 @@ final class OutlookStore: ObservableObject {
             + logbook.contexts.filter { !$0.isWake }.map(\.timestamp)
     }
 
+    /// Readings were filled in from elsewhere: relearn at the next chance rather than waiting out
+    /// `relearnInterval`, so the forecast's tuning and accuracy figures use them.
+    func historyFilledIn() {
+        learnedFingerprint = nil
+    }
+
     /// Starts relearning in the background if the logs changed or the last run is old.
     func relearnIfNeeded(archive: [GlucoseReading], logbook: LogbookStore?, low: Double, high: Double,
                          now: Date = Date(), onFinish: @escaping @MainActor () -> Void) {

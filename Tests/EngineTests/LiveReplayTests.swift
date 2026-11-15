@@ -18,6 +18,11 @@ import XCTest
 // 45, 60, 90 and 120 minutes, `*` marking a point with a log in between; clean trend-only
 // forecasts are left out), and
 // GLUCOS_REPLAY_GAIN=0.5 forces the trend's strength, to compare against what the tuner chose.
+//
+// GLUCOS_REPLAY_OPENS=/path/opens.json ([unix seconds, ...], e.g. the iPhone's forecast_checks
+// issued_at) replays a device that is only open now and then, as the iPhone is: its history is
+// LibreLinkUp's 15-minute graph plus the few live readings it saw while open (kept one per
+// 5-minute slot, as `HistoryArchive` does), and it shows a forecast only at those times.
 
 final class LiveReplayTests: XCTestCase {
     func testReplayHistoryAsTheAppsWouldHaveLivedIt() throws {
@@ -25,7 +30,12 @@ final class LiveReplayTests: XCTestCase {
             throw XCTSkip("Set GLUCOS_REPLAY_DIR to replay real history.")
         }
         let history = try ReplayHistory(directory: URL(fileURLWithPath: dir))
-        let result = LiveReplay(history: history).run()
+        var replay = LiveReplay(history: history)
+        if let path = ProcessInfo.processInfo.environment["GLUCOS_REPLAY_OPENS"] {
+            let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))) as? [Double] ?? []
+            replay.opens = raw.map { Date(timeIntervalSince1970: $0) }.sorted()
+        }
+        let result = replay.run()
         print(result.report())
     }
 }
@@ -60,6 +70,29 @@ struct LiveReplay {
     var relearnEvery: TimeInterval = 3 * 3600
     /// Forecasts start once this much history has built up.
     var warmUp: TimeInterval = 24 * 3600
+    /// When set, the device is open only at these times (see GLUCOS_REPLAY_OPENS).
+    var opens: [Date]?
+    /// How long the device is taken to stay open, live readings and all, around each open.
+    var openFor: ClosedRange<TimeInterval> = -180...120
+    /// An occasional device that still has every reading (from the relay), not just LibreLinkUp's.
+    var fullHistory = ProcessInfo.processInfo.environment["GLUCOS_REPLAY_FULL"] == "1"
+
+    /// What a device that's open only at `opens` has in its history: LibreLinkUp's 15-minute
+    /// graph, plus live readings while open, one per 5-minute slot.
+    static func occasionalArchive(_ readings: [GlucoseReading], opens: [Date],
+                                  openFor: ClosedRange<TimeInterval>) -> [GlucoseReading] {
+        var slots = Set<Int>()
+        var out: [GlucoseReading] = []
+        var o = 0
+        for r in readings {
+            while o < opens.count, opens[o].addingTimeInterval(openFor.upperBound) < r.timestamp { o += 1 }
+            let open = o < opens.count && r.timestamp.timeIntervalSince(opens[o]) >= openFor.lowerBound
+            let minute = Int(r.timestamp.timeIntervalSince1970 / 60)
+            guard open || minute % 15 == 0 else { continue }
+            if slots.insert(Int(r.timestamp.timeIntervalSince1970 / 300)).inserted { out.append(r) }
+        }
+        return out
+    }
 
     struct Result {
         var ledger: ForecastLedger
@@ -153,7 +186,8 @@ struct LiveReplay {
     }
 
     func run() -> Result {
-        let readings = history.readings
+        let truth = history.readings
+        let readings = opens.map { fullHistory ? truth : Self.occasionalArchive(truth, opens: $0, openFor: openFor) } ?? truth
         guard let first = readings.first, let last = readings.last else {
             return Result(ledger: ForecastLedger(), logTimes: [], meals: [], doses: [])
         }
@@ -164,8 +198,11 @@ struct LiveReplay {
         var lastLearn = Date.distantPast
         var lastIssued = Date.distantPast
         let start = first.timestamp.addingTimeInterval(warmUp)
-        for (i, r) in readings.enumerated() where r.timestamp >= start {
-            let now = r.timestamp
+        // Issue times: every reading, or (an occasional device) the reading it had when opened.
+        let issues: [(Int, Date)] = opens.map { opens in
+            opens.compactMap { t in readings.lastIndex { $0.timestamp <= t }.map { ($0, t) } }
+        } ?? readings.indices.map { ($0, readings[$0].timestamp) }
+        for (i, now) in issues where now >= start {
             guard now.timeIntervalSince(lastIssued) >= ForecastLedger.spacing else { continue }
             let known = Array(readings[...i])
             let doses = history.doses.filter { $0.timestamp <= now }
@@ -193,12 +230,16 @@ struct LiveReplay {
             let recent = known.filter { $0.timestamp >= now.addingTimeInterval(-3 * 3600) }
             let outlook = OutlookEngine.outlook(readings: recent, doses: doses, meals: meals, contexts: contexts,
                                                 model: model, now: now)
+            if ProcessInfo.processInfo.environment["GLUCOS_REPLAY_VERBOSE"] == "4", case .failure(let e) = outlook.forecast {
+                print("no forecast \(now): \(e.reason)")
+            }
             if let f = outlook.glucoseForecast,
                ledger.note(f, device: "replay", tuned: model.tuning.isTuned, now: now) {
                 lastIssued = now
             }
         }
-        ledger.score(readings: GlucoseSeries(readings, sorted: true), logTimes: logTimes,
+        // Scored against every reading: the app scores later, once LibreLinkUp's history is in.
+        ledger.score(readings: GlucoseSeries(truth, sorted: true), logTimes: logTimes,
                      now: last.timestamp.addingTimeInterval(4 * 3600))
         return Result(ledger: ledger, logTimes: logTimes, meals: history.meals, doses: history.doses)
     }

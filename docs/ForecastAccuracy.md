@@ -318,3 +318,45 @@ its own ledger (`rangeScaleFrom` in `supabase/functions/relay/core.ts`, worked o
 scoring from its `glucos.forecast_checks` rows, kept in `relay.work.forecastLog.rangeScale`), and
 records each point's widening as `scale` in the points JSON so the figure settles. Replaying the
 relay's forecast the same way: 72 / 76% at 15 / 30 minutes before, 80 / 82% after. Relay 2.7.0.
+
+## 10. The iPhone learns from one-minute readings too (15 Nov 2026)
+
+`glucos.forecast_scorecard` on 15 Nov had the iPhone's 15-minute forecast doing no better than no
+change (15.5 against 15.0 mg/dL, 84 checks) while the Mac's beat it (16.6 against 18.6). Both run
+the same engine; what differs is the history each has:
+
+- **The Mac** is awake for hours at a time, polling every minute, so its history (one reading per
+  5-minute slot) is live readings, and the replay uses only those (§1).
+- **The iPhone** is opened for a minute or two at a time (96 forecasts in 4 days, most of them on
+  their own). Its history is LibreLinkUp's 15-minute graph plus the reading or two it saw while
+  open. Fewer than half its replay points come from live readings, so the replay falls back to all
+  of them, and on a 15-minute graph the trend carries on far more than a one-minute trend does.
+  `ForecastTuner` fitted the trend's strength at 90–100% there (often failing to tune at all,
+  which is why the iPhone's `tuned` flag came and went) against 55–70% on the Mac. The forecast on
+  opening then followed the trend too far.
+
+So the iPhone now fills its history from the push relay, which polls every minute whether or not
+the app is open and keeps those readings in `glucos.readings`: `GET /v1/history?since=` (relay
+2.9.0, at most 30 days back) returns them, and on every open and background refresh the phone asks
+for what's new since the last time (`PhoneServices.fillHistoryFromRelay`), before fetching from
+LibreLinkUp. They fill the 5-minute slots the graph leaves empty (`GlucoseStore.mergeHistory`), and
+an hour or more of new ones makes the outlook relearn straight away. The forecast drawn on opening
+also gets its trend from those readings rather than from two graph points. Without a relay (a
+follower, or the relay not set up) nothing changes.
+
+Replayed the way the iPhone lives through it (`LiveReplayTests` with `GLUCOS_REPLAY_OPENS` set to
+its 96 forecast times: history is the 15-minute graph plus readings within a few minutes of each
+open; `GLUCOS_REPLAY_FULL=1` gives it every reading, as the relay now does). Clean points, typical
+error in mg/dL:
+
+| | 15 min | No change | 30 min | No change | Trend strength fitted |
+| --- | --- | --- | --- | --- | --- |
+| Before (graph + opens) | 14.8 | 15.2 | 26.4 | 28.7 | 90–100% |
+| After (relay readings) | 13.8 | 15.3 | 25.1 | 27.5 | 55% |
+
+With the fuller history the replay holds trend-only forecasts to the same bar as on the Mac, so
+the iPhone now draws fewer of them in quiet stretches (48 of the 78 openings had a forecast, as
+against all 78): at those times they were checked as no better than no change, and the Mac already
+leaves them out. Forcing the strength to 55% on the old history (`GLUCOS_REPLAY_GAIN=0.55`) also
+gave 13.7 against 15.2, which confirms the strength was the fault; the relay's readings are what
+let the phone measure it itself.

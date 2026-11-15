@@ -6,7 +6,7 @@
 import {
   type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
   type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
-  rangeScaleFrom, rangeWindow, type Sensor, unitOf,
+  rangeScaleFrom, rangeWindow, type Sensor, type Trend, unitOf,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
 import {
@@ -22,7 +22,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.8.0";
+export const version = "2.9.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -42,6 +42,13 @@ export const relearnEvery = 3 * 3600;
 export const learnFromDays = 14;
 /// Readings kept in the database.
 export const readingRetentionDays = 90;
+/// How far back `history` reaches: the replay that tunes the forecast looks back 30 days.
+export const historyMaxDays = 30;
+
+/// GET /v1/history: [unix seconds, mg/dL, trend] per reading, oldest first.
+export interface RelayHistory {
+  readings: [number, number, Trend][];
+}
 /// Follower pushes sent at once.
 export const followerConcurrency = 10;
 /// How long one tick spends on followers before leaving the rest to the next tick, well inside the
@@ -370,6 +377,16 @@ export class RelayEngine {
       await this.store.transaction(async (tx) => this.statusOf(tx.row, await tx.hasAccount()),
         { readOnly: true }),
     );
+  }
+
+  /// The relay's one-minute readings since `since` (unix seconds), for the iPhone's own history:
+  /// it's only open now and then, so without these it has LibreLinkUp's 15-minute graph and little
+  /// else, and its forecast can't learn how much of a one-minute trend carries on. At most
+  /// `historyMaxDays` back.
+  async history(since: number): Promise<RelayHistory> {
+    const from = Math.max(Number.isFinite(since) ? since : 0, this.clock() - historyMaxDays * 86_400);
+    const readings = await this.store.transaction(async (tx) => tx.readings(from), { readOnly: true });
+    return { readings: readings.map((r) => [r.t, r.mgdl, r.trend]) };
   }
 
   // MARK: Check-ins
