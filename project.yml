@@ -153,6 +153,7 @@ targets:
       - path: Sources/App/Outlook/OutlookStore.swift
       - path: Sources/App/Outlook/ForecastLedgerStore.swift
       - path: Sources/App/Outlook/ForecastScorecardView.swift
+      - path: Sources/App/Views/DayPatternView.swift
       - path: Sources/App/Views/FlowComponents.swift
       - path: Sources/App/Views/MenuBar/PopoverInsights.swift
     dependencies:

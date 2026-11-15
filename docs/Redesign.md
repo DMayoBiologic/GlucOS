@@ -356,7 +356,7 @@ old, last 6.2." Follower: prefixed with the person's name.
 | Welcome | The range field (in-range mint) as the backdrop, drifting; the two choices enter with `dsEntrance`. |
 | Sign in, Setup | Steps slide horizontally (push), progress dots fill; the field follows the range being set in the range step. |
 | Logbook | Day headers stick with a blur; rows enter with `dsEntrance`; swipe actions unchanged. |
-| Insights | Cards use the draw-in rings (existing `drawsIn:`); 7-day columns grow from the baseline on first appearance. |
+| Insights | Cards use the draw-in rings (existing `drawsIn:`); 7-day columns grow from the baseline on first appearance. "Your usual day" (time-of-day pattern, `DayPatternView`, also on the Mac) is a still chart: worked out once per 15 minutes of new data off the main thread, never animated. |
 | Settings | Unchanged layout; section jumps scroll with `.standard`; rows a toggle reveals slide in. The target range editor is the range rail, with a marker at the latest fresh reading. |
 | Sharing / Follow | Follower cards get a small range field strip on their leading edge and a rail. |
 | Log sheet | The moment chips slide their selection; the saved toast rises (existing). |

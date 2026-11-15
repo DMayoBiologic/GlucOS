@@ -30,7 +30,7 @@ struct PhoneInsightsRow: View {
                         .frame(width: 40, height: 40)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text("Insights").dsFont(.headline).foregroundStyle(.primary)
-                        Text("Time in range, mornings and forecast accuracy")
+                        Text("Time in range, your usual day, mornings and forecast accuracy")
                             .dsFont(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -44,12 +44,12 @@ struct PhoneInsightsRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressScaleStyle())
-        .accessibilityHint("Opens time in range by day, mornings and forecast accuracy")
+        .accessibilityHint("Opens time in range by day, your usual day, mornings and forecast accuracy")
     }
 }
 
 /// How things have been going: time in range over 24 hours to 14 days, each of the last seven
-/// days side by side, what GlucOS has learnt about mornings, and how its forecasts turned out.
+/// days side by side, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
 struct PhoneInsightsView: View {
     @EnvironmentObject var store: GlucoseStore
 
@@ -58,8 +58,9 @@ struct PhoneInsightsView: View {
             VStack(spacing: DS.Space.lg) {
                 PhoneGlanceCard().dsEntrance(0)
                 PhoneDaysCard().dsEntrance(1)
-                PhoneMorningCard(outlook: store.outlook).dsEntrance(2)
-                PhoneForecastAccuracyCard(outlook: store.outlook).dsEntrance(3)
+                PhoneDayPatternCard().dsEntrance(2)
+                PhoneMorningCard(outlook: store.outlook).dsEntrance(3)
+                PhoneForecastAccuracyCard(outlook: store.outlook).dsEntrance(4)
                 Text("Mornings and forecast accuracy appear once GlucOS has enough wake-ups and forecasts to report on.")
                     .dsFont(.caption)
                     .foregroundStyle(.tertiary)
@@ -74,6 +75,17 @@ struct PhoneInsightsView: View {
         .background { PhoneBackdrop(tone: .neutral) }
         .navigationTitle("Insights")
         .navigationBarTitleDisplayMode(.large)
+    }
+}
+
+/// The usual day over the last 14 or 30 days, by time of day (`DayPatternView`).
+struct PhoneDayPatternCard: View {
+    @EnvironmentObject var store: GlucoseStore
+
+    var body: some View {
+        DayPatternView(readings: store.archive, unit: store.snapshot.unit,
+                       lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl)
+            .dsCard(.standard, padding: DS.Space.lg)
     }
 }
 
