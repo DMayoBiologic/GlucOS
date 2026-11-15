@@ -64,6 +64,12 @@ struct LogbookSection: View {
                 DSDivider()
             }
             if inRange.isEmpty && alerts.isEmpty {
+                if !showsAlerts && logbook.alerts.contains(where: { data.domain.contains($0.firedAt) }) {
+                    // Alerts are hidden: keep the way back to them.
+                    alertsToggle
+                        .padding(.horizontal, padding)
+                        .padding(.top, DS.Space.md + 2)
+                }
                 EmptyStateView(systemImage: "book", title: "Nothing Logged in This Period",
                                message: logbook.isEmpty
                                    ? "Log insulin, food and site changes with the + button or ⌘L. Save the things you log often as presets for one-tap entry next time."
@@ -115,6 +121,12 @@ struct LogbookSection: View {
         }
     }
 
+    private var alertsToggle: some View {
+        Toggle(isOn: $showsAlerts) { Label("Alerts", systemImage: "bell") }
+            .toggleStyle(.checkbox)
+            .help("Show low and high alerts, and what was tapped on them, between the entries")
+    }
+
     /// The selected rows that are entries. Alert rows are records of what the Mac or iPhone said,
     /// so they can't be edited, logged again or deleted.
     private var selectedEntries: Set<UUID> {
@@ -131,9 +143,7 @@ struct LogbookSection: View {
             TextField("Search", text: $search, prompt: Text("Search food, insulin or notes"))
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 260)
-            Toggle(isOn: $showsAlerts) { Label("Alerts", systemImage: "bell") }
-                .toggleStyle(.checkbox)
-                .help("Show low and high alerts, and what was tapped on them, between the entries")
+            alertsToggle
             Spacer()
             let chosen = selectedEntries
             if chosen.count == 1, let id = chosen.first, let entry = logbook.entry(id: id) {

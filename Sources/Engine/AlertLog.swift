@@ -140,12 +140,13 @@ struct AlertLogRow: Identifiable, Hashable {
         kind = group.map { $0.1 }.min { Self.rank($0) < Self.rank($1) } ?? group[0].1
         first = records[0].firedAt
         last = records[records.count - 1].firedAt
-        // The Mac and the iPhone each record the alert they showed: one alert, not two.
-        var times: [Date] = []
-        for r in records where !times.contains(where: { abs($0.timeIntervalSince(r.firedAt)) <= AlertLog.sameAlert * 2 }) {
-            times.append(r.firedAt)
+        // The Mac and the iPhone each record the alert they showed: one alert, not two. A forecast
+        // low and the real low moments later are two alerts, so the kind is part of the match.
+        var seen: [(String, Date)] = []
+        for r in records where !seen.contains(where: { $0.0 == r.kind && abs($0.1.timeIntervalSince(r.firedAt)) <= AlertLog.sameAlert * 2 }) {
+            seen.append((r.kind, r.firedAt))
         }
-        count = times.count
+        count = seen.count
         let tapped = records.filter { $0.response == .treating }.last ?? records.filter { $0.response == .snoozed }.last
         response = tapped?.response
         respondedAt = tapped?.respondedAt

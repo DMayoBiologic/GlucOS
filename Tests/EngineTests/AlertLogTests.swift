@@ -106,6 +106,16 @@ final class AlertLogTests: XCTestCase {
         XCTAssertEqual(rows[0].title, "Very high alert")
     }
 
+    func testAForecastAndTheRealLowMomentsLaterAreTwoAlerts() {
+        let rows = AlertLog.rows([
+            AlertRecord(kind: .predictedLow, firedAt: at(0)),
+            AlertRecord(kind: .low, firedAt: at(0.5)),
+        ])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].count, 2)
+        XCTAssertEqual(rows[0].repeatText, "Went off 2 times")
+    }
+
     func testTreatingWinsOverASnooze() {
         let rows = AlertLog.rows([
             AlertRecord(kind: .urgentLow, firedAt: at(0), response: .treating, respondedAt: at(1)),

@@ -94,6 +94,7 @@ final class LogbookStore: ObservableObject {
         bolusSettings = file.bolusSettings
         lowAnswers = file.lowAnswers ?? []
         alerts = file.alerts ?? []
+        pruneExpiredAlerts()
     }
 
     var isEmpty: Bool { doses.isEmpty && meals.isEmpty && siteChanges.isEmpty && contexts.isEmpty }
@@ -152,6 +153,13 @@ final class LogbookStore: ObservableObject {
                                          in: alerts) else { return }
         if let i = alerts.firstIndex(where: { $0.id == r.id }) { alerts[i] = r } else { alerts.append(r) }
         touch(r.id, kind: .alert)
+        pruneAlerts(now: now)
+        persist()
+    }
+
+    /// Lets go of alert records older than 90 days, on every device they synced to.
+    func pruneExpiredAlerts(now: Date = Date()) {
+        guard !AlertLog.expired(alerts, now: now).isEmpty else { return }
         pruneAlerts(now: now)
         persist()
     }
@@ -500,6 +508,8 @@ final class LogbookStore: ObservableObject {
             if c.bolusSettings != bolusSettings { bolusSettings = c.bolusSettings }
             if c.lowAnswers != lowAnswers { lowAnswers = c.lowAnswers }
             if c.alerts != alerts { alerts = c.alerts }
+            // Another device may have sent records this one would already have let go.
+            pruneAlerts(now: Date())
             persist(notify: false)
             discoverInsulins()
         } else {

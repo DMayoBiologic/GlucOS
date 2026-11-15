@@ -75,8 +75,15 @@ final class AlertManager {
         if let category = notice.kind.actionCategory { content.categoryIdentifier = category }
         content.userInfo = ["kind": notice.kind.rawValue]
         let req = UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(req)
-        AlertLogRecorder.shared.fired(notice.kind)
+        // Only an alert that was actually shown goes in the logbook.
+        let kind = notice.kind, time = Date()
+        UNUserNotificationCenter.current().add(req) { error in
+            guard error == nil else { return }
+            Task { @MainActor in
+                guard await AlertManager.notificationsAllowed() == true else { return }
+                AlertLogRecorder.shared.fired(kind, at: time)
+            }
+        }
     }
 }
 
@@ -116,6 +123,7 @@ final class AlertLogRecorder {
     /// The user's own alerts still in Notification Center, which arrived as pushes while GlucOS
     /// wasn't running. Already recorded ones are skipped.
     func collectDelivered() async {
+        logbook?.pruneExpiredAlerts()
         let shown = await UNUserNotificationCenter.current().deliveredNotifications()
         for n in shown { arrived(userInfo: n.request.content.userInfo, at: n.date) }
     }
