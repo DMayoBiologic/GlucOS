@@ -380,13 +380,14 @@ Onboarding steps push horizontally with progress dots; Settings unchanged; log s
 
 | Widget | Design |
 | --- | --- |
+| Glucose (all sizes) | On the range field (still, no drift), grey once stale; urgent low adds the 2 pt crimson border inside the widget's edge. The range pill pushes in the direction of travel between timelines (a fade under Reduce Motion), and a stale value gets the drawn strike line in every rendering mode. |
 | Glucose small | Value + needle, rail along the bottom, age timer. |
 | Glucose medium | Value + needle + rail on the left, chart on the right, forecast note and meter in the footer. |
-| Glucose large / extra large | As medium with a taller chart and the On board line. |
-| Time in Range | Unchanged (rings and bars), numbers roll between timelines. |
-| Sensor | Unchanged, days left as a ring. |
+| Glucose large / extra large | As medium with a taller chart and the On board line; the meter sits beside the chart's caption. |
+| Time in Range | Unchanged (rings and bars), numbers roll and bars grow between timelines. |
+| Sensor | Unchanged, days left as a ring; the count rolls down. |
 | Lock Screen circular | Value in a gauge ring whose fill is the freshness (live), trend arrow under the value. |
-| Lock Screen rectangular | Value + arrow + delta, a 3 pt rail, age timer. |
+| Lock Screen rectangular | Value + arrow + delta, a 3 pt rail, age timer (live, "Stale" in words once stale). |
 | Lock Screen inline | "6.2 ↗ · 1 min". |
 
 Widgets in accented or vibrant rendering modes drop the field and keep the rail as monochrome.
@@ -409,9 +410,9 @@ Widgets in accented or vibrant rendering modes drop the field and keep the rail 
 | 3 | Mac popover and dashboard heroes on the range field with the rail; sliding chart hours; rail in Home Screen / desktop widgets; freshness ring and rail on Lock Screen accessories | #57 | merged |
 | 4 | Directional range sweep (`RangeField(range:)`) and push-swapping range pill (`RangeBadgeSwap`); strike line drawing in (`.staleStrike`); Mac dashboard sidebar's sliding selection, chart wipes (`.chartWipe`) and rolling headline tiles; onboarding push with sliding progress dots | #60 | merged |
 | 5 | iPhone motion: log bar bounce after a save (§7.1); Setup steps push in the direction of travel with filling progress and a field that follows the range being set; Logbook sticky day headers and row entrances; Insights columns growing from the baseline; follower cards' range strip and rail; Sensor scan ring pulse and value roll-in (§7.2) | #59 | merged |
-
 | 6 | iPhone stage adopts the directional range sweep and the drawn strike line on the hero value and the collapsed title | #64 | merged |
 | 7 | Sharing surfaces: the web view behind share links (`web/share`) and the Messages extension's bubble, tapped card, composer and bubble picture (`ShareStage`) on the range field with the needle, rail and forecast ghost, forecast note, freshness meter and drawn strike line | #67 | merged |
+| 8 | Widgets finished to §9: the range field and urgent-low border behind the Glucose widget, direction-aware pill swap, drawn strike line, live age timer, forecast note and freshness meter footer; rolling figures and growing bars in Time in Range and Sensor; live age on the Lock Screen rectangular | this PR | open |
 
 Every part of this design is now built.
 

@@ -35,6 +35,37 @@ struct WidgetBackdrop: View {
     }
 }
 
+/// The Glucose widget's background: the Signal range field (docs/Redesign.md §9), still, in the
+/// reading's colour. Grey once the reading is stale, and plain in the accented and vibrant modes,
+/// where colour is gone anyway. An urgent low adds a 2 pt crimson border inside the widget's edge
+/// (§3.1), so it reads without colour vision too, beside the pill's symbol and words.
+///
+/// Nothing drifts here: widgets run no timers. Between two timeline entries the system cross-fades
+/// the field to the new colour, which is the still-frame version of the sweep.
+struct SignalWidgetBackdrop: View {
+    let entry: GlucoseEntry
+    @Environment(\.widgetRenderingMode) private var mode
+
+    private var fresh: Bool { entry.freshness == .fresh }
+
+    var body: some View {
+        ZStack {
+            Palette.windowBackground
+            if mode.isFullColor {
+                RangeField(tone: entry.tone, intensity: fresh ? 0.95 : 0.6, range: fresh ? entry.snapshot.range : nil)
+            }
+        }
+        .overlay {
+            if fresh, entry.snapshot.range == .urgentLow {
+                ContainerRelativeShape()
+                    .strokeBorder(GlucoseRange.urgentLow.tint, lineWidth: 2)
+                    .widgetAccentable()
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
 // MARK: - Status pill
 
 /// "In range", "Low", "Stale"… with the matching icon. Always legible without colour.
@@ -58,6 +89,17 @@ struct StatusPill: View {
         }
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// A new range pushes the pill in the direction of travel (§4.2): up from below when the
+    /// reading rose into it, down from above when it fell. The system plays it between two timeline
+    /// entries; a cross-fade under Reduce Motion.
+    private var swap: AnyTransition {
+        if reduceMotion { return .opacity }
+        let falling = (entry.snapshot.deltaMgdl ?? 0) < 0
+        return .push(from: falling ? .top : .bottom)
+    }
+
     var body: some View {
         let c = content
         let full = mode.isFullColor
@@ -69,6 +111,8 @@ struct StatusPill: View {
                 .textCase(.uppercase)
                 .tracking(0.3)
         }
+        .id(c.label)
+        .transition(swap)
         .font(.system(size: compact ? 9.5 : 10.5, weight: .bold))
         .foregroundStyle(full ? AnyShapeStyle(entry.tint) : AnyShapeStyle(HierarchicalShapeStyle.primary))
         .lineLimit(1)
@@ -77,6 +121,8 @@ struct StatusPill: View {
         .padding(.vertical, 3)
         .background(full ? entry.tint.opacity(0.15) : Color.primary.opacity(0.1), in: Capsule())
         .fixedSize(horizontal: false, vertical: true)
+        .clipShape(Capsule())
+        .dsAnimation(.standard, value: c.label)
         .accessibilityHidden(true)
     }
 }
@@ -106,9 +152,11 @@ struct HeroValue: View {
             Group {
                 if let cur = s.current, entry.freshness.showsValue {
                     Text(s.unit.format(mgdl: cur.mgdl))
-                        .strikethrough(entry.freshness == .stale && !mode.isFullColor, color: .secondary)
                         .foregroundStyle(valueStyle)
                         .contentTransition(.numericText(value: cur.mgdl))
+                        // The same drawn line as the apps and the Live Activity (§4.3), in every
+                        // rendering mode: stale is never only a colour.
+                        .staleStrike(entry.freshness == .stale, thickness: max(2, size * 0.05))
                         .widgetAccentable()
                 } else {
                     Text("––").foregroundStyle(.tertiary)
@@ -140,6 +188,9 @@ struct HeroValue: View {
 struct DetailLine: View {
     let entry: GlucoseEntry
     var showsTrendWord = true
+    /// The age as a ticking timer (`ReadingAge`) instead of "2 min ago", which only changes when
+    /// the timeline does.
+    var live = true
 
     var body: some View {
         let s = entry.snapshot
@@ -154,7 +205,7 @@ struct DetailLine: View {
                         if let d = s.deltaMgdl {
                             Text(s.unit.formatDelta(mgdl: d)).monospacedDigit().foregroundStyle(.secondary)
                         }
-                        AgeLabel(entry: entry)
+                        AgeLabel(entry: entry, live: live)
                     }
                 case .expired, .none:
                     HStack(spacing: 3) {
@@ -175,18 +226,63 @@ struct DetailLine: View {
     }
 }
 
+/// How old the reading is. Live: a count-up timer the system ticks between timeline entries
+/// (`ReadingAge`, §9 "age timer"). Otherwise the age at the entry's date, in words.
 struct AgeLabel: View {
     let entry: GlucoseEntry
+    var live = true
 
     var body: some View {
         if let cur = entry.snapshot.current {
             let stale = entry.freshness != .fresh
-            HStack(spacing: 2) {
-                if stale { Image(systemName: "exclamationmark.triangle.fill").imageScale(.small) }
-                Text(Format.age(cur.age(at: entry.date)))
+            if live {
+                ReadingAge(readingDate: cur.timestamp, stale: stale, timerWidth: 36)
+            } else {
+                words(cur, stale: stale)
             }
-            .foregroundStyle(stale ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(HierarchicalShapeStyle.secondary))
-            .monospacedDigit()
+        }
+    }
+
+    private func words(_ cur: GlucoseReading, stale: Bool) -> some View {
+        HStack(spacing: 2) {
+            if stale { Image(systemName: "exclamationmark.triangle.fill").imageScale(.small) }
+            Text(Format.age(cur.age(at: entry.date)))
+        }
+        .foregroundStyle(stale ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(HierarchicalShapeStyle.secondary))
+        .monospacedDigit()
+    }
+}
+
+// MARK: - Footer
+
+/// The forecast note and the freshness meter on one line (§9, medium and up): "≈ 6.8 in 30 min"
+/// or the amber "Low ≈ 20 min" on the left, the meter filling over the reading's life on the
+/// right. The meter fills live between timeline entries; the note only while the reading is fresh.
+struct WidgetSignalFooter: View {
+    let entry: GlucoseEntry
+    var meterWidth: CGFloat = 36
+
+    var body: some View {
+        let s = entry.snapshot
+        if let cur = s.current, entry.freshness.showsValue {
+            let fresh = entry.freshness == .fresh
+            let outlook = fresh ? s.currentOutlook(at: entry.date) : nil
+            HStack(spacing: 6) {
+                if let outlook {
+                    ForecastNote(unit: s.unit,
+                                 headline: OutlookFormat.headlineSample(outlook).map { (minutes: $0.minutes, mgdl: $0.sample.mgdl) },
+                                 lowExpectedAt: outlook.lowExpectedAt, readingDate: cur.timestamp, compact: true)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .minimumScaleFactor(0.8)
+                        .id(outlook.lowExpectedAt == nil ? "forecast" : "low")
+                        .transition(.opacity)
+                }
+                Spacer(minLength: 0)
+                FreshnessMeter(readingDate: cur.timestamp, stale: !fresh, tint: entry.tint, width: meterWidth)
+                    .widgetAccentable()
+            }
+            .dsAnimation(.standard, value: outlook?.lowExpectedAt == nil)
         }
     }
 }
@@ -256,6 +352,8 @@ struct WidgetStat: View {
     let value: String
     var dot: Color? = nil
     var valueSize: CGFloat = 14
+    /// The number behind `value`, so it rolls to the next timeline's figure instead of swapping.
+    var numeric: Double? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -271,6 +369,7 @@ struct WidgetStat: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
+                .contentTransition(.numericText(value: numeric ?? 0))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)

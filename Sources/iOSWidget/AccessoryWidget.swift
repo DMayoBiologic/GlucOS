@@ -116,8 +116,20 @@ struct AccessoryGlucoseView: View {
                                   thickness: 3, monochrome: true, unit: s.unit)
                             .frame(maxWidth: 64)
                     }
-                    Text(freshness == .fresh ? age : "Stale · \(age)").font(.caption2).foregroundStyle(.secondary)
+                    if let c = s.current, freshness.showsValue {
+                        // The age ticks live between timeline reloads (§9 "age timer"). Stale says
+                        // so in words too, since the Lock Screen has no colour to carry it.
+                        HStack(spacing: 3) {
+                            if freshness != .fresh { Text("Stale") }
+                            ReadingAge(readingDate: c.timestamp, stale: freshness != .fresh, timerWidth: 34)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    } else {
+                        Text(age).font(.caption2).foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
