@@ -35,7 +35,7 @@ final class DoseQuestion: ObservableObject {
 
     /// The notification's buttons. One tap each, no unlocking needed; clearing the notification
     /// counts as dismissing the question.
-    static var notificationCategory: UNNotificationCategory {
+    nonisolated static var notificationCategory: UNNotificationCategory {
         let meal = UNNotificationAction(identifier: mealAction, title: "Meal", options: [],
                                         icon: UNNotificationActionIcon(systemImageName: "fork.knife"))
         let correction = UNNotificationAction(identifier: correctionAction, title: "Correction", options: [],
