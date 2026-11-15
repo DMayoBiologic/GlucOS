@@ -41,6 +41,11 @@ alert came from the relay as a push or from the device itself.
 - It also quiets that alert while the treatment works: 15 minutes for a low (the usual recheck
   after fast carbs), 30 for a high. Never an urgent low.
 
+## In the Logbook
+
+Each low or high alert, and which button was tapped on it, also shows as a quiet row in the
+Logbook on both devices. See docs/AlertLog.md.
+
 ## Where it lives
 
 - Rules: `Sources/Core/AlertSnooze.swift` (tests `AlertSnoozeTests`), relay copy in

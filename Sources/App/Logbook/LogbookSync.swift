@@ -67,6 +67,9 @@ enum LogbookRecordKind: String, CaseIterable {
     case bolusSettings
     /// "No" or a dismissal for "Did you treat this low?" (`LowAnswer`), so no device asks again.
     case lowAnswer
+    /// A low or high alert that went off and what was tapped on it (`AlertRecord`). Shown in the
+    /// Logbook only: never a treatment, and not one of the kinds a follower sees.
+    case alert
 }
 
 /// One entry as the server keeps it.
@@ -127,6 +130,7 @@ struct LogbookContents: Equatable {
     var foods: [SavedFood] = []
     var bolusSettings: BolusSettings?
     var lowAnswers: [LowAnswer] = []
+    var alerts: [AlertRecord] = []
 
     var allIDs: [(UUID, LogbookRecordKind)] {
         insulins.map { ($0.id, LogbookRecordKind.insulin) } +
@@ -134,6 +138,7 @@ struct LogbookContents: Equatable {
             + contexts.map { ($0.id, .context) } + presets.map { ($0.id, .preset) } + foods.map { ($0.id, .food) }
             + (bolusSettings == nil ? [] : [(BolusSettings.recordID, .bolusSettings)])
             + lowAnswers.map { ($0.id, .lowAnswer) }
+            + alerts.map { ($0.id, .alert) }
     }
 }
 
@@ -275,6 +280,7 @@ enum LogbookMerge {
         case .food: return c.foods.first { $0.id == id }.flatMap(json)
         case .bolusSettings: return id == BolusSettings.recordID ? c.bolusSettings.flatMap(json) : nil
         case .lowAnswer: return c.lowAnswers.first { $0.id == id }.flatMap(json)
+        case .alert: return c.alerts.first { $0.id == id }.flatMap(json)
         case nil: return nil
         }
     }
@@ -321,6 +327,9 @@ enum LogbookMerge {
         case .lowAnswer:
             guard let a = decode(LowAnswer.self, from: payload) else { return false }
             if let i = c.lowAnswers.firstIndex(where: { $0.id == a.id }) { c.lowAnswers[i] = a } else { c.lowAnswers.append(a) }
+        case .alert:
+            guard let a = decode(AlertRecord.self, from: payload) else { return false }
+            if let i = c.alerts.firstIndex(where: { $0.id == a.id }) { c.alerts[i] = a } else { c.alerts.append(a) }
         }
         return true
     }
@@ -332,7 +341,7 @@ enum LogbookMerge {
             return true
         }
         let before = c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count + c.foods.count
-            + c.lowAnswers.count
+            + c.lowAnswers.count + c.alerts.count
         switch kind {
         case .insulin:
             let had = c.insulins.count
@@ -345,10 +354,11 @@ enum LogbookMerge {
         case .preset: c.presets.removeAll { $0.id == id }
         case .food: c.foods.removeAll { $0.id == id }
         case .lowAnswer: c.lowAnswers.removeAll { $0.id == id }
+        case .alert: c.alerts.removeAll { $0.id == id }
         case .bolusSettings: break
         }
         return before != c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count + c.foods.count
-            + c.lowAnswers.count
+            + c.lowAnswers.count + c.alerts.count
     }
 
     /// Replaces the entry with the same id, keeping the list oldest → newest.
