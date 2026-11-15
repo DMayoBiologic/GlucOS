@@ -168,15 +168,15 @@ struct PopoverHero: View {
     }
 }
 
-/// "Updated 32s ago · 3:41 pm" over a hairline meter that fills as the reading ages toward stale.
-/// Ticks every second on its own, so the rest of the popover doesn't re-render with it.
+/// "Updated 32s ago · 3:41 pm" over the shared `FreshnessMeter`, which fills from the reading to
+/// the moment it goes stale (docs/Redesign.md §5.4, §8.2) and is drawn full and amber once stale.
+/// The label ticks every second on its own, so the rest of the popover doesn't re-render with it.
 private struct FreshnessRow: View {
     let reading: GlucoseReading
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let age = reading.age(at: context.date)
-            let progress = min(1, max(0.02, age / GlucoseSnapshot.staleAfter))
             let stale = age > GlucoseSnapshot.staleAfter
             let nearlyStale = !stale && age > GlucoseSnapshot.staleAfter * 0.66
             let warning = Tone.warning
@@ -186,7 +186,7 @@ private struct FreshnessRow: View {
                     if stale {
                         Image(systemName: "exclamationmark.triangle.fill").imageScale(.small)
                     } else {
-                        LiveDot(live: true, size: 6).padding(.trailing, 2)
+                        Image(systemName: "clock").imageScale(.small)
                     }
                     Text(stale ? "Last reading \(PopoverFormat.ageAgo(age))" : "Updated \(PopoverFormat.ageAgo(age))")
                         .monospacedDigit()
@@ -197,18 +197,12 @@ private struct FreshnessRow: View {
                 .dsFont(.label)
                 .foregroundStyle(color)
 
-                GeometryReader { geo in
-                    Capsule()
-                        .fill(Color.primary.opacity(0.08))
-                        .overlay(alignment: .leading) {
-                            Capsule()
-                                .fill(stale ? warning.color : (nearlyStale ? warning.color.opacity(0.8) : Color.secondary.opacity(0.55)))
-                                .frame(width: geo.size.width * progress)
-                        }
-                }
-                .frame(height: 3)
-                .help("Readings older than \(Int(GlucoseSnapshot.staleAfter / 60)) minutes are treated as stale")
+                FreshnessMeter(readingDate: reading.timestamp, stale: stale,
+                               tint: nearlyStale ? warning.color.opacity(0.8) : Palette.neutral,
+                               width: nil)
+                    .help("Readings older than \(Int(GlucoseSnapshot.staleAfter / 60)) minutes are treated as stale")
             }
+            .dsAnimation(.ambient, value: stale)
         }
     }
 }

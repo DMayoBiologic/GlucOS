@@ -74,11 +74,13 @@ struct MenuBarView: View {
             if s.current != nil {
                 PopoverHero(onCopy: copyReading, onRefresh: refresh, onOpenDashboard: showDashboard)
                     .accessibilitySortPriority(4)
+                    .dsEntrance(0)
             } else {
                 emptyState
             }
             PopoverNotices(notices: notices)
                 .accessibilitySortPriority(3)
+                .dsEntrance(1)
             if PopoverDosePrompt.isRelevant(logbook: logbook) {
                 PopoverDosePrompt()
             }
@@ -87,14 +89,18 @@ struct MenuBarView: View {
             }
             if s.current != nil {
                 PopoverChartCard(showsShortcuts: commandKey.isHeld)
+                    .dsEntrance(2)
                 PopoverSummaryCard(expanded: detailsExpanded, showsShortcuts: commandKey.isHeld,
                                    onToggleDetails: toggleDetails, onOpenDashboard: showDashboard)
+                    .dsEntrance(3)
             }
             PopoverToolbar(showsShortcuts: commandKey.isHeld,
                            onLog: showLogSheet, onRefresh: refresh, onDashboard: showDashboard,
                            onSettings: showSettings, onCopy: copyReading)
                 .padding(.top, 2)
+                .dsEntrance(4)
             PopoverFooter()
+                .dsEntrance(5)
         }
         .padding(PopoverLayout.outerPadding)
         // Observed here, on a view that's always present, so the first notice to appear while
