@@ -2,7 +2,7 @@ import XCTest
 @testable import GlucOSEngine
 
 /// What the glucose chart shows and plots while its span changes and readings arrive.
-final class ChartWindowTests: XCTestCase {
+final class ChartSpanTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1_800_000_000)
 
     /// One reading every 5 minutes for `hours`.
@@ -15,7 +15,7 @@ final class ChartWindowTests: XCTestCase {
     func testAxisCoversTheSpanBackFromTheNewestReading() throws {
         let r = readings(hours: 24)
         let last = r.last!.timestamp
-        let w = try XCTUnwrap(ChartWindow(readings: r, domainHours: 3, dataHours: 3))
+        let w = try XCTUnwrap(ChartSpan(readings: r, domainHours: 3, dataHours: 3))
         XCTAssertEqual(w.domain.lowerBound, last.addingTimeInterval(-3 * 3600))
         XCTAssertEqual(w.domain.upperBound, last)
         XCTAssertEqual(w.visible.count, 37)          // 3 h of 5-minute readings, both ends included
@@ -24,16 +24,16 @@ final class ChartWindowTests: XCTestCase {
 
     func testOneLeadOfReadingsStaysPlottedPastTheLeftEdge() throws {
         let r = readings(hours: 24)
-        let w = try XCTUnwrap(ChartWindow(readings: r, domainHours: 3, dataHours: 3))
+        let w = try XCTUnwrap(ChartSpan(readings: r, domainHours: 3, dataHours: 3))
         let past = w.plotted.filter { $0.timestamp < w.domain.lowerBound }
         XCTAssertEqual(past.count, 2)                // 10 minutes of lead
-        let still = try XCTUnwrap(ChartWindow(readings: r, domainHours: 3, dataHours: 3, lead: 0))
+        let still = try XCTUnwrap(ChartSpan(readings: r, domainHours: 3, dataHours: 3, lead: 0))
         XCTAssertEqual(Array(still.plotted), Array(still.visible))
     }
 
     func testShortHistoryStartsAtTheFirstReadingAsBefore() throws {
         let r = readings(hours: 2)
-        let w = try XCTUnwrap(ChartWindow(readings: r, domainHours: 12, dataHours: 12))
+        let w = try XCTUnwrap(ChartSpan(readings: r, domainHours: 12, dataHours: 12))
         XCTAssertEqual(w.domain.lowerBound, r.first!.timestamp)
         XCTAssertEqual(w.visible.count, r.count)
     }
@@ -41,21 +41,21 @@ final class ChartWindowTests: XCTestCase {
     func testAxisReachesTheForecastEnd() throws {
         let r = readings(hours: 6)
         let end = r.last!.timestamp.addingTimeInterval(3600)
-        let w = try XCTUnwrap(ChartWindow(readings: r, domainHours: 3, dataHours: 3, forecastEnd: end))
+        let w = try XCTUnwrap(ChartSpan(readings: r, domainHours: 3, dataHours: 3, forecastEnd: end))
         XCTAssertEqual(w.domain.upperBound, end)
     }
 
     func testNoReadingsNoWindow() {
-        XCTAssertNil(ChartWindow(readings: [], domainHours: 3, dataHours: 3))
+        XCTAssertNil(ChartSpan(readings: [], domainHours: 3, dataHours: 3))
     }
 
     func testWideningPlotsTheWiderDataBeforeTheAxisMoves() throws {
         let r = readings(hours: 24)
-        var t = ChartRangeTransition(hours: 3)
+        var t = ChartSpanTransition(hours: 3)
         t.prepare(for: 24)
         XCTAssertEqual(t.domainHours, 3)
         XCTAssertEqual(t.dataHours, 24)
-        let before = try XCTUnwrap(ChartWindow(readings: r, domainHours: t.domainHours, dataHours: t.dataHours))
+        let before = try XCTUnwrap(ChartSpan(readings: r, domainHours: t.domainHours, dataHours: t.dataHours))
         XCTAssertEqual(before.visible.count, 37)     // nothing new on screen yet
         XCTAssertEqual(before.plotted.count, r.count) // but already plotted, off the left edge
         t.move(to: 24)
@@ -65,7 +65,7 @@ final class ChartWindowTests: XCTestCase {
     }
 
     func testNarrowingKeepsTheDataUntilTheAxisHasMoved() {
-        var t = ChartRangeTransition(hours: 24)
+        var t = ChartSpanTransition(hours: 24)
         t.prepare(for: 3)
         let g = t.generation
         t.move(to: 3)
@@ -76,7 +76,7 @@ final class ChartWindowTests: XCTestCase {
     }
 
     func testAnOverlappingChangeIsNotTrimmedByTheEarlierOnesEnd() {
-        var t = ChartRangeTransition(hours: 24)
+        var t = ChartSpanTransition(hours: 24)
         t.prepare(for: 3)
         let first = t.generation
         t.move(to: 3)
@@ -89,7 +89,7 @@ final class ChartWindowTests: XCTestCase {
     }
 
     func testReduceMotionJumps() {
-        var t = ChartRangeTransition(hours: 3)
+        var t = ChartSpanTransition(hours: 3)
         t.jump(to: 24)
         XCTAssertEqual(t.domainHours, 24)
         XCTAssertEqual(t.dataHours, 24)

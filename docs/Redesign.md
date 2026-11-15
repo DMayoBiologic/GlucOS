@@ -113,10 +113,10 @@ refills on its own). At t = 0–0.9 s one soft ripple leaves the hero (existing 
 chart's trace extends and its end dot pulses once (existing `TracePulse`).
 
 The main glucose chart (`GlucoseChart`, iPhone home, follower view, Mac popover and Outlook) sets
-both axes itself (`ChartWindow`) and animates the axes, not the data. A new reading slides the
+both axes itself (`ChartSpan`) and animates the axes, not the data. A new reading slides the
 time axis along by one reading in one `.standard` movement, and the oldest reading slides off the
 left edge (a 10-minute lead stays plotted past it, masked) instead of vanishing inside the chart.
-Changing 3h / 6h / 12h / 24h is three steps (`ChartRangeTransition`): plot what both spans need
+Changing 3h / 6h / 12h / 24h is three steps (`ChartSpanTransition`): plot what both spans need
 (the extra readings are off the left edge, unseen), move the time and glucose axes together in one
 `.standard` movement, then drop what's off screen once it has finished. So the marks already on
 screen stretch or squeeze to the new scale instead of fading out and in. Under Reduce Motion the

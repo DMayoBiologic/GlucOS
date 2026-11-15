@@ -30,7 +30,7 @@ let package = Package(
                 "Shared/GlucoseActivityState.swift",
                 "Shared/ClockLabel.swift",
                 "Shared/ChartSummary.swift",
-                "Shared/ChartWindow.swift",
+                "Shared/ChartSpan.swift",
                 "Shared/MenuBarGlance.swift",
                 "Core/RelayProtocol.swift",
                 "Core/RelayRetry.swift",

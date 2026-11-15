@@ -33,8 +33,8 @@ struct GlucoseChart: View {
 
     @State private var hoverDate: Date?
     /// The span on screen while `hours` changes (app screens only; `nil` follows `hours`, which is
-    /// all a widget ever does since it never runs `onAppear`). See `ChartRangeTransition`.
-    @State private var range: ChartRangeTransition?
+    /// all a widget ever does since it never runs `onAppear`). See `ChartSpanTransition`.
+    @State private var range: ChartSpanTransition?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The real reading nearest the pointer. Only actual readings are ever shown, never an
@@ -48,12 +48,12 @@ struct GlucoseChart: View {
     }
 
     /// Readings kept past the left edge so they slide off it. Only charts that move need them.
-    private var lead: TimeInterval { interactive ? ChartWindow.lead : 0 }
+    private var lead: TimeInterval { interactive ? ChartSpan.lead : 0 }
 
     /// What's on screen and what's drawn, for the span currently shown.
-    private var chartWindow: ChartWindow? {
-        let r = range ?? ChartRangeTransition(hours: hours)
-        return ChartWindow(readings: readings, domainHours: r.domainHours, dataHours: r.dataHours,
+    private var chartWindow: ChartSpan? {
+        let r = range ?? ChartSpanTransition(hours: hours)
+        return ChartSpan(readings: readings, domainHours: r.domainHours, dataHours: r.dataHours,
                            forecastEnd: forecast.last?.date, lead: lead)
     }
 
@@ -76,7 +76,7 @@ struct GlucoseChart: View {
     /// A new span: plot what both ends of the move need, move the axis, then drop what's off
     /// screen. Under Reduce Motion it just switches.
     private func changeRange(from old: Double, to new: Double) {
-        var r = range ?? ChartRangeTransition(hours: old)
+        var r = range ?? ChartSpanTransition(hours: old)
         guard interactive, !reduceMotion else {
             r.jump(to: new)
             withTransaction(Transaction(animation: nil)) { range = r }
@@ -106,7 +106,7 @@ struct GlucoseChart: View {
         let plotted = Array(cw?.plotted ?? [])
         // On screen at the span being shown, plus the lead past the left edge: not the extra
         // data plotted only while the span changes.
-        let onScreen = ChartWindow(readings: readings, domainHours: (range ?? .init(hours: hours)).domainHours,
+        let onScreen = ChartSpan(readings: readings, domainHours: (range ?? .init(hours: hours)).domainHours,
                                    dataHours: 0, forecastEnd: forecast.last?.date, lead: lead)?.plotted ?? []
         let yd = yDomain(onScreen)
         let floor = yd.lowerBound
@@ -290,7 +290,7 @@ struct GlucoseChart: View {
                 TracePulse(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl), tint: currentTint)
             }
         }
-        .onAppear { if interactive, range == nil { range = ChartRangeTransition(hours: hours) } }
+        .onAppear { if interactive, range == nil { range = ChartSpanTransition(hours: hours) } }
         .onChange(of: hours) { old, new in changeRange(from: old, to: new) }
         .hoverSelection(interactive, $hoverDate)
         .scrubFeedback(interactive, trigger: hovered?.timestamp)

@@ -8,7 +8,7 @@ import Foundation
 /// movement is already plotted (the ones off the left edge are masked). So switching 3h / 6h /
 /// 12h / 24h, or a new reading arriving, slides and rescales the marks that are already there
 /// instead of fading one set of marks out and another in.
-struct ChartWindow: Equatable {
+struct ChartSpan: Equatable {
     /// The time axis, oldest to newest (the forecast's end when there is one).
     let domain: ClosedRange<Date>
     /// The readings inside the axis: what the chart describes, summarises and lets you inspect.
@@ -29,7 +29,7 @@ struct ChartWindow: Equatable {
     ///   - forecastEnd: the last forecast sample's time, which the axis reaches to.
     ///   - lead: readings kept past the left edge. 0 for charts that never animate (widgets).
     init?(readings: [GlucoseReading], domainHours: Double, dataHours: Double,
-          forecastEnd: Date? = nil, lead: TimeInterval = ChartWindow.lead) {
+          forecastEnd: Date? = nil, lead: TimeInterval = ChartSpan.lead) {
         guard let first = readings.first, let last = readings.last else { return nil }
         let anchor = last.timestamp
         // Never earlier than the first reading, so a short history fills the width as it always has.
@@ -57,7 +57,7 @@ struct ChartWindow: Equatable {
 /// wider data first (off the left edge, unseen) and then moves the axis; a narrowing one moves the
 /// axis first and drops the extra data once the movement has finished. Either way the axis is
 /// the only thing that animates.
-struct ChartRangeTransition: Equatable {
+struct ChartSpanTransition: Equatable {
     /// The span the axis shows.
     var domainHours: Double
     /// The span that is plotted.
