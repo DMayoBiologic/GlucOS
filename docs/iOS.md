@@ -153,6 +153,8 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **New readings move, they don't jump.** On the Live Activity, Dynamic Island and Lock Screen
   widgets the number counts over, the range colour cross-fades and the trend arrow turns. With
   Reduce Motion on, the number just fades in place. Nothing loops, so it costs no extra battery.
+- **Press and drag the chart** to read any reading and its time. A light tick marks crossing your
+  low or high line and passing anything you logged; let go and the readout glides back to now.
 - **Two followers, one account.** The Mac and the relay each poll LibreLinkUp once a minute.
 - **Without the relay** the app still works while it's open, and the Lock Screen card updates
   whenever iOS gives it background time.
