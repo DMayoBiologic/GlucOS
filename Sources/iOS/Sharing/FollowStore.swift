@@ -252,6 +252,10 @@ final class FollowStore: ObservableObject {
         card.checkIn = checkIns[follow.id]
         let content = ActivityContent(state: card, staleDate: card.staleDate,
                                       relevanceScore: card.range == .inRange ? 40 : 90)
+        // Cards iOS ended at its 8-hour limit linger, frozen, for up to 4 hours: take them off.
+        for ended in GlucoseActivity.activities where ended.attributes.followID == follow.id && ended.activityState == .ended {
+            await ended.end(nil, dismissalPolicy: .immediate)
+        }
         let running = activities(for: follow.id)
         for extra in running.dropLast() { await extra.end(nil, dismissalPolicy: .immediate) }
         if let a = running.last {
@@ -311,6 +315,7 @@ final class FollowStore: ObservableObject {
                 var r = FollowRegistration(installation: self.installation)
                 r.endedActivityID = id
                 await self.send(r, to: followID)
+                if state == .ended { await activity.end(nil, dismissalPolicy: .immediate) }
             }
         }
     }

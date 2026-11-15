@@ -19,7 +19,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.3.0";
+export const version = "2.3.1";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -588,11 +588,15 @@ export class RelayEngine {
   private async endActivity(row: RelayRow, now: number) {
     const a = row.activity;
     if (!a) return;
+    // iOS ignores an end push without a content-state, which left the old card on the Lock
+    // Screen after every 8-hour rotation (frozen once iOS ended it, and kept for up to 4 more hours).
+    const finalCard = (row.work.lastCard?.activityId === a.id ? row.work.lastCard.card : null) ??
+      row.work.latestCard?.card ?? null;
     row.activity = null;
     row.work.lastCard = null;
     const result = await this.push(row, {
       deviceToken: a.token, type: "liveactivity", topic: this.config.bundleId, priority: 10,
-      payload: payloads.activity("end", null, now), sandbox: row.prefs.sandbox,
+      payload: payloads.activity("end", finalCard, now), sandbox: row.prefs.sandbox,
     }, () => {});
     // Only a card that's really gone is retired. If the end didn't go through it's still on the
     // Lock Screen, and the phone may keep it and register it again.
@@ -786,7 +790,8 @@ export class RelayEngine {
     if (!this.sender || !f.activityToken) return;
     await this.sender.send({
       deviceToken: f.activityToken, type: "liveactivity", topic: this.config.bundleId, priority: 10,
-      payload: payloads.activity("end", null, now), sandbox: f.sandbox,
+      // With a content-state, or iOS ignores the end (see endActivity).
+      payload: payloads.activity("end", f.lastCard, now), sandbox: f.sandbox,
     });
   }
 
