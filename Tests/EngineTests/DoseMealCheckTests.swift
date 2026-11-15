@@ -130,6 +130,18 @@ final class DoseMealCheckTests: XCTestCase {
         XCTAssertEqual(f.basis, .trend)
     }
 
+    func testForecastUsesTheUnloggedMealTimesItIsGiven() throws {
+        // OutlookEngine works these out from every meal entry before repeats are removed, so a
+        // meal logged twice (one copy close to the dose) still explains a dose marked as for a meal.
+        let marked = dose(minutesAgo: 90, units: 6, purpose: .meal)
+        let r = readings(endingAt: now, minutes: 30) { _ in 160 }
+        var input = ForecastInputs(readings: GlucoseSeries(r), doses: [marked], meals: [], contexts: [],
+                                   profile: learned, now: now)
+        input.unloggedMealTimes = []
+        guard case .success(let f) = GlucoseForecaster.forecast(input) else { return XCTFail("no forecast") }
+        XCTAssertFalse(f.limitations.contains(.uncountedFood))
+    }
+
     func testOnBoardFlagsAMealDoseAsUncountedFood() {
         let marked = dose(minutesAgo: 60, purpose: .meal)
         XCTAssertTrue(OnBoardNow(doses: [marked], meals: [], contexts: [], at: now).carbs.uncountedFood)

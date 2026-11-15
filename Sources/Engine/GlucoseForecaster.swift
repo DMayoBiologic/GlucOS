@@ -223,6 +223,9 @@ struct ForecastInputs {
     /// Whether to model insulin and carbs within the first hour after a log. Nil: only once the
     /// calibration shows those forecasts beat "no change". The backtest sets it to measure both.
     var freshModel: Bool? = nil
+    /// Times of doses marked as for a meal with no meal logged near them, worked out from every
+    /// meal entry (repeats included) before `meals` was de-duplicated. Nil: worked out from `meals`.
+    var unloggedMealTimes: [Date]? = nil
     var now: Date
 
     init(readings: GlucoseSeries, doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
@@ -286,7 +289,7 @@ enum GlucoseForecaster {
             || input.contexts.contains { $0.tags.contains(.hypoTreatment) && $0.timestamp <= t0
                                          && t0.timeIntervalSince($0.timestamp) < foodReach }
             // A dose the user said was for a meal that isn't logged: food it can't count.
-            || DoseMealCheck.unloggedMealTimes(doses: input.doses, meals: input.meals)
+            || (input.unloggedMealTimes ?? DoseMealCheck.unloggedMealTimes(doses: input.doses, meals: input.meals))
                 .contains { $0 <= t0 && t0.timeIntervalSince($0) < foodReach }
         if uncounted { limitations.append(.uncountedFood) }
         if input.contexts.contains(where: { $0.tags.contains(.siteProblem) && $0.timestamp <= t0
