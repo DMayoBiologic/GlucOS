@@ -354,8 +354,22 @@ old, last 6.2." Follower: prefixed with the person's name.
 
 ### 8.1 Menu bar
 
-The menu bar item stays text (value + arrow), colour-coded when the option is on. No animation in
-the menu bar (it's peripheral vision; motion there is distracting).
+The menu bar item is the value in its range colour (on by default, urgent lows always) with an SF
+Symbol trend arrow, the change when that option is on, and optionally a 22 pt sparkline of the last
+hour (five-minute averages, never scaled tighter than 2 mmol/L so a flat hour stays flat). Stale
+readings get the popover's treatment: grey value with the drawn strike line, an amber warning sign
+and the age to the minute, no arrow, no range colour.
+
+Motion is limited to one roll per new reading: the old value leaves and the new one arrives from
+the direction it moved, over `DSMotion.arrival` (and the strike draws in as a reading goes stale).
+Nothing else moves, and under Reduce Motion nothing moves at all. It's peripheral vision, so it
+must never loop.
+
+It's on screen all day, so it costs nothing between readings. `MenuBarGlance` holds exactly what's
+shown; the item is drawn into an image only when that changes, and one timer is set for the next
+moment it changes on its own (the reading going stale, then each minute of its age). The image
+carries a light and a dark rendering and picks one when drawn, so it follows the menu bar's
+appearance without redrawing.
 
 ### 8.2 Popover
 
@@ -417,6 +431,7 @@ Widgets in accented or vibrant rendering modes drop the field and keep the rail 
 | 8 | Widgets finished to §9: the range field and urgent-low border behind the Glucose widget, direction-aware pill swap, drawn strike line, live age timer, forecast note and freshness meter footer; rolling figures and growing bars in Time in Range and Sensor; live age on the Lock Screen rectangular | #80 | merged |
 | 9 | Mac popover finished to §8.2: the shared `FreshnessMeter` under the age row in place of the live dot and hand-drawn hairline (fills live, amber once stale), and the cards assembling under the hero with `dsEntrance` on opening | #84 | merged |
 | 10 | Remaining screens (§7.2, §8.3, §8.4): the target range editor in Settings (iPhone and Mac), Mac onboarding and iPhone Setup redrawn as the range rail (same log scale and segment colours), with a marker at the latest fresh reading and a line saying what it would count as; iPhone Settings rows that a toggle reveals slide in, and section jumps scroll with `.standard` under Reduce Motion rules; Mac Outlook and Insights pages assemble with `dsEntrance`; Mac Logbook filter on `SlidingSegments`; follower check-in status pushes in with a haptic for "okay" and "needs help" | #88 | merged |
+| 11 | Mac menu bar item to §8.1: range colour, symbol trend arrow, optional last-hour sparkline, popover stale treatment, one roll per reading; drawn only when what it shows changes | this PR | open |
 
 Every part of this design is now built.
 

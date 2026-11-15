@@ -58,7 +58,8 @@ private struct GeneralSettingsTab: View {
         Form {
             Section {
                 Toggle("Show change since last reading", isOn: $settings.showDeltaInMenuBar)
-                Toggle("Colour-code the menu bar icon", isOn: $settings.colorMenuBarIcon)
+                Toggle("Colour the reading by range", isOn: $settings.colorMenuBarIcon)
+                Toggle("Show the last hour as a sparkline", isOn: $settings.showMenuBarSparkline)
                 Picker("Popover chart", selection: $settings.chartHours) {
                     Text("Last 3 hours").tag(3)
                     Text("Last 6 hours").tag(6)
@@ -68,7 +69,7 @@ private struct GeneralSettingsTab: View {
             } header: {
                 Text("Menu Bar")
             } footer: {
-                Text("Colour-coding tints the drop green, orange or red by range. Stale data always shows a plain warning sign instead.")
+                Text("The reading takes its range colour; urgent lows always do. A stale reading turns grey and crossed through, with an amber warning sign and how old it is.")
                     .foregroundStyle(.secondary)
             }
 

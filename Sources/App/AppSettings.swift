@@ -32,7 +32,10 @@ final class AppSettings: ObservableObject {
     @Published var alertCooldownMinutes: Int { didSet { d.set(alertCooldownMinutes, forKey: "alertCooldown") } }
     @Published var sensorLifetimeDays: Int { didSet { d.set(sensorLifetimeDays, forKey: "sensorLifetimeDays") } }
     @Published var showDeltaInMenuBar: Bool { didSet { d.set(showDeltaInMenuBar, forKey: "showDelta") } }
+    /// The menu bar reading in its range colour. On unless turned off (urgent lows are always coloured).
     @Published var colorMenuBarIcon: Bool { didSet { d.set(colorMenuBarIcon, forKey: "colorMenuBarIcon") } }
+    /// A tiny sparkline of the last hour after the menu bar reading.
+    @Published var showMenuBarSparkline: Bool { didSet { d.set(showMenuBarSparkline, forKey: "menuBarSparkline") } }
     /// Hours of history in the popover chart (3, 6 or 12).
     @Published var chartHours: Int { didSet { d.set(chartHours, forKey: "chartHours") } }
 
@@ -84,7 +87,8 @@ final class AppSettings: ObservableObject {
         alertCooldownMinutes = d.object(forKey: "alertCooldown") as? Int ?? 15
         sensorLifetimeDays = d.object(forKey: "sensorLifetimeDays") as? Int ?? 15   // Libre 2 Plus
         showDeltaInMenuBar = d.object(forKey: "showDelta") as? Bool ?? false
-        colorMenuBarIcon = d.object(forKey: "colorMenuBarIcon") as? Bool ?? false
+        colorMenuBarIcon = d.object(forKey: "colorMenuBarIcon") as? Bool ?? true
+        showMenuBarSparkline = d.object(forKey: "menuBarSparkline") as? Bool ?? false
         let hours = d.object(forKey: "chartHours") as? Int ?? 12
         chartHours = [3, 6, 12, 24].contains(hours) ? hours : 12
         therapy = TherapyType(rawValue: d.string(forKey: "therapy") ?? "") ?? .notSet
