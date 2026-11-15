@@ -100,6 +100,13 @@ struct LogSheet: View {
     @State private var repeatWarning: String?
     @State private var confirmingRepeat = false
     @FocusState private var focus: LogFieldFocus?
+    /// The "What's happening?" tiles have the keyboard: arrows move, Space and Return pick
+    /// (`LogKeyboard`). A new entry opens with them focused.
+    @FocusState private var momentsFocused: Bool
+    /// The tile the arrow keys are on. Nil until an arrow is pressed, so a mouse user never sees a ring.
+    @State private var highlightedMoment: Int?
+    /// The ⌘? list.
+    @State private var showsShortcutList = false
 
     init(target: LogSheetTarget, onClose: (() -> Void)? = nil) {
         let s = AppSettings.shared
@@ -317,6 +324,16 @@ struct LogSheet: View {
                 .environmentObject(store)
                 .environmentObject(settings)
         }
+        .sheet(isPresented: $showsShortcutList) {
+            ShortcutListView(groups: ShortcutCatalog.logSheet(momentCount: isNew ? moments.count : 0,
+                                                              globalKey: settings.activeGlobalLogShortcut)) {
+                showsShortcutList = false
+            }
+        }
+        .background {
+            HiddenShortcut(key: "?") { showsShortcutList = true }
+                .accessibilityHidden(true)
+        }
         .confirmationDialog(units.map { "Log a \(LogFormat.units($0)) dose?" } ?? "Log this dose?",
                             isPresented: $confirmingDose) {
             Button("Log \(units.map { LogFormat.units($0) } ?? "dose")") { commit() }
@@ -370,6 +387,13 @@ struct LogSheet: View {
                 Text(title)
                     .dsFont(.title)
                 Spacer()
+                Button { showsShortcutList = true } label: {
+                    Image(systemName: "keyboard")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Keyboard shortcuts (⌘?)")
+                .accessibilityLabel("Keyboard shortcuts")
                 DatePicker("Time", selection: $time, in: ...Date().addingTimeInterval(15 * 60),
                            displayedComponents: [.date, .hourAndMinute])
                     .labelsHidden()
@@ -681,13 +705,18 @@ struct LogSheet: View {
         }
     }
 
-    /// "What's happening?": the moments to pick from, ⌘1 onwards. More than one can be on.
+    /// The tiles are three to a row; the arrow keys move through them in the same layout.
+    private static let momentColumns = 3
+
+    /// "What's happening?": the moments to pick from, ⌘1 onwards. More than one can be on. With
+    /// the keyboard: arrows move between tiles, Space turns one on or off, Return picks it and
+    /// moves on to fill it in (or logs, once the entry is ready).
     private var momentPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("What's happening?")
                 .dsFont(.sectionTitle)
                 .accessibilityAddTraits(.isHeader)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: Self.momentColumns), spacing: 8) {
                 ForEach(Array(moments.enumerated()), id: \.element) { index, m in
                     Toggle(isOn: Binding(get: { isOn(m) }, set: { _ in toggle(m) })) {
                         Label(m.title, systemImage: m.systemImage)
@@ -695,9 +724,76 @@ struct LogSheet: View {
                     .toggleStyle(TileToggleStyle(tint: tint(m)))
                     .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
                     .help("\(m.detail) (⌘\(index + 1))")
+                    .overlay {
+                        if momentsFocused && highlightedMoment == index {
+                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                .strokeBorder(Color.accentColor, lineWidth: 2)
+                                .padding(-2)
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
                 }
             }
+            .animation(reduceMotion ? nil : .snappy(duration: 0.12), value: highlightedMoment)
+            .focusable()
+            .focusEffectDisabled()
+            .focused($momentsFocused)
+            .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+                let direction: LogKeyboard.Direction
+                switch press.key {
+                case .leftArrow: direction = .left
+                case .rightArrow: direction = .right
+                case .upArrow: direction = .up
+                default: direction = .down
+                }
+                moveMomentHighlight(direction)
+                return .handled
+            }
+            .onKeyPress(keys: [.return, .space], phases: .down) { press in
+                pressHighlightedMoment(isReturn: press.key == .return)
+                return .handled
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("What's happening?")
         }
+    }
+
+    private func moveMomentHighlight(_ direction: LogKeyboard.Direction) {
+        highlightedMoment = LogKeyboard.move(from: highlightedMoment, direction, count: moments.count,
+                                             columns: Self.momentColumns)
+        if let i = highlightedMoment, moments.indices.contains(i) {
+            let m = moments[i]
+            VoiceOver.announce("\(m.title), \(isOn(m) ? "on" : "off")")
+        }
+    }
+
+    private func pressHighlightedMoment(isReturn: Bool) {
+        guard let i = highlightedMoment, moments.indices.contains(i) else {
+            // Nothing highlighted yet: show where the keyboard is, on the first tile.
+            highlightedMoment = moments.isEmpty ? nil : 0
+            return
+        }
+        let m = moments[i]
+        let action = LogKeyboard.action(return: isReturn, tileIsOn: isOn(m), opensPart: m.part != nil, canLog: canSave)
+        switch action {
+        case .toggle:
+            toggle(m)
+            // Turning a tile on opens its part, which takes the cursor: Space keeps it here.
+            if !isReturn { keepMomentsFocused() }
+        case .pickAndContinue:
+            toggle(m)   // opening the part moves the cursor into it (see onChange(of: parts))
+        case .log:
+            save()
+        case .nothing:
+            break
+        }
+    }
+
+    /// Opening a part puts the cursor in it a beat later; Space is for picking several moments,
+    /// so hand the keyboard back to the tiles after that.
+    private func keepMomentsFocused() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { momentsFocused = true }
     }
 
     private func toggle(_ moment: LogMoment) {
@@ -1086,7 +1182,9 @@ struct LogSheet: View {
             Button("Cancel", role: .cancel) { close() }
                 .keyboardShortcut(.cancelAction)
             Button(canSave ? saveSummary : (isNew ? "Log" : "Save")) { save() }
-                .keyboardShortcut(.defaultAction)
+                // While the tiles have the keyboard, Return is theirs: it logs only once the
+                // entry is ready (LogKeyboard.action).
+                .keyboardShortcut(momentsFocused ? nil : .defaultAction)
                 .disabled(!canSave)
         }
         .padding(16)
@@ -1192,6 +1290,11 @@ struct LogSheet: View {
     }
 
     private func focusFirstField() {
+        if isNew && parts.isEmpty && settings.therapy != .notSet {
+            // A new entry starts on "What's happening?", ready for the arrow keys.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { momentsFocused = true }
+            return
+        }
         guard editing == .dose || editing == .meal else { return }
         // Sheets and new windows take focus a beat after appearing.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {

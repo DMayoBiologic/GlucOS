@@ -1,0 +1,207 @@
+import Foundation
+
+/// Keyboard rules for logging on the Mac (docs/KeyboardLogging.md): moving through the "What's
+/// happening?" tiles with the arrow keys, what Return and Space do there, the optional
+/// shortcut that opens the log window from any app, and the ⌘? shortcut lists. Plain Foundation,
+/// so it's unit-tested; the views and the system hot key live in the app.
+enum LogKeyboard {
+    enum Direction: Sendable { case left, right, up, down }
+
+    /// The tile the highlight moves to in a grid of `count` tiles, `columns` wide, filled row by
+    /// row. Left and right run along the list, so → on the end of a row goes to the start of the
+    /// next one. Up and down keep the column; down onto a short last row lands on its last tile.
+    /// The highlight never wraps off either end. With nothing highlighted yet, any arrow starts
+    /// on the first tile.
+    static func move(from index: Int?, _ direction: Direction, count: Int, columns: Int) -> Int? {
+        guard count > 0 else { return nil }
+        let columns = max(1, columns)
+        guard let index, (0..<count).contains(index) else { return 0 }
+        switch direction {
+        case .left: return max(0, index - 1)
+        case .right: return min(count - 1, index + 1)
+        case .up: return index - columns >= 0 ? index - columns : index
+        case .down:
+            if index + columns < count { return index + columns }
+            let lastRow = (count - 1) / columns
+            return index / columns < lastRow ? count - 1 : index
+        }
+    }
+
+    /// What a key does on a highlighted tile.
+    enum TileAction: Equatable, Sendable {
+        /// Turn the moment on, or off. The highlight stays in the tiles.
+        case toggle
+        /// Turn the moment on and go on to the part it opened (the carbs or units field).
+        case pickAndContinue
+        /// The entry is ready: log it, as the Log button would.
+        case log
+        case nothing
+    }
+
+    /// Space turns a tile on or off and stays, for picking several moments. Return picks the
+    /// moment and moves on to fill it in. Return on a tile that's already on means "that's it":
+    /// it logs when the entry can be logged, so "Woke up", Return, Return logs a wake-up.
+    static func action(return isReturn: Bool, tileIsOn: Bool, opensPart: Bool, canLog: Bool) -> TileAction {
+        guard isReturn else { return .toggle }
+        if tileIsOn { return canLog ? .log : .nothing }
+        return opensPart ? .pickAndContinue : .toggle
+    }
+}
+
+// MARK: - Global shortcut
+
+/// A key combination for the "open the log window from anywhere" shortcut. Stored by key code,
+/// so it means the same physical key whatever the keyboard layout; `key` is what the key typed
+/// when it was recorded, for showing it.
+struct LogHotKey: Codable, Equatable, Sendable {
+    struct Modifiers: OptionSet, Codable, Hashable, Sendable {
+        let rawValue: Int
+        static let control = Modifiers(rawValue: 1 << 0)
+        static let option = Modifiers(rawValue: 1 << 1)
+        static let shift = Modifiers(rawValue: 1 << 2)
+        static let command = Modifiers(rawValue: 1 << 3)
+    }
+
+    var keyCode: UInt16
+    var modifiers: Modifiers
+    /// The key's character as recorded ("L"), or a name for keys that type nothing ("Space").
+    var key: String
+
+    /// ⌃⌥⌘L: hard to press by accident and not used by macOS or common apps.
+    static let suggested = LogHotKey(keyCode: 37, modifiers: [.control, .option, .command], key: "L")
+
+    /// The modifier symbols in Apple's order, then the key: "⌃⌥⌘L".
+    var display: String {
+        var s = ""
+        if modifiers.contains(.control) { s += "⌃" }
+        if modifiers.contains(.option) { s += "⌥" }
+        if modifiers.contains(.shift) { s += "⇧" }
+        if modifiers.contains(.command) { s += "⌘" }
+        return s + key.uppercased()
+    }
+
+    /// Spoken form for VoiceOver: "Control Option Command L".
+    var spoken: String {
+        var words: [String] = []
+        if modifiers.contains(.control) { words.append("Control") }
+        if modifiers.contains(.option) { words.append("Option") }
+        if modifiers.contains(.shift) { words.append("Shift") }
+        if modifiers.contains(.command) { words.append("Command") }
+        return (words + [key.uppercased()]).joined(separator: " ")
+    }
+
+    /// Why a recorded combination can't be used, or nil when it can. Typing in any app must never
+    /// open the log window, and the shortcut mustn't take one other apps rely on: it needs two
+    /// modifier keys, one of them ⌘ or ⌃ (⌘L alone is every browser's address bar, ⌃A the start
+    /// of a line), and can't be one macOS keeps for itself.
+    var problem: String? {
+        guard modifiers.contains(.command) || modifiers.contains(.control) else {
+            return "Include ⌘ or ⌃, so typing never opens the log window."
+        }
+        let count = [Modifiers.control, .option, .shift, .command].filter(modifiers.contains).count
+        guard count >= 2 else {
+            return "Add another modifier key: other apps use \(display)."
+        }
+        if modifiers.contains(.command), key == "Space" || key == "Tab" {
+            return "macOS uses \(display) itself."
+        }
+        if modifiers == [.command, .shift], Self.shiftCommandKeys.contains(key.uppercased()) {
+            return "\(display) is used by macOS or most apps. Try ⌃⌥⌘ instead."
+        }
+        return nil
+    }
+
+    /// ⇧⌘ shortcuts macOS or almost every app uses: screenshots, redo, save as, new folder…
+    private static let shiftCommandKeys: Set<String> = ["3", "4", "5", "6", "Z", "S", "N", "T", "G", "A", "O", "/"]
+}
+
+// MARK: - Shortcut lists
+
+/// One row of a ⌘? list: the keys and what they do.
+struct ShortcutRow: Equatable, Sendable {
+    let keys: String
+    let action: String
+}
+
+/// One group of rows in a ⌘? list.
+struct ShortcutGroup: Equatable, Sendable {
+    let title: String
+    let rows: [ShortcutRow]
+}
+
+/// The shortcut lists ⌘? shows: in the menu bar popover, in the log sheet and in the dashboard.
+/// Each list leads with the place it's shown in, then logging, so the rows read the same
+/// wherever they appear. `globalKey` is the "open from anywhere" shortcut when it's turned on.
+enum ShortcutCatalog {
+    static let showList = ShortcutRow(keys: "⌘?", action: "Show this list")
+
+    static func popover(globalKey: LogHotKey?) -> [ShortcutGroup] {
+        [
+            ShortcutGroup(title: "Menu bar", rows: [
+                ShortcutRow(keys: "⌘L", action: "Log insulin, food or a moment"),
+                ShortcutRow(keys: "⌘R", action: "Refresh"),
+                ShortcutRow(keys: "⌘D", action: "Open the dashboard"),
+                ShortcutRow(keys: "⌘1  ⌘2  ⌘3", action: "Chart: 3, 6 or 12 hours"),
+                ShortcutRow(keys: "←  →", action: "Step through chart readings"),
+                ShortcutRow(keys: "⌘I", action: "Show or hide details"),
+                ShortcutRow(keys: "⌘C", action: "Copy the reading"),
+                ShortcutRow(keys: "⌘,", action: "Settings"),
+                ShortcutRow(keys: "Hold ⌘", action: "Show shortcuts on the buttons"),
+                showList,
+            ]),
+            anywhere(globalKey),
+        ].compactMap { $0 }
+    }
+
+    static func logSheet(momentCount: Int, globalKey: LogHotKey?) -> [ShortcutGroup] {
+        [logging(momentCount: momentCount), anywhere(globalKey)].compactMap { $0 }
+    }
+
+    static func dashboard(globalKey: LogHotKey?) -> [ShortcutGroup] {
+        [
+            ShortcutGroup(title: "Dashboard", rows: [
+                ShortcutRow(keys: "⌘1 – ⌘8", action: "Switch section"),
+                ShortcutRow(keys: "⌃1 – ⌃8", action: "Pick a time range"),
+                ShortcutRow(keys: "⌘[  ⌘]", action: "Previous or next period"),
+                ShortcutRow(keys: "⌘J", action: "Back to now"),
+                ShortcutRow(keys: "⌘=  ⌘−  ⌘0", action: "Zoom chart in, out, reset"),
+                ShortcutRow(keys: "⌥←  ⌥→", action: "Pan the zoomed chart"),
+                ShortcutRow(keys: "Drag on chart", action: "Select a stretch to see its numbers"),
+                ShortcutRow(keys: "Esc", action: "Clear the chart selection"),
+                ShortcutRow(keys: "⌘L", action: "Log insulin, food or a moment"),
+                ShortcutRow(keys: "⌘R", action: "Refresh"),
+                ShortcutRow(keys: "⌃⌘F", action: "Enter or exit full screen"),
+                ShortcutRow(keys: "⇧⌘P", action: "Export report as PDF"),
+                ShortcutRow(keys: "⌘/  ⌘?", action: "Show this list"),
+            ]),
+            anywhere(globalKey),
+        ].compactMap { $0 }
+    }
+
+    /// The log sheet's own keys. `momentCount` is how many moments the therapy type offers.
+    static func logging(momentCount: Int) -> ShortcutGroup {
+        var rows = [
+            ShortcutRow(keys: "←  →  ↑  ↓", action: "Move between the moments"),
+            ShortcutRow(keys: "Return", action: "Pick the moment and fill it in"),
+            ShortcutRow(keys: "Space", action: "Turn a moment on or off, to pick several"),
+        ]
+        if momentCount > 0 {
+            let last = min(momentCount, 9)
+            rows.append(ShortcutRow(keys: last == 1 ? "⌘1" : "⌘1 – ⌘\(last)", action: "Turn a moment on or off from anywhere in the sheet"))
+        }
+        rows += [
+            ShortcutRow(keys: "⌘F", action: "Search foods"),
+            ShortcutRow(keys: "Return in a field", action: "Log, once the entry is ready"),
+            ShortcutRow(keys: "Esc", action: "Cancel"),
+            showList,
+        ]
+        return ShortcutGroup(title: "Logging", rows: rows)
+    }
+
+    private static func anywhere(_ key: LogHotKey?) -> ShortcutGroup? {
+        guard let key else { return nil }
+        return ShortcutGroup(title: "From any app", rows: [
+            ShortcutRow(keys: key.display, action: "Open the log window"),
+        ])
+    }
+}

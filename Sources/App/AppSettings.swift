@@ -53,6 +53,15 @@ final class AppSettings: ObservableObject {
     /// Long-acting insulin (injections only).
     @Published var basalInsulinName: String { didSet { d.set(basalInsulinName, forKey: "basalInsulinName") } }
 
+    /// Open the log window from any app with `globalLogShortcut` (Settings → Logging). Off until
+    /// the user turns it on: a system-wide shortcut takes that key combination from every app.
+    @Published var globalLogShortcutEnabled: Bool { didSet { d.set(globalLogShortcutEnabled, forKey: "globalLogShortcutEnabled") } }
+    @Published var globalLogShortcut: LogHotKey {
+        didSet { d.set(try? JSONEncoder().encode(globalLogShortcut), forKey: "globalLogShortcut") }
+    }
+    /// The "open from anywhere" shortcut while it's on, for the ⌘? lists.
+    var activeGlobalLogShortcut: LogHotKey? { globalLogShortcutEnabled ? globalLogShortcut : nil }
+
     /// First-run setup finished (or skipped). Existing installs with an account count as done.
     @Published var onboardingCompleted: Bool { didSet { d.set(onboardingCompleted, forKey: "onboardingCompleted") } }
 
@@ -95,6 +104,9 @@ final class AppSettings: ObservableObject {
         bolusInsulinKind = InsulinKind(rawValue: d.string(forKey: "bolusInsulinKind") ?? "") ?? .rapid
         bolusInsulinName = d.string(forKey: "bolusInsulinName") ?? ""
         basalInsulinName = d.string(forKey: "basalInsulinName") ?? ""
+        globalLogShortcutEnabled = d.bool(forKey: "globalLogShortcutEnabled")
+        globalLogShortcut = d.data(forKey: "globalLogShortcut")
+            .flatMap { try? JSONDecoder().decode(LogHotKey.self, from: $0) } ?? .suggested
         let savedEmail = d.string(forKey: "email") ?? ""
         onboardingCompleted = d.object(forKey: "onboardingCompleted") as? Bool ?? !savedEmail.isEmpty
     }

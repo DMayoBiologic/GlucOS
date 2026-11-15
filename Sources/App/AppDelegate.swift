@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         // The first use of the Mac each morning is offered as the wake-up time.
         MacWakeWatcher.shared.start()
+        // The optional "open the log window from anywhere" shortcut (off unless turned on in Settings).
+        GlobalLogShortcut.shared.start()
     }
 
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {

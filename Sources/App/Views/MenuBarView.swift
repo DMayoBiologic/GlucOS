@@ -12,7 +12,7 @@ import AppKit
 ///
 /// Keyboard: ⌘L log, ⌘R refresh, ⌘D dashboard, ⌘, settings, ⌘C copy reading, ⌘1–3 chart range,
 /// ⌘I show or hide details, ⌘Q quit, ← → step through chart readings, Escape closes. Hold ⌘ to
-/// see the shortcuts.
+/// see the shortcuts on the buttons; ⌘? lists them all (`ShortcutCatalog.popover`).
 struct MenuBarView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
@@ -28,6 +28,8 @@ struct MenuBarView: View {
     @State private var toast: String?
     @State private var toastTask: Task<Void, Never>?
     @State private var contentHeight: CGFloat = 0
+    /// The ⌘? list, shown over the popover.
+    @State private var showsShortcutList = false
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -57,14 +59,16 @@ struct MenuBarView: View {
                 .accessibilityHidden(true)
         }
         .overlay(alignment: .bottom) { toastView }
+        .overlay { shortcutList }
         .background { shortcuts }
         .animation(PopoverMotion.standard(reduceMotion), value: s.current)
         .animation(PopoverMotion.standard(reduceMotion), value: s.lastError)
         .animation(PopoverMotion.standard(reduceMotion), value: s.isStale())
         .animation(PopoverMotion.quick(reduceMotion), value: toast)
+        .animation(PopoverMotion.quick(reduceMotion), value: showsShortcutList)
         .task { await store.checkNotificationPermission() }
         .onAppear { commandKey.start() }
-        .onDisappear { commandKey.stop() }
+        .onDisappear { commandKey.stop(); showsShortcutList = false }
         .environment(\.dsDensity, .compact)
     }
 
@@ -99,7 +103,8 @@ struct MenuBarView: View {
             }
             PopoverToolbar(showsShortcuts: commandKey.isHeld,
                            onLog: showLogSheet, onRefresh: refresh, onDashboard: showDashboard,
-                           onSettings: showSettings, onCopy: copyReading)
+                           onSettings: showSettings, onCopy: copyReading,
+                           onShortcuts: toggleShortcutList)
                 .padding(.top, 2)
                 .dsEntrance(4)
             PopoverFooter()
@@ -149,8 +154,31 @@ struct MenuBarView: View {
             HiddenShortcut(key: "c", action: copyReading)
             HiddenShortcut(key: "i", action: toggleDetails)
             HiddenShortcut(key: "q") { NSApplication.shared.terminate(nil) }
+            HiddenShortcut(key: "?", action: toggleShortcutList)
         }
         .accessibilityHidden(true)
+    }
+
+    /// The ⌘? list over the popover, scrolling if the popover is shorter than the list.
+    @ViewBuilder
+    private var shortcutList: some View {
+        if showsShortcutList {
+            ScrollView {
+                ShortcutListView(groups: ShortcutCatalog.popover(globalKey: settings.activeGlobalLogShortcut),
+                                 compact: true) {
+                    showsShortcutList = false
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.regularMaterial)
+            .transition(.opacity)
+        }
+    }
+
+    private func toggleShortcutList() {
+        showsShortcutList.toggle()
+        if showsShortcutList { VoiceOver.announce("Keyboard shortcuts") }
     }
 
     // MARK: Actions
