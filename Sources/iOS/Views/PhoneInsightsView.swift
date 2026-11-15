@@ -19,7 +19,7 @@ struct PhoneInsightsRow: View {
                             .dsFont(.headline)
                             .foregroundStyle(.primary)
                             .monospacedDigit()
-                            .lineLimit(1)
+                            .dsLineLimit(1)
                             .minimumScaleFactor(0.8)
                         Text("Last 24 hours").dsFont(.caption).foregroundStyle(.tertiary)
                     }
@@ -137,11 +137,13 @@ struct PhoneDaysCard: View {
                 .fontWeight(day.isToday ? .semibold : .regular)
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.5)
             Text(day.label)
                 .dsFont(.caption)
                 .foregroundStyle(day.isToday ? AnyShapeStyle(Color.primary) : AnyShapeStyle(Color.secondary))
                 .lineLimit(1)
+                // Seven columns of "Mon" at AX5: shrink rather than cut to "M…".
+                .minimumScaleFactor(0.5)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)

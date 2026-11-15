@@ -14,6 +14,7 @@ struct PhoneHeroCard: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     private let textScale = DSScaledValue()
     /// Bumped on each new reading to play one soft ripple around the card, like the Mac popover.
     @State private var ripple = 0
@@ -29,17 +30,20 @@ struct PhoneHeroCard: View {
             let headline = outlook.flatMap(OutlookFormat.headlineSample)
             VStack(alignment: .leading, spacing: DS.Space.md) {
                 HStack(spacing: DS.Space.sm) {
-                    if let range = s.range {
-                        RangeBadge(range: range, stale: stale)
-                            .id(stale ? "stale" : range.label)
-                            .transition(.push(from: (s.current?.trend.isFalling ?? false) ? .top : .bottom))
-                    }
-                    if let streak = s.rangeStreak(at: now), streak.duration >= 5 * 60 {
-                        Text("for \(streak.isOpenEnded ? "over " : "")\(PopoverFormat.streak(streak.duration))")
-                            .dsFont(.label)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                            .contentTransition(.numericText())
+                    // The streak drops under the pill at the accessibility text sizes.
+                    DSAccessibleStack(spacing: DS.Space.sm) {
+                        if let range = s.range {
+                            RangeBadge(range: range, stale: stale)
+                                .id(stale ? "stale" : range.label)
+                                .transition(.push(from: (s.current?.trend.isFalling ?? false) ? .top : .bottom))
+                        }
+                        if let streak = s.rangeStreak(at: now), streak.duration >= 5 * 60 {
+                            Text("for \(streak.isOpenEnded ? "over " : "")\(PopoverFormat.streak(streak.duration))")
+                                .dsFont(.label)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                                .contentTransition(.numericText())
+                        }
                     }
                     Spacer(minLength: 0)
                     if store.isRefreshing { ProgressView().controlSize(.small) }
@@ -52,17 +56,21 @@ struct PhoneHeroCard: View {
                             trendRow(cur, stale: stale)
                         }
                         Spacer(minLength: DS.Space.sm)
-                        TrendDial(trend: stale ? .unknown : cur.trend, tint: tone.color, size: 80)
-                            .opacity(stale ? 0.6 : 1)
-                            .readingRipple(trigger: ripple, in: Circle(), tint: tone.color)
-                            .accessibilityHidden(true)
+                        // At the accessibility text sizes the reading needs the whole width, and
+                        // the trend is in words under it, so the needle steps aside.
+                        if !typeSize.dsLargeText {
+                            TrendDial(trend: stale ? .unknown : cur.trend, tint: tone.color, size: 80)
+                                .opacity(stale ? 0.6 : 1)
+                                .readingRipple(trigger: ripple, in: Circle(), tint: tone.color)
+                                .accessibilityHidden(true)
+                        }
                     }
                     RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
                               forecastMgdl: headline?.sample.mgdl, thickness: 6, unit: s.unit)
                         .padding(.vertical, DS.Space.xxs)
                     if let outlook, headline != nil || outlook.lowExpectedAt != nil {
                         ForecastNote(unit: s.unit, headline: headline.map { (minutes: $0.minutes, mgdl: $0.sample.mgdl) },
-                                     lowExpectedAt: outlook.lowExpectedAt, readingDate: cur.timestamp)
+                                     lowExpectedAt: outlook.lowExpectedAt, readingDate: cur.timestamp, wraps: true)
                             .dsFont(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -76,12 +84,8 @@ struct PhoneHeroCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             // An urgent low gets a rim as well as its colour, so it reads without colour vision.
             .padding(s.range == .urgentLow && !stale ? DS.Space.md : 0)
-            .overlay {
-                if s.range == .urgentLow && !stale {
-                    RoundedRectangle(cornerRadius: DS.Radius.hero, style: .continuous)
-                        .strokeBorder(Palette.crimson, lineWidth: 2)
-                }
-            }
+            .urgentRim(s.range == .urgentLow && !stale,
+                       in: RoundedRectangle(cornerRadius: DS.Radius.hero, style: .continuous))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(s.current == nil ? store.statusLine
                                 : s.accessibilitySummary(at: now) + forecastSentence(outlook, headline: headline))
@@ -129,16 +133,19 @@ struct PhoneHeroCard: View {
     }
 
     private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs + 2) {
+        // The unit moves under the number at the accessibility sizes, so the number keeps the width.
+        DSAccessibleStack(verticalAlignment: .firstTextBaseline, spacing: DS.Space.xs + 2) {
             Text(s.unit.format(mgdl: cur.mgdl))
-                .font(.system(size: (96 * (1 + (textScale.scale - 1) * 0.4)).rounded(), weight: .bold, design: .rounded))
+                // Already very large: it stops growing at xxxLarge (about 115 pt), so even
+                // "22.2" fits a small phone at AX5 without shrinking much.
+                .font(.system(size: (96 * (1 + (min(textScale.scale, 1.5) - 1) * 0.4)).rounded(), weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tint))
                 // The line draws across as the data goes stale (docs/Redesign.md §4.3).
                 .staleStrike(stale)
                 .contentTransition(.numericText(value: cur.mgdl))
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .minimumScaleFactor(0.5)
             Text(s.unit.label)
                 .dsFont(.callout)
                 .fontWeight(.semibold)
@@ -147,12 +154,14 @@ struct PhoneHeroCard: View {
     }
 
     private func trendRow(_ cur: GlucoseReading, stale: Bool) -> some View {
-        HStack(spacing: DS.Space.sm) {
+        DSAccessibleStack(spacing: DS.Space.sm) {
             if stale {
                 Text("Trend unavailable").foregroundStyle(.secondary)
             } else {
-                TrendSymbol(trend: cur.trend)
-                Text(cur.trend.description)
+                HStack(spacing: DS.Space.sm) {
+                    TrendSymbol(trend: cur.trend)
+                    Text(cur.trend.description)
+                }
                 if let d = s.deltaMgdl {
                     Text(s.unit.formatDelta(mgdl: d)).monospacedDigit().foregroundStyle(.secondary)
                         .contentTransition(.numericText(value: d))
@@ -176,16 +185,21 @@ struct PhoneHeroCard: View {
     private func tint(stale: Bool) -> Color { stale ? Tone.warning.color : Palette.neutral }
 
     private func freshness(_ cur: GlucoseReading, stale: Bool, now: Date) -> some View {
-        HStack(spacing: DS.Space.xs) {
-            if stale {
-                Image(systemName: "clock.badge.exclamationmark")
-            } else {
-                LiveDot(live: true).padding(.trailing, 2)
+        // Meter, age and clock time on one line; each on its own at the accessibility sizes.
+        DSAccessibleStack(spacing: DS.Space.xs) {
+            HStack(spacing: DS.Space.xs) {
+                if stale {
+                    Image(systemName: "clock.badge.exclamationmark")
+                } else {
+                    LiveDot(live: true).padding(.trailing, 2)
+                }
+                FreshnessMeter(readingDate: cur.timestamp, stale: stale, tint: tint(stale: stale), width: 36)
+                    .padding(.trailing, DS.Space.xxs)
             }
-            FreshnessMeter(readingDate: cur.timestamp, stale: stale, tint: tint(stale: stale), width: 36)
-                .padding(.trailing, DS.Space.xxs)
             Text(stale ? "Last reading \(PopoverFormat.ageAgo(cur.age(at: now)))" : "Updated \(PopoverFormat.ageAgo(cur.age(at: now)))")
-            Text("· \(ClockLabel.dayTime(cur.timestamp, now: now))").foregroundStyle(.tertiary)
+            Text(typeSize.dsLargeText ? ClockLabel.dayTime(cur.timestamp, now: now)
+                                      : "· \(ClockLabel.dayTime(cur.timestamp, now: now))")
+                .foregroundStyle(.tertiary)
         }
         .dsFont(.caption)
         .foregroundStyle(stale ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(Color.secondary))
@@ -208,7 +222,9 @@ struct PhoneOnBoardCard: View {
             let now = ctx.date
             let onBoard = OnBoardNow(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts, at: now)
             let s = store.snapshot
-            HStack(alignment: .top, spacing: DS.Space.sm) {
+            // Three tiles side by side; one under another at the accessibility text sizes, where
+            // a third of the width can't hold a number and its caption.
+            DSAccessibleStack(verticalAlignment: .top, spacing: DS.Space.sm) {
                 if onBoard.showsInsulin(therapy: settings.therapy) {
                     insulinTile(onBoard, now: now)
                 }
@@ -291,7 +307,7 @@ private struct OnBoardTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             Label {
-                Text(title).lineLimit(1).minimumScaleFactor(0.8)
+                Text(title).dsLineLimit(1).minimumScaleFactor(0.8)
             } icon: {
                 Image(systemName: systemImage).foregroundStyle(valueTint ?? tint)
             }
@@ -322,10 +338,10 @@ private struct OnBoardTile: View {
                 .dsFont(.caption)
                 .monospacedDigit()
                 .foregroundStyle(captionTone == .neutral ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(captionTone.textColor))
-                .lineLimit(1)
+                .dsLineLimit(1)
                 .minimumScaleFactor(0.85)
             if let detail {
-                Text(detail).dsFont(.caption).foregroundStyle(.tertiary).lineLimit(1).minimumScaleFactor(0.85)
+                Text(detail).dsFont(.caption).foregroundStyle(.tertiary).dsLineLimit(1).minimumScaleFactor(0.85)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -352,7 +368,7 @@ struct PhoneChartCard: View {
         let hours = Double(settings.chartHours)
         let outlook = settings.showForecast ? s.currentOutlook() : nil
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            HStack {
+            DSAccessibleStack(spacing: DS.Space.sm) {
                 Eyebrow(title: "Glucose", systemImage: "chart.xyaxis.line")
                 SlidingSegments(selection: $settings.chartHours, options: Self.choices) { "\($0)h" }
                     .frame(maxWidth: 200)
@@ -440,7 +456,7 @@ struct PhoneGlanceCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            HStack {
+            DSAccessibleStack(spacing: DS.Space.sm) {
                 Eyebrow(title: "At a glance", systemImage: "circle.dashed")
                 Picker("Period", selection: $window) {
                     ForEach(GlanceWindow.allCases) { Text($0.shortLabel).tag($0) }
@@ -450,12 +466,12 @@ struct PhoneGlanceCard: View {
             }
             if let stats = store.glanceStats(window) {
                 let unit = store.snapshot.unit
-                HStack(alignment: .center, spacing: DS.Space.lg) {
+                DSAccessibleStack(spacing: DS.Space.lg) {
                     TimeInRangeRing(stats: stats, lineWidth: 11, drawsIn: true)
                         .frame(width: 112, height: 112)
                     VStack(alignment: .leading, spacing: DS.Space.sm) {
                         StatTile("Average", value: unit.format(mgdl: stats.meanMgdl), unit: unit.label) { EmptyView() }
-                        HStack(spacing: DS.Space.lg) {
+                        DSAccessibleStack(spacing: DS.Space.lg) {
                             StatTile("GMI", value: String(format: "%.1f", stats.gmiPercent), unit: "%") { EmptyView() }
                             StatTile("CV", value: Format.percent(stats.coefficientOfVariation),
                                      tone: stats.coefficientOfVariation > 0.36 ? .warning : .neutral) { EmptyView() }
@@ -463,12 +479,14 @@ struct PhoneGlanceCard: View {
                     }
                 }
                 TimeInRangeBar(stats: stats)
-                HStack {
-                    LegendText(color: GlucoseRange.low.tint, text: "Below \(Format.percent(stats.timeBelowRange))")
-                    Spacer()
-                    LegendText(color: GlucoseRange.inRange.tint, text: "In range \(Format.percent(stats.timeInRange))")
-                    Spacer()
-                    LegendText(color: GlucoseRange.high.tint, text: "Above \(Format.percent(stats.timeAboveRange))")
+                // Spread across the card; one per line at the accessibility text sizes.
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        glanceLegend(stats, spaced: true)
+                    }
+                    VStack(alignment: .leading, spacing: DS.Space.xs) {
+                        glanceLegend(stats, spaced: false)
+                    }
                 }
             } else {
                 Text("Readings will appear here as GlucOS collects them.")
@@ -477,6 +495,15 @@ struct PhoneGlanceCard: View {
             }
         }
         .dsCard(.standard, padding: DS.Space.lg)
+    }
+
+    @ViewBuilder
+    private func glanceLegend(_ stats: GlucoseStats, spaced: Bool) -> some View {
+        LegendText(color: GlucoseRange.low.tint, text: "Below \(Format.percent(stats.timeBelowRange))")
+        if spaced { Spacer() }
+        LegendText(color: GlucoseRange.inRange.tint, text: "In range \(Format.percent(stats.timeInRange))")
+        if spaced { Spacer() }
+        LegendText(color: GlucoseRange.high.tint, text: "Above \(Format.percent(stats.timeAboveRange))")
     }
 }
 
@@ -487,7 +514,7 @@ private struct LegendText: View {
     var body: some View {
         HStack(spacing: DS.Space.xs) {
             Circle().fill(color).frame(width: 8, height: 8)
-            Text(text).monospacedDigit()
+            Text(text).monospacedDigit().fixedSize()
         }
         .dsFont(.caption)
         .foregroundStyle(.secondary)

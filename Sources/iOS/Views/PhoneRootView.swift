@@ -261,6 +261,10 @@ private struct PhoneTitleReading: View {
         let tone = s.displayTone()
         HStack(spacing: DS.Space.xs) {
             if let cur = s.current {
+                // The octagon marks an urgent low here too, not just the colour.
+                if !stale, s.range == .urgentLow {
+                    Image(systemName: "exclamationmark.octagon.fill").font(.subheadline.weight(.bold))
+                }
                 Text(s.unit.format(mgdl: cur.mgdl))
                     .font(.system(.headline, design: .rounded).weight(.bold))
                     .monospacedDigit()

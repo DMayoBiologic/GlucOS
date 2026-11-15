@@ -74,24 +74,26 @@ enum Palette {
         #endif
     }
 
-    // Range hues, for lines, fills, icons and big numbers (3:1 or better). With Increase
-    // Contrast, light mode uses the darker text values everywhere.
-    static let mint = dynamic(light: rgb(0x0E9F6E), dark: rgb(0x34D399), highContrastLight: rgb(0x047857))
-    static let amber = dynamic(light: rgb(0xD97706), dark: rgb(0xFBBF24), highContrastLight: rgb(0xB45309))
+    // Range hues, for lines, fills, icons and big numbers: 3:1 or better against white, the
+    // grouped background (#F2F2F7) and the Mac window (#ECECEC) in light mode, and against black,
+    // #1C1C1E, #2C2C2E and the Mac's dark window (#323232) in dark mode. With Increase Contrast,
+    // light mode uses the darker text values everywhere. docs/DesignSystem.md has the ratios.
+    static let mint = dynamic(light: rgb(0x0A8F63), dark: rgb(0x34D399), highContrastLight: rgb(0x047857))
+    static let amber = dynamic(light: rgb(0xC26A04), dark: rgb(0xFBBF24), highContrastLight: rgb(0xB45309))
     static let coral = dynamic(light: rgb(0xE5484D), dark: rgb(0xFF6B6B), highContrastLight: rgb(0xC62A2F))
     static let crimson = dynamic(light: rgb(0xC81E4B), dark: rgb(0xFF4D79), highContrastLight: rgb(0xBE123C))
     static let magenta = dynamic(light: rgb(0xC2257A), dark: rgb(0xF472B6), highContrastLight: rgb(0xA21C64))
 
-    // Text-safe versions: 4.5:1 or better on window and card backgrounds in both appearances.
+    // Text-safe versions: 4.5:1 or better on the same backgrounds, in both appearances.
     static let mintText = dynamic(light: rgb(0x047857), dark: rgb(0x34D399), highContrastDark: rgb(0x6EE7B7))
-    static let amberText = dynamic(light: rgb(0xB45309), dark: rgb(0xFBBF24), highContrastDark: rgb(0xFCD34D))
+    static let amberText = dynamic(light: rgb(0xA34A07), dark: rgb(0xFBBF24), highContrastDark: rgb(0xFCD34D))
     static let coralText = dynamic(light: rgb(0xC62A2F), dark: rgb(0xFF6B6B), highContrastDark: rgb(0xFCA5A5))
-    static let crimsonText = dynamic(light: rgb(0xBE123C), dark: rgb(0xFF4D79), highContrastDark: rgb(0xFDA4AF))
+    static let crimsonText = dynamic(light: rgb(0xBE123C), dark: rgb(0xFF7092), highContrastDark: rgb(0xFDA4AF))
     static let magentaText = dynamic(light: rgb(0xA21C64), dark: rgb(0xF472B6), highContrastDark: rgb(0xF9A8D4))
 
     /// Old data. Deliberately colourless so it can never read as "fine".
-    static let stale = dynamic(light: rgb(0x8E8E93), dark: rgb(0x8E8E93), highContrastLight: rgb(0x6E6E73))
-    static let staleText = dynamic(light: rgb(0x6E6E73), dark: rgb(0x98989D),
+    static let stale = dynamic(light: rgb(0x808086), dark: rgb(0x8E8E93), highContrastLight: rgb(0x6E6E73))
+    static let staleText = dynamic(light: rgb(0x636368), dark: rgb(0xA4A4A9),
                                    highContrastLight: rgb(0x48484A), highContrastDark: rgb(0xC7C7CC))
     /// Status-free chrome.
     static let neutral = dynamic(light: rgb(0x6E6E73), dark: rgb(0x98989D))

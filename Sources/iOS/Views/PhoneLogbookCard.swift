@@ -187,6 +187,7 @@ struct PhoneLogBar: View {
                     }
                     .buttonStyle(PressScaleStyle())
                     .accessibilityLabel(item.part == nil ? "Log something else" : "Log \(item.title)")
+                    .accessibilityShowsLargeContentViewer()
                 }
             }
         }
@@ -216,9 +217,24 @@ struct PhoneLogBar: View {
 
 private struct LogBarLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: DS.Space.xs + 2) {
-            configuration.icon.font(.system(size: 15, weight: .semibold))
-            configuration.title.dsFont(.headline).lineLimit(1).minimumScaleFactor(0.8)
+        LogBarLabel(icon: configuration.icon, title: configuration.title)
+    }
+}
+
+/// At the accessibility sizes the icon sits over the word, so three buttons still fit across a
+/// small phone; touch and hold shows the large content viewer.
+private struct LogBarLabel<Icon: View, Title: View>: View {
+    let icon: Icon
+    let title: Title
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let layout = typeSize.dsLargeText ? AnyLayout(VStackLayout(spacing: DS.Space.xxs))
+                                          : AnyLayout(HStackLayout(spacing: DS.Space.xs + 2))
+        layout {
+            icon.font(.system(size: 15, weight: .semibold))
+            title.dsFont(.headline).lineLimit(1)
+                .minimumScaleFactor(typeSize.dsLargeText ? 0.6 : 0.8)
         }
     }
 }
@@ -226,6 +242,7 @@ private struct LogBarLabelStyle: LabelStyle {
 struct PhoneLogRow: View {
     let entry: LogEntry
     let site: InjectionSite?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
@@ -235,17 +252,23 @@ struct PhoneLogRow: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(title).dsFont(.callout)
                 if let detail { Text(detail).dsFont(.caption).foregroundStyle(.secondary) }
+                // The time goes under the entry at the accessibility sizes, so the title keeps the width.
+                if typeSize.dsLargeText { time }
             }
             Spacer(minLength: DS.Space.sm)
-            Text(ClockLabel.time(entry.timestamp))
-                .dsFont(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+            if !typeSize.dsLargeText { time }
             Image(systemName: "chevron.right")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.tertiary)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var time: some View {
+        Text(ClockLabel.time(entry.timestamp))
+            .dsFont(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
     }
 
     private var icon: String {

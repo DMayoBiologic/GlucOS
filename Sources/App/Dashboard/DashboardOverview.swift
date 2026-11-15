@@ -273,6 +273,9 @@ private struct CurrentReadingPanel: View {
                        range: stale ? nil : snapshot.range)
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
         }
+        // An urgent low gets a rim as well as its colour, so it reads without colour vision.
+        .urgentRim(!stale && snapshot.current != nil && snapshot.range == .urgentLow,
+                   in: RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
         .help(isLive ? "" : "This is your current reading. The numbers beside it are for the earlier period you're viewing.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(snapshot.accessibilitySummary(at: now))

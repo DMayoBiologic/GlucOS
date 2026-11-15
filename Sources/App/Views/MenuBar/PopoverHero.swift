@@ -73,6 +73,8 @@ struct PopoverHero: View {
                     .clipShape(shape)
             }
         }
+        // An urgent low gets a rim as well as its colour, so it reads without colour vision.
+        .urgentRim(!stale && s.range == .urgentLow, in: shape)
         .readingRipple(trigger: ripple, in: shape, tint: tint)
         .dsShadow(.medium, tint: stale ? nil : tint)
         .contentShape(shape)

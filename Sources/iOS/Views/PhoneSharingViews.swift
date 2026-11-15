@@ -231,6 +231,9 @@ struct PhoneFollowingCard: View {
             .padding(DS.Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background { FollowCardSurface(tone: tone) }
+            // Their urgent low reads without colour too: the octagon pill, the words and a rim.
+            .urgentRim(!ended && !stale && card?.range == .urgentLow,
+                       in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             .accessibilityElement(children: .contain)
         }
         .confirmationDialog("Stop following \(follow.label)?", isPresented: $confirmsStop, titleVisibility: .visible) {

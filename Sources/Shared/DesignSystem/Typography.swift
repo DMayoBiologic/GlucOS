@@ -132,7 +132,9 @@ enum DSTextScale: Double, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    static func clamp(_ scale: CGFloat) -> CGFloat { min(1.5, max(0.8, scale.isFinite ? scale : 1)) }
+    /// The Mac's setting stops at 1.3; iPhone's accessibility text sizes reach 2.25 (`PhoneTextScale`).
+    static func clamp(_ scale: CGFloat) -> CGFloat { min(maximum, max(0.8, scale.isFinite ? scale : 1)) }
+    static let maximum: CGFloat = 2.25
 }
 
 private struct TextScaleKey: EnvironmentKey {

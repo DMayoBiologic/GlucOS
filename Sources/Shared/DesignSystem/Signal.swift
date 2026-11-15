@@ -185,6 +185,9 @@ struct ForecastNote: View {
     let readingDate: Date
     /// Shorter text, for the Dynamic Island and small widgets.
     var compact: Bool = false
+    /// App screens: wrap onto more lines at the accessibility text sizes instead of truncating.
+    /// Widgets and the Live Activity keep one line, since their size is fixed.
+    var wraps: Bool = false
 
     static func roundedMinutes(_ seconds: TimeInterval) -> Int {
         max(5, Int((seconds / 300).rounded()) * 5)
@@ -199,7 +202,7 @@ struct ForecastNote: View {
             } icon: {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Tone.warning.color)
             }
-            .lineLimit(1)
+            .lineLimit(wraps ? nil : 1)
             .accessibilityLabel("Low expected in about \(minutes) minutes")
         } else if let headline {
             Label {
@@ -207,7 +210,7 @@ struct ForecastNote: View {
             } icon: {
                 Image(systemName: "chart.line.uptrend.xyaxis").foregroundStyle(Palette.stale)
             }
-            .lineLimit(1)
+            .lineLimit(wraps ? nil : 1)
             .accessibilityLabel("Forecast about \(unit.format(mgdl: headline.mgdl)) in \(headline.minutes) minutes")
         }
     }
