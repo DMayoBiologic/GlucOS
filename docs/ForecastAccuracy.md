@@ -766,7 +766,7 @@ which of each pair is kept. On today's export, §13's replay draws no forecast o
 ticks and warns of 1–3 of the 7 lows, where the live relay forecast through tonight's low
 (00:40, 110 falling 3.7 a minute, forecast 89 at 15 minutes against 71). Keeping one reading per
 minute in the store and in exports would remove those blips. It's a data fix, not a guard, and
-it should be checked against the replay before it ships.
+it should be checked against the replay before it ships. §18 did that, and it didn't.
 
     GLUCOS_REPLAY_DIR=dir deno run --allow-read --allow-env scripts/compression-lows.ts
     # DROP=mg/dL and RATE=mg/dL a minute change what counts as a dip; TZ_HOURS for another time zone
@@ -774,3 +774,55 @@ it should be checked against the replay before it ships.
 Rerun this once there are a few weeks of nights. A guard is worth trying again only if
 compression lows that cross 70 start to show up, and only if it holds no warning of a low that
 the readings then confirm.
+
+## 18. One reading per minute: should LinkUp's graph points go? (16 Nov 2026)
+
+The relay stores each live reading and, every 15 minutes, LinkUp's graph point for about the same
+moment, 1–9 seconds apart (`glucos.readings` keys by exact time). The question from §17 was
+whether keeping one reading per minute, the live one, would take the small blips out of the
+history without making forecasts or low alerts worse. **It made both worse, so nothing changed.**
+
+**The pairs.** 263 of 6,847 readings (10 Nov 22:45 to 16 Nov 03:40 Perth) sit within 30 seconds of
+another. Every pair is one live reading (trend known) and one graph point (trend 0), so they are
+easy to tell apart; 122 differ by 5 mg/dL or more. Live readings never come closer than 55 seconds
+to each other, so a 30-second window loses no real reading.
+
+**The apps don't keep them.** The Mac and iPhone archive (`HistoryArchive`) keeps one reading per
+5-minute slot, so the app charts never hold both of a pair. Only the relay's one-minute series (its forecast, alerts and the scorecard's
+`reading_at`) and exports hold both.
+
+**The replay.** Exported with exact times and the trend (so the replay ticks the way the relay
+does), then run as is and with `ONE_PER_MINUTE=1`. Forecast errors are scored against the same
+one-per-minute readings both ways, so only the forecast's input differs.
+
+| | Both kept (now) | One per minute |
+|---|---|---|
+| 15 min error, every origin (`UNGATED=1`) | 15.1 (no change 15.8) | 15.6 (no change 15.9) |
+| 30 min error, every origin | 23.9 (no change 24.6) | 24.5 (no change 25.0) |
+| 15 min forecasts the relay draws | 168 | 30 |
+| Lows warned (of 7) | 7, median 6 min ahead | 6, median 4 min ahead |
+| False low alarms | 1 | 0 |
+
+Taking the graph points out makes the trend about half a mg/dL worse, and the relay's own replay
+then judges the 15-minute forecast no better than no change and hides most of it. The low on
+15 Nov 17:16 Perth (nadir 54) got no warning at all, where it now gets 14 minutes, and two others
+were warned a minute later. Ticking only on live readings while keeping both pairs in the data
+gives the same 7 of 7 as now, so it's the graph points themselves that help, not extra ticks.
+LinkUp's graph values are its own smoothed history, and the forecast's trend fit seems to gain
+from that second, steadier sample every 15 minutes. Keeping the graph point instead of the live
+reading was no better (6 of 7 lows warned, 15 min error 15.5).
+
+So the relay keeps both, as it does now, and low-alert timing is unchanged. §17's export note
+stands corrected: with exact times the replay draws a forecast on 92% of ticks and warns of all
+7 lows; the 80%-blank result came from rounded times in that export.
+
+To export with the trend, and to rerun:
+
+    -- one row per reading: [unix seconds, mg/dL, trend]
+    select json_agg(json_build_array(extract(epoch from at)::bigint, mgdl, trend) order by at) from glucos.readings;
+
+    GLUCOS_REPLAY_DIR=dir deno run --allow-read --allow-env scripts/low-alert-replay.ts
+    ONE_PER_MINUTE=1 GLUCOS_REPLAY_DIR=dir deno run --allow-read --allow-env scripts/low-alert-replay.ts
+    # and the same for scripts/relay-replay.ts, with UNGATED=1 to judge the forecast itself
+
+Worth trying again with a few weeks of readings, and only if it keeps every low warning.
