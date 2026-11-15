@@ -2,7 +2,7 @@
 // Payload shapes follow Apple's "Sending notification requests to APNs" and "Starting and
 // updating Live Activities with ActivityKit push notifications".
 
-import { type AlertNotice, type CardState, cardRange, cardStaleDate } from "./core.ts";
+import { alertCategory, type AlertNotice, type CardState, cardRange, cardStaleDate } from "./core.ts";
 
 export interface PushRequest {
   deviceToken: string;
@@ -45,6 +45,9 @@ export const payloads = {
       "relevance-score": n.critical ? 1.0 : 0.8,
       sound: n.critical && criticalSound ? { critical: 1, name: "default", volume: 1.0 } : "default",
     };
+    // "Snooze 30 min" and "I'm treating it" (urgent lows: only the second).
+    const category = alertCategory(n.kind);
+    if (category) aps.category = category;
     return { aps, kind: n.kind };
   },
 
@@ -56,7 +59,9 @@ export const payloads = {
     const body = n.kind === "urgentLow" ? n.body.replace("Treat now and confirm on your phone.", `Check on ${label} now.`) : n.body;
     base.aps.alert = { title: `${label}: ${n.title}`, body };
     base.aps["thread-id"] = `glucos.follow.${shareId}`;
-    // Lows (and forecast lows) get a Check in button: see checkins.ts.
+    // Not the owner's snooze and treat buttons: lows (and forecast lows) get a Check in button
+    // (checkins.ts), everything else none.
+    delete base.aps.category;
     if (followerLowKinds.has(n.kind)) base.aps.category = "glucos.follow.low";
     return { ...base, followID: shareId };
   },

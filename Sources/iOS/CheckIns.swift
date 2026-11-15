@@ -24,12 +24,13 @@ enum CheckInNotifications {
                                         icon: UNNotificationActionIcon(systemImageName: "exclamationmark.triangle.fill"))
         let ask = UNNotificationAction(identifier: askAction, title: "Check in", options: [],
                                        icon: UNNotificationActionIcon(systemImageName: "hand.wave.fill"))
-        UNUserNotificationCenter.current().setNotificationCategories([
+        UNUserNotificationCenter.current().setNotificationCategories(Set([
             UNNotificationCategory(identifier: ownerCategory, actions: [okay, help], intentIdentifiers: []),
             UNNotificationCategory(identifier: followerLowCategory, actions: [ask], intentIdentifiers: []),
-            // Not a check-in, but categories are set all at once: "Was that dose for a meal?".
+            // Not check-ins, but categories are set all at once: "Was that dose for a meal?", and
+            // "Snooze 30 min" / "I'm treating it" on the owner's own low and high alerts.
             DoseQuestion.notificationCategory,
-        ])
+        ] + AlertNotifications.categories))
     }
 }
 

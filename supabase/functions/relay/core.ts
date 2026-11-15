@@ -941,6 +941,83 @@ export function evaluateAlerts(p: PlannerState, s: Snapshot, prefs: AlertPrefere
   return out;
 }
 
+// MARK: - Snooze and "I'm treating it" (Sources/Core/AlertSnooze.swift, docs/AlertActions.md)
+
+export type SnoozeLevel = "low" | "high" | "veryHigh";
+export type AlertTreatment = "low" | "high";
+/// When each level's snooze ends, seconds since 1970. Only quiets the owner's own pushes.
+export interface AlertSnoozes {
+  low?: number;
+  high?: number;
+  veryHigh?: number;
+}
+
+export const snoozeMinutes = 30;
+export const snoozeMaximumMinutes = 60;
+export const snoozeAndTreatCategory = "glucos.alert";
+export const treatOnlyCategory = "glucos.alert.urgent";
+
+/// Urgent lows are never snoozable (null), nor are alerts without buttons.
+export function snoozeLevel(k: AlertKind): SnoozeLevel | null {
+  switch (k) {
+    case "low": case "predictedLow": return "low";
+    case "high": case "predictedHigh": return "high";
+    case "veryHigh": case "predictedVeryHigh": return "veryHigh";
+    default: return null;
+  }
+}
+
+export function alertTreatment(k: AlertKind): AlertTreatment | null {
+  switch (k) {
+    case "urgentLow": case "predictedUrgentLow": case "low": case "predictedLow": return "low";
+    case "high": case "predictedHigh": case "veryHigh": case "predictedVeryHigh": return "high";
+    default: return null;
+  }
+}
+
+/// The notification category the iPhone app registers with this alert's buttons.
+export function alertCategory(k: AlertKind): string | null {
+  if (alertTreatment(k) === null) return null;
+  return snoozeLevel(k) === null ? treatOnlyCategory : snoozeAndTreatCategory;
+}
+
+/// A very-high snooze quiets highs too; a high snooze lets a very high through.
+export function silences(s: AlertSnoozes | null | undefined, k: AlertKind, now: number): boolean {
+  const level = snoozeLevel(k);
+  if (!s || level === null) return false;
+  const covering: SnoozeLevel[] = level === "high" ? ["high", "veryHigh"] : [level];
+  return covering.some((l) => (s[l] ?? 0) > now);
+}
+
+/// Snoozes `k`'s level for `minutes` (at most snoozeMaximumMinutes), keeping a longer one. False
+/// for an alert that can't be snoozed.
+export function snoozeAlert(s: AlertSnoozes, k: AlertKind, minutes: number, now: number): boolean {
+  const level = snoozeLevel(k);
+  if (level === null || !(minutes > 0)) return false;
+  const end = now + Math.min(Math.trunc(minutes), snoozeMaximumMinutes) * 60;
+  s[level] = Math.max(s[level] ?? 0, end);
+  return true;
+}
+
+export function pruneSnoozes(s: AlertSnoozes, now: number) {
+  for (const l of ["low", "high", "veryHigh"] as SnoozeLevel[]) if ((s[l] ?? 0) <= now) delete s[l];
+}
+
+/// The owner's alerts this tick, from the owner's own planner, minus the snoozed ones. A snoozed
+/// alert's repeat timer is cleared, so it fires on the first tick after the snooze if still due.
+/// Followers keep the shared planner (`processTick`), so their alerts and check-ins never change.
+export function ownerNotices(p: PlannerState, snoozes: AlertSnoozes | null | undefined, tick: TickResult,
+                             prefs: AlertPreferences, now: number): AlertNotice[] {
+  const due = evaluateAlerts(p, tick.snapshot, prefs, now);
+  const pre = evaluatePrediction(p, tick.snapshot, tick.forecast.ok ? tick.forecast.forecast : null, prefs, now);
+  if (pre) due.push(pre);
+  return due.filter((n) => {
+    if (!silences(snoozes, n.kind, now)) return true;
+    delete p.lastFired[n.kind];
+    return false;
+  });
+}
+
 const urgentLowMgdl = 54;
 const veryHighMgdl = 250;
 const minimumFall = -0.3;

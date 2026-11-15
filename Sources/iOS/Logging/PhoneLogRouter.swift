@@ -9,6 +9,9 @@ enum PhoneLogTarget {
     /// Food at an earlier time: the meal a dose was for ("Was it for a meal?" → Meal → Add Food).
     case meal(at: Date)
     case edit(LogEntry)
+    /// "I'm treating it" on a low or high alert (docs/AlertActions.md): a hypo treatment, filled
+    /// from the "Treat a low" usual when there is one, or a correction dose.
+    case treating(AlertTreatment)
 }
 
 struct PhoneLogRequest: Identifiable {
@@ -36,6 +39,12 @@ final class PhoneLogRouter: ObservableObject {
     func logMeal(at time: Date) {
         savedSinceOpen = false
         request = PhoneLogRequest(target: .meal(at: time))
+    }
+
+    /// The log sheet for "I'm treating it" on an alert.
+    func treat(_ treatment: AlertTreatment) {
+        savedSinceOpen = false
+        request = PhoneLogRequest(target: .treating(treatment))
     }
 
     func edit(_ entry: LogEntry) {

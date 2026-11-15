@@ -13,6 +13,7 @@
 //   POST /v1/shares/revoke  {id}           → Share[]
 //   POST /v1/shares/update  {id, showsLogbook} → Share[]   (what that link's followers see)
 //   POST /v1/checkins/answer {answer}      → RelayStatus   (the owner answers check-ins: "okay" | "help")
+//   POST /v1/alerts/snooze {kind, minutes} → RelayStatus   (quiet the owner's pushes of one alert; never urgent lows)
 //
 // The phone sends `Authorization: Bearer <RELAY_SECRET>`. The schedule sends `X-GlucOS-Cron`
 // with a token the migration generated into Vault. JWT verification is off for this function
@@ -91,6 +92,13 @@ export async function handle(req: Request): Promise<Response> {
     return json(await engine.history(Number(url.searchParams.get("since") ?? 0)));
   }
   if (path === "/v1/test" && req.method === "POST") return json(await engine.sendTest());
+  if (path === "/v1/alerts/snooze" && req.method === "POST") {
+    const body = await req.json().catch(() => null);
+    if (typeof body?.kind !== "string" || typeof body?.minutes !== "number") return json({ error: "bad request" }, 400);
+    const result = await engine.snoozeAlerts(body.kind, body.minutes);
+    if (result === "not snoozable") return json({ error: "This alert can't be snoozed." }, 400);
+    return json(result);
+  }
   if (path === "/v1/checkins/answer" && req.method === "POST") {
     const body = await req.json().catch(() => null);
     if (body?.answer !== "okay" && body?.answer !== "help") return json({ error: "bad request" }, 400);

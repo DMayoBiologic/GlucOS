@@ -7,6 +7,7 @@ import {
   type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
   type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
   effectiveRangeScale, rangeScaleFrom, rangeWindow, type Sensor, type Trend, unitOf,
+  type AlertSnoozes, ownerNotices, pruneSnoozes, snoozeAlert, snoozeLevel,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
 import {
@@ -22,7 +23,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.12.0";
+export const version = "2.13.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -141,6 +142,11 @@ export interface Work {
   retiredActivities?: string[];
   /// The relay's own forecast ledger (ledger.ts). Missing on old rows.
   forecastLog?: LedgerState | null;
+  /// The owner's own alert timers. `planner` stays the followers' (and the Lock Screen card's), so
+  /// a snooze never changes what they get. Missing on old rows: a copy of `planner`.
+  ownerPlanner?: PlannerState | null;
+  /// "Snooze 30 min" and "I'm treating it" from the owner's phone (`snoozeAlerts`). Missing on old rows.
+  snoozes?: AlertSnoozes;
 }
 
 export interface RelayRow {
@@ -312,6 +318,8 @@ export class RelayEngine {
           row.work.sensor = null;
           row.work.latestCard = null;
           row.work.planner = newPlanner();
+          row.work.ownerPlanner = null;
+          row.work.snoozes = {};
           row.work.calibration = null;
           row.work.learnedAt = 0;
         }
@@ -412,6 +420,21 @@ export class RelayEngine {
 
   /// The owner answers (from the notification, their Lock Screen card or the app): every follower
   /// waiting hears back straight away, and their cards change on the next tick.
+  /// "Snooze 30 min" or "I'm treating it" on the owner's phone: their pushes of this alert's level
+  /// stop for `minutes`. Urgent lows can't be snoozed.
+  snoozeAlerts(kind: string, minutes: number): Promise<RelayStatus | "not snoozable"> {
+    return this.store.transaction(async (tx) => {
+      const row = tx.row;
+      const now = this.clock();
+      const k = kind as AlertKind;
+      if (snoozeLevel(k) === null || !Number.isFinite(minutes) || minutes <= 0) return "not snoozable";
+      const snoozes = row.work.snoozes ?? (row.work.snoozes = {});
+      pruneSnoozes(snoozes, now);
+      snoozeAlert(snoozes, k, minutes, now);
+      return this.statusOf(row, (await tx.account()) !== null);
+    });
+  }
+
   async answerCheckIns(answer: CheckInAnswer): Promise<RelayStatus> {
     const now = this.clock();
     const shares = this.shares;
@@ -546,15 +569,22 @@ export class RelayEngine {
           await tx.pruneReadings(now - readingRetentionDays * 86_400);
         }
 
+        // Before the tick moves the shared planner on, so the owner's starts from the same timers.
+        if (!w.ownerPlanner) w.ownerPlanner = structuredClone(w.planner);
         const result = processTick({
           stored, current: w.current, sensor: w.sensor, lastError: w.lastError, display: row.prefs.display,
           prefs: row.prefs.alerts, planner: w.planner, calibration: w.calibration, live: w.forecastLog?.live ?? null,
           rangeScale: w.forecastLog?.rangeScale ?? null, now,
         });
 
+        // The owner's alerts: the same rules on the owner's own timers, minus what they snoozed.
+        // Followers, check-ins and the card below still go by `result.notices`.
+        const snoozes = w.snoozes ?? (w.snoozes = {});
+        pruneSnoozes(snoozes, now);
+        const mine = ownerNotices(w.ownerPlanner, snoozes, result, row.prefs.alerts, now);
         const token = row.prefs.deviceToken;
         if (token) {
-          for (const n of result.notices) {
+          for (const n of mine) {
             await this.push(row, {
               deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
               payload: payloads.alert(n, this.config.criticalAlerts), collapseId: noticeIdentifier(n),

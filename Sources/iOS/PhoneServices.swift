@@ -192,6 +192,18 @@ final class PhoneServices: ObservableObject {
         await showLiveActivity(canStart: false)
     }
 
+    /// Quiets the relay's pushes of `kind` for `minutes`, as this phone already has for its own
+    /// alerts. Without a relay (or on a follower-only phone) there's nothing to send.
+    func snoozeRelayAlerts(_ kind: AlertNotice.Kind, minutes: Int) async throws {
+        guard let client = relaySettings.client else { return }
+        do {
+            apply(try await client.snoozeAlerts(AlertSnoozeRequest(kind: kind.rawValue, minutes: minutes)))
+        } catch {
+            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "alerts.snooze", error: error)
+            throw error
+        }
+    }
+
     /// A check-in notification arrived: the card and the app should show it now.
     func checkInArrived() async {
         await refreshRelayStatus()

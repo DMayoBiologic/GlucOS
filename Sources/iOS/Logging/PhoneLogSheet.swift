@@ -24,6 +24,8 @@ struct PhoneLogSheet: View {
     private let start: PhoneLogPart?
     /// Opened to add the meal a logged dose was for: no "bolus for it" step, the dose is in already.
     private let forLoggedDose: Bool
+    /// Opened from "I'm treating it" on an alert.
+    private let treating: AlertTreatment?
     private let editingID: UUID?
     private let doseID: UUID
     private let mealID: UUID
@@ -104,6 +106,14 @@ struct PhoneLogSheet: View {
             startPart = .food
             parts = [.food]
             time = min(at, Date())
+        case .treating(.low):
+            // Fast carbs, tagged as a hypo treatment, with no dose.
+            startPart = .food
+            parts = [.food]
+            tags = [.hypoTreatment]
+        case .treating(.high):
+            startPart = .insulin
+            parts = [.insulin]
         case .edit(let entry):
             time = entry.timestamp
             editingID = entry.id
@@ -143,6 +153,7 @@ struct PhoneLogSheet: View {
         self.editing = editing
         self.start = startPart
         if case .meal = target { forLoggedDose = true } else { forLoggedDose = false }
+        if case .treating(let t) = target { treating = t } else { treating = nil }
         self.editingID = editingID
         self.doseID = doseID
         self.mealID = mealID
@@ -237,7 +248,7 @@ struct PhoneLogSheet: View {
                 if !needsTherapy { saveBar }
             }
         }
-        .onAppear { startDose(); focusFirstField() }
+        .onAppear { startDose(); applyTreatingUsual(); focusFirstField() }
         .onChange(of: settings.therapy) { _, therapy in
             // Picked in the setup step: keep the part the sheet was opened for if this therapy
             // has it, otherwise start from that therapy's default.
@@ -450,6 +461,16 @@ struct PhoneLogSheet: View {
         if !viaPump || InsulinKind.pumpKinds.contains(d.kind) { kind = d.kind }
         insulinName = d.name
         Haptics.tap()
+    }
+
+    /// Opened from "I'm treating it" on a low: the usual low treatment goes straight in (food only,
+    /// never a dose), still checked by `RepeatCheck` before it's logged. A high opens on the dose
+    /// for the calculator, with the usual correction one tap away in "Your usual": a dose amount is
+    /// never filled in without a tap.
+    private func applyTreatingUsual() {
+        guard isNew, treating == .low, appliedUsual == nil,
+              let u = usuals.first(where: { $0.kind == .lowTreatment }) else { return }
+        apply(u)
     }
 
     /// The units from the usual meal last time, tapped in the dose step.
@@ -1239,10 +1260,10 @@ struct PhoneLogSheet: View {
         }
     }
 
-    /// A dose logged from the usual correction, with no food, is a correction by the user's own
-    /// choice, so "Was that dose for a meal?" doesn't ask about it later.
+    /// A dose logged from the usual correction (or from "I'm treating it" on a high), with no food,
+    /// is a correction by the user's own choice, so "Was that dose for a meal?" doesn't ask about it later.
     private func usualPurpose(logsFood: Bool) -> DosePurpose? {
-        guard isNew, appliedUsual?.kind == .correction, !logsFood, kind.isBolus else { return nil }
+        guard isNew, appliedUsual?.kind == .correction || treating == .high, !logsFood, kind.isBolus else { return nil }
         return .correction
     }
 
