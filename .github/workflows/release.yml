@@ -116,11 +116,16 @@ jobs:
             V="$EXISTING"
           else
             IFS=. read -r MA MI PA <<< "$LATEST"
-            # Look at every commit since the last release, not just HEAD, so a [minor]/[major]
-            # marker isn't lost when a queued run is superseded or a PR is rebase-merged.
-            MSGS="$COMMIT_MSG"
+            # Look at every commit since the last release, not just HEAD, so a bump marker isn't
+            # lost when a queued run is superseded or a PR is rebase-merged. Only titles count
+            # (each commit's subject; for a merge commit, the PR title line under it), as in the
+            # gate: a squash body that merely mentions a marker once bumped 0.40.0 to 1.0.0.
+            MSGS=$(printf '%s\n' "$COMMIT_MSG" | head -1)
             if git rev-parse -q --verify "refs/tags/v$LATEST" >/dev/null; then
-              MSGS="$MSGS $(git log --format=%B "v$LATEST..HEAD")"
+              MSGS="$MSGS $(git log --no-merges --format=%s "v$LATEST..HEAD")"
+              for C in $(git log --merges --format=%H "v$LATEST..HEAD"); do
+                MSGS="$MSGS $(git log -1 --format=%B "$C" | sed -n '3p')"
+              done
             fi
             case "$MSGS" in
               *"[major]"*) V="$((MA + 1)).0.0" ;;
