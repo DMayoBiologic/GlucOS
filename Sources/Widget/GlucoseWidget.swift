@@ -22,6 +22,7 @@ struct GlucoseWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: kind, intent: GlucoseWidgetIntent.self, provider: GlucoseProvider()) { entry in
             GlucoseWidgetView(entry: entry)
+                .modifier(UrgentLowBorder(entry: entry))
                 .containerBackground(for: .widget) { SignalWidgetBackdrop(entry: entry) }
                 // Click anywhere else on the widget to open the popover (handled in AppDelegate).
                 .widgetURL(URL(string: "glucos://open"))

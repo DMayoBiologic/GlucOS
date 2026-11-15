@@ -37,8 +37,8 @@ struct WidgetBackdrop: View {
 
 /// The Glucose widget's background: the Signal range field (docs/Redesign.md §9), still, in the
 /// reading's colour. Grey once the reading is stale, and plain in the accented and vibrant modes,
-/// where colour is gone anyway. An urgent low adds a 2 pt crimson border inside the widget's edge
-/// (§3.1), so it reads without colour vision too, beside the pill's symbol and words.
+/// where colour is gone anyway. The urgent-low border is `UrgentLowBorder`, in the foreground, so
+/// StandBy (which removes the container background) still shows it.
 ///
 /// Nothing drifts here: widgets run no timers. Between two timeline entries the system cross-fades
 /// the field to the new colour, which is the still-frame version of the sweep.
@@ -55,11 +55,26 @@ struct SignalWidgetBackdrop: View {
                 RangeField(tone: entry.tone, intensity: fresh ? 0.95 : 0.6, range: fresh ? entry.snapshot.range : nil)
             }
         }
-        .overlay {
-            if fresh, entry.snapshot.range == .urgentLow {
+    }
+}
+
+/// A 2 pt crimson border inside the widget's edge while a fresh reading is urgent low (§3.1), so it
+/// reads without colour vision too, beside the pill's symbol and words. Drawn over the foreground
+/// and pushed out past the content margins to the widget's edge, so it survives StandBy and the
+/// other places WidgetKit removes the background.
+struct UrgentLowBorder: ViewModifier {
+    let entry: GlucoseEntry
+    @Environment(\.widgetContentMargins) private var margins
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if entry.freshness == .fresh, entry.snapshot.range == .urgentLow {
                 ContainerRelativeShape()
                     .strokeBorder(GlucoseRange.urgentLow.tint, lineWidth: 2)
+                    .padding(EdgeInsets(top: -margins.top, leading: -margins.leading,
+                                        bottom: -margins.bottom, trailing: -margins.trailing))
                     .widgetAccentable()
+                    .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
         }
@@ -122,7 +137,9 @@ struct StatusPill: View {
         .background(full ? entry.tint.opacity(0.15) : Color.primary.opacity(0.1), in: Capsule())
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(Capsule())
-        .dsAnimation(.standard, value: c.label)
+        // Not `dsAnimation`: that drops the animation under Reduce Motion, and the swap there is
+        // meant to be a cross-fade, which moves nothing.
+        .animation(reduceMotion ? .easeInOut(duration: 0.25) : DSMotion.standard.animation, value: c.label)
         .accessibilityHidden(true)
     }
 }
