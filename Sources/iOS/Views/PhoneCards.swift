@@ -291,7 +291,7 @@ enum OnBoardFormatPhone {
     }
 }
 
-private struct OnBoardTile: View {
+struct OnBoardTile: View {
     let title: String
     let systemImage: String
     let tint: Color
@@ -390,24 +390,8 @@ struct PhoneChartCard: View {
     }
 
     private func events(hours: Double) -> [ChartLogMarker] {
-        let cutoff = Date().addingTimeInterval(-hours * 3600)
-        var out: [ChartLogMarker] = []
-        for d in logbook.doses where d.timestamp >= cutoff {
-            out.append(ChartLogMarker(id: d.id, date: d.timestamp, systemImage: d.viaPump ? "cross.vial.fill" : "syringe.fill",
-                                  tint: Palette.insulin,
-                                  label: "\(LogFormat.units(d.units)) \(d.displayName) at \(ClockLabel.time(d.timestamp))"))
-        }
-        for c in logbook.contexts where c.isWake && c.timestamp >= cutoff {
-            out.append(ChartLogMarker(id: c.id, date: c.timestamp, systemImage: ContextTag.wokeUp.systemImage,
-                                      tint: Palette.context, lane: 2,
-                                      label: "Woke up at \(ClockLabel.time(c.timestamp))"))
-        }
-        for m in logbook.meals where m.timestamp >= cutoff {
-            out.append(ChartLogMarker(id: m.id, date: m.timestamp, systemImage: "fork.knife", tint: Palette.food, lane: 1,
-                                  label: m.carbs > 0 ? "\(LogFormat.grams(m.carbs)) carbs at \(ClockLabel.time(m.timestamp))"
-                                                     : "Food at \(ClockLabel.time(m.timestamp))"))
-        }
-        return out
+        ChartLogMarker.logbook(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts,
+                               since: Date().addingTimeInterval(-hours * 3600))
     }
 
     @ViewBuilder
@@ -459,6 +443,30 @@ struct PhoneChartCard: View {
     }
 }
 
+extension ChartLogMarker {
+    /// Doses, wake-ups and food after `cutoff`, as chart markers.
+    static func logbook(doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
+                        since cutoff: Date) -> [ChartLogMarker] {
+        var out: [ChartLogMarker] = []
+        for d in doses where d.timestamp >= cutoff {
+            out.append(ChartLogMarker(id: d.id, date: d.timestamp, systemImage: d.viaPump ? "cross.vial.fill" : "syringe.fill",
+                                      tint: Palette.insulin,
+                                      label: "\(LogFormat.units(d.units)) \(d.displayName) at \(ClockLabel.time(d.timestamp))"))
+        }
+        for c in contexts where c.isWake && c.timestamp >= cutoff {
+            out.append(ChartLogMarker(id: c.id, date: c.timestamp, systemImage: ContextTag.wokeUp.systemImage,
+                                      tint: Palette.context, lane: 2,
+                                      label: "Woke up at \(ClockLabel.time(c.timestamp))"))
+        }
+        for m in meals where m.timestamp >= cutoff {
+            out.append(ChartLogMarker(id: m.id, date: m.timestamp, systemImage: "fork.knife", tint: Palette.food, lane: 1,
+                                      label: m.carbs > 0 ? "\(LogFormat.grams(m.carbs)) carbs at \(ClockLabel.time(m.timestamp))"
+                                                         : "Food at \(ClockLabel.time(m.timestamp))"))
+        }
+        return out
+    }
+}
+
 // MARK: - At a glance
 
 struct PhoneGlanceCard: View {
@@ -476,29 +484,7 @@ struct PhoneGlanceCard: View {
                 .frame(maxWidth: 180)
             }
             if let stats = store.glanceStats(window) {
-                let unit = store.snapshot.unit
-                DSAccessibleStack(spacing: DS.Space.lg) {
-                    TimeInRangeRing(stats: stats, lineWidth: 11, drawsIn: true)
-                        .frame(width: 112, height: 112)
-                    VStack(alignment: .leading, spacing: DS.Space.sm) {
-                        StatTile("Average", value: unit.format(mgdl: stats.meanMgdl), unit: unit.label) { EmptyView() }
-                        DSAccessibleStack(spacing: DS.Space.lg) {
-                            StatTile("GMI", value: String(format: "%.1f", stats.gmiPercent), unit: "%") { EmptyView() }
-                            StatTile("CV", value: Format.percent(stats.coefficientOfVariation),
-                                     tone: stats.coefficientOfVariation > 0.36 ? .warning : .neutral) { EmptyView() }
-                        }
-                    }
-                }
-                TimeInRangeBar(stats: stats)
-                // Spread across the card; one per line at the accessibility text sizes.
-                ViewThatFits(in: .horizontal) {
-                    HStack {
-                        glanceLegend(stats, spaced: true)
-                    }
-                    VStack(alignment: .leading, spacing: DS.Space.xs) {
-                        glanceLegend(stats, spaced: false)
-                    }
-                }
+                GlanceStatsContent(stats: stats, unit: store.snapshot.unit)
             } else {
                 Text("Readings will appear here as GlucOS collects them.")
                     .dsFont(.callout)
@@ -506,6 +492,39 @@ struct PhoneGlanceCard: View {
             }
         }
         .dsCard(.standard, padding: DS.Space.lg)
+    }
+}
+
+/// Time in range ring, average, GMI and CV, the range bar and its legend, for one period's stats.
+struct GlanceStatsContent: View {
+    let stats: GlucoseStats
+    let unit: GlucoseUnit
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            DSAccessibleStack(spacing: DS.Space.lg) {
+                TimeInRangeRing(stats: stats, lineWidth: 11, drawsIn: true)
+                    .frame(width: 112, height: 112)
+                VStack(alignment: .leading, spacing: DS.Space.sm) {
+                    StatTile("Average", value: unit.format(mgdl: stats.meanMgdl), unit: unit.label) { EmptyView() }
+                    DSAccessibleStack(spacing: DS.Space.lg) {
+                        StatTile("GMI", value: String(format: "%.1f", stats.gmiPercent), unit: "%") { EmptyView() }
+                        StatTile("CV", value: Format.percent(stats.coefficientOfVariation),
+                                 tone: stats.coefficientOfVariation > 0.36 ? .warning : .neutral) { EmptyView() }
+                    }
+                }
+            }
+            TimeInRangeBar(stats: stats)
+            // Spread across the card; one per line at the accessibility text sizes.
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    glanceLegend(stats, spaced: true)
+                }
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    glanceLegend(stats, spaced: false)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -518,7 +537,7 @@ struct PhoneGlanceCard: View {
     }
 }
 
-private struct LegendText: View {
+struct LegendText: View {
     let color: Color
     let text: String
 

@@ -148,6 +148,10 @@ struct RelayClient {
         try await call("v1/shares/revoke", method: "POST", body: try JSONEncoder().encode(RevokeShare(id: id)))
     }
 
+    func updateShare(_ request: UpdateShare) async throws -> [ShareInfo] {
+        try await call("v1/shares/update", method: "POST", body: try JSONEncoder().encode(request))
+    }
+
     private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil) async throws -> T {
         var req = URLRequest(url: baseURL.appendingPathComponent(path))
         req.httpMethod = method

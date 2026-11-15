@@ -8,6 +8,7 @@
 //   POST /v1/follow     FollowRegistration    → FollowStatus    (a follower phone's push tokens, alert switch)
 //   POST /v1/unfollow   {installation}        → {ok}
 //   POST /v1/checkin    {installation, name}  → CheckInCard     (ask the owner if they're okay)
+//   GET  /v1/detail?since=<seconds>           → ShareDetail     (the app's follower view: readings, logbook)
 //
 // GET /v1/snapshot?installation=<id> also returns that follower's latest check-in, so the app's
 // own update of its Lock Screen card keeps it.
@@ -19,6 +20,7 @@ import { APNsSender, type PushSender } from "../relay/apns.ts";
 import { askCheckIn, type CheckInCard, cleanName, followerCheckInCard } from "../relay/checkins.ts";
 import type { CardState } from "../relay/core.ts";
 import { connect, PostgresStore } from "../relay/store.ts";
+import { clampSince, type DetailSource, PostgresDetailSource, shareDetail } from "./detail.ts";
 import {
   type FollowRegistration, hashShareToken, isShareToken, PostgresShareStore, type Share, type ShareStore,
 } from "../relay/sharing.ts";
@@ -34,6 +36,8 @@ export interface ShareSnapshot {
   followID: string;
   /// With `?installation=`: that follower's latest check-in, while it's current.
   checkIn?: CheckInCard;
+  /// The owner lets this link's followers see their logbook (GET /v1/detail).
+  showsLogbook: boolean;
 }
 
 export interface FollowStatus {
@@ -67,6 +71,8 @@ const env = (k: string) => Deno.env.get(k)?.trim() || undefined;
 let sql: ReturnType<typeof connect> | null = null;
 const db = () => (sql ??= connect());
 const defaultStore = () => (cachedStore ??= new PostgresShareStore(db()));
+let cachedDetail: DetailSource | null = null;
+const defaultDetail = () => (cachedDetail ??= new PostgresDetailSource(db()));
 /// The same APNs key and cached provider token as the relay (Supabase secrets are per project).
 function defaultSender(): PushSender | null {
   if (cachedSender !== undefined) return cachedSender;
@@ -84,6 +90,7 @@ export async function handle(
   store: () => ShareStore = defaultStore,
   clock: () => number = () => Date.now() / 1000,
   sender: () => PushSender | null = defaultSender,
+  detail: () => DetailSource = defaultDetail,
 ): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/(functions\/v1\/)?share/, "") || "/";
@@ -102,7 +109,7 @@ export async function handle(
     const latest = await s.latestCard();
     const body: ShareSnapshot = {
       label: share.label, expiresAt: share.expiresAt, card: latest?.card ?? null, updatedAt: latest?.at ?? null,
-      followID: share.id,
+      followID: share.id, showsLogbook: share.showsLogbook,
     };
     const installation = url.searchParams.get("installation");
     if (installation && isInstallation(installation)) {
@@ -114,6 +121,10 @@ export async function handle(
       }
     }
     return json(body);
+  }
+
+  if (path === "/v1/detail" && req.method === "GET") {
+    return json(await shareDetail(detail(), share.showsLogbook, clampSince(url.searchParams.get("since"), now), now));
   }
 
   if (path === "/v1/checkin" && req.method === "POST") {

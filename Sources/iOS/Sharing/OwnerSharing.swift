@@ -36,13 +36,13 @@ final class OwnerSharing: ObservableObject {
     }
 
     /// Makes a new link. Returns its URL to send.
-    func create(label: String, duration: ShareDuration) async -> URL? {
+    func create(label: String, duration: ShareDuration, showsLogbook: Bool = true) async -> URL? {
         guard let client = relay.client else {
             error = "Sharing needs the push relay. Set it up in Settings."
             return nil
         }
         do {
-            let made = try await client.createShare(CreateShare(label: label, expiresIn: duration.seconds))
+            let made = try await client.createShare(CreateShare(label: label, expiresIn: duration.seconds, showsLogbook: showsLogbook))
             Keychain.set(made.token, for: "ownShare.\(made.share.id)")
             shares.removeAll { $0.id == made.share.id }
             shares.insert(made.share, at: 0)
@@ -51,6 +51,20 @@ final class OwnerSharing: ObservableObject {
         } catch {
             self.error = error.localizedDescription
             return nil
+        }
+    }
+
+    /// Lets a link's followers see the recent logbook, or not. Shown at once; put back if the relay refuses.
+    func setShowsLogbook(_ on: Bool, for share: ShareInfo) async {
+        guard let client = relay.client, let i = shares.firstIndex(where: { $0.id == share.id }) else { return }
+        let before = shares[i]
+        shares[i].showsLogbook = on
+        do {
+            shares = try await client.updateShare(UpdateShare(id: share.id, showsLogbook: on))
+            error = nil
+        } catch {
+            if let j = shares.firstIndex(where: { $0.id == share.id }) { shares[j] = before }
+            self.error = error.localizedDescription
         }
     }
 

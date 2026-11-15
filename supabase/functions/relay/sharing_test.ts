@@ -414,3 +414,18 @@ Deno.test("a follower's invalid device token is forgotten, and the relay's own s
   (await share(t, "/v1/follow", token, { installation: "phone-1234", deviceToken: "eeeeffff00001111" })).body?.cancel();
   assertEquals(t.shares.rows[0].deviceToken, "eeeeffff00001111");
 });
+
+Deno.test("the owner can hide a link's logbook from its followers, and show it again", async () => {
+  const t = setup();
+  const a = await t.engine.createShare({ label: "Declan" });
+  assertEquals(a.share.showsLogbook, true);
+  const b = await t.engine.createShare({ label: "Work", showsLogbook: false });
+  assertEquals(b.share.showsLogbook, false);
+  let list = await t.engine.updateShare({ id: a.share.id, showsLogbook: false });
+  assertEquals(list.find((s) => s.id === a.share.id)?.showsLogbook, false);
+  list = await t.engine.updateShare({ id: a.share.id, showsLogbook: true });
+  assertEquals(list.find((s) => s.id === a.share.id)?.showsLogbook, true);
+  await assertRejects(() => t.engine.updateShare({ id: crypto.randomUUID(), showsLogbook: true }));
+  await t.engine.revokeShare(b.share.id);
+  await assertRejects(() => t.engine.updateShare({ id: b.share.id, showsLogbook: true }));
+});
