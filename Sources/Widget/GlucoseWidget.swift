@@ -76,6 +76,40 @@ struct GlucoseWidgetView: View {
 
     private func chart(axes: Bool, lineWidth: CGFloat = 2.25) -> some View {
         WidgetChart(snapshot: s, now: entry.date, hours: hours, tint: entry.tint, showsAxes: axes, lineWidth: lineWidth)
+            // The same spoken summary as the app's charts: where it is now, lowest and highest,
+            // time in range, and "Stale" first when the newest reading is old.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Glucose chart")
+            .accessibilityValue(chartSummary)
+    }
+
+    private var chartSummary: String {
+        let start = entry.date.addingTimeInterval(-hours * 3600)
+        var points = s.history
+        if let cur = s.current, !points.contains(where: { $0.timestamp == cur.timestamp }) { points.append(cur) }
+        let fresh = entry.freshness == .fresh
+        return ChartSummary.sentence(.init(
+            readings: points.filter { $0.timestamp >= start && $0.timestamp <= entry.date.addingTimeInterval(60) },
+            lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, unit: s.unit, hours: hours, stale: !fresh,
+            forecastEnd: fresh ? s.currentOutlook(at: entry.date)?.forecast.last : nil))
+    }
+
+    /// The reading as VoiceOver says it, matched to what's drawn for this freshness: a stale
+    /// reading is never read with its range or trend, an expired one says when the last was.
+    private var spokenReading: String {
+        let state: WidgetSpeech.State
+        switch entry.freshness {
+        case .fresh: state = .fresh
+        case .stale: state = .stale
+        case .expired: state = .expired
+        case .none: state = .none
+        }
+        return WidgetSpeech.reading(s, state: state, at: entry.date)
+    }
+
+    private func hero(_ size: CGFloat) -> some View {
+        HeroValue(entry: entry, size: size)
+            .accessibilityLabel(spokenReading)
     }
 
     /// The refresh button is offered whenever the reading isn't fresh, even if hidden in settings,
@@ -96,7 +130,7 @@ struct GlucoseWidgetView: View {
                 }
             }
             Spacer(minLength: 2)
-            HeroValue(entry: entry, size: 46)
+            hero(46)
             DetailLine(entry: entry, showsTrendWord: false)
                 .padding(.top, 1)
             rail(4, forecast: false)
@@ -117,7 +151,7 @@ struct GlucoseWidgetView: View {
                     WidgetTrend(entry: entry, size: 24)
                 }
                 Spacer(minLength: 2)
-                HeroValue(entry: entry, size: 40)
+                hero(40)
                 DetailLine(entry: entry)
                     .padding(.top, 1)
                 rail(4)
@@ -145,7 +179,7 @@ struct GlucoseWidgetView: View {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     StatusPill(entry: entry)
-                    HeroValue(entry: entry, size: 50)
+                    hero(50)
                     DetailLine(entry: entry)
                     rail(5)
                         .frame(maxWidth: 200)
@@ -174,7 +208,7 @@ struct GlucoseWidgetView: View {
             outlookRow
 
             if config.showsStats {
-                summaryStrip(caption: "Last 12h")
+                daySummary
             }
         }
     }
@@ -194,7 +228,7 @@ struct GlucoseWidgetView: View {
         HStack(alignment: .top, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {
                 StatusPill(entry: entry)
-                HeroValue(entry: entry, size: 60)
+                hero(60)
                 rail(6)
                 HStack(spacing: 10) {
                     WidgetTrend(entry: entry, size: 38)
@@ -209,7 +243,7 @@ struct GlucoseWidgetView: View {
                 outlookRow
                 Spacer(minLength: 0)
                 if config.showsStats {
-                    summaryStrip(caption: "Last 12h")
+                    daySummary
                 }
                 HStack(spacing: 8) {
                     if showsRefresh { RefreshButton(size: 26) }
@@ -252,6 +286,18 @@ struct GlucoseWidgetView: View {
     }
 
     // MARK: Summary
+
+    /// Today so far against your usual day (#105) once today has an hour of readings, otherwise the
+    /// last 12 hours. The figures run to the newest reading and the strip names that time, so it
+    /// stays true when the reading goes stale; it's dropped at midnight until the app has worked
+    /// out the new day.
+    @ViewBuilder private var daySummary: some View {
+        if let today = s.today, today.isCurrent(at: entry.date) {
+            TodayStrip(today: today, unit: s.unit)
+        } else {
+            summaryStrip(caption: "Last 12h")
+        }
+    }
 
     /// Time in range as one bar, with the three numbers people actually check. Hidden entirely
     /// once the reading has expired, because the window it describes is no longer "the last 12h".
@@ -299,6 +345,12 @@ extension GlucoseSnapshot {
         s.current = GlucoseReading(timestamp: now.addingTimeInterval(-90), mgdl: 112, trend: .rising)
         s.sensor = SensorInfo(serial: "0M0001ABCDE", activated: now.addingTimeInterval(-9 * 86_400), lifetimeDays: 15)
         s.fetchedAt = now
+        s.today = TodayGlance(day: Calendar.current.startOfDay(for: now), period: "Midnight to 2:30 pm",
+                              headline: "More time in range than your usual day by now.",
+                              timeInRange: 0.81, meanMgdl: 128, lows: 0,
+                              rangeCaption: "Usually 72%", meanCaption: "Usually 7.6",
+                              lowsCaption: "Usually none by now",
+                              spoken: "Today so far, midnight to 2:30 pm. More time in range than your usual day by now.")
         return s
     }
 
@@ -329,10 +381,62 @@ extension GlucoseSnapshot {
     GlucoseWidget()
 } timeline: {
     GlucoseEntry(date: .now, snapshot: .preview)
+    GlucoseEntry(date: .now, snapshot: .stalePreview)
 }
 
 #Preview("Extra large", as: .systemExtraLarge) {
     GlucoseWidget()
 } timeline: {
     GlucoseEntry(date: .now, snapshot: .preview)
+}
+
+// MARK: - Today so far strip
+
+/// The large widget's version of the Today so far card: the one-line answer, then time in range,
+/// average and lows, each with your usual day under it. Neutral colours only: like the card, it
+/// observes and never judges, and it never borrows a reading's range colour.
+private struct TodayStrip: View {
+    let today: TodayGlance
+    let unit: GlucoseUnit
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                WidgetCaption(text: "Today so far", systemImage: "sun.max")
+                Spacer(minLength: 0)
+                Text(today.period)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            Text(today.headline)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            HStack(alignment: .top, spacing: 8) {
+                cell("In range", Format.percent(today.timeInRange), today.rangeCaption,
+                     dot: GlucoseRange.inRange.tint, numeric: today.timeInRange)
+                cell("Average", unit.format(mgdl: today.meanMgdl), today.meanCaption, numeric: today.meanMgdl)
+                cell("Lows", today.lows == 0 ? "None" : "\(today.lows)", today.lowsCaption, numeric: Double(today.lows))
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(today.spoken)
+    }
+
+    private func cell(_ title: String, _ value: String, _ caption: String?, dot: Color? = nil,
+                      numeric: Double) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            WidgetStat(title: title, value: value, dot: dot, valueSize: 13, numeric: numeric)
+            if let caption {
+                Text(caption)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 }

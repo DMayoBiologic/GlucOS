@@ -232,6 +232,22 @@ enum TodaySoFarText {
     }
 }
 
+// MARK: - Widget
+
+extension TodaySoFar {
+    /// The figures and words the large Home Screen widget shows (`GlucoseSnapshot.today`).
+    func glance(unit: GlucoseUnit, now: Date = Date(), calendar: Calendar = .autoupdatingCurrent) -> TodayGlance {
+        TodayGlance(day: calendar.startOfDay(for: now),
+                    period: TodaySoFarText.period(self),
+                    headline: TodaySoFarText.headline(self),
+                    timeInRange: today.timeInRange, meanMgdl: today.meanMgdl, lows: today.lows,
+                    rangeCaption: TodaySoFarText.rangeCaption(self),
+                    meanCaption: TodaySoFarText.meanCaption(self, unit: unit),
+                    lowsCaption: TodaySoFarText.lowsCaption(self),
+                    spoken: TodaySoFarText.spoken(self, unit: unit))
+    }
+}
+
 // MARK: - Cache
 
 /// Keeps the last result for each window, so the card works it out once per data change rather than

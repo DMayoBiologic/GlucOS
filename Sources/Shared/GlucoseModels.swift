@@ -208,6 +208,9 @@ struct GlucoseSnapshot: Codable {
     var lastError: String?
     /// Forecast and insulin/carbs still acting, worked out by the app. Estimates only.
     var outlook: OutlookSnapshot?
+    /// Today so far against your usual day, worked out by the app for the large widget. Nil until
+    /// today has an hour of readings.
+    var today: TodayGlance?
 
     static let staleAfter: TimeInterval = 6 * 60
     static let empty = GlucoseSnapshot()

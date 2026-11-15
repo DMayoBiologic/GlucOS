@@ -311,9 +311,47 @@ final class GlucoseStore: ObservableObject {
     var onPublish: ((GlucoseSnapshot) -> Void)?
 
     private func publish() {
+        refreshTodayGlance()
         SharedStore.save(snapshot)
-        WidgetCenter.shared.reloadAllTimelines()
+        reloadChangedWidgets()
         onPublish?(snapshot)
+    }
+
+    /// What the widgets last drew from, so a publish that changes nothing they show reloads nothing.
+    private var widgetSignature: WidgetReload.Signature?
+
+    /// Reloads only the widget timelines this snapshot changes (power audit, #94): a logbook edit
+    /// or forecast relearn that leaves the forecast where it was no longer wakes every widget, and
+    /// Time in Range and Sensor, which read the 90-day archive, reload at most once per 15 minutes
+    /// of readings.
+    private func reloadChangedWidgets() {
+        let signature = WidgetReload.signature(snapshot)
+        let groups = WidgetReload.groups(from: widgetSignature, to: signature)
+        widgetSignature = signature
+        for group in WidgetReload.Group.allCases where groups.contains(group) {
+            for kind in group.kinds { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
+        }
+    }
+
+    private struct TodayKey: Hashable {
+        var key: TodaySoFarCache.Key
+        var unit: GlucoseUnit
+    }
+    private var todayKey: TodayKey?
+
+    /// Today so far for the large widget, worked out again only when its inputs move (every five
+    /// minutes of readings, a new day, a new target or unit). Same window as the Insights card.
+    private func refreshTodayGlance(now: Date = Date()) {
+        let days = UserDefaults.standard.object(forKey: "insights.dayPatternDays") as? Int
+        let window = days.flatMap(DayPattern.Window.init(rawValue:)) ?? .fortnight
+        let key = TodayKey(key: TodaySoFarCache.key(readings: archive, window: window, low: settings.lowMgdl,
+                                                    high: settings.highMgdl, now: now),
+                           unit: settings.unit)
+        guard key != todayKey else { return }
+        todayKey = key
+        snapshot.today = TodaySoFar.compute(readings: archive, window: window, low: settings.lowMgdl,
+                                            high: settings.highMgdl, now: now)?
+            .glance(unit: settings.unit, now: now)
     }
 
     #if os(macOS)
