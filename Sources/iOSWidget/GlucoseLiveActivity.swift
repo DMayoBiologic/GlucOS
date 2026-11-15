@@ -157,7 +157,8 @@ private struct ActivityPresentation: View {
     var body: some View {
         switch family {
         case .small:
-            SmallGlucoseCard(state: context.state, stale: context.isStaleCard, person: context.person)
+            SmallGlucoseCard(state: context.state, stale: context.isStaleCard, person: context.person,
+                             followID: context.attributes.followID)
         default:
             LockScreenGlucoseCard(state: context.state, stale: context.isStaleCard, person: context.person,
                                   followID: context.attributes.followID)
@@ -227,46 +228,137 @@ struct LockScreenGlucoseCard: View {
 }
 
 /// The Apple Watch Smart Stack and CarPlay layout: value, arrow and delta, the rail, and status
-/// with age. Dims on the watch's Always On display.
+/// with age. Dims on the watch's Always On display. While there's a check-in to make or answer, the
+/// rail gives way to the check-in row (docs/Sharing.md "Check-ins"): the buttons run on the iPhone,
+/// so a tap on the watch or in the car does the same as on the Lock Screen.
 struct SmallGlucoseCard: View {
     let state: GlucoseActivityState
     let stale: Bool
     var person: String? = nil
+    /// The share, on a follower's card. nil on the owner's own card.
+    var followID: String? = nil
     @Environment(\.isLuminanceReduced) private var luminanceReduced
 
     var body: some View {
+        let actions = SmallCheckInRow.shows(state: state, followID: followID)
+        VStack(alignment: .leading, spacing: actions ? 3 : 4) {
+            reading(actions: actions)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(state.accessibilitySummary(stale: stale, person: person))
+            if actions {
+                SmallCheckInRow(state: state, stale: stale, followID: followID, person: person)
+                    .opacity(luminanceReduced ? 0.6 : 1)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, actions ? 6 : 8)
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private func reading(actions: Bool) -> some View {
         let tone = state.tone(stale: stale)
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                ActivityValueText(state: state, stale: stale, size: 30)
+                ActivityValueText(state: state, stale: stale, size: actions ? 24 : 30)
                 if !stale {
                     Image(systemName: state.glucoseTrend.systemImage)
-                        .font(.system(size: 18, weight: .heavy))
+                        .font(.system(size: actions ? 15 : 18, weight: .heavy))
                         .contentTransition(.symbolEffect(.replace))
                         .foregroundStyle(tone.color)
                 }
                 Spacer(minLength: 2)
-                if let delta = state.deltaText, !stale {
+                if actions {
+                    // The status row makes way for the buttons, so its age moves up here.
+                    ReadingAge(readingDate: state.readingDate, stale: stale, timerWidth: 34)
+                        .font(.caption2.weight(.semibold))
+                } else if let delta = state.deltaText, !stale {
                     Text(delta)
                         .font(.caption.weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
             }
-            RangeRail(mgdl: state.mgdl, lowMgdl: state.lowMgdl, highMgdl: state.highMgdl, stale: stale,
-                      thickness: 3, unit: state.glucoseUnit)
-                .opacity(luminanceReduced ? 0.5 : 1)
-            HStack(spacing: 4) {
-                ActivityStatusLabel(state: state, stale: stale, person: person)
-                Spacer(minLength: 2)
-                ReadingAge(readingDate: state.readingDate, stale: stale, timerWidth: 34)
+            if !actions {
+                RangeRail(mgdl: state.mgdl, lowMgdl: state.lowMgdl, highMgdl: state.highMgdl, stale: stale,
+                          thickness: 3, unit: state.glucoseUnit)
+                    .opacity(luminanceReduced ? 0.5 : 1)
+                HStack(spacing: 4) {
+                    ActivityStatusLabel(state: state, stale: stale, person: person)
+                    Spacer(minLength: 2)
+                    ReadingAge(readingDate: state.readingDate, stale: stale, timerWidth: 34)
+                }
+                .font(.caption2.weight(.semibold))
             }
-            .font(.caption2.weight(.semibold))
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(state.accessibilitySummary(stale: stale, person: person))
+    }
+}
+
+/// The check-in on the small card: a short note over the buttons, sized for a watch face. The owner
+/// gets "I'm okay" and "Help" while someone's waiting; a follower gets Check in while the person they
+/// follow is low or heading low, and Ask again when there's been no answer.
+private struct SmallCheckInRow: View {
+    let state: GlucoseActivityState
+    let stale: Bool
+    let followID: String?
+    let person: String?
+
+    /// Whether the small card has a check-in row at all.
+    static func shows(state: GlucoseActivityState, followID: String?) -> Bool {
+        if followID == nil { return state.checkIn?.isWaiting == true }
+        return state.checkIn != nil || state.offersCheckIn
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if let followID {
+                follower(followID)
+            } else if let checkIn = state.checkIn {
+                CheckInNote(text: "\(checkIn.askers) checking in", systemImage: "hand.wave.fill",
+                            tint: Tone.warning.color, small: true)
+                HStack(spacing: 4) {
+                    CheckInButton(title: "I'm okay", systemImage: "checkmark", tint: Tone.success.color,
+                                  intent: AnswerCheckInIntent(okay: true),
+                                  accessibility: "Tell \(checkIn.askers) you're okay", fill: true)
+                    CheckInButton(title: "Help", systemImage: nil, tint: Tone.critical.color,
+                                  intent: AnswerCheckInIntent(okay: false),
+                                  accessibility: "Tell \(checkIn.askers) you need help", fill: true)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func follower(_ followID: String) -> some View {
+        let name = person ?? "them"
+        let checkIn = state.checkIn
+        switch checkIn?.status {
+        case .asked?:
+            CheckInNote(text: "Checked in \(ActivityActionRow.time(checkIn!.askedDate)) · waiting",
+                        systemImage: "hand.wave.fill", tint: .secondary, small: true)
+        case .noAnswer?:
+            CheckInNote(text: "No answer since \(ActivityActionRow.time(checkIn!.askedDate))",
+                        systemImage: "exclamationmark.triangle.fill", tint: Tone.warning.color, small: true)
+            CheckInButton(title: "Ask again", systemImage: "hand.wave.fill", tint: Tone.warning.color,
+                          intent: CheckInIntent(followID: followID), accessibility: "Ask \(name) again if they're okay",
+                          fill: true)
+        case .okay?:
+            CheckInNote(text: "\(name) is okay · \(ActivityActionRow.time(checkIn!.answeredDate ?? checkIn!.askedDate))",
+                        systemImage: "checkmark.circle.fill", tint: Tone.success.color, small: true)
+            if state.offersCheckIn { checkInButton(followID, name: name) }
+        case .help?:
+            CheckInNote(text: "\(name) needs help · \(ActivityActionRow.time(checkIn!.answeredDate ?? checkIn!.askedDate))",
+                        systemImage: "exclamationmark.triangle.fill", tint: Tone.critical.color, small: true)
+        case nil:
+            ActivityStatusLabel(state: state, stale: stale, person: person)
+                .font(.caption2.weight(.semibold))
+            checkInButton(followID, name: name)
+        }
+    }
+
+    private func checkInButton(_ followID: String, name: String) -> some View {
+        CheckInButton(title: "Check in", systemImage: "hand.wave.fill", tint: .white,
+                      intent: CheckInIntent(followID: followID), accessibility: "Ask \(name) if they're okay", fill: true)
     }
 }
 
@@ -490,10 +582,12 @@ private struct CheckInNote: View {
     let text: String
     let systemImage: String
     let tint: Color
+    /// The Watch and CarPlay size.
+    var small: Bool = false
 
     var body: some View {
         Label(text, systemImage: systemImage)
-            .font(.caption.weight(.semibold))
+            .font((small ? Font.caption2 : Font.caption).weight(.semibold))
             .foregroundStyle(tint)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
@@ -507,6 +601,8 @@ private struct CheckInButton<I: AppIntent>: View {
     let tint: Color
     let intent: I
     let accessibility: String
+    /// Takes the row's width (the small Watch and CarPlay card, where it needs to be easy to hit).
+    var fill: Bool = false
 
     var body: some View {
         Button(intent: intent) {
@@ -519,8 +615,10 @@ private struct CheckInButton<I: AppIntent>: View {
             }
             .font(.caption.weight(.bold))
             .lineLimit(1)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, fill ? 6 : 10)
+            .padding(.vertical, fill ? 5 : 4)
+            .frame(maxWidth: fill ? .infinity : nil)
             .foregroundStyle(tint)
             .background(tint.opacity(0.2), in: Capsule())
         }

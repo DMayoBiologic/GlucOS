@@ -2,7 +2,8 @@
 // "Check in" on their Lock Screen card. The owner gets a notification with "I'm okay" and
 // "I need help" buttons (and the same on their own Lock Screen card); their answer goes back to the
 // follower as a notification and on the follower's card. No answer in 5 minutes: the owner is
-// asked again, louder, and the follower is told. See docs/Sharing.md "Check-ins".
+// asked again, louder, the follower is told, and so is everyone else following (who then hear the
+// answer too). See docs/Sharing.md "Check-ins".
 //
 // The follower asks through the public `share` function (the share token is their credential),
 // which notifies the owner straight away. The owner answers through the relay (the relay secret).
@@ -162,6 +163,45 @@ export const checkInPayloads = {
         sound: "default",
       },
       kind: "checkInNoAnswer",
+      followID: shareId,
+    };
+  },
+
+  /// To everyone else following: someone checked in and got no answer for `checkInRemindAfter`.
+  /// Carries the follower low category, so they can check in too.
+  othersNoAnswer(label: string, shareId: string, asker: string) {
+    const who = asker || "Someone";
+    return {
+      aps: {
+        alert: {
+          title: `No answer from ${label}`,
+          body: `${who} checked in on ${label} 5 minutes ago and hasn't heard back. If you can, call them.`,
+        },
+        category: followerLowCategory,
+        "thread-id": `glucos.follow.${shareId}`,
+        "interruption-level": "time-sensitive",
+        "relevance-score": 1.0,
+        sound: "default",
+      },
+      kind: "checkInNoAnswer",
+      followID: shareId,
+    };
+  },
+
+  /// To everyone else who heard about the missed check-in: the owner has now answered.
+  othersAnswer(label: string, shareId: string, answer: CheckInAnswer, criticalSound: boolean) {
+    const help = answer === "help";
+    return {
+      aps: {
+        alert: help
+          ? { title: `${label} needs help`, body: `${label} answered a check-in: they need help. Go to them or call now.` }
+          : { title: `${label} is okay`, body: `${label} answered the check-in you heard about.` },
+        "thread-id": `glucos.follow.${shareId}`,
+        "interruption-level": help ? (criticalSound ? "critical" : "time-sensitive") : "active",
+        "relevance-score": help ? 1.0 : 0.6,
+        sound: help && criticalSound ? { critical: 1, name: "default", volume: 1.0 } : "default",
+      },
+      kind: "checkInAnswer",
       followID: shareId,
     };
   },
