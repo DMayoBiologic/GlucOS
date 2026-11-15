@@ -49,6 +49,8 @@ final class GlucoseStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var tick = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
     private var historyArchive: HistoryArchive
+    /// What the clock last changed on screen (`clockKey`).
+    private var lastClockKey: ClockKey?
 
     init() {
         snapshot = SharedStore.load() ?? .empty
@@ -78,9 +80,19 @@ final class GlucoseStore: ObservableObject {
             .store(in: &cancellables)
         #endif
 
-        // Re-render age text every 15 s even without new data.
-        tick.sink { [weak self] _ in self?.objectWillChange.send() }
-            .store(in: &cancellables)
+        // Age text and the stale state move on without new data. Checked every 15 s, but every view
+        // watching the store (the popover, the dashboard and its charts) re-renders on a send, so
+        // only send when something time-based would read differently: the menu bar text, going
+        // stale, or the reading's age in whole minutes. Screens with a ticking age have their own
+        // `TimelineView`s.
+        tick.sink { [weak self] now in
+            guard let self else { return }
+            let key = self.clockKey(at: now)
+            guard key != self.lastClockKey else { return }
+            self.lastClockKey = key
+            self.objectWillChange.send()
+        }
+        .store(in: &cancellables)
 
         // The widget's refresh button.
         WidgetBridge.observeRefreshRequests { [weak self] in
@@ -151,17 +163,18 @@ final class GlucoseStore: ObservableObject {
             s.fetchedAt = Date()
             s.lastError = nil
             snapshot = s
-            connectionProblem = nil
+            if connectionProblem != nil { connectionProblem = nil }
             record(s)
             refreshOutlook()
             applySettings()
             let host = await client.currentRegionHost
-            statusLine = "Connected to \(host)"
+            setStatusLine("Connected to \(host)")
         } catch {
             guard !accountChanged() else { return }
             snapshot.lastError = error.localizedDescription
-            connectionProblem = ConnectionProblem(error)
-            statusLine = "Error: \(error.localizedDescription)"
+            let problem = ConnectionProblem(error)
+            if problem != connectionProblem { connectionProblem = problem }
+            setStatusLine("Error: \(error.localizedDescription)")
             if connectionProblem?.isWorthReporting == true {
                 Diagnostics.shared.report(feature: ConnectionProblem.diagnosticFeature, step: "fetch", error: error,
                                           context: ["region": settings.region, "clientVersion": settings.clientVersion])
@@ -218,7 +231,25 @@ final class GlucoseStore: ObservableObject {
 
     func checkNotificationPermission() async {
         let allowed = await AlertManager.notificationsAllowed()
-        notificationsBlocked = settings.alertsEnabled && allowed == false
+        let blocked = settings.alertsEnabled && allowed == false
+        // @Published sends on every assignment, and every view watching the store redraws.
+        if blocked != notificationsBlocked { notificationsBlocked = blocked }
+    }
+
+    private func setStatusLine(_ line: String) {
+        if line != statusLine { statusLine = line }
+    }
+
+    /// What a view showing the reading's age or the menu bar text would draw now.
+    private struct ClockKey: Equatable {
+        var menuBar: String
+        var stale: Bool
+        var ageMinutes: Int
+    }
+
+    private func clockKey(at now: Date) -> ClockKey {
+        ClockKey(menuBar: statusItemText(at: now), stale: snapshot.isStale(at: now),
+                 ageMinutes: snapshot.current.map { Int($0.age(at: now) / 60) } ?? -1)
     }
 
     /// Adds a snapshot's readings to the on-disk archive. Recording only; nothing reads it back

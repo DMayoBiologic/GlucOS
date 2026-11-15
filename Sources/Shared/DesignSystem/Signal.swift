@@ -255,7 +255,9 @@ struct ForecastCaveatLine: View {
 
 /// The living colour behind a reading. A soft 3×3 mesh in the range's hue (macOS 15 / iOS 18), with
 /// its middle nodes drifting slowly when `live`: on screens being looked at, while data is fresh,
-/// never under Reduce Motion or Low Power Mode. A rapid trend drifts a little faster. Stale data is a
+/// never under Reduce Motion or Low Power Mode. The drift plays for a few seconds when the field
+/// appears and when the colour changes, then holds (`MeshField.driftFor`), so a screen left open
+/// doesn't redraw all the time. A rapid trend drifts a little faster. Stale data is a
 /// still grey field. Earlier systems get `AmbientGlow`; Reduce Transparency a flat wash.
 ///
 /// Pass the reading's `range` and a range change sweeps the new colour across in the direction of
@@ -579,25 +581,72 @@ private struct MeshField: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
 
-    private var drifts: Bool {
+    /// How long the field drifts after it appears or the reading's colour changes. It used to
+    /// drift for as long as it was on screen, redrawing a full-width mesh gradient 20 times a
+    /// second (and keeping a ProMotion display from ever slowing down): the biggest single drain
+    /// on the iPhone home screen and the Mac dashboard. A short drift still reads as "alive" when
+    /// you look, and the field then holds its last shape until something changes.
+    static let driftFor: TimeInterval = 12
+
+    /// Drift has been played so far (seconds), so a new drift carries on from where the last
+    /// one stopped instead of jumping.
+    @State private var phaseBase: Double = 0
+    /// When the current drift started; nil while the field holds still.
+    @State private var driftStart: Date?
+
+    /// The field may move at all: fresh, on screen, Reduce Motion and Low Power Mode off.
+    private var canDrift: Bool {
         live && !stale && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
+    private struct DriftKey: Equatable {
+        var tint: Color
+        var rapid: Bool
+        var canDrift: Bool
+        var active: Bool
+    }
+
     var body: some View {
-        if drifts {
-            TimelineView(.animation(minimumInterval: 1.0 / 20)) { context in
-                mesh(phase: context.date.timeIntervalSinceReferenceDate)
+        Group {
+            // Widgets and the Live Activity (never `live`) get a plain still mesh, no timeline.
+            if canDrift {
+                TimelineView(.animation(minimumInterval: 1.0 / 20, paused: driftStart == nil)) { context in
+                    mesh(phase: phase(at: context.date))
+                }
+            } else {
+                mesh(phase: phaseBase)
             }
-        } else {
-            mesh(phase: 0)
         }
+        // Drift for a while when the field appears and whenever its colour or pace changes, and
+        // only while the app is in front.
+        .task(id: DriftKey(tint: tint, rapid: rapid, canDrift: canDrift, active: scenePhase == .active)) {
+            stopDrift()
+            guard canDrift, scenePhase == .active else { return }
+            driftStart = Date()
+            try? await Task.sleep(nanoseconds: UInt64(Self.driftFor * 1_000_000_000))
+            // A newer drift took over: leave it running.
+            guard !Task.isCancelled else { return }
+            stopDrift()
+        }
+    }
+
+    private func phase(at date: Date) -> Double {
+        guard let driftStart else { return phaseBase }
+        return phaseBase + max(0, date.timeIntervalSince(driftStart))
+    }
+
+    private func stopDrift() {
+        guard let start = driftStart else { return }
+        phaseBase += max(0, Date().timeIntervalSince(start))
+        driftStart = nil
     }
 
     private func mesh(phase t: Double) -> some View {
         let period = rapid ? 9.0 : 14.0
         let p = Float(t / period * 2 * .pi)
-        let d: Float = drifts ? 0.06 : 0
+        let d: Float = canDrift ? 0.06 : 0
         let points: [SIMD2<Float>] = [
             [0, 0], [0.5 + d * sin(p * 0.7), 0], [1, 0],
             [0, 0.5 + d * sin(p)], [0.5 + d * cos(p * 0.8), 0.5 + d * sin(p * 1.3)], [1, 0.5 + d * cos(p)],

@@ -475,15 +475,14 @@ private struct TracePulse: View {
                let x = proxy.position(forX: date),
                let y = proxy.position(forY: value) {
                 let origin = geo[plot].origin
-                Circle()
-                    .strokeBorder(tint, lineWidth: 1.5)
-                    .frame(width: 12, height: 12)
-                    .phaseAnimator([false, true]) { content, out in
-                        content.scaleEffect(out ? 2.6 : 1).opacity(out ? 0 : 0.8)
-                    } animation: { out in
-                        out ? .easeOut(duration: 1.8) : .linear(duration: 0.01)
-                    }
-                    .position(x: origin.x + x, y: origin.y + y)
+                // One breath every few seconds rather than a loop (see `PulseBeat`).
+                PulseBeat(every: PulseInterval.trace) { beat in
+                    Circle()
+                        .strokeBorder(tint, lineWidth: 1.5)
+                        .frame(width: 12, height: 12)
+                        .pulse(beat: beat, scale: 2.6, opacity: 0.8, duration: 1.8)
+                }
+                .position(x: origin.x + x, y: origin.y + y)
             }
         }
         .allowsHitTesting(false)

@@ -47,8 +47,9 @@ redesign keeps every safety rule and changes three things:
    and "≈". Urgent states are never hidden behind motion, and never depend on colour alone (each has a
    symbol and words).
 3. **Motion explains change.** Something moves only because something changed: a new reading, a
-   range crossed, a trend turned. Nothing loops for decoration, except the slow range field drift on
-   screens the user is looking at, and that stops when data is stale.
+   range crossed, a trend turned. Nothing loops for decoration. The range field drifts for a few
+   seconds when a screen opens or the colour changes, then holds; the live dot, the trace's end ring
+   and the rapid halo beat once every few seconds rather than looping (§4.6).
 4. **Honest precision.** Times to a forecast event are rounded to 5 minutes and marked "≈". No
    ticking countdown to a predicted low (false precision); the reading's own age may tick.
 5. **Still is a first-class state.** Every component renders a correct, complete frame with no
@@ -127,7 +128,18 @@ stays full. Reversed when data returns.
 
 The range field's mesh nodes drift on a 14 s loop, at most 6 % of the field's size. Only on app
 screens the user is looking at, only while data is fresh, and never under Reduce Motion or Low Power
-Mode. Rapid trends speed the drift up to a 9 s loop, a cue that something is moving fast.
+Mode. Rapid trends speed the drift up to a 9 s loop, a cue that something is moving fast. The drift
+plays for 12 s when the field appears, when its colour or pace changes and when the app comes back
+to the front, then holds its last shape (`MeshField.driftFor`): a screen left open must not redraw
+20 times a second for hours.
+
+### 4.6 Power
+
+Nothing on screen animates without end. A continuous animation keeps SwiftUI redrawing every frame
+(120 a second on ProMotion) and stops the display dropping to its low-power refresh rate, which is
+what made the apps drain batteries before this was fixed (November 2026). Breathing pulses (`LiveDot`, the chart's end ring,
+`RapidHalo`) are one beat on a `PulseBeat` clock: 6 s for the dot and ring, 3.5 s for the rapid halo,
+hidden between beats. Clocks that only change text tick with `TimelineView(.periodic)`.
 
 ### 4.5 Navigation
 
