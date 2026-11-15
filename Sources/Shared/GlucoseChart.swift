@@ -32,6 +32,14 @@ struct GlucoseChart: View {
     var marksNow: Bool = false
 
     @State private var hoverDate: Date?
+    /// Whether a finger (or the pointer) is on the chart, as opposed to the readout gliding back
+    /// to the newest reading after a scrub, which mustn't tick.
+    @State private var touching = false
+    /// The reading the scrub was last on while touching, so the next one knows what it passed.
+    @State private var scrubbedFrom: Date?
+    @State private var scrubTick = ScrubTickTrigger()
+    /// Counts touches, so a snap-back still finishing never clears a scrub that started after it.
+    @State private var touchGeneration = 0
     /// The span on screen while `hours` changes (app screens only; `nil` follows `hours`, which is
     /// all a widget ever does since it never runs `onAppear`). See `ChartSpanTransition`.
     @State private var range: ChartSpanTransition?
@@ -94,6 +102,55 @@ struct GlucoseChart: View {
                 withTransaction(Transaction(animation: nil)) { range?.settle(generation: generation) }
             }
         }
+    }
+
+    /// What Charts' selection reads and writes. Lifting the finger glides the readout back to the
+    /// newest reading and fades it there, rather than dropping it wherever the finger was.
+    private func selection(newest: Date?) -> Binding<Date?> {
+        Binding(get: { hoverDate }, set: { new in
+            if let new {
+                if !touching { touching = true; scrubbedFrom = nil }
+                touchGeneration += 1
+                hoverDate = new
+            } else {
+                release(newest: newest)
+            }
+        })
+    }
+
+    /// The finger's off the chart. iPhone glides the readout to the newest reading, then fades it;
+    /// under Reduce Motion, on the Mac (the pointer leaving), or when it's already there, it goes.
+    private func release(newest: Date?) {
+        touching = false
+        scrubbedFrom = nil
+        touchGeneration += 1
+        let generation = touchGeneration
+        #if os(iOS)
+        let glides = !reduceMotion && newest != nil && hoverDate != nil
+        #else
+        let glides = false
+        #endif
+        guard glides, let newest else {
+            withTransaction(Transaction(animation: nil)) { hoverDate = nil }
+            return
+        }
+        withAnimation(DSMotion.standard.animation, completionCriteria: .logicallyComplete) {
+            hoverDate = newest
+        } completion: {
+            guard touchGeneration == generation else { return }
+            withAnimation(DSMotion.quick.animation) { hoverDate = nil }
+        }
+    }
+
+    /// The scrub landed on another reading: tick if it crossed a range edge or something logged.
+    private func scrubbed(to date: Date?, readings window: [GlucoseReading]) {
+        guard touching, let date else { return }
+        if let from = scrubbedFrom,
+           let tick = ChartScrub.tick(from: from, to: date, readings: window, lowMgdl: lowMgdl,
+                                      highMgdl: highMgdl, logged: events.map(\.date)) {
+            scrubTick.fire(tick)
+        }
+        scrubbedFrom = date
     }
 
     private func color(for mgdl: Double) -> Color {
@@ -292,8 +349,9 @@ struct GlucoseChart: View {
         }
         .onAppear { if interactive, range == nil { range = ChartSpanTransition(hours: hours) } }
         .onChange(of: hours) { old, new in changeRange(from: old, to: new) }
-        .hoverSelection(interactive, $hoverDate)
-        .scrubFeedback(interactive, trigger: hovered?.timestamp)
+        .hoverSelection(interactive, selection(newest: window.last?.timestamp))
+        .onChange(of: hovered?.timestamp) { _, new in scrubbed(to: new, readings: window) }
+        .scrubFeedback(interactive, trigger: scrubTick)
         // A new reading slides the trace (and the time axis) along by one reading instead of
         // jumping it. One short movement per reading; nothing here repeats.
         .dsAnimation(.standard, value: interactive ? readings.last?.timestamp : nil)
@@ -550,14 +608,30 @@ private struct TracePulse: View {
     }
 }
 
+/// Changes each time a scrub tick is due, so `sensoryFeedback` fires even for two of a kind in a row.
+private struct ScrubTickTrigger: Equatable {
+    private(set) var count = 0
+    private(set) var tick: ChartScrub.Tick?
+
+    mutating func fire(_ tick: ChartScrub.Tick) {
+        count += 1
+        self.tick = tick
+    }
+}
+
 private extension View {
-    /// A light tick each time scrubbing lands on a different reading (iPhone).
+    /// A light tick when scrubbing crosses the low or high line, a lighter one on something logged
+    /// (iPhone). Moving from one reading to the next doesn't tick by itself.
     @ViewBuilder
-    func scrubFeedback(_ enabled: Bool, trigger: Date?) -> some View {
+    func scrubFeedback(_ enabled: Bool, trigger: ScrubTickTrigger) -> some View {
         #if os(iOS)
         if enabled {
-            sensoryFeedback(trigger: trigger) { old, new in
-                old != nil && new != nil ? .selection : nil
+            sensoryFeedback(trigger: trigger) { _, new -> SensoryFeedback? in
+                switch new.tick {
+                case .rangeEdge: return .impact(weight: .light, intensity: 0.9)
+                case .logged: return .impact(weight: .light, intensity: 0.6)
+                case nil: return nil
+                }
             }
         } else {
             self

@@ -31,6 +31,7 @@ let package = Package(
                 "Shared/ClockLabel.swift",
                 "Shared/ChartSummary.swift",
                 "Shared/ChartSpan.swift",
+                "Shared/ChartScrub.swift",
                 "Shared/MenuBarGlance.swift",
                 "Core/RelayProtocol.swift",
                 "Core/RelayRetry.swift",
