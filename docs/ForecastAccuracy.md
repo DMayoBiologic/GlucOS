@@ -632,3 +632,65 @@ food data carrying fat and protein so "slow" comes from the food rather than its
 has both; the build script keeps carbs only). The test then reruns as is: per-meal hold-out, ship
 only if 30 and 60 minutes both improve. The prototype was a scratch script; it's simple to redo
 from the description above.
+
+## 16. Does "Your usual day" help overnight? (16 Nov 2026)
+
+"Your usual day" in Insights (`DayPattern`) draws the median glucose for each half hour of the day.
+Overnight there's usually nothing logged, so the forecast is the trend alone, and the question
+was whether the usual shape of the night (the dawn rise in particular) would make the 30- and
+60-minute forecasts better. The bar for shipping it: better than the current forecast at both 30
+and 60 minutes on nights the pattern wasn't built from. **It didn't clear that bar, so nothing
+changed.**
+
+**What the data allows.** The server has readings from 10 Nov 22:45 to 16 Nov 02:36 (Perth), so
+five full nights and part of a sixth. Every night was scored with a usual day built from the
+other days only (the card's own method: 5-minute buckets, half-hour medians, 1-2-1 smoothing),
+so each pattern came from four or five days, below the card's own 5-day minimum. Overnight here
+means forecasts issued 22:00–09:00 Perth. The forecast log has only 102 overnight checks at 30 and
+60 minutes from four nights, because the Mac sleeps and the iPhone is in the background: 28 clean
+checks at 30 minutes and 15 at 60, and just 3 between 03:00 and 09:00, none of them at 60. So the
+test also used a replay of the trend forecast every 15 minutes on the one-minute readings (183
+checks at 30 minutes, 181 at 60, from five nights), with the trend gain fitted on the other nights.
+
+**The usual night does have a dawn rise.** The median falls to about 110 mg/dL at 04:00–05:00 and
+climbs to about 160 by 07:00 and 190 by 08:00, and glucose rose between 05:00 and 07:00 on every
+one of the five nights (+17 to +54). But the level is very different from night to night (05:00
+was 94–108 on three nights and 246–269 on the other two) and the rise starts at different times,
+and a pattern built from four days can't tell those apart.
+
+**Two ways of using it were tested.** *Shape*: add the usual day's change over the next 30 or 60
+minutes to the forecast, at weights of 0.25, 0.5 and 1. *Level*: pull the forecast a share (0.1,
+0.2, 0.3) of the way to the usual day's level at the forecast time. The weight was picked on the
+other nights and scored on the held-out one. Typical error, mg/dL:
+
+| Overnight checks | Horizon | Checks | Current | Usual day, held out | No change |
+| --- | --- | --- | --- | --- | --- |
+| Live, clean | 30 min | 28 | 24.6 | 23.5 | 34.0 |
+| Live, clean | 60 min | 15 | 51.4 | 53.7 | 51.9 |
+| Live, all | 30 min | 60 | 30.7 | 29.1 | 32.2 |
+| Live, all | 60 min | 42 | 52.3 | 44.0 | 46.9 |
+| Replay, clean | 30 min | 147 | 20.3 | 20.7 | 21.1 |
+| Replay, clean | 60 min | 147 | 35.9 | 36.2 | 36.1 |
+| Replay, 04:00–08:00 | 30 min | 57 | 16.5 | 16.5 | 17.0 |
+| Replay, 04:00–08:00 | 60 min | 57 | 28.6 | 32.1 | 28.7 |
+
+On clean live checks the shape helps at 30 minutes and loses at 60. On the replay, which has five
+times the checks, it's no better at 30 minutes and worse at 60, and in the dawn hours it costs 3.5
+mg/dL at 60 minutes: the trend already follows the rise once it starts, and the usual day's timing
+is wrong on most nights.
+
+The one large gain, live "all" at 60 minutes (52.3 → 44.0), isn't the usual day. It comes from the
+night of 12–13 Nov, when the sports drink and the insulin-and-carb forecasts around it were far off
+(before calibration), and pulling any forecast towards a typical level shrinks those misses.
+Pulling towards a flat 150–170 mg/dL (the median of the other days) instead of the time-of-day
+curve does about as well (44.6), and on clean checks the flat level does better than the usual
+day (47.0 against 49.4 at 60 minutes). That's damping, not time of day, and the after-log and
+uncalibrated cases already have their own ranges and caps (§12, §8).
+
+**What would settle it.** Two to three weeks of nights, so the pattern has 14+ days behind it as
+the card does, and forecasts logged through the night (the relay keeps forecasting while the
+devices sleep, so its ledger is the place to look once it has enough nights). The dawn rise is
+better tied to waking than to the clock: `MorningPatternLearner` (docs/Mornings.md) already learns
+the rise after a logged wake-up, and that's the lever to strengthen. Rerun as is: per-night hold-out,
+shape and level weights, ship only if 30 and 60 minutes both improve, including 04:00–08:00. The
+prototype was a scratch script; it's simple to redo from the description above.
