@@ -54,9 +54,11 @@ struct ForecastScorecardView: View {
             DSAdaptiveRow(minMainWidth: 120, spacing: DS.Space.sm, verticalSpacing: DS.Space.xxs, alignment: .firstTextBaseline) {
                 Text("\(row.minutes) min ahead").dsFont(.callout)
                 HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
-                    Text(ForecastScorecardText.error(row.error, unit: unit))
-                        .dsFont(.callout)
-                        .fontWeight(.semibold)
+                    RollingFigure(row.error, order: card.rows.firstIndex { $0.minutes == row.minutes } ?? 0) {
+                        ForecastScorecardText.error($0, unit: unit)
+                    }
+                    .dsFont(.callout)
+                    .fontWeight(.semibold)
                     Text(ForecastScorecardText.noChange(row, unit: unit))
                         .dsFont(.caption)
                         .foregroundStyle(.secondary)
@@ -133,7 +135,7 @@ struct ForecastScorecardView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("Inside the likely range").dsFont(.callout)
                 Spacer(minLength: DS.Space.sm)
-                Text("\(card.insidePercent)%")
+                RollingFigure(card.insideRange) { "\(Int(($0 * 100).rounded()))%" }
                     .dsFont(.callout)
                     .fontWeight(.semibold)
                     .monospacedDigit()

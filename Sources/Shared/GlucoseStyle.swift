@@ -85,6 +85,17 @@ struct RangeBadge: View {
 struct TimeInRangeBar: View {
     let stats: GlucoseStats
     var height: CGFloat = 8
+    /// Grows from the left when it first appears, with the ring beside it. App screens only; a
+    /// widget always gets the full bar.
+    var drawsIn: Bool = false
+    @State private var progress: Double
+
+    init(stats: GlucoseStats, height: CGFloat = 8, drawsIn: Bool = false) {
+        self.stats = stats
+        self.height = height
+        self.drawsIn = drawsIn
+        _progress = State(initialValue: drawsIn ? 0 : 1)
+    }
 
     private var segments: [(fraction: Double, color: Color)] {
         let all: [(fraction: Double, color: Color)] = [
@@ -104,11 +115,14 @@ struct TimeInRangeBar: View {
                         .frame(width: max(2, (geo.size.width - gaps) * segments[i].fraction))
                 }
             }
+            .frame(width: geo.size.width * progress, alignment: .leading)
+            .clipped()
         }
         .frame(height: height)
         .background(.quaternary, in: Capsule())
         .clipShape(Capsule())
         .dsAnimation(.emphasized, value: stats.timeInRange)
+        .modifier(DrawIn(enabled: drawsIn, progress: $progress))
         .accessibilityElement()
         .accessibilityLabel("Time in range")
         .accessibilityValue("\(Format.percent(stats.timeInRange)) in range, \(Format.percent(stats.timeBelowRange)) below, \(Format.percent(stats.timeAboveRange)) above")

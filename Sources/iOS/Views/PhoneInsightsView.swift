@@ -73,6 +73,10 @@ struct PhoneInsightsView: View {
             .frame(maxWidth: 640)
             .frame(maxWidth: .infinity)
         }
+        // Each card's figures count up as it assembles, with its rings and bars drawing in, and roll
+        // from the old figure to the new one when a period changes. Once per appearance, never a
+        // loop; still under Reduce Motion.
+        .environment(\.figuresCountUp, true)
         .background { PhoneBackdrop(tone: .neutral) }
         .navigationTitle("Insights")
         .navigationBarTitleDisplayMode(.large)
@@ -165,12 +169,19 @@ struct DayColumnsCard: View {
                 .animation(reduceMotion ? nil : .spring(response: 0.6, dampingFraction: 0.82)
                     .delay(0.15 + Double(order) * 0.045), value: grown)
             }
-            Text(day.stats.map { Format.percent($0.timeInRange) } ?? "–")
-                .dsFont(.caption)
-                .fontWeight(day.isToday ? .semibold : .regular)
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
+            Group {
+                if let s = day.stats {
+                    // Counts up as its column grows.
+                    RollingFigure(s.timeInRange, order: order) { Format.percent($0) }
+                } else {
+                    Text("–")
+                }
+            }
+            .dsFont(.caption)
+            .fontWeight(day.isToday ? .semibold : .regular)
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
             Text(day.label)
                 .dsFont(.caption)
                 .foregroundStyle(day.isToday ? AnyShapeStyle(Color.primary) : AnyShapeStyle(Color.secondary))

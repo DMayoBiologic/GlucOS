@@ -509,6 +509,7 @@ struct PhoneGlanceCard: View {
 struct GlanceStatsContent: View {
     let stats: GlucoseStats
     let unit: GlucoseUnit
+    @Environment(\.figuresCountUp) private var countsUp
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
@@ -516,15 +517,18 @@ struct GlanceStatsContent: View {
                 TimeInRangeRing(stats: stats, lineWidth: 11, drawsIn: true)
                     .frame(width: 112, height: 112)
                 VStack(alignment: .leading, spacing: DS.Space.sm) {
-                    StatTile("Average", value: unit.format(mgdl: stats.meanMgdl), unit: unit.label) { EmptyView() }
+                    StatTile("Average", value: unit.format(mgdl: stats.meanMgdl), unit: unit.label,
+                             rolling: .init(stats.meanMgdl) { unit.format(mgdl: $0) })
                     DSAccessibleStack(spacing: DS.Space.lg) {
-                        StatTile("GMI", value: String(format: "%.1f", stats.gmiPercent), unit: "%") { EmptyView() }
+                        StatTile("GMI", value: String(format: "%.1f", stats.gmiPercent), unit: "%",
+                                 rolling: .init(stats.gmiPercent) { String(format: "%.1f", $0) })
                         StatTile("CV", value: Format.percent(stats.coefficientOfVariation),
-                                 tone: stats.coefficientOfVariation > 0.36 ? .warning : .neutral) { EmptyView() }
+                                 tone: stats.coefficientOfVariation > 0.36 ? .warning : .neutral,
+                                 rolling: .init(stats.coefficientOfVariation) { Format.percent($0) })
                     }
                 }
             }
-            TimeInRangeBar(stats: stats)
+            TimeInRangeBar(stats: stats, drawsIn: countsUp)
             // Spread across the card; one per line at the accessibility text sizes.
             ViewThatFits(in: .horizontal) {
                 HStack {
@@ -539,22 +543,35 @@ struct GlanceStatsContent: View {
 
     @ViewBuilder
     private func glanceLegend(_ stats: GlucoseStats, spaced: Bool) -> some View {
-        LegendText(color: GlucoseRange.low.tint, text: "Below \(Format.percent(stats.timeBelowRange))")
+        LegendText(color: GlucoseRange.low.tint, text: "Below", fraction: stats.timeBelowRange)
         if spaced { Spacer() }
-        LegendText(color: GlucoseRange.inRange.tint, text: "In range \(Format.percent(stats.timeInRange))")
+        LegendText(color: GlucoseRange.inRange.tint, text: "In range", fraction: stats.timeInRange)
         if spaced { Spacer() }
-        LegendText(color: GlucoseRange.high.tint, text: "Above \(Format.percent(stats.timeAboveRange))")
+        LegendText(color: GlucoseRange.high.tint, text: "Above", fraction: stats.timeAboveRange)
     }
 }
 
 struct LegendText: View {
     let color: Color
     let text: String
+    /// A share written after `text` as a rolling percentage ("Below 4%").
+    var fraction: Double? = nil
 
     var body: some View {
         HStack(spacing: DS.Space.xs) {
             Circle().fill(color).frame(width: 8, height: 8)
-            Text(text).monospacedDigit().fixedSize()
+            if let fraction {
+                HStack(spacing: 0) {
+                    Text(text + " ")
+                    RollingFigure(fraction) { Format.percent($0) }
+                }
+                .monospacedDigit()
+                .fixedSize()
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(text) \(Format.percent(fraction))")
+            } else {
+                Text(text).monospacedDigit().fixedSize()
+            }
         }
         .dsFont(.caption)
         .foregroundStyle(.secondary)
