@@ -80,9 +80,12 @@ Deno.test({
       assertEquals(p2[1].after_log, true);
       assertEquals(p3.some((p) => "actual" in p), false);
 
+      // Summed over weeks: the view's weeks are Perth weeks, and a run late on a Sunday (UTC)
+      // puts these forecasts either side of Monday 00:00 in Perth.
       const acc = await sql`
-        select minutes, clean, checks, mae_mgdl::float8 as mae from glucos.forecast_accuracy
-        where user_id = ${user}::uuid and device = 'relay' order by minutes`;
+        select minutes, clean, sum(checks) as checks, (sum(mae_mgdl * checks) / sum(checks))::float8 as mae
+        from glucos.forecast_accuracy
+        where user_id = ${user}::uuid and device = 'relay' group by minutes, clean order by minutes`;
       assertEquals(acc.map((a) => [a.minutes, a.clean, Number(a.checks)]), [[15, true, 2], [30, true, 1]]);
       assertAlmostEquals(Number(acc[0].mae), 5, 0.01);
 
