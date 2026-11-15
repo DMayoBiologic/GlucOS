@@ -52,6 +52,9 @@ final class AlertManager {
     var deliversLocally: @MainActor () -> Bool = { true }
 
     func evaluate(_ s: GlucoseSnapshot, settings: AppSettings, now: Date = Date()) {
+        // Each reading also lets go of alert records past 90 days, so a Mac that never quits keeps
+        // to the limit too. Cheap: nothing is written unless one has expired.
+        AlertLogRecorder.shared.logbook?.pruneExpiredAlerts(now: now)
         let due = planner.evaluate(s, prefs: settings.alertPreferences, now: now)
         for notice in planner.unsnoozed(due, snoozes: AlertSnoozeStore.shared.snoozes, now: now) { deliver(notice) }
     }
