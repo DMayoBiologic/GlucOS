@@ -5,7 +5,9 @@ name: Release
 #
 # Versioning is automatic, from the latest vX.Y.Z tag:
 #   patch bump by default; put [minor] or [major] in the PR title / merge commit message to bump more.
-#   [skip release] in the PR title / commit subject skips the release. Docs-only pushes (*.md) are skipped.
+#   [skip release] in the PR title / commit subject skips the release. Docs-only pushes (*.md, LICENSE)
+#   are skipped too, unless the subject carries [minor] or [major]: a release PR that only touches docs
+#   still ships everything merged with [skip release] since the last tag.
 # Manual run (Actions → Release → Run workflow) can force a specific version, or leave it blank to auto-bump.
 #
 # Required secret:   SPARKLE_PRIVATE_KEY   (from `make sparkle-keys`)
@@ -29,9 +31,6 @@ name: Release
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "LICENSE"
   workflow_dispatch:
     inputs:
       version:
@@ -41,9 +40,9 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: release
-  cancel-in-progress: false
+# Serialised per job, not per workflow: a queued run cancels the pending one in its group, so a
+# docs-only push (whose gate skips) must not sit in the group and knock out a waiting code release.
+# Skipped jobs never join their group.
 
 jobs:
   # Only the subject line can skip a release (for a squash merge that's the PR title; for a merge
@@ -54,23 +53,42 @@ jobs:
     outputs:
       skip: ${{ steps.s.outputs.skip }}
     steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - id: s
         env:
           MSG: ${{ github.event.head_commit.message }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
         run: |
           TITLE=$(printf '%s\n' "$MSG" | head -1)
           case "$TITLE" in
             "Merge pull request "*) TITLE="$TITLE $(printf '%s\n' "$MSG" | sed -n '3p')" ;;
           esac
           case "$TITLE" in
-            *"[skip release]"*) echo "skip=true"  >> "$GITHUB_OUTPUT"; echo "Skipping: $TITLE" ;;
-            *)                  echo "skip=false" >> "$GITHUB_OUTPUT" ;;
+            *"[skip release]"*) echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Skipping: $TITLE"; exit 0 ;;
+            *"[minor]"*|*"[major]"*) echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
           esac
+          # Docs-only push with no bump marker: nothing to ship.
+          if [ "$EVENT" = "push" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            CODE=$(git diff --no-renames --name-only "$BEFORE" "$AFTER" | grep -vE '(\.md$|^LICENSE$)' || true)
+            if [ -z "$CODE" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Skipping docs-only push: $TITLE"; exit 0
+            fi
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
   release:
     needs: gate
     # Releases only ever come from main, even when run by hand from another branch.
     if: needs.gate.outputs.skip != 'true' && github.ref == 'refs/heads/main'
+    concurrency:
+      group: release
+      cancel-in-progress: false
     runs-on: macos-15
     outputs:
       version: ${{ steps.v.outputs.version }}
@@ -239,6 +257,9 @@ jobs:
   # iPhone app → App Store Connect → TestFlight, with the same version number as the Mac release.
   ios:
     needs: release
+    concurrency:
+      group: release-ios
+      cancel-in-progress: false
     runs-on: macos-15
     env:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -291,6 +312,9 @@ jobs:
   # most of the time is waiting for App Store Connect to finish processing the upload.
   testflight-external:
     needs: [release, ios]
+    concurrency:
+      group: release-testflight
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     env:
       KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
