@@ -1032,8 +1032,8 @@ fast one, that is a better split than speed alone.
 The forecast follows the trend, the slope of the last 20 minutes of readings, and
 `ForecastTuning.trendGain` already counts it at about 55–70% strength (§3). The idea tested here:
 when readings jitter around their line, the slope is less trustworthy, so count it for less still.
-**It doesn't help. On days they hadn't seen, every noise-based damping did slightly worse than the
-forecast as it is, at both 15 and 30 minutes, so nothing changed.**
+**It doesn't help. On days they hadn't seen, no noise-based damping beat the forecast as it is at
+15 or 30 minutes, and most did slightly worse, so nothing changed.**
 
 **The data.** Clean points (nothing logged after the forecast) in `glucos.forecast_checks` at 15
 and 30 minutes, from 12 Nov 15:08 Perth to the morning of 16 Nov, on the Mac, iPhone and relay: 469 points
