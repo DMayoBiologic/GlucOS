@@ -139,13 +139,19 @@ struct PhoneHomeView: View {
                     PhoneLogbookCard()
                         .matchedTransitionSource(id: PhoneRoute.logbook, in: routes)
                         .dsEntrance(3)
+                    // Today against the same hours on a usual day; hidden until today has an
+                    // hour of readings. Below the logbook, so logging stays near the top.
+                    TodaySoFarView(readings: store.archive, unit: store.snapshot.unit,
+                                   lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                   padding: DS.Space.lg)
+                        .dsEntrance(4)
                     // Time in range, mornings and forecast accuracy live one tap away, so the
                     // logbook isn't pushed below three cards of statistics.
                     PhoneInsightsRow()
                         .matchedTransitionSource(id: PhoneRoute.insights, in: routes)
-                        .dsEntrance(4)
+                        .dsEntrance(5)
                     if let sensor = store.snapshot.sensor {
-                        PhoneSensorCard(sensor: sensor).dsEntrance(5)
+                        PhoneSensorCard(sensor: sensor).dsEntrance(6)
                     }
                     Text("Not a medical device. Confirm readings and alerts with your sensor app before acting.")
                         .dsFont(.caption)

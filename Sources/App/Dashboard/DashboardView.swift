@@ -170,7 +170,8 @@ struct DashboardView: View {
                 case .overview:
                     OverviewSection(data: data, snapshot: store.snapshot,
                                     events: logbook.chartEvents(in: data.domain),
-                                    comparison: comparisonReadings(data))
+                                    comparison: comparisonReadings(data),
+                                    archive: store.archive)
                 case .patterns:
                     PatternsSection(data: data)
                 case .days:
