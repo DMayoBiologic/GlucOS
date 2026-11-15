@@ -328,6 +328,11 @@ private struct ShownForecastsCard: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             SectionHeader("Forecasts You Were Shown", systemImage: "checkmark.seal",
                           subtitle: "Each forecast on this \(ForecastLedgerStore.device) checked against the reading that followed (last 7 days)")
+            if let card = ledger.scorecard {
+                ForecastScorecardView(card: card, unit: unit, showsHeader: false)
+                Divider()
+                Text("Every checked horizon").dsFont(.headline)
+            }
             if week.all.isEmpty {
                 EmptyStateView(systemImage: "checkmark.seal", title: "Checking Has Started",
                                message: "GlucOS now keeps each forecast it shows and checks it against your readings. The first results appear here 15 minutes after a forecast.")
@@ -336,6 +341,7 @@ private struct ShownForecastsCard: View {
                     GridRow {
                         Text("Ahead").foregroundStyle(.secondary)
                         Text("Nothing logged").foregroundStyle(.secondary)
+                        Text("No change").foregroundStyle(.secondary)
                         Text("All").foregroundStyle(.secondary)
                         Text("Inside range").foregroundStyle(.secondary)
                         Text("Checks").foregroundStyle(.secondary)
@@ -346,6 +352,8 @@ private struct ShownForecastsCard: View {
                             Text("\(h.minutes) min")
                             Text(week.clean(at: h.minutes).map { "±\(unit.format(mgdl: $0.meanAbsoluteError))" } ?? "–")
                                 .fontWeight(.semibold)
+                            Text(week.clean(at: h.minutes).map { "±\(unit.format(mgdl: $0.naiveError))" } ?? "–")
+                                .foregroundStyle(.secondary)
                             Text("±\(unit.format(mgdl: h.meanAbsoluteError))").foregroundStyle(.secondary)
                             Text("\(Int((h.insideRange * 100).rounded()))%").foregroundStyle(.secondary)
                             Text("\(h.checks)").foregroundStyle(.secondary)
@@ -358,7 +366,7 @@ private struct ShownForecastsCard: View {
                     Text(line).dsFont(.callout).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Text("\"Nothing logged\" leaves out forecasts where food, insulin or an event came afterwards, because a forecast assumes nothing new happens. The range aims to hold about 8 in 10 readings.")
+            Text("\"Nothing logged\" leaves out forecasts where food, insulin or an event came afterwards, because a forecast assumes nothing new happens. \"No change\" is assuming glucose stayed where it was, on the same forecasts. The range aims to hold about 8 in 10 readings.")
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -28,9 +28,17 @@ allows for late readings and for food logged afterwards with an earlier time. A 
 and that point.
 
 - On the device: `forecast-log.json` in the app group container, kept for 90 days. The Outlook
-  page (**Forecasts You Were Shown**) and the iPhone home screen (**Forecast accuracy**) show the
-  last 7 days. Once both periods have at least 20 checks, they also compare the last 7 days with
-  the 3 weeks before.
+  page (**Forecasts You Were Shown**) shows the last 7 days at every checked horizon. Once both
+  periods have at least 20 checks, it and the iPhone also compare the last 7 days with the 3 weeks
+  before.
+- **How close the forecasts were** (`ForecastScorecard`, in Insights on the Mac and iPhone and at
+  the top of the Outlook page's card): the typical error at 15, 30 and 60 minutes next to assuming
+  no change on the same forecasts, and how often the reading landed inside the likely range
+  against the 8 in 10 it aims for. Only this device's forecasts with nothing logged before the
+  reading count. A horizon needs 30 checks (about 8 hours of forecasts) to show, and the card stays
+  hidden until 15 minutes has them. It describes how the forecast has done and never says what to
+  do. `glucos.forecast_scorecard` gives the same figures per device on the server, including the
+  relay's Lock Screen forecasts (device `relay`) once it records them.
 - On the server: settled forecasts are uploaded with each logbook sync to `glucos.forecast_checks`
   through `public.forecast_push`. Uploads use the same signed-in session and row-level security as
   the logbook. Nothing is uploaded when logbook sync is off.
@@ -40,6 +48,9 @@ Queries (Supabase SQL editor or MCP, project `aqlbadbyjuoruwnwyfrc`):
 ```sql
 -- Weekly accuracy by device and horizon; clean = nothing logged in between.
 select * from glucos.forecast_accuracy where clean order by week desc, device, minutes;
+
+-- What the Insights card shows, per device (last 7 days, clean, 15/30/60 min).
+select * from glucos.forecast_scorecard order by device, minutes;
 
 -- Every scored point, e.g. to look at the misses.
 select * from glucos.forecast_points order by issued_at desc limit 100;

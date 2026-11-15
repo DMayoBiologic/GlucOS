@@ -56,6 +56,15 @@ struct ForecastRecord: Codable, Hashable, Identifiable {
     var uploaded = false
 
     var lastMinutes: Int { points.map(\.minutes).max() ?? 0 }
+
+    /// The device name the push relay records the Live Activity's own forecasts under, in the
+    /// server's ledger. The apps never record under it.
+    static let relayDevice = "relay"
+
+    /// How a device is named to the user: the relay's forecasts are the ones on the Lock Screen.
+    static func displayName(device: String) -> String {
+        device == relayDevice ? "Lock Screen" : device
+    }
 }
 
 struct ForecastLedger: Codable, Equatable {
@@ -136,9 +145,9 @@ struct ForecastLedger: Codable, Equatable {
         for i in records.indices where ids.contains(records[i].id) { records[i].uploaded = true }
     }
 
-    /// How the forecasts shown between `start` and `end` turned out.
-    func accuracy(from start: Date, to end: Date) -> LiveAccuracy {
-        LiveAccuracy(records.filter { $0.issuedAt >= start && $0.issuedAt < end })
+    /// How the forecasts shown between `start` and `end` turned out, on one device or (nil) all.
+    func accuracy(from start: Date, to end: Date, device: String? = nil) -> LiveAccuracy {
+        LiveAccuracy(records.filter { $0.issuedAt >= start && $0.issuedAt < end && (device == nil || $0.device == device) })
     }
 
     /// Shown points needed before the range is widened, per kind of forecast (or all kinds
@@ -158,7 +167,7 @@ struct ForecastLedger: Codable, Equatable {
         let from = now.addingTimeInterval(-Self.rangeWindow)
         var ratios: [ForecastBasis: [Double]] = [:]
         var perHorizon: [ForecastBasis: [Int: [Double]]] = [:]
-        for r in records where r.issuedAt >= from && r.issuedAt <= now {
+        for r in records where r.issuedAt >= from && r.issuedAt <= now && r.device != ForecastRecord.relayDevice {
             for p in r.points where !p.afterLog {
                 let shown = max(1, p.scale ?? r.rangeScale ?? 1)
                 guard let actual = p.actual,

@@ -216,3 +216,95 @@ final class ForecastTunerTests: XCTestCase {
         XCTAssertFalse(ForecastAccuracyText.tuningLine(model.tuning).isEmpty)
     }
 }
+
+/// The Insights card: 15, 30 and 60 minutes against no change, and how often the range held.
+final class ForecastScorecardTests: XCTestCase {
+    let now = referenceNow
+
+    /// `count` forecasts from 100 mg/dL, each off by `error` at every horizon, glucose ending
+    /// `moved` away from where it started. `inside` of them land inside a ±15 range.
+    func records(count: Int, minutes: [Int] = [15, 30, 60], error: Double, moved: Double, inside: Int? = nil,
+                 afterLog: Bool = false, device: String = "iPhone") -> [ForecastRecord] {
+        (0..<count).map { i in
+            let hit = i < (inside ?? count)
+            return ForecastRecord(id: UUID(), issuedAt: now.addingTimeInterval(Double(i) * 900), device: device, basis: .trend,
+                                  startMgdl: 100, trendPerMinute: 0,
+                                  points: minutes.map { m in
+                                      let actual = 100 + moved
+                                      let forecast = actual - error
+                                      let half = hit ? abs(error) + 5 : max(0, abs(error) - 5)
+                                      return .init(minutes: m, mgdl: forecast, lower: forecast - half, upper: forecast + half,
+                                                   actual: actual, afterLog: afterLog)
+                                  },
+                                  limitations: [], calibrated: true, tuned: false, morning: false)
+        }
+    }
+
+    func testHiddenUntilFifteenMinutesHasEnoughCleanChecks() {
+        XCTAssertNil(ForecastScorecard(LiveAccuracy(records(count: 29, error: 5, moved: 10))))
+        XCTAssertNil(ForecastScorecard(LiveAccuracy(records(count: 60, error: 5, moved: 10, afterLog: true))),
+                     "Points after a log don't count")
+        XCTAssertNil(ForecastScorecard(LiveAccuracy(records(count: 60, minutes: [30, 60], error: 5, moved: 10))),
+                     "Never shown without the 15-minute row")
+        let card = ForecastScorecard(LiveAccuracy(records(count: 30, error: 5, moved: 10)))
+        XCTAssertEqual(card?.rows.map(\.minutes), [15, 30, 60])
+    }
+
+    func testDropsAHorizonWithTooFewChecks() throws {
+        let rs = records(count: 40, minutes: [15, 30], error: 5, moved: 10) + records(count: 10, minutes: [60], error: 5, moved: 10)
+        let card = try XCTUnwrap(ForecastScorecard(LiveAccuracy(rs)))
+        XCTAssertEqual(card.rows.map(\.minutes), [15, 30])
+        XCTAssertNil(card.row(at: 60))
+    }
+
+    func testComparesWithNoChangeHonestly() throws {
+        let better = try XCTUnwrap(ForecastScorecard(LiveAccuracy(records(count: 40, error: 6, moved: 18))))
+        XCTAssertEqual(better.row(at: 15)?.error ?? 0, 6, accuracy: 0.001)
+        XCTAssertEqual(better.row(at: 15)?.noChange ?? 0, 18, accuracy: 0.001)
+        XCTAssertEqual(better.row(at: 15)?.comparison, .better)
+        XCTAssertEqual(ForecastScorecardText.comparison(try XCTUnwrap(better.row(at: 15))), "Closer than no change")
+
+        let same = try XCTUnwrap(ForecastScorecard(LiveAccuracy(records(count: 40, error: 10, moved: 10.2))))
+        XCTAssertEqual(same.row(at: 15)?.comparison, .aboutTheSame)
+
+        let worse = try XCTUnwrap(ForecastScorecard(LiveAccuracy(records(count: 40, error: 14, moved: 9))))
+        XCTAssertEqual(worse.row(at: 15)?.comparison, .worse)
+        XCTAssertEqual(ForecastScorecardText.comparison(try XCTUnwrap(worse.row(at: 15))), "Further off than no change")
+    }
+
+    func testRangeShareAndWording() throws {
+        let short = try XCTUnwrap(ForecastScorecard(LiveAccuracy(records(count: 40, error: 10, moved: 10, inside: 24))))
+        XCTAssertEqual(short.insidePercent, 60)
+        XCTAssertTrue(ForecastScorecardText.rangeLine(short).contains("short of the aim"))
+        let onTarget = try XCTUnwrap(ForecastScorecard(LiveAccuracy(records(count: 40, error: 10, moved: 10, inside: 32))))
+        XCTAssertEqual(onTarget.insidePercent, 80)
+        XCTAssertTrue(ForecastScorecardText.rangeLine(onTarget).hasSuffix("about 8 in 10."))
+    }
+
+    func testWordsInMmolAndNeverAboutDosing() throws {
+        let card = try XCTUnwrap(ForecastScorecard(LiveAccuracy(records(count: 40, error: 10.8, moved: 18))))
+        let row = try XCTUnwrap(card.row(at: 30))
+        XCTAssertEqual(ForecastScorecardText.error(row.error, unit: .mmol), "±0.6 mmol/L")
+        XCTAssertEqual(ForecastScorecardText.noChange(row, unit: .mmol), "No change ±1.0")
+        XCTAssertTrue(ForecastScorecardText.spoken(row, unit: .mmol).hasPrefix("30 minutes ahead: typically 0.6 mmol/L off."))
+        let footnote = ForecastScorecardText.footnote(device: "iPhone")
+        XCTAssertTrue(footnote.contains("this iPhone"))
+        XCTAssertTrue(footnote.contains("never a guide to dosing"))
+        for text in [footnote, ForecastScorecardText.rangeLine(card), ForecastScorecardText.spoken(row, unit: .mmol)] {
+            for word in ["take", "inject", "bolus", "correct"] {
+                XCTAssertFalse(text.lowercased().contains(word), "\"\(word)\" in: \(text)")
+            }
+        }
+    }
+
+    func testRelayForecastsStayApart() {
+        var ledger = ForecastLedger()
+        ledger.records = records(count: 40, error: 5, moved: 10) + records(count: 40, error: 30, moved: 10, device: ForecastRecord.relayDevice)
+        let mine = ledger.accuracy(from: now.addingTimeInterval(-60), to: now.addingTimeInterval(86_400), device: "iPhone")
+        XCTAssertEqual(mine.clean(at: 15)?.checks, 40)
+        XCTAssertEqual(mine.clean(at: 15)?.meanAbsoluteError ?? 0, 5, accuracy: 0.001)
+        XCTAssertEqual(ledger.accuracy(from: now.addingTimeInterval(-60), to: now.addingTimeInterval(86_400)).clean(at: 15)?.checks, 80)
+        XCTAssertEqual(ForecastRecord.displayName(device: ForecastRecord.relayDevice), "Lock Screen")
+        XCTAssertEqual(ForecastRecord.displayName(device: "Mac"), "Mac")
+    }
+}
