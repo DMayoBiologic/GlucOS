@@ -705,3 +705,77 @@ struct SlidingSegments<Value: Hashable>: View {
         .background(Capsule().fill(Color.primary.opacity(0.07)))
     }
 }
+
+// MARK: - Reading change
+
+extension View {
+    /// A reading's figure changing to a new reading (docs/Redesign.md §6.5): the number counts over
+    /// to its new value, up or down with the change, and its range colour cross-fades. Works between
+    /// two Live Activity states and two widget timeline entries, since both are an animation on a
+    /// value rather than a timer. Under Reduce Motion the old figure fades into the new one in place.
+    /// Apply it to the `Text` itself, after its `foregroundStyle`.
+    func readingChange(mgdl: Double, tone: Tone) -> some View {
+        modifier(ReadingChange(mgdl: mgdl, tone: tone))
+    }
+}
+
+private struct ReadingChange: ViewModifier {
+    let mgdl: Double
+    let tone: Tone
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private struct Key: Equatable {
+        var mgdl: Double
+        var tone: Tone
+    }
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            // Nothing rolls; one short cross-fade carries both the figure and its colour.
+            content
+                .contentTransition(.opacity)
+                .animation(DSMotion.sweep.reducedAnimation, value: Key(mgdl: mgdl, tone: tone))
+        } else {
+            // The roll on the `.arrival` spring, the colour on `.sweep`. Both settle well inside the
+            // 2 seconds ActivityKit allows between states, and neither repeats.
+            content
+                .contentTransition(.numericText(value: mgdl))
+                .animation(DSMotion.arrival.animation, value: mgdl)
+                .animation(DSMotion.sweep.animation, value: tone)
+        }
+    }
+}
+
+// MARK: - Trend arrow
+
+/// The trend as one arrow turned to the direction of travel, for places too small for the
+/// `TrendDial` (the Dynamic Island's compact view, the Watch and CarPlay card, Lock Screen
+/// accessories). A new trend swings the arrow round on the `.arrival` spring rather than swapping
+/// one glyph for another; under Reduce Motion it turns at once. Stale or unknown shows
+/// `fallback` instead, faded in.
+struct TrendArrow: View {
+    let trend: Trend
+    var stale: Bool = false
+    /// What shows while there's no trend to point: a clock while stale, else a question mark.
+    var staleSymbol: String = "clock.badge.exclamationmark"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var pointing: Bool { !stale && trend != .unknown }
+
+    var body: some View {
+        Group {
+            if pointing {
+                Image(systemName: "arrow.right")
+                    .rotationEffect(.degrees(trend.needleAngle))
+                    .animation(DSMotion.arrival.animation(reduceMotion: reduceMotion), value: trend.needleAngle)
+                    .transition(.opacity)
+            } else {
+                Image(systemName: stale ? staleSymbol : "questionmark")
+                    .transition(.opacity)
+            }
+        }
+        .animation(DSMotion.sweep.animation(reduceMotion: reduceMotion), value: pointing)
+        .accessibilityElement()
+        .accessibilityLabel(stale ? "Reading out of date" : trend.description)
+    }
+}

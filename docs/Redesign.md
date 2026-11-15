@@ -324,15 +324,21 @@ card shows the state.
 
 Between two states (a push or an app update), the system animates for up to 2 seconds:
 
-- value: numeric roll;
-- needle: rotation with `.arrival` spring;
+- value: counts over to the new number (`.numericText(value:)` on the `.arrival` spring) and
+  cross-fades to its range colour (`.sweep`), on the Lock Screen card, every Dynamic Island view, the
+  Watch and CarPlay card and the Lock Screen accessories (`readingChange` in `Signal.swift`);
+- needle: rotation with `.arrival` spring; where the dial doesn't fit (island compact, small card,
+  accessories) one arrow (`TrendArrow`) turns to the trend's `needleAngle` instead of swapping
+  glyphs;
 - rail marker: position with `.arrival`;
 - range pill: push transition;
 - background tint: cross-fade;
 - sparkline: the trace re-renders (Swift Charts cross-fades in place).
 
 Live without updates: freshness meter and age timer. Under Reduce Motion the system and our
-`dsAnimation` both drop movement and keep cross-fades.
+`dsAnimation` both drop movement and keep cross-fades: figures fade in place (0.25 s) and arrows
+turn at once. Every animation runs once on a changed value and settles in about a second, well
+inside ActivityKit's 2 seconds; none repeats (see the power audit, #94).
 
 ### 6.6 Accessibility
 

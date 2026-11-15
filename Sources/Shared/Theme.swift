@@ -265,15 +265,7 @@ struct TrendDial: View {
     var tint: Color
     var size: CGFloat = 56
 
-    private var angle: Double {
-        switch trend {
-        case .risingQuickly: return -90
-        case .rising: return -45
-        case .flat, .unknown: return 0
-        case .falling: return 45
-        case .fallingQuickly: return 90
-        }
-    }
+    private var angle: Double { trend.needleAngle }
 
     var body: some View {
         ZStack {
@@ -315,6 +307,8 @@ struct TrendDial: View {
             }
         }
         .frame(width: size, height: size)
+        // A range change cross-fades the dial's colour (a fade only, under Reduce Motion).
+        .dsAnimation(.sweep, value: tint)
         .accessibilityElement()
         .accessibilityLabel(trend.description)
     }

@@ -10,9 +10,12 @@ import WidgetKit
 // forecast is grey, dashed and marked "≈".
 //
 // Motion here is what ActivityKit allows: between two states the system animates for up to two
-// seconds, so the value rolls, the trend needle springs to its new angle and the range rail's
-// marker glides. Between updates only the system's live views move: the freshness meter filling and
-// the reading's age ticking. Under Reduce Motion both the system and `dsAnimation` keep it still.
+// seconds, so every figure counts over to the new reading and cross-fades to its range colour
+// (`readingChange`), the trend needle and the small arrows swing round to the new direction
+// (`TrendDial`, `TrendArrow`) and the range rail's marker glides. Each is one animation on a
+// changed value, under a second, never a loop. Between updates only the system's live views move:
+// the freshness meter filling and the reading's age ticking. Under Reduce Motion nothing moves:
+// figures fade in place and arrows turn at once.
 
 struct GlucoseLiveActivity: Widget {
     var body: some WidgetConfiguration {
@@ -24,7 +27,8 @@ struct GlucoseLiveActivity: Widget {
         } dynamicIsland: { context in
             let state = context.state
             let stale = context.isStaleCard
-            let tint = state.tone(stale: stale).color
+            let tone = state.tone(stale: stale)
+            let tint = tone.color
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     IslandValue(state: state, stale: stale)
@@ -38,6 +42,7 @@ struct GlucoseLiveActivity: Widget {
                                 .font(.caption.weight(.semibold))
                                 .monospacedDigit()
                                 .contentTransition(.numericText(value: state.deltaMgdl ?? 0))
+                                .dsAnimation(.arrival, value: state.deltaMgdl)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -62,31 +67,33 @@ struct GlucoseLiveActivity: Widget {
                 Text(state.valueText)
                     .font(.system(.body, design: .rounded).weight(.heavy))
                     .monospacedDigit()
-                    .contentTransition(.numericText(value: state.mgdl))
                     .foregroundStyle(tint)
+                    .readingChange(mgdl: state.mgdl, tone: tone)
                     .strikethrough(stale, color: .secondary)
                     .accessibilityLabel(state.accessibilitySummary(stale: stale, person: context.person))
             } compactTrailing: {
                 HStack(spacing: 2) {
-                    Image(systemName: stale ? "clock.badge.exclamationmark" : state.glucoseTrend.systemImage)
+                    TrendArrow(trend: state.glucoseTrend, stale: stale)
                         .font(.body.weight(.bold))
-                        .contentTransition(.symbolEffect(.replace))
                     if !stale, let delta = state.deltaText {
                         Text(delta)
                             .font(.caption2.weight(.bold))
                             .monospacedDigit()
+                            .contentTransition(.numericText(value: state.deltaMgdl ?? 0))
+                            .dsAnimation(.arrival, value: state.deltaMgdl)
                             .minimumScaleFactor(0.7)
                             .lineLimit(1)
                     }
                 }
                 .foregroundStyle(tint)
+                .dsAnimation(.sweep, value: tone)
                 .accessibilityHidden(true)
             } minimal: {
                 Text(state.valueText)
                     .font(.system(.caption, design: .rounded).weight(.heavy))
                     .monospacedDigit()
-                    .contentTransition(.numericText(value: state.mgdl))
                     .foregroundStyle(tint)
+                    .readingChange(mgdl: state.mgdl, tone: tone)
                     .strikethrough(stale, color: .secondary)
                     .minimumScaleFactor(0.6)
                     .accessibilityLabel(state.accessibilitySummary(stale: stale, person: context.person))
@@ -201,6 +208,7 @@ struct LockScreenGlucoseCard: View {
                             Text("· \(delta)")
                                 .monospacedDigit()
                                 .contentTransition(.numericText(value: state.deltaMgdl ?? 0))
+                                .dsAnimation(.arrival, value: state.deltaMgdl)
                         }
                     }
                     .font(.caption.weight(.semibold))
@@ -262,10 +270,10 @@ struct SmallGlucoseCard: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 ActivityValueText(state: state, stale: stale, size: actions ? 24 : 30)
                 if !stale {
-                    Image(systemName: state.glucoseTrend.systemImage)
+                    TrendArrow(trend: state.glucoseTrend)
                         .font(.system(size: actions ? 15 : 18, weight: .heavy))
-                        .contentTransition(.symbolEffect(.replace))
                         .foregroundStyle(tone.color)
+                        .dsAnimation(.sweep, value: tone)
                 }
                 Spacer(minLength: 2)
                 if actions {
@@ -276,6 +284,8 @@ struct SmallGlucoseCard: View {
                     Text(delta)
                         .font(.caption.weight(.semibold))
                         .monospacedDigit()
+                        .contentTransition(.numericText(value: state.deltaMgdl ?? 0))
+                        .dsAnimation(.arrival, value: state.deltaMgdl)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -375,9 +385,9 @@ private struct ActivityValueText: View {
         Text(state.valueText)
             .font(.system(size: size, weight: .bold, design: .rounded))
             .monospacedDigit()
-            .contentTransition(.numericText(value: state.mgdl))
             .foregroundStyle(stale ? AnyShapeStyle(Color.secondary)
                              : state.range == .inRange ? AnyShapeStyle(Color.primary) : AnyShapeStyle(tone.color))
+            .readingChange(mgdl: state.mgdl, tone: tone)
             .overlay {
                 if stale {
                     Capsule().fill(Color.secondary.opacity(0.8)).frame(height: max(2, size / 18)).rotationEffect(.degrees(-8))
@@ -398,8 +408,8 @@ private struct IslandValue: View {
             Text(state.valueText)
                 .font(.system(size: 44, weight: .bold, design: .rounded))
                 .monospacedDigit()
-                .contentTransition(.numericText(value: state.mgdl))
                 .foregroundStyle(state.tone(stale: stale).color)
+                .readingChange(mgdl: state.mgdl, tone: state.tone(stale: stale))
                 .strikethrough(stale, color: .secondary)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
@@ -434,6 +444,8 @@ private struct ActivityStatusLabel: View {
                 .id(stale ? "stale" : state.range.label)
                 .transition(.push(from: state.glucoseTrend.isFalling ? .top : .bottom))
         }
+        // The push needs an animation on the change; under Reduce Motion the word swaps at once.
+        .dsAnimation(.emphasized, value: stale ? "stale" : state.range.label)
     }
 }
 

@@ -170,7 +170,9 @@ struct HeroValue: View {
                 if let cur = s.current, entry.freshness.showsValue {
                     Text(s.unit.format(mgdl: cur.mgdl))
                         .foregroundStyle(valueStyle)
-                        .contentTransition(.numericText(value: cur.mgdl))
+                        // Counts over to the next reading and cross-fades its colour (§6.5).
+                        .readingChange(mgdl: cur.mgdl, tone: entry.freshness == .fresh
+                                       ? s.range.map(Tone.glucose) ?? .neutral : .stale)
                         // The same drawn line as the apps and the Live Activity (§4.3), in every
                         // rendering mode: stale is never only a colour.
                         .staleStrike(entry.freshness == .stale, thickness: max(2, size * 0.05))
