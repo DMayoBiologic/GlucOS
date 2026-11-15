@@ -54,6 +54,7 @@ extension ForecastCaveat {
         if let live = f.limitations.first(where: \.isLiveHorizon) { return ForecastCaveat(live, kind: .shortened) }
         let usual = usualHorizon(f)
         guard f.horizon > 0, f.horizon < usual - 60 else { return nil }
+        if f.insulinOnly { return ForecastCaveat(.insulinOnly, kind: .shortened) }
         let minutes = Int((f.horizon / 60).rounded())
         let ahead = minutes < 60 || minutes % 60 != 0 ? "\(minutes) min" : "\(minutes / 60) h"
         if !f.calibrated {

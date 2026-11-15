@@ -79,6 +79,11 @@ enum ForecastLimitation: Hashable {
     /// assuming no change `failedAt` minutes ahead, so the forecast is drawn only `shownMinutes`
     /// ahead (0: not at all) until that horizon earns its place again (`ForecastLiveHorizon`).
     case liveHorizon(shownMinutes: Int, failedAt: Int)
+    /// Fast-acting insulin is acting but no logged carbs are being absorbed, so the forecast
+    /// follows the insulin alone. On this user's history these went wrong far more often than
+    /// forecasts after a logged meal (usually food that wasn't logged), so they're checked apart
+    /// and drawn only as far as those checks hold (`ForecastCalibration.insulinOnly`).
+    case insulinOnly
 
     var message: String {
         switch self {
@@ -103,6 +108,8 @@ enum ForecastLimitation: Hashable {
         case .liveHorizon(let shown, let failedAt):
             let lead = shown > 0 ? "Drawn only \(shown) minutes ahead." : "Not drawn for now."
             return "\(lead) In the last week, forecasts here \(failedAt) minutes ahead were further off than assuming glucose stays where it is. GlucOS keeps checking them and draws them again once they're closer."
+        case .insulinOnly:
+            return "Insulin is acting with no meal logged, so this follows the insulin alone. Forecasts like this are often thrown out by food that wasn't logged, so GlucOS checks them apart from forecasts after a meal and draws them only as far as your history shows they hold."
         }
     }
 
@@ -123,6 +130,7 @@ enum ForecastLimitation: Hashable {
             return shown > 0
                 ? "Drawn only \(shown) min ahead: recent \(failedAt)-min forecasts here lost to no change."
                 : "Hidden: recent \(failedAt)-min forecasts here lost to no change."
+        case .insulinOnly: return "Insulin only: no meal logged, so drawn only as far as these have held."
         }
     }
 
@@ -139,6 +147,7 @@ enum ForecastLimitation: Hashable {
         case .uncalibrated: return "uncalibrated"
         case .freshLog: return "freshLog"
         case .liveHorizon(let shown, _): return "liveHorizon:\(shown)"
+        case .insulinOnly: return "insulinOnly"
         }
     }
 
@@ -171,6 +180,8 @@ struct GlucoseForecast: Hashable {
     var rangeScales: [Int: Double] = [:]
     /// Insulin and carbs were modelled within the first hour after a log.
     var fresh = false
+    /// Insulin was modelled with no logged carbs being absorbed (`ForecastLimitation.insulinOnly`).
+    var insulinOnly = false
     /// The part past the drawn horizon that this device's live checks cut off
     /// (`ForecastLimitation.liveHorizon`). Never drawn, alerted on or shared: it's kept only so the
     /// forecast log goes on scoring those horizons and can tell when they've earned their place back.
@@ -260,10 +271,16 @@ struct ForecastLiveHorizon: Hashable, Codable {
     }
 
     var byBasis: [ForecastBasis: Cut] = [:]
+    /// Insulin-only forecasts (`ForecastLimitation.insulinOnly`), checked apart from the
+    /// insulin-and-carb forecasts after a meal, which `byBasis` then covers alone.
+    var insulinOnly: Cut? = nil
 
     static let unlimited = ForecastLiveHorizon()
 
     func cut(for basis: ForecastBasis) -> Cut? { byBasis[basis] }
+    func cut(for basis: ForecastBasis, insulinOnly: Bool) -> Cut? {
+        basis == .trendInsulinCarbs && insulinOnly ? self.insulinOnly : byBasis[basis]
+    }
 }
 
 /// The forecast's own timing, tuned to the user once their history shows a different setting
@@ -341,6 +358,12 @@ enum GlucoseForecaster {
     /// A meal or fast-acting dose logged this recently makes the forecast "fresh": most of its
     /// effect is still to come and the replay checks those forecasts separately.
     static let freshLogWindow: TimeInterval = 60 * 60
+    /// How far an insulin-only forecast is drawn until the replay has enough of them to say: as
+    /// far as the trend. On the history this was built from, they beat no change by only 3% at an
+    /// hour in the replay and lost to it by 40% live (docs/ForecastAccuracy.md §11).
+    static let insulinOnlyUncheckedHorizon: TimeInterval = 30 * 60
+
+    private static func basisFor(_ trendOnly: Bool) -> ForecastBasis { trendOnly ? .trend : .trendInsulinCarbs }
     static let sensorRange: ClosedRange<Double> = 40...400
 
     /// The forecast, or why there isn't one. `maxHorizon` overrides the usual limit (backtesting
@@ -406,6 +429,10 @@ enum GlucoseForecaster {
         let forced = limitations.contains(where: \.forcesTrendOnly)
         let trendOnly = forced || (!insulinMatters && !carbsMatter)
         let freshModel = fresh && !trendOnly
+        // Insulin with no logged carbs being absorbed: checked and limited on its own, because
+        // food that wasn't logged throws these out far more often than forecasts after a meal.
+        let insulinOnly = Self.basisFor(trendOnly) == .trendInsulinCarbs && !carbsMatter && !freshModel
+        if insulinOnly { limitations.append(.insulinOnly) }
         // The usual post-wake change, while inside it. Not when the forecast can't trust the
         // logbook (it's learnt on top of what insulin and carbs explain).
         var morningWake: Date?
@@ -414,13 +441,15 @@ enum GlucoseForecaster {
             morningWake = wake.timestamp
         }
         // With nothing acting, the model is the trend fading to level, so it's still "trend".
-        let basis: ForecastBasis = trendOnly ? .trend : .trendInsulinCarbs
+        let basis = Self.basisFor(trendOnly)
 
         var horizon = basis == .trend ? trendHorizon : modelHorizon
         let stats = freshModel ? input.calibration?.freshModel.flatMap { $0.isEmpty ? nil : $0 }
-                               : input.calibration?.stats(for: basis)
+                  : insulinOnly ? input.calibration?.insulinOnly.flatMap { $0.isEmpty ? nil : $0 }
+                  : input.calibration?.stats(for: basis)
         let allowedHorizon = freshModel ? input.calibration?.freshModelAllowedHorizon
-                                        : input.calibration?.allowedHorizon(for: basis)
+                           : insulinOnly ? input.calibration.map { $0.insulinOnlyAllowedHorizon ?? insulinOnlyUncheckedHorizon }
+                           : input.calibration?.allowedHorizon(for: basis)
         if let maxHorizon {
             horizon = maxHorizon
         } else if let allowed = allowedHorizon {
@@ -435,7 +464,8 @@ enum GlucoseForecaster {
         // How far it's drawn: this device's live checks can cut it shorter (never longer). The
         // rest is still worked out, for the forecast log to score.
         var shownHorizon = horizon
-        if maxHorizon == nil, let cut = input.liveHorizon.cut(for: basis), TimeInterval(cut.failedAt * 60) <= horizon {
+        if maxHorizon == nil, let cut = input.liveHorizon.cut(for: basis, insulinOnly: insulinOnly),
+           TimeInterval(cut.failedAt * 60) <= horizon {
             shownHorizon = TimeInterval(cut.shownMinutes * 60)
             limitations.append(.liveHorizon(shownMinutes: cut.shownMinutes, failedAt: cut.failedAt))
         }
@@ -497,7 +527,7 @@ enum GlucoseForecaster {
         let forecast = GlucoseForecast(issuedAt: t0, startMgdl: latest.mgdl, basis: basis, trendPerMinute: trend,
                                        samples: drawn, limitations: limitations, calibrated: calibrated,
                                        morning: morning, rangeScale: max(rangeScale, rangeScales.values.max() ?? 1),
-                                       rangeScales: rangeScales, fresh: freshModel,
+                                       rangeScales: rangeScales, fresh: freshModel, insulinOnly: insulinOnly,
                                        unshown: samples.filter { $0.date > cutAt })
         if shownHorizon <= 0 {
             return .failure(.init(.notAccurateEnough, limitations: limitations, unshown: forecast))

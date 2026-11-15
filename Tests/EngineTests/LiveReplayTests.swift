@@ -114,6 +114,23 @@ struct LiveReplay {
                     }
                 }
             }
+            // Insulin-and-carb forecasts with carbs from a logged meal still being absorbed, and
+            // those with insulin acting alone (`ForecastLimitation.insulinOnly`), told apart from
+            // the logbook so runs from before the split can be compared.
+            lines.append("")
+            lines.append("insulin-and-carb forecasts, clean points, after a meal or with insulin alone")
+            let carbTimes = meals.filter { $0.carbs > 0 }.map(\.timestamp)
+            let reach = CarbAbsorptionCurve.standard.totalDuration
+            for (label, withCarbs) in [("after a meal", true), ("insulin only", false)] {
+                for m in minutes {
+                    let pts = ledger.records.filter { r in
+                        r.basis == .trendInsulinCarbs
+                            && carbTimes.contains { $0 <= r.issuedAt && r.issuedAt.timeIntervalSince($0) < reach } == withCarbs
+                    }.flatMap { r in r.points.filter { $0.minutes == m && !$0.afterLog && $0.actual != nil }.map { (r, $0) } }
+                    guard pts.count >= 3 else { continue }
+                    lines.append(Self.row(label, m, "clean", pts))
+                }
+            }
             lines.append("")
             lines.append("all clean points, by time since the last meal or fast dose at issue")
             let events = (meals.filter { $0.carbs > 0 }.map(\.timestamp)

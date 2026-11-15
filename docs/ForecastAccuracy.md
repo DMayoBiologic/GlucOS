@@ -360,3 +360,70 @@ against all 78): at those times they were checked as no better than no change, a
 leaves them out. Forcing the strength to 55% on the old history (`GLUCOS_REPLAY_GAIN=0.55`) also
 gave 13.7 against 15.2, which confirms the strength was the fault; the relay's readings are what
 let the phone measure it itself.
+
+## 11. Insulin with no meal logged, checked on its own (15 Nov 2026)
+
+On 15 Nov the iPhone's insulin-and-carb forecasts were losing to no change at 60 minutes (47.7
+against 39.8 mg/dL), which is why §8 cut them back to 45, and the Mac's were only just ahead
+(48.1 against 49.9). The question was whether fitting the user's own carb absorption and insulin
+timing would fix the hour after meals.
+
+**Fitting personal timing didn't help.** A walk-forward prototype over the server's 5 days of
+one-minute readings (all there is: `glucos.readings` starts on 10 Nov, not 14 days back) tried 45
+timings (carbs absorbed over 90–300 minutes, starting 0–30 minutes after eating, insulin peaking
+at 55–100 minutes), refitting the timing and both effects every 3 hours from what was known then.
+Clean insulin-and-carb points, typical error in mg/dL:
+
+| | 45 min | 60 min |
+| --- | --- | --- |
+| Standard timing, the engine's learnt effects | 34.7 | 40.6 |
+| Standard timing, effects refitted every 3 h | 37.7 | 44.5 |
+| Personal timing and effects, refitted every 3 h | 38.2 | 45.8 |
+| No change | 37.4 | 43.3 |
+
+The chosen timing swung from 90 to 300 minutes between refits, and the fit often set both effects
+to zero: with every dose given at a meal, the carbs' rise and the insulin's fall can't be told
+apart from eight meals. Retrospective correction (adding the last 30 minutes' miss) was tried
+again and made every horizon worse, as in §3. None of this went in.
+
+**The losses aren't after meals.** Splitting the live forecasts (`glucos.forecast_points`, last 7
+days, clean points) by whether a meal with carbs was logged in the 4 hours before:
+
+| | After a meal, 45 / 60 min | No change | Insulin, no meal, 45 / 60 min | No change |
+| --- | --- | --- | --- | --- |
+| iPhone | 19.4 / 26.8 | 27.7 / 31.1 | 52.5 / 65.7 | 39.3 / 47.3 |
+| Mac | 31.0 / 36.1 | 34.8 / 40.8 | 50.9 / 66.2 | 53.4 / 63.5 |
+
+Forecasts after a logged meal beat no change on both devices. Forecasts with insulin acting and no
+meal, mostly corrections, ran 25 mg/dL low on the iPhone: they expected the full drop from the
+insulin, and food that wasn't logged (a hypo treated with 2026-11-15's 10 U correction acting, for
+one) took glucose up instead. Lumped together, those cost the meals their hour.
+
+**What changed.** An insulin-and-carb forecast with fast insulin acting and no logged carbs being
+absorbed is now its own kind (`ForecastLimitation.insulinOnly`, `GlucoseForecast.insulinOnly`):
+
+- The replay checks it apart (`ForecastCalibration.insulinOnly`), so the forecasts after meals
+  (`byBasis[.trendInsulinCarbs]`) set their own horizon and range from their own checks.
+- Until its own checks say otherwise, it's drawn only 30 minutes ahead, as far as the trend
+  (`GlucoseForecaster.insulinOnlyUncheckedHorizon`).
+- The live cut (§8) judges it apart too (`ForecastLiveHorizon.insulinOnly`, from records carrying
+  the `insulinOnly` limitation code). Records from before this change don't carry it, so for up to
+  a week the meal forecasts' live figure still includes the old insulin-only ones.
+- The caveat says "Insulin only: no meal logged, so drawn only as far as these have held."
+
+Walk-forward replay of the server's 5 days (`LiveReplayTests`, which now lists the two kinds
+apart), clean points:
+
+| | Before: 45 min | No change | 60 min | No change | After: 45 min | No change | 60 min | No change |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| After a meal | 27.2 | 34.7 | 38.6 | 50.6 | 23.4 | 31.2 | 25.5 | 33.2 |
+| Insulin only | 41.1 | 41.4 | 50.8 | 50.0 | not drawn | | not drawn | |
+| All insulin-and-carb forecasts | 34.5 | 38.2 | 46.2 | 50.2 | 23.4 | 31.2 | 25.5 | 33.2 |
+| Last 2 days | 50.9 | 49.9 | 60.1 | 58.5 | not drawn | | not drawn | |
+
+Drawn 45- and 60-minute forecasts now beat no change by about a quarter, and the ones that lost
+(insulin alone, and the last two days, which were mostly corrections) aren't drawn past 30
+minutes. The price is fewer long forecasts: 17–18 drawn at 45–60 minutes rather than 53–67,
+because the meal forecasts need 30 checks of their own at a horizon before the replay allows it.
+These figures rest on about ten meals; they'll firm up as more are logged. 15- and 30-minute
+figures are unchanged (14.5 / 22.5 against 14.8 / 23.5).

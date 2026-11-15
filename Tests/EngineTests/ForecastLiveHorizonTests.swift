@@ -10,7 +10,8 @@ final class ForecastLiveHorizonTests: XCTestCase {
     /// glucose moved `moved` from where it started (so no change is `moved` off). `shown` maps
     /// horizons to whether they were drawn.
     func records(count: Int = 40, errors: [Int: Double], moved: Double = 20, basis: ForecastBasis = .trendInsulinCarbs,
-                 device: String = "iPhone", hidden: Set<Int> = [], hiddenInLatestOnly: Bool = false) -> [ForecastRecord] {
+                 device: String = "iPhone", hidden: Set<Int> = [], hiddenInLatestOnly: Bool = false,
+                 limitations: [String] = []) -> [ForecastRecord] {
         (0..<count).map { i in
             let latest = i == count - 1
             let points = errors.keys.sorted().map { m -> ForecastRecord.Point in
@@ -20,7 +21,7 @@ final class ForecastLiveHorizonTests: XCTestCase {
                              shown: hide ? false : nil)
             }
             return ForecastRecord(id: UUID(), issuedAt: now.addingTimeInterval(-Double(count - i) * 900), device: device,
-                                  basis: basis, startMgdl: 100, trendPerMinute: 0, points: points, limitations: [],
+                                  basis: basis, startMgdl: 100, trendPerMinute: 0, points: points, limitations: limitations,
                                   calibrated: true, tuned: false, morning: false, settled: true)
         }
     }
@@ -37,6 +38,17 @@ final class ForecastLiveHorizonTests: XCTestCase {
         let cut = horizon(r).cut(for: .trendInsulinCarbs)
         XCTAssertEqual(cut, .init(shownMinutes: 45, failedAt: 60), "90 goes with 60, even though it did well")
         XCTAssertNil(horizon(r).cut(for: .trend), "Other kinds are judged on their own")
+    }
+
+    func testInsulinOnlyForecastsAreJudgedApartFromThoseAfterAMeal() {
+        // After meals: clearly better at an hour. Insulin alone: clearly worse from 45 minutes.
+        let afterMeals = records(errors: [15: 10, 30: 12, 45: 14, 60: 15], moved: 20)
+        let alone = records(errors: [15: 10, 30: 18, 45: 30, 60: 40], moved: 20, limitations: ["backgroundInsulin", "insulinOnly"])
+        let h = horizon(afterMeals + alone)
+        XCTAssertNil(h.cut(for: .trendInsulinCarbs), "The misses with insulin alone don't cost the meals their hour")
+        XCTAssertEqual(h.insulinOnly, .init(shownMinutes: 30, failedAt: 45))
+        XCTAssertEqual(h.cut(for: .trendInsulinCarbs, insulinOnly: true), .init(shownMinutes: 30, failedAt: 45))
+        XCTAssertNil(h.cut(for: .trendInsulinCarbs, insulinOnly: false))
     }
 
     func testLevelWithNoChangeIsNotCut() {
