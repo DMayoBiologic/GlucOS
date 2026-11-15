@@ -1,8 +1,9 @@
 // The relay's forecast ledger: which forecasts it keeps, and how a tick uses it.
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1";
 import {
-  type Calibration, type Forecast, forecast, type LivePoint, rangeFactor, type RangeScale, rangeScaleFrom, rangeWindow, type Reading,
-  Series, type ShownForecast, standardTuning,
+  type Calibration, type Check, effectiveRangeScale, type Forecast, forecast, type HorizonStats, learnCalibration, type LivePoint,
+  rangeFactor, type RangeScale, rangeScaleFrom, rangeWindow, type Reading, replayRangeScale, Series, type ShownForecast,
+  standardTuning,
 } from "./core.ts";
 import { type ForecastLedger, type LedgerRecord, ledgerRecord, ledgerScoreEvery, ledgerSpacing } from "./ledger.ts";
 import { newRow, type RelayRow, RelayEngine, type Store, type Tx } from "./engine.ts";
@@ -246,6 +247,57 @@ Deno.test("the forecast draws the wider range and the ledger records what each p
   assert(Math.abs(half(wider.forecast, 30) - half(plain.forecast, 30) * 2) < 0.01);
   const r = ledgerRecord(wider.forecast, null, null, "id", scale)!;
   assertEquals(r.points.map((p) => p.scale), [1.5, 2]);
+});
+
+Deno.test("the replay works the widening out the ledger's way, from the horizons the relay draws", () => {
+  const close = (a: number, b: number) => assert(Math.abs(a - b) < 0.01, `${a} vs ${b}`);
+  // A ±10 range at 15 minutes and ±20 at 30, from the replay's own figures.
+  const stats: HorizonStats[] = [15, 30, 60].map((m) => ({
+    minutes: m, samples: 200, meanAbsoluteError: 0, naiveError: 0, bias: 0, lower: -m * 2 / 3, upper: m * 2 / 3,
+  }));
+  const check = (i: number, minutes: number, out: number, trend = 0): Check => ({
+    origin: t0 - (i + 1) * 900, minutes, residual: (i % 2 ? 1 : -1) * out * minutes * 2 / 3, naive: 0, dense: true,
+    mgdl: 150, trendPerMinute: trend,
+  });
+  // Too few to say.
+  assertEquals(replayRangeScale(Array.from({ length: 30 }, (_, i) => check(i, 15, 2)), stats, t0), null);
+  // Readings landing twice as far out as the range, fast-moving ones three times: 60 minutes,
+  // which the relay never draws, doesn't count.
+  const checks = [
+    ...Array.from({ length: 100 }, (_, i) => [check(i, 15, 2), check(i, 30, 2), check(i, 60, 9)]).flat(),
+    ...Array.from({ length: 30 }, (_, i) => [check(100 + i, 15, 3, 2), check(100 + i, 30, 3, -2)]).flat(),
+  ];
+  const s = replayRangeScale(checks, stats, t0)!;
+  close(s.byHorizon[15], 2);
+  close(s.byHorizon[30], 2);
+  assertEquals(s.byHorizon[60], undefined);
+  close(s.fastTrend, 1.5);
+});
+
+Deno.test("the relay draws with the replay's widening until its ledger has its own", () => {
+  const replay: RangeScale = { byHorizon: {}, overall: 1.4, fastTrend: 1, recent: 1, checks: 300, recentChecks: 0 };
+  const ledger: RangeScale = { byHorizon: {}, overall: 1.2, fastTrend: 1, recent: 1, checks: 50, recentChecks: 0 };
+  const calibration: Calibration = { trend: [], origins: 300, computedAt: t0, rangeScale: replay };
+  assertEquals(effectiveRangeScale(null, calibration), replay);
+  assertEquals(effectiveRangeScale(undefined, calibration), replay);
+  assertEquals(effectiveRangeScale(ledger, calibration), ledger);
+  assertEquals(effectiveRangeScale(null, { trend: [], origins: 1, computedAt: t0 }), null);
+  assertEquals(effectiveRangeScale(null, null), null);
+});
+
+Deno.test("learning from one-minute readings gives the forecast a range widening from the start", () => {
+  // Two days of one-minute readings swinging ±60 mg/dL every 3 hours, with a jolt now and then that
+  // the trend can't see coming.
+  const readings: Reading[] = [];
+  const start = t0 - 2 * 86_400;
+  for (let t = start; t <= t0; t += 60) {
+    const jolt = Math.floor((t - start) / 2700) % 3 === 0 ? 25 * Math.sin((t - start) / 400) : 0;
+    readings.push({ t, mgdl: Math.round(150 + 60 * Math.sin((t - start) / 1720) + jolt), trend: 3 });
+  }
+  const c = learnCalibration(readings, t0, 14)!;
+  assert(c.rangeScale, "a replay this long has enough points");
+  assert(c.rangeScale.checks >= 40);
+  assert(Object.keys(c.rangeScale.byHorizon).every((m) => Number(m) <= 30));
 });
 
 Deno.test("ticks work the range out after scoring and widen the next forecasts", async () => {

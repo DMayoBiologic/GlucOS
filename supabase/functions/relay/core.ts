@@ -288,6 +288,10 @@ export interface Calibration {
   /// The timing the figures were measured with and the forecast uses. Missing on rows saved
   /// before tuning existed: standard.
   tuning?: Tuning;
+  /// How much wider the range needed to be to hold 4 in 5 readings in the same replay, worked out
+  /// the way the ledger's is (`replayRangeScale`). Stands in until the relay's own ledger has
+  /// enough scored forecasts. Missing on rows saved before it existed, null with too few.
+  rangeScale?: RangeScale | null;
 }
 
 export const calibrationHorizons = [15, 30, 45, 60, 90, 120, 150, 180];
@@ -524,7 +528,8 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
   const cut = maxHorizon === undefined && live && live.failedAt * 60 <= horizon ? live : null;
   if (cut) shownHorizon = cut.shownMinutes * 60;
 
-  // Widened from the relay's own shown forecasts (rangeScaleFrom), never in a replay.
+  // Widened from the relay's own shown forecasts, or its replay until it has enough of those
+  // (effectiveRangeScale), never in a replay itself.
   const widen = (minutes: number) => (maxHorizon === undefined ? rangeFactor(rangeScale, minutes, trend) : 1);
   const band = (minutes: number) => {
     const b = (stats ? interpolateBand(stats, minutes) : null) ?? defaultBand(minutes);
@@ -624,6 +629,9 @@ export interface Check {
   naive: number;
   /// The trend came from live readings, one at least every 5 minutes.
   dense: boolean;
+  /// The forecast's own value and starting trend, for `replayRangeScale`.
+  mgdl: number;
+  trendPerMinute: number;
 }
 
 /// Origins are at least this far apart, as often as the apps log their forecasts.
@@ -658,7 +666,8 @@ export function backtestChecks(readings: Reading[], now: number, days: number, t
       if (actual === null) continue;
       const p = f.samples.find((s) => Math.abs(s.t - target) < 30);
       if (!p) continue;
-      out.push({ origin: r.t, minutes: h, residual: actual - p.mgdl, naive: actual - f.startMgdl, dense });
+      out.push({ origin: r.t, minutes: h, residual: actual - p.mgdl, naive: actual - f.startMgdl, dense,
+                 mgdl: p.mgdl, trendPerMinute: f.trendPerMinute });
     }
   }
   if (denseOrigins * 2 >= origins && denseOrigins > 0) return { checks: out.filter((c) => c.dense), origins: denseOrigins };
@@ -792,7 +801,25 @@ export function learnCalibration(readings: Reading[], now: number, days = 30): C
       lower: quantile(sorted, 0.1), upper: quantile(sorted, 0.9),
     });
   }
-  return { trend, origins, computedAt: now, tuning };
+  return { trend, origins, computedAt: now, tuning, rangeScale: replayRangeScale(checks, trend, now) };
+}
+
+/// The range widening the replay says the relay's forecast needs (`rangeScaleFrom`), from the
+/// replayed forecasts at the horizons the relay draws, each with the range `forecast` would have
+/// drawn around it from `stats`. The relay replays every 15 minutes over its one-minute readings,
+/// so this is there from the first day and after any gap in the ledger, and its last-12-hours and
+/// fast-trend parts react the same day. Null with too few points.
+export function replayRangeScale(checks: Check[], stats: HorizonStats[], now: number): RangeScale | null {
+  const byOrigin = new Map<number, ShownForecast>();
+  for (const c of checks) {
+    if (c.minutes * 60 > trendHorizon) continue;
+    const b = interpolateBand(stats, c.minutes) ?? defaultBand(c.minutes);
+    const lower = Math.max(sensorLow - 1, c.mgdl + b.lower), upper = Math.min(sensorHigh + 1, c.mgdl + b.upper);
+    const shown = byOrigin.get(c.origin) ?? { issuedAt: c.origin, trendPerMinute: c.trendPerMinute, points: [] };
+    shown.points.push({ minutes: c.minutes, mgdl: c.mgdl, lower, upper, actual: c.mgdl + c.residual });
+    byOrigin.set(c.origin, shown);
+  }
+  return rangeScaleFrom([...byOrigin.values()], now);
 }
 
 // MARK: - Outlook snapshot
@@ -1095,6 +1122,12 @@ export interface TickResult {
   card: CardState | null;
 }
 
+/// The widening the relay draws with: its own ledger's once that has enough scored forecasts, the
+/// replay's until then.
+export function effectiveRangeScale(ledger: RangeScale | null | undefined, calibration: Calibration | null | undefined): RangeScale | null {
+  return ledger ?? calibration?.rangeScale ?? null;
+}
+
 /// What the relay does with the readings after each fetch: forecast, alerts, then the card.
 /// `stored` already includes this fetch's readings. Mutates `planner`.
 export function processTick(args: {
@@ -1106,7 +1139,7 @@ export function processTick(args: {
   prefs: AlertPreferences;
   planner: PlannerState;
   calibration: Calibration | null;
-  /// The relay's range widening from its own ledger. Missing: none.
+  /// The relay's range widening from its own ledger. Missing: the replay's (Calibration.rangeScale).
   rangeScale?: RangeScale | null;
   /// How far its own live checks let the relay draw the forecast (liveHorizon). Missing: no cut.
   live?: LiveCut | null;
@@ -1116,7 +1149,7 @@ export function processTick(args: {
   const snapshot = makeSnapshot(stored, args.current, args.sensor, args.display, args.lastError);
   const recent = stored.filter((r) => now - r.t <= 3600);
   const result = forecast(new Series(recent), args.calibration, now, undefined,
-    args.calibration?.tuning ?? standardTuning, args.live ?? null, args.rangeScale ?? null);
+    args.calibration?.tuning ?? standardTuning, args.live ?? null, effectiveRangeScale(args.rangeScale, args.calibration));
   if (snapshot.current) snapshot.outlook = outlookSnapshot(result, now, snapshot.lowMgdl);
   const notices = evaluateAlerts(args.planner, snapshot, args.prefs, now);
   const p = evaluatePrediction(args.planner, snapshot, result.ok ? result.forecast : null, args.prefs, now);

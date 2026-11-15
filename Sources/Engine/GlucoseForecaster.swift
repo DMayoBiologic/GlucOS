@@ -360,7 +360,7 @@ enum GlucoseForecaster {
     static let freshLogWindow: TimeInterval = 60 * 60
     /// How far an insulin-only forecast is drawn until the replay has enough of them to say: as
     /// far as the trend. On the history this was built from, they beat no change by only 3% at an
-    /// hour in the replay and lost to it by 40% live (docs/ForecastAccuracy.md §11).
+    /// hour in the replay and lost to it by 40% live (docs/ForecastAccuracy.md §12).
     static let insulinOnlyUncheckedHorizon: TimeInterval = 30 * 60
 
     private static func basisFor(_ trendOnly: Bool) -> ForecastBasis { trendOnly ? .trend : .trendInsulinCarbs }

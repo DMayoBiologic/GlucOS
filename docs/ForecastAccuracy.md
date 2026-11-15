@@ -361,7 +361,57 @@ leaves them out. Forcing the strength to 55% on the old history (`GLUCOS_REPLAY_
 gave 13.7 against 15.2, which confirms the strength was the fault; the relay's readings are what
 let the phone measure it itself.
 
-## 11. Insulin with no meal logged, checked on its own (15 Nov 2026)
+## 11. The relay's range learnt from its one-minute replay (15 Nov 2026)
+
+`glucos.forecast_scorecard` on 15 Nov had the relay's Lock Screen forecast at 25.0 mg/dL against
+27.0 for no change at 15 minutes, with only 58% of readings inside its range, against 68–74% for
+the apps. Two things were behind those figures:
+
+- **The error is the day, not the relay.** All 33 checks came from one day (the ledger started on
+  15 Nov), and a fast-moving one. Over the same hours the Mac's 15-minute forecast was 23.2 against
+  26.6 and the iPhone's 24.4 against 27.9: the relay's 24.7 against 27.2 is as good a share of no
+  change as theirs. The relay already learns the trend's strength from its one-minute readings
+  (`tuneTrend`, 45–55% for Declan), and a replay over every timing and strength (window 10–20,
+  fade 15–60 minutes, strength 30–100%, a separate strength for fast trends) found nothing more
+  than 1–2% better, less than the tuner's 3% bar. So the trend is left as it is.
+- **The range had nothing to widen it.** Its range is the replay's 10th–90th percentile over two
+  weeks, and the widening from §9 (`rangeScaleFrom`) needs 40 scored points of the relay's own
+  before it does anything. On a new ledger, or after a gap, that is most of a day of ranges that
+  are too narrow on exactly the days that need them wider.
+
+So the relay now works the same widening out from its replay as well (`replayRangeScale` in
+`supabase/functions/relay/core.ts`). Each relearn (every 3 hours) replays its forecast every 15
+minutes over the last 14 days of one-minute readings; each replayed forecast at the horizons it
+draws (15 and 30 minutes) gets the range `forecast` would have drawn, and `rangeScaleFrom` works
+the steady, fast-trend and last-12-hours figures out from those just as it does from the ledger.
+The result is kept as `calibration.rangeScale`, and `effectiveRangeScale` draws with the ledger's
+widening when there is one and the replay's until then. Points record the widening they were drawn
+with as before, so the ledger's figure still settles rather than compounding. Nothing about the
+live horizon (§8) or the ledger's own widening (§9) changed; the replay only feeds them. The apps
+keep their ledgers going, so they don't need it, and the parity test leaves it out. Relay 2.10.0.
+
+Walk-forward replay (`scripts/relay-replay.ts`, which lives through the readings the way the relay
+does: forecasts every 15 minutes, relearns every 3 hours, widens and cuts from a ledger it scores
+itself). Clean points:
+
+| | 15 min inside | 30 min inside | 15 min range | 30 min range |
+| --- | --- | --- | --- | --- |
+| 15 Nov, ledger new that morning (as it went live), before | 76% | 69% | 48 mg/dL | 72 mg/dL |
+| 15 Nov, ledger new that morning, after | 88% | 75% | 60 mg/dL | 90 mg/dL |
+| 11–15 Nov, ledger a day old, before | 83% | 85% | 44 mg/dL | 81 mg/dL |
+| 11–15 Nov, ledger a day old, after | 83% | 85% | 45 mg/dL | 81 mg/dL |
+
+The first two rows draw every horizon at every origin (`UNGATED=1`, 34 and 32 points) so that the
+range is judged on a whole day; drawn as the relay would have, 15 minutes went from 73% to 91% of
+11 points. Once the ledger has enough of its own it takes over, so a settled ledger is unchanged.
+Typical error is the same before and after: only the range changed.
+
+To run it, export `glucos.readings` as `[[t, mgdl], …]` into `readings.json` and the log times
+(doses, meals, events other than waking, as `glucos.score_relay_forecasts` counts them) into
+`log.json`, then `GLUCOS_REPLAY_DIR=dir deno run --allow-read --allow-env scripts/relay-replay.ts`.
+`LEDGER_FROM`, `WIDEN=ledger|replay|both|none`, `UNGATED=1`, `GAIN=x` and `LIST=1` are the knobs.
+
+## 12. Insulin with no meal logged, checked on its own (15 Nov 2026)
 
 On 15 Nov the iPhone's insulin-and-carb forecasts were losing to no change at 60 minutes (47.7
 against 39.8 mg/dL), which is why §8 cut them back to 45, and the Mac's were only just ahead
