@@ -412,7 +412,7 @@ Widgets in accented or vibrant rendering modes drop the field and keep the rail 
 | 5 | iPhone motion: log bar bounce after a save (§7.1); Setup steps push in the direction of travel with filling progress and a field that follows the range being set; Logbook sticky day headers and row entrances; Insights columns growing from the baseline; follower cards' range strip and rail; Sensor scan ring pulse and value roll-in (§7.2) | #59 | merged |
 | 6 | iPhone stage adopts the directional range sweep and the drawn strike line on the hero value and the collapsed title | #64 | merged |
 | 7 | Sharing surfaces: the web view behind share links (`web/share`) and the Messages extension's bubble, tapped card, composer and bubble picture (`ShareStage`) on the range field with the needle, rail and forecast ghost, forecast note, freshness meter and drawn strike line | #67 | merged |
-| 8 | Widgets finished to §9: the range field and urgent-low border behind the Glucose widget, direction-aware pill swap, drawn strike line, live age timer, forecast note and freshness meter footer; rolling figures and growing bars in Time in Range and Sensor; live age on the Lock Screen rectangular | this PR | open |
+| 8 | Widgets finished to §9: the range field and urgent-low border behind the Glucose widget, direction-aware pill swap, drawn strike line, live age timer, forecast note and freshness meter footer; rolling figures and growing bars in Time in Range and Sensor; live age on the Lock Screen rectangular | #80 | merged |
 
 Every part of this design is now built.
 
