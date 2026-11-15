@@ -41,6 +41,17 @@ enum ForecastUnavailable: Hashable {
         case .notAccurateEnough: return "Past forecasts haven't been accurate enough to show one."
         }
     }
+
+    /// A short stable name, for the forecast caveat.
+    var code: String {
+        switch self {
+        case .noReading: return "noReading"
+        case .stale: return "stale"
+        case .outOfSensorRange: return "outOfSensorRange"
+        case .notEnoughRecentReadings: return "notEnoughRecentReadings"
+        case .notAccurateEnough: return "notAccurateEnough"
+        }
+    }
 }
 
 /// Something that limits how far the forecast can be trusted, shown alongside it.
@@ -85,6 +96,22 @@ enum ForecastLimitation: Hashable {
             return "Not yet checked against enough of your history, so a cautious range is shown."
         case .freshLog:
             return "Insulin or carbs were logged in the last hour, before their effect is clear. Until your history shows forecasts this soon after a log are reliable, this only follows the trend."
+        }
+    }
+
+    /// The same in one plain line, saying what it does to the forecast first. Shown as the
+    /// forecast's caveat (`ForecastCaveat.pick`), with `message` as the fuller explanation.
+    var shortReason: String {
+        switch self {
+        case .insulinNotLearned: return "Trend only: GlucOS is still learning how your insulin acts."
+        case .carbsNotLearned: return "Trend only: GlucOS is still learning how your meals act."
+        case .uncountedFood: return "Trend only: food without carbs can't be counted."
+        case .deliveryProblem: return "Trend only: a site problem was logged, so insulin is left out."
+        case .context(let tag): return "Wider range: \(tag.title) is logged."
+        case .rapidChange: return "Less certain: glucose is changing quickly."
+        case .backgroundInsulin: return "Long-acting insulin is assumed to hold glucose level."
+        case .uncalibrated: return "Cautious range: not yet checked against enough of your history."
+        case .freshLog: return "Trend only for now: a meal or dose was logged in the last hour."
         }
     }
 

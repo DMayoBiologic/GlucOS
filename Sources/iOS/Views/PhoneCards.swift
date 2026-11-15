@@ -383,7 +383,8 @@ struct PhoneChartCard: View {
                 // Switching 3h / 6h / 12h / 24h glides the trace to its new scale.
                 .dsAnimation(.standard, value: settings.chartHours)
             legend(outlook)
-            if let outlook { forecastLine(outlook, unit: s.unit) }
+            ForecastCaveatLine(caveat: caveat(s, outlook: outlook))
+            if let outlook, !outlook.forecast.isEmpty { forecastLine(outlook, unit: s.unit) }
         }
         .dsCard(.standard, padding: DS.Space.lg)
     }
@@ -425,6 +426,16 @@ struct PhoneChartCard: View {
             Spacer(minLength: 0)
         }
         .accessibilityHidden(true)
+    }
+
+    /// Why the forecast is hidden, trend-only, shorter or wider, when it is. A stale reading hides
+    /// the forecast before the engine sees it, so that reason is said here.
+    private func caveat(_ s: GlucoseSnapshot, outlook: OutlookSnapshot?) -> ForecastCaveat? {
+        guard settings.showForecast, s.current != nil else { return nil }
+        if let outlook { return outlook.caveat }
+        guard s.isStale() else { return nil }
+        let stale = ForecastUnavailable.stale(age: 0)
+        return ForecastCaveat(kind: .hidden, text: stale.message, detail: nil, source: "unavailable:\(stale.code)")
     }
 
     private func forecastLine(_ outlook: OutlookSnapshot, unit: GlucoseUnit) -> some View {
