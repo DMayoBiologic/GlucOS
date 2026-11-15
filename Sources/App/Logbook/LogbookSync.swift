@@ -365,10 +365,19 @@ extension ContextEvent: LogbookTimestamped {}
 /// That echo mustn't cancel the Undo. Only a change made after the delete (an edit or a delete on
 /// another device) does, because undoing then would overwrite something newer.
 enum LogbookUndo {
-    /// How long the iPhone's undo toast stays up after the last delete, in seconds.
+    /// How long the undo toast stays up (iPhone and Mac) after the last delete, in seconds.
     static let toastSeconds: Double = 5
     /// Under VoiceOver, long enough to hear the announcement and reach the button.
     static let toastSecondsVoiceOver: Double = 20
+
+    /// What the undo toast says, on iPhone and Mac: "Deleted 4 u NovoRapid", or "3 entries deleted".
+    static func title(_ deleted: [LogEntry]) -> String {
+        if deleted.count == 1, let e = deleted.first {
+            let what = e.shortTitle
+            return what.isEmpty ? "Entry deleted" : "Deleted \(what)"
+        }
+        return "\(deleted.count) entries deleted"
+    }
 
     /// Leeway for the server's timestamp storing the edit time to the microsecond.
     static let echoTolerance: Double = 0.001

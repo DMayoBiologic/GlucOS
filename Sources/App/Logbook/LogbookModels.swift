@@ -342,6 +342,19 @@ enum LogEntry: Identifiable, Hashable {
         case .context(let c): return c.timestamp
         }
     }
+
+    /// One line saying what the entry is: "4 u NovoRapid", "45 g · Toast", "New site: Abdomen",
+    /// "Woke up". The iPhone Logbook's row title, and what an Undo toast names on both apps.
+    var shortTitle: String {
+        switch self {
+        case .dose(let d): return "\(LogFormat.units(d.units)) \(d.displayName)"
+        case .meal(let m):
+            if m.carbs > 0 { return m.food.isEmpty ? "\(LogFormat.grams(m.carbs)) carbs" : "\(LogFormat.grams(m.carbs)) · \(m.food)" }
+            return m.food.isEmpty ? "Food" : m.food
+        case .siteChange(let s): return "New site: \(s.site.title)"
+        case .context(let c): return c.sortedTags.map(\.title).joined(separator: ", ")
+        }
+    }
 }
 
 /// Valid input ranges. Generous, just enough to catch a slipped decimal point.

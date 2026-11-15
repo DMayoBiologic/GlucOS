@@ -35,6 +35,8 @@ struct LogbookSection: View {
     @State private var selection = Set<UUID>()
     @State private var filter: Filter = .all
     @State private var search = ""
+    /// Entries that just arrived, tinted with their colour for a moment so the eye finds them.
+    @State private var fresh: Set<UUID> = []
     @Environment(\.dashboardPadding) private var padding
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -84,9 +86,13 @@ struct LogbookSection: View {
                     table(entries)
                 }
             }
-            if !logbook.lastDeleted.isEmpty { undoBanner }
         }
-        .dsAnimation(.standard, value: logbook.lastDeleted.isEmpty)
+        // After a delete: what went and Undo, rising from the bottom edge (`LogbookUndoToast`).
+        .overlay(alignment: .bottom) { LogbookUndoToast() }
+        // Entries that arrive (logged, undone, synced from the iPhone) light up once.
+        .onChange(of: logbook.entries.map(\.id)) { old, new in
+            markFresh(Set(new).subtracting(old))
+        }
         // Rows hidden by the filter, search or range must not stay selected, or Delete would
         // remove entries the user can't see.
         .onChange(of: Set(entries.map(\.id))) { _, visible in
@@ -137,27 +143,18 @@ struct LogbookSection: View {
     }
 
     private func deleteSelection() {
-        logbook.delete(ids: selection)
+        DS.animate(.standard, reduceMotion: reduceMotion) { logbook.delete(ids: selection) }
         selection = []
     }
 
-    private var undoBanner: some View {
-        let n = logbook.lastDeleted.count
-        return StatusBanner(severity: .info, systemImage: "trash",
-                            title: n == 1 ? "Entry deleted" : "\(n) entries deleted",
-                            message: "Undo puts \(n == 1 ? "it" : "them") back exactly as \(n == 1 ? "it was" : "they were").",
-                            action: BannerAction(title: "Undo", systemImage: "arrow.uturn.backward") { logbook.undoDelete() },
-                            onDismiss: { logbook.clearUndo() },
-                            density: .compact)
-            .frame(maxWidth: 520)
-            .padding(DS.Space.md)
-            // ⌘Z, which the banner's own button can't carry.
-            .background {
-                Button("Undo Delete") { logbook.undoDelete() }
-                    .keyboardShortcut("z", modifiers: .command)
-                    .hidden()
-            }
-            .transition(DS.Transition.banner(reduceMotion: reduceMotion))
+    /// Lights the rows that just arrived, then lets the colour fade out once.
+    private func markFresh(_ added: Set<UUID>) {
+        guard !added.isEmpty else { return }
+        fresh.formUnion(added)
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            DS.animate(.ambient, reduceMotion: reduceMotion) { fresh.subtract(added) }
+        }
     }
 
     private func totals(_ entries: [LogEntry]) -> some View {
@@ -193,6 +190,10 @@ struct LogbookSection: View {
                 let k = kind(e)
                 Label(title(e), systemImage: k.systemImage)
                     .foregroundStyle(k.color)
+                    .padding(.horizontal, DS.Space.xs + 2)
+                    .padding(.vertical, 1)
+                    .background(k.color.opacity(fresh.contains(e.id) ? 0.18 : 0), in: Capsule())
+                    .padding(.horizontal, -(DS.Space.xs + 2))
             }
             .width(min: 110, ideal: 140)
             TableColumn("Amount") { (e: LogEntry) in
@@ -225,7 +226,7 @@ struct LogbookSection: View {
             }
             if !ids.isEmpty {
                 Button(ids.count == 1 ? "Delete" : "Delete \(ids.count) Entries", role: .destructive) {
-                    logbook.delete(ids: ids)
+                    DS.animate(.standard, reduceMotion: reduceMotion) { logbook.delete(ids: ids) }
                     selection.subtract(ids)
                 }
             }
@@ -233,6 +234,9 @@ struct LogbookSection: View {
             if ids.count == 1, let id = ids.first, let entry = logbook.entry(id: id) { open(.edit(entry)) }
         }
         .onDeleteCommand { deleteSelection() }
+        // New rows slide into place and deleted rows fold away, whether from here, an undo or a
+        // sync. Instant under Reduce Motion.
+        .dsAnimation(.standard, value: entries.map(\.id))
     }
 
     private func kind(_ e: LogEntry) -> ChartEvent.Kind {

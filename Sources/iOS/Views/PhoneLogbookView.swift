@@ -297,16 +297,7 @@ extension LogEntry {
     }
 
     /// The row's main line: "4 u NovoRapid", "45 g · Toast", "New site: Abdomen", "Woke up".
-    var phoneTitle: String {
-        switch self {
-        case .dose(let d): return "\(LogFormat.units(d.units)) \(d.displayName)"
-        case .meal(let m):
-            if m.carbs > 0 { return m.food.isEmpty ? "\(LogFormat.grams(m.carbs)) carbs" : "\(LogFormat.grams(m.carbs)) · \(m.food)" }
-            return m.food.isEmpty ? "Food" : m.food
-        case .siteChange(let s): return "New site: \(s.site.title)"
-        case .context(let c): return c.sortedTags.map(\.title).joined(separator: ", ")
-        }
-    }
+    var phoneTitle: String { shortTitle }
 
     var phoneNote: String {
         switch self {
