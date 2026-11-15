@@ -107,7 +107,8 @@ export function ledgerRecord(f: Forecast, calibration: Calibration | null, lastI
 }
 
 export class PostgresForecastLedger implements ForecastLedger {
-  constructor(private readonly sql: SQL) {}
+  /// `appVersion` is the relay's own version, kept on each forecast so accuracy can be split by release.
+  constructor(private readonly sql: SQL, private readonly appVersion: string | null = null) {}
 
   async owner(libreUserId: string): Promise<string | null> {
     const email = await syntheticEmail(libreUserId);
@@ -118,9 +119,11 @@ export class PostgresForecastLedger implements ForecastLedger {
   async record(owner: string, r: LedgerRecord): Promise<boolean> {
     const rows = await this.sql`
       insert into glucos.forecast_checks
-        (user_id, id, issued_at, device, basis, start_mgdl, trend_per_minute, points, limitations, calibrated, tuned, morning)
+        (user_id, id, issued_at, device, basis, start_mgdl, trend_per_minute, points, limitations, calibrated, tuned, morning,
+         app_version)
       select ${owner}::uuid, ${r.id}::uuid, to_timestamp(${r.issuedAt}), ${ledgerDevice}, ${r.basis}, ${r.startMgdl},
-             ${r.trendPerMinute}, ${this.sql.json(r.points as never)}, '{}', ${r.calibrated}, ${r.tuned}, false
+             ${r.trendPerMinute}, ${this.sql.json(r.points as never)}, '{}', ${r.calibrated}, ${r.tuned}, false,
+             ${this.appVersion}
       where not exists (
         select 1 from glucos.forecast_checks
         where user_id = ${owner}::uuid and device = ${ledgerDevice}

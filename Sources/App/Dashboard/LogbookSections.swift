@@ -381,7 +381,8 @@ private struct ForecastScorecardCard: View {
 
     var body: some View {
         if let card = ledger.scorecard {
-            ForecastScorecardView(card: card, unit: store.snapshot.unit, tuned: outlook.model.tuning.isTuned)
+            ForecastScorecardView(card: card, unit: store.snapshot.unit, sinceUpdate: ledger.sinceUpdate,
+                                  tuned: outlook.model.tuning.isTuned)
                 .dashboardCard()
         }
     }

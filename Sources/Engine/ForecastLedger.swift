@@ -55,6 +55,9 @@ struct ForecastRecord: Codable, Hashable, Identifiable {
     /// How much the range was widened when shown (`ForecastRangeScale`). Nil in records from
     /// before widening existed, which were never widened.
     var rangeScale: Double? = nil
+    /// The app version that showed the forecast ("1.2.0"), so accuracy can be followed per
+    /// release. Nil in records from before versions were kept, and in the relay's.
+    var appVersion: String? = nil
     /// Every point has been scored (or its time has passed without a reading).
     var settled = false
     /// Sent to the sync server.
@@ -85,7 +88,8 @@ struct ForecastLedger: Codable, Equatable {
     /// Keeps `forecast` if it's the first in its 15 minutes. Returns whether it was added.
     /// The part live checks cut off (`GlucoseForecast.unshown`) is kept too, marked as not shown.
     @discardableResult
-    mutating func note(_ forecast: GlucoseForecast, device: String, tuned: Bool, now: Date = Date()) -> Bool {
+    mutating func note(_ forecast: GlucoseForecast, device: String, tuned: Bool, appVersion: String? = nil,
+                       now: Date = Date()) -> Bool {
         guard now.timeIntervalSince(forecast.issuedAt) <= GlucoseSnapshot.staleAfter else { return false }
         if let last = records.last, forecast.issuedAt.timeIntervalSince(last.issuedAt) < Self.spacing { return false }
         let points: [ForecastRecord.Point] = Self.checkedMinutes.compactMap { m in
@@ -104,7 +108,7 @@ struct ForecastLedger: Codable, Equatable {
                                       startMgdl: forecast.startMgdl, trendPerMinute: forecast.trendPerMinute,
                                       points: points, limitations: forecast.limitations.map(\.code),
                                       calibrated: forecast.calibrated, tuned: tuned, morning: forecast.morning != nil,
-                                      rangeScale: forecast.rangeScale))
+                                      rangeScale: forecast.rangeScale, appVersion: appVersion))
         return true
     }
 
@@ -157,8 +161,17 @@ struct ForecastLedger: Codable, Equatable {
     }
 
     /// How the forecasts shown between `start` and `end` turned out, on one device or (nil) all.
-    func accuracy(from start: Date, to end: Date, device: String? = nil) -> LiveAccuracy {
-        LiveAccuracy(records.filter { $0.issuedAt >= start && $0.issuedAt < end && (device == nil || $0.device == device) })
+    func accuracy(from start: Date, to end: Date, device: String? = nil, appVersion: String? = nil) -> LiveAccuracy {
+        LiveAccuracy(records.filter {
+            $0.issuedAt >= start && $0.issuedAt < end && (device == nil || $0.device == device)
+                && (appVersion == nil || $0.appVersion == appVersion)
+        })
+    }
+
+    /// When `device` first recorded a forecast on `appVersion`: roughly when that update was
+    /// installed. Nil if it hasn't recorded one yet.
+    func firstRecord(device: String, appVersion: String) -> Date? {
+        records.first { $0.device == device && $0.appVersion == appVersion }?.issuedAt
     }
 
     /// Shown points needed before the range is widened, per kind of forecast (or all kinds

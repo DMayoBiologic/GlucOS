@@ -19,8 +19,12 @@ APP_VERSION, BUILD_NUMBER (the build just uploaded; not needed with --link-only)
 WHATS_NEW_FILE (optional); CONTACT_FIRST_NAME, CONTACT_LAST_NAME, CONTACT_EMAIL, CONTACT_PHONE
 (optional, used only where App Store Connect has nothing yet).
 
+  5. An internal group with every build ("Team"), holding the App Store Connect users, so the
+     owner's own iPhone gets each build as soon as it's processed instead of waiting for Beta App
+     Review like the public link. Then a table of the last builds and where each has reached.
+
 Problems Apple can fix later, or that need Declan, are GitHub warnings, not failures: the Mac
-release and internal TestFlight have already shipped by the time this runs.
+release and the upload have already shipped by the time this runs.
 """
 
 import json
@@ -36,6 +40,7 @@ import jwt  # pyjwt[crypto]
 API = "https://api.appstoreconnect.apple.com/v1"
 BUNDLE_ID = "au.com.declanmayo.glucos.ios"
 GROUP_NAME = "Public"
+INTERNAL_GROUP_NAME = "Team"
 PRIVACY_URL = "https://gluc-os-seven.vercel.app/privacy/"
 MARKETING_URL = "https://github.com/DMayoBiologic/GlucOS"
 
@@ -309,6 +314,86 @@ def submit_latest_if_needed(app_id, group):
         warn(f"Couldn't submit the newest build for Beta App Review: {e}")
 
 
+def ensure_internal_group(app_id):
+    """An internal group that gets every build, with the App Store Connect users in it. Internal
+    testers need no Beta App Review, so the owner's phone isn't held back by the public group's."""
+    groups = call("GET", f"/apps/{app_id}/betaGroups", params={"limit": 200})["data"]
+    internal = [g for g in groups if g["attributes"].get("isInternalGroup")]
+    group = next((g for g in internal if g["attributes"].get("hasAccessToAllBuilds")), None)
+    if group is None:
+        existing = next((g for g in internal if g["attributes"]["name"] == INTERNAL_GROUP_NAME), None)
+        try:
+            if existing:
+                group = call("PATCH", f"/betaGroups/{existing['id']}", {"data": {
+                    "type": "betaGroups", "id": existing["id"], "attributes": {"hasAccessToAllBuilds": True}}})["data"]
+            else:
+                print(f"Creating internal group {INTERNAL_GROUP_NAME!r} with every build")
+                group = call("POST", "/betaGroups", {"data": {
+                    "type": "betaGroups",
+                    "attributes": {"name": INTERNAL_GROUP_NAME, "isInternalGroup": True, "hasAccessToAllBuilds": True,
+                                   "feedbackEnabled": True},
+                    "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
+                }})["data"]
+        except APIError as e:
+            warn(f"Couldn't set up the internal TestFlight group: {e}. Without one, your own iPhone only gets "
+                 "builds through the public link, after Beta App Review.")
+            return None
+    name = group["attributes"]["name"]
+    testers = call("GET", f"/betaGroups/{group['id']}/betaTesters", params={"limit": 200,
+                                                                           "fields[betaTesters]": "email"})["data"]
+    have = {(t["attributes"].get("email") or "").lower() for t in testers}
+    try:
+        users = call("GET", "/users", params={"limit": 200, "fields[users]": "username,firstName,lastName"})["data"]
+    except APIError as e:
+        users = []
+        if not testers:
+            warn(f"Couldn't list App Store Connect users to add to {name!r} ({e}). Add yourself in App Store Connect "
+                 f"→ TestFlight → {name} → Testers.")
+    for u in users:
+        a = u["attributes"]
+        email = (a.get("username") or "").strip()
+        if not email or email.lower() in have:
+            continue
+        try:
+            call("POST", "/betaTesters", {"data": {
+                "type": "betaTesters",
+                "attributes": {"email": email, "firstName": a.get("firstName") or "", "lastName": a.get("lastName") or ""},
+                "relationships": {"betaGroups": {"data": [{"type": "betaGroups", "id": group["id"]}]}},
+            }})
+            have.add(email.lower())
+            print(f"Added an App Store Connect user to {name!r}")
+        except APIError as e:
+            warn(f"Couldn't add an App Store Connect user to {name!r}: {e}")
+    summary(f"Internal group **{name}** gets every build, no review: {len(have)} tester(s).")
+    return group
+
+
+def report_builds(app_id, count=6):
+    """Where the last few builds got to: processed, internal testing, and Beta App Review."""
+    try:
+        res = call("GET", "/builds", params={
+            "filter[app]": app_id, "sort": "-uploadedDate", "limit": count,
+            "fields[builds]": "version,uploadedDate,processingState,expired,preReleaseVersion,buildBetaDetail",
+            "include": "preReleaseVersion,buildBetaDetail",
+            "fields[preReleaseVersions]": "version",
+            "fields[buildBetaDetails]": "internalBuildState,externalBuildState",
+        })
+    except APIError as e:
+        warn(f"Couldn't list recent builds: {e}")
+        return
+    inc = {(i["type"], i["id"]): i["attributes"] for i in res.get("included", [])}
+    lines = ["", "| Build | Uploaded | Processing | Internal | External |", "|---|---|---|---|---|"]
+    for b in res["data"]:
+        a, rel = b["attributes"], b.get("relationships", {})
+        pre = (rel.get("preReleaseVersion", {}).get("data") or {})
+        det = (rel.get("buildBetaDetail", {}).get("data") or {})
+        version = inc.get(("preReleaseVersions", pre.get("id")), {}).get("version", "?")
+        d = inc.get(("buildBetaDetails", det.get("id")), {})
+        lines.append(f"| {version} ({a.get('version')}) | {(a.get('uploadedDate') or '')[:16]} | {a.get('processingState')} "
+                     f"| {d.get('internalBuildState', '?')} | {d.get('externalBuildState', '?')} |")
+    summary("\n".join(lines))
+
+
 def main():
     link_only = "--link-only" in sys.argv
     for k in ("KEY_P8", "KEY_ID", "ISSUER"):
@@ -324,6 +409,11 @@ def main():
             submit_latest_if_needed(app["id"], group)
     else:
         ship_build(app, group, has_email and has_contact)
+    try:
+        ensure_internal_group(app["id"])
+    except APIError as e:
+        warn(f"Internal TestFlight group check failed: {e}")
+    report_builds(app["id"])
     link = ensure_public_link(group)
     if not link:
         summary("The public TestFlight link turns on after Apple approves the first build for external testing "

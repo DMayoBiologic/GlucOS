@@ -22,7 +22,7 @@
 // optionally APNS_BUNDLE_ID (default au.com.declanmayo.glucos.ios) and APNS_CRITICAL_ALERTS=true.
 
 import { APNsSender } from "./apns.ts";
-import { constantTimeEqual, type CreateShareRequest, RelayEngine, type RelayRegistration, ShareError,
+import { constantTimeEqual, type CreateShareRequest, RelayEngine, type RelayRegistration, ShareError, version,
          type UpdateShareRequest } from "./engine.ts";
 import { LibreLinkUpFetcher } from "./libre.ts";
 import { connect, PostgresStore } from "./store.ts";
@@ -46,7 +46,7 @@ function services() {
     bundleId: env("APNS_BUNDLE_ID") ?? "au.com.declanmayo.glucos.ios",
     criticalAlerts: env("APNS_CRITICAL_ALERTS") === "true",
     shares: new PostgresShareStore(sql),
-    ledger: new PostgresForecastLedger(sql),
+    ledger: new PostgresForecastLedger(sql, version),
   });
   cached = { store, engine };
   return cached;

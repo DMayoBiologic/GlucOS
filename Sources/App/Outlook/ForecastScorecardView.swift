@@ -7,6 +7,8 @@ import SwiftUI
 struct ForecastScorecardView: View {
     let card: ForecastScorecard
     let unit: GlucoseUnit
+    /// The installed version's own figures, shown under the 7-day ones.
+    var sinceUpdate: ForecastSinceUpdate? = nil
     var tuned = false
     /// Off on the Outlook page, which has its own header.
     var showsHeader = true
@@ -22,6 +24,9 @@ struct ForecastScorecardView: View {
                         TonePill(text: "Tuned to you", tone: .brand)
                     }
                 }
+            }
+            if let sinceUpdate {
+                versionView(sinceUpdate)
             }
             VStack(alignment: .leading, spacing: DS.Space.md) {
                 ForEach(card.rows, id: \.minutes) { row in
@@ -67,9 +72,41 @@ struct ForecastScorecardView: View {
                 .dsFont(.caption)
                 .foregroundStyle(row.comparison == .better ? AnyShapeStyle(Palette.brandText) : AnyShapeStyle(.secondary))
                 .monospacedDigit()
+            if let sinceUpdate, let line = ForecastScorecardText.sinceUpdateRow(sinceUpdate, minutes: row.minutes, unit: unit) {
+                Label(line, systemImage: "arrow.up.circle")
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(ForecastScorecardText.spoken(row, unit: unit))
+        .accessibilityLabel(spoken(row))
+    }
+
+    private func spoken(_ row: ForecastScorecard.Row) -> String {
+        var s = ForecastScorecardText.spoken(row, unit: unit)
+        if let sinceUpdate, let extra = ForecastScorecardText.sinceUpdateSpoken(sinceUpdate, minutes: row.minutes, unit: unit) {
+            s += " " + extra
+        }
+        return s
+    }
+
+    /// Which version the figures cover: since the last update, or every forecast in the week.
+    private func versionView(_ u: ForecastSinceUpdate) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Label(ForecastScorecardText.sinceUpdateTitle(u), systemImage: "arrow.up.circle")
+                .dsFont(.caption)
+                .fontWeight(.semibold)
+            if let line = ForecastScorecardText.sinceUpdateCollecting(u) {
+                Text(line).dsFont(.caption).foregroundStyle(.secondary)
+            } else if !u.coversWeek {
+                Text("Each line shows the last 7 days, with this version alone underneath.")
+                    .dsFont(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
     }
 
     private func bar(_ mgdl: Double, color: Color) -> some View {

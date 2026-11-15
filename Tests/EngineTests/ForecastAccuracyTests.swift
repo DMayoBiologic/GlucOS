@@ -307,4 +307,77 @@ final class ForecastScorecardTests: XCTestCase {
         XCTAssertEqual(ForecastRecord.displayName(device: ForecastRecord.relayDevice), "Lock Screen")
         XCTAssertEqual(ForecastRecord.displayName(device: "Mac"), "Mac")
     }
+
+    // MARK: Since the last update
+
+    func versioned(_ rs: [ForecastRecord], _ version: String?, startingAt offset: TimeInterval = 0) -> [ForecastRecord] {
+        rs.enumerated().map { i, r in
+            var copy = ForecastRecord(id: r.id, issuedAt: now.addingTimeInterval(offset + Double(i) * 900), device: r.device,
+                                      basis: r.basis, startMgdl: r.startMgdl, trendPerMinute: r.trendPerMinute,
+                                      points: r.points, limitations: r.limitations, calibrated: r.calibrated,
+                                      tuned: r.tuned, morning: r.morning)
+            copy.appVersion = version
+            return copy
+        }
+    }
+
+    func testSinceUpdateKeepsOnlyTheInstalledVersion() throws {
+        var ledger = ForecastLedger()
+        ledger.records = versioned(records(count: 40, error: 20, moved: 10), "1.0.0")
+            + versioned(records(count: 35, error: 4, moved: 10), "1.1.0", startingAt: 40 * 900)
+        let end = now.addingTimeInterval(200 * 900)
+        let first = ledger.firstRecord(device: "iPhone", appVersion: "1.1.0")
+        XCTAssertEqual(first, now.addingTimeInterval(40 * 900))
+        let week = ledger.accuracy(from: now, to: end, device: "iPhone")
+        let mine = ledger.accuracy(from: now, to: end, device: "iPhone", appVersion: "1.1.0")
+        XCTAssertEqual(week.clean(at: 15)?.checks, 75)
+        XCTAssertEqual(mine.clean(at: 15)?.checks, 35)
+
+        let u = try XCTUnwrap(ForecastSinceUpdate(accuracy: mine, version: "1.1.0", since: first, coversWeek: false))
+        XCTAssertEqual(u.row(at: 15)?.error ?? 0, 4, accuracy: 0.001)
+        let line = try XCTUnwrap(ForecastScorecardText.sinceUpdateRow(u, minutes: 15, unit: .mgdl))
+        XCTAssertTrue(line.hasPrefix("On 1.1.0: ±4"), line)
+        XCTAssertTrue(line.contains("Closer than no change"), line)
+        XCTAssertNil(ForecastScorecardText.sinceUpdateCollecting(u))
+        XCTAssertEqual(ForecastScorecardText.sinceUpdateTitle(u, now: first!.addingTimeInterval(9 * 3600 + 60)),
+                       "Since you updated to 1.1.0, 9 hours ago")
+    }
+
+    func testSinceUpdateSaysItsStillCollecting() throws {
+        var ledger = ForecastLedger()
+        ledger.records = versioned(records(count: 40, error: 5, moved: 10), nil)
+            + versioned(records(count: 12, error: 5, moved: 10), "1.1.0", startingAt: 40 * 900)
+        let mine = ledger.accuracy(from: now, to: now.addingTimeInterval(100 * 900), device: "iPhone", appVersion: "1.1.0")
+        let u = try XCTUnwrap(ForecastSinceUpdate(accuracy: mine, version: "1.1.0",
+                                                  since: ledger.firstRecord(device: "iPhone", appVersion: "1.1.0"),
+                                                  coversWeek: false))
+        XCTAssertTrue(u.rows.isEmpty)
+        XCTAssertNil(ForecastScorecardText.sinceUpdateRow(u, minutes: 15, unit: .mgdl))
+        XCTAssertEqual(ForecastScorecardText.sinceUpdateCollecting(u)?.hasPrefix("1.1.0 has 12 of 30 checks"), true)
+        XCTAssertNil(ForecastSinceUpdate(accuracy: .empty, version: "1.2.0", since: nil, coversWeek: false),
+                     "Nothing to say before the version has recorded a forecast")
+    }
+
+    func testWholeWeekOnOneVersionIsNotSplit() throws {
+        let mine = LiveAccuracy(versioned(records(count: 40, error: 5, moved: 10), "1.1.0"))
+        let u = try XCTUnwrap(ForecastSinceUpdate(accuracy: mine, version: "1.1.0", since: now, coversWeek: true))
+        XCTAssertNil(ForecastScorecardText.sinceUpdateRow(u, minutes: 15, unit: .mgdl))
+        XCTAssertNil(ForecastScorecardText.sinceUpdateCollecting(u))
+        XCTAssertTrue(ForecastScorecardText.sinceUpdateTitle(u).contains("1.1.0"))
+    }
+
+    func testNoteKeepsTheVersionAndUploadSendsIt() throws {
+        var r = records(count: 1, error: 5, moved: 10)[0]
+        r.appVersion = "1.1.0"
+        let json = String(data: try JSONEncoder().encode(ForecastUpload(r)), encoding: .utf8)!
+        XCTAssertTrue(json.contains("\"app_version\":\"1.1.0\""), json)
+        let old = String(data: try JSONEncoder().encode(ForecastUpload(records(count: 1, error: 5, moved: 10)[0])), encoding: .utf8)!
+        XCTAssertFalse(old.contains("app_version"), "Records from before versions were kept send none")
+        // Records saved before the field existed still load.
+        let saved = try JSONEncoder().encode(records(count: 1, error: 5, moved: 10)[0])
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        obj.removeValue(forKey: "appVersion")
+        let back = try JSONDecoder().decode(ForecastRecord.self, from: JSONSerialization.data(withJSONObject: obj))
+        XCTAssertNil(back.appVersion)
+    }
 }

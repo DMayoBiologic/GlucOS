@@ -12,6 +12,8 @@ final class ForecastLedgerStore: ObservableObject {
     /// The Insights card: the last 7 days at 15, 30 and 60 minutes against no change. Nil until
     /// there are enough checks.
     @Published private(set) var scorecard: ForecastScorecard?
+    /// The same figures for only the forecasts this version showed. Nil until it has shown one.
+    @Published private(set) var sinceUpdate: ForecastSinceUpdate?
     /// How much wider to draw the range, from how the forecasts shown here did.
     @Published private(set) var rangeScale: ForecastRangeScale = .unchanged
     /// How far ahead the forecast may be drawn, from how this device's forecasts did against no change.
@@ -19,6 +21,9 @@ final class ForecastLedgerStore: ObservableObject {
 
     private(set) var ledger: ForecastLedger
     private var lastScored = Date.distantPast
+
+    /// The installed version ("1.2.0"), kept on each recorded forecast.
+    static let appVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
 
     static let device: String = {
         #if os(macOS)
@@ -40,7 +45,7 @@ final class ForecastLedgerStore: ObservableObject {
     func update(forecast: GlucoseForecast?, tuned: Bool, archive: [GlucoseReading], current: GlucoseReading?,
                 logTimes: @autoclosure () -> [Date], now: Date = Date()) {
         var changed = false
-        if let forecast { changed = ledger.note(forecast, device: Self.device, tuned: tuned, now: now) }
+        if let forecast { changed = ledger.note(forecast, device: Self.device, tuned: tuned, appVersion: Self.appVersion, now: now) }
         // Scoring needs only a minute's resolution.
         if changed || now.timeIntervalSince(lastScored) >= 60 {
             lastScored = now
@@ -72,6 +77,15 @@ final class ForecastLedgerStore: ObservableObject {
         weeksBefore = ledger.accuracy(from: now.addingTimeInterval(-28 * 86_400), to: weekAgo, device: Self.device)
         let card = ForecastScorecard(lastWeek)
         if card != scorecard { scorecard = card }
+        var since: ForecastSinceUpdate?
+        if let version = Self.appVersion {
+            let first = ledger.firstRecord(device: Self.device, appVersion: version)
+            let mine = ledger.accuracy(from: max(weekAgo, first ?? weekAgo), to: now.addingTimeInterval(3600),
+                                       device: Self.device, appVersion: version)
+            since = ForecastSinceUpdate(accuracy: mine, version: version, since: first,
+                                        coversWeek: first.map { $0 <= weekAgo } ?? false)
+        }
+        if since != sinceUpdate { sinceUpdate = since }
         let scale = ledger.rangeScale(now: now)
         if scale != rangeScale { rangeScale = scale }
         let horizon = ledger.liveHorizon(device: Self.device, now: now)
