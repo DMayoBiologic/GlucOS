@@ -35,6 +35,12 @@ struct ShareClient {
         try await call("v1/snapshot", method: "GET", query: installation.map { [URLQueryItem(name: "installation", value: $0)] })
     }
 
+    /// The follower view's readings since `since` (all 14 days when nil) and recent logbook.
+    func detail(since: Double?) async throws -> ShareDetail {
+        try await call("v1/detail", method: "GET",
+                       query: since.map { [URLQueryItem(name: "since", value: String(Int($0)))] })
+    }
+
     /// Asks the person this share belongs to whether they're okay.
     func checkIn(_ request: CheckInRequest) async throws -> CheckInState {
         try await call("v1/checkin", method: "POST", body: try JSONEncoder().encode(request))

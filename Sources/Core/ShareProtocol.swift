@@ -8,12 +8,14 @@ import Foundation
 //     GET  /v1/shares                        → [ShareInfo]
 //     POST /v1/shares        CreateShare     → CreatedShare
 //     POST /v1/shares/revoke {id}            → [ShareInfo]
+//     POST /v1/shares/update UpdateShare     → [ShareInfo]   (what a link's followers see)
 //   Share function, with `Authorization: Bearer <share token>`:
 //     GET  /v1/snapshot                      → ShareSnapshot
 //     POST /v1/follow        FollowRegistration → FollowStatus
 //     POST /v1/unfollow      {installation}  → {ok}
 //     POST /v1/checkin       CheckInRequest  → CheckInState   (ask if they're okay)
 //     GET  /v1/snapshot?installation=…       → ShareSnapshot with this phone's check-in
+//     GET  /v1/detail?since=<seconds>        → ShareDetail   (FollowDetail.swift: the follower view)
 
 /// One of the owner's live share links.
 struct ShareInfo: Codable, Hashable, Identifiable {
@@ -27,6 +29,11 @@ struct ShareInfo: Codable, Hashable, Identifiable {
     var lastViewedAt: Double?
     /// Follower phones with GlucOS.
     var followers: Int
+    /// Followers also see the recent logbook (insulin, food, sites, moments; no notes). Missing
+    /// from relays before the follower view: treated as on, which is what those relays' links get.
+    var showsLogbook: Bool?
+
+    var logbookShown: Bool { showsLogbook ?? true }
 
     func isExpired(at now: Date = Date()) -> Bool {
         expiresAt.map { now.timeIntervalSince1970 >= $0 } ?? false
@@ -37,6 +44,13 @@ struct CreateShare: Codable, Hashable {
     var label: String
     /// Seconds from now; nil: until revoked.
     var expiresIn: Double?
+    /// Followers also see the recent logbook. Nil: yes.
+    var showsLogbook: Bool? = nil
+}
+
+struct UpdateShare: Codable, Hashable {
+    var id: String
+    var showsLogbook: Bool?
 }
 
 struct CreatedShare: Codable, Hashable {
@@ -61,6 +75,8 @@ struct ShareSnapshot: Codable, Hashable {
     var followID: String
     /// This phone's latest check-in, when asked for with `?installation=` and still current.
     var checkIn: CheckInState?
+    /// The owner lets this link's followers see the logbook. Missing from older share functions.
+    var showsLogbook: Bool?
 }
 
 /// A follower asks the person they follow whether they're okay.

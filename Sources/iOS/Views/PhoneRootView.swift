@@ -204,6 +204,7 @@ struct PhoneHomeView: View {
                 }
                 .navigationTransition(.zoom(sourceID: route, in: routes))
             }
+            .navigationDestination(for: FollowRoute.self) { FollowRouteView(route: $0) }
         }
         // On the stack rather than its root, so the log sheet also opens over a pushed screen
         // (editing a row in the full logbook).

@@ -53,7 +53,7 @@ struct PhoneCheckInBanner: View {
     }
 }
 
-/// Under a followed reading: Check in while they're low, and how the last check-in went.
+/// Under a followed reading: Check in (bold while they're low), and how the last check-in went.
 struct FollowCheckInRow: View {
     @EnvironmentObject var follows: FollowStore
     let follow: Follow
@@ -62,32 +62,42 @@ struct FollowCheckInRow: View {
 
     var body: some View {
         let checkIn = follows.checkIns[follow.id]
-        if card.offersCheckIn || checkIn != nil {
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                HStack(spacing: DS.Space.sm) {
-                    if let checkIn { status(checkIn) }
-                    Spacer(minLength: 0)
-                    if checkIn.map({ !$0.isWaiting || $0.status == .noAnswer }) ?? true {
-                        Button {
-                            error = nil
-                            Task {
-                                do { try await follows.checkIn(follow.id) } catch { self.error = error.localizedDescription }
-                            }
-                        } label: {
-                            Label(checkIn?.status == .noAnswer ? "Ask again" : "Check in", systemImage: "hand.wave.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
+        // Always offered: anyone worried can ask, not only during a low. A low (or no answer)
+        // makes it the bold one.
+        let urgent = (card.offersCheckIn && !card.isStale()) || checkIn?.status == .noAnswer
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack(spacing: DS.Space.sm) {
+                if let checkIn { status(checkIn) }
+                Spacer(minLength: 0)
+                if checkIn.map({ !$0.isWaiting || $0.status == .noAnswer }) ?? true {
+                    askButton(title: checkIn?.status == .noAnswer ? "Ask again" : "Check in", urgent: urgent)
                         .disabled(follows.checkingIn.contains(follow.id))
                         .accessibilityHint("Asks \(follow.label) if they're okay")
-                    }
-                }
-                if let error {
-                    Text(error).dsFont(.caption).foregroundStyle(Tone.warning.textColor)
-                } else if checkIn == nil, follows.myName.isEmpty {
-                    Text("Add your name in Settings so \(follow.label) knows who's asking.")
-                        .dsFont(.caption).foregroundStyle(.secondary)
                 }
             }
+            if let error {
+                Text(error).dsFont(.caption).foregroundStyle(Tone.warning.textColor)
+            } else if checkIn == nil, follows.myName.isEmpty {
+                Text("Add your name in Settings so \(follow.label) knows who's asking.")
+                    .dsFont(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func askButton(title: String, urgent: Bool) -> some View {
+        let button = Button {
+            error = nil
+            Task {
+                do { try await follows.checkIn(follow.id) } catch { self.error = error.localizedDescription }
+            }
+        } label: {
+            Label(title, systemImage: "hand.wave.fill")
+        }
+        if urgent {
+            button.buttonStyle(.borderedProminent).tint(Tone.warning.color)
+        } else {
+            button.buttonStyle(.bordered).tint(Palette.brand)
         }
     }
 
@@ -110,3 +120,4 @@ struct FollowCheckInRow: View {
         }
     }
 }
+

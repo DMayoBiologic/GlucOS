@@ -43,6 +43,9 @@ final class FollowStore: ObservableObject {
 
     @Published private(set) var follows: [Follow] = []
     @Published private(set) var snapshots: [String: ShareSnapshot] = [:]
+    /// The follower view's readings and logbook for each follow (`detail(since:)`), topped up on
+    /// each refresh. Kept in memory only: the first open after a launch fetches the 14 days again.
+    @Published private(set) var details: [String: FollowDetail] = [:]
     /// Shares the owner stopped (or that expired): shown as ended until removed.
     @Published private(set) var ended: Set<String> = []
     @Published private(set) var errors: [String: String] = [:]
@@ -135,6 +138,7 @@ final class FollowStore: ObservableObject {
         if !pendingUnfollows.contains(follow.id) { pendingUnfollows.append(follow.id) }
         follows.removeAll { $0.id == follow.id }
         snapshots[follow.id] = nil
+        details[follow.id] = nil
         errors[follow.id] = nil
         ended.remove(follow.id)
         save()
@@ -227,6 +231,7 @@ final class FollowStore: ObservableObject {
                     save()
                 }
                 await showActivity(for: follows[i], canStart: canStart)
+                await refreshDetail(follow.id, client: client)
             } catch ShareClient.ShareError.ended {
                 guard follows.contains(where: { $0.id == follow.id }) else { continue }
                 ended.insert(follow.id)
@@ -236,6 +241,16 @@ final class FollowStore: ObservableObject {
                 errors[follow.id] = error.localizedDescription
             }
         }
+    }
+
+    /// Tops up `details` for one follow. A failure keeps what's there; the snapshot's own error
+    /// already says when the server can't be reached.
+    private func refreshDetail(_ id: String, client: ShareClient) async {
+        let since = details[id]?.history.since
+        guard let d = try? await client.detail(since: since), follows.contains(where: { $0.id == id }) else { return }
+        var detail = details[id] ?? FollowDetail()
+        detail.apply(d)
+        details[id] = detail
     }
 
     // MARK: Lock Screen

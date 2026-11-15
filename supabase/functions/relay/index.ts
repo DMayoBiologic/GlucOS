@@ -10,6 +10,7 @@
 //   GET  /v1/shares                        → Share[]       (the owner's live share links)
 //   POST /v1/shares     CreateShareRequest → CreatedShare
 //   POST /v1/shares/revoke  {id}           → Share[]
+//   POST /v1/shares/update  {id, showsLogbook} → Share[]   (what that link's followers see)
 //   POST /v1/checkins/answer {answer}      → RelayStatus   (the owner answers check-ins: "okay" | "help")
 //
 // The phone sends `Authorization: Bearer <RELAY_SECRET>`. The schedule sends `X-GlucOS-Cron`
@@ -20,7 +21,8 @@
 // optionally APNS_BUNDLE_ID (default au.com.declanmayo.glucos.ios) and APNS_CRITICAL_ALERTS=true.
 
 import { APNsSender } from "./apns.ts";
-import { constantTimeEqual, type CreateShareRequest, RelayEngine, type RelayRegistration, ShareError } from "./engine.ts";
+import { constantTimeEqual, type CreateShareRequest, RelayEngine, type RelayRegistration, ShareError,
+         type UpdateShareRequest } from "./engine.ts";
 import { LibreLinkUpFetcher } from "./libre.ts";
 import { connect, PostgresStore } from "./store.ts";
 import { PostgresShareStore } from "./sharing.ts";
@@ -103,6 +105,9 @@ export async function handle(req: Request): Promise<Response> {
       if (path === "/v1/shares/revoke" && req.method === "POST") {
         if (typeof body?.id !== "string") return json({ error: "bad request" }, 400);
         return json(await engine.revokeShare(body.id));
+      }
+      if (path === "/v1/shares/update" && req.method === "POST") {
+        return json(await engine.updateShare((body ?? {}) as UpdateShareRequest));
       }
     } catch (e) {
       if (e instanceof ShareError) return json({ error: e.message }, e.status);

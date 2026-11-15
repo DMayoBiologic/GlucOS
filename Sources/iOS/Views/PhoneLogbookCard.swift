@@ -244,6 +244,8 @@ private struct LogBarLabel<Icon: View, Title: View>: View {
 struct PhoneLogRow: View {
     let entry: LogEntry
     let site: InjectionSite?
+    /// Off where the row can't be opened (someone else's logbook).
+    var showsChevron = true
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -259,9 +261,11 @@ struct PhoneLogRow: View {
             }
             Spacer(minLength: DS.Space.sm)
             if !typeSize.dsLargeText { time }
-            Image(systemName: "chevron.right")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.tertiary)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
         }
         .accessibilityElement(children: .combine)
     }

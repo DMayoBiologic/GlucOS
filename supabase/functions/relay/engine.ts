@@ -239,6 +239,13 @@ export interface CreateShareRequest {
   label?: string;
   /// Seconds from now; null or missing: until revoked.
   expiresIn?: number | null;
+  /// Followers also see the recent logbook. Missing: yes.
+  showsLogbook?: boolean;
+}
+
+export interface UpdateShareRequest {
+  id: string;
+  showsLogbook?: boolean;
 }
 
 export interface CreatedShare {
@@ -709,8 +716,19 @@ export class RelayEngine {
       expiresAt = now + Math.min(Math.max(r.expiresIn, 600), maxShareLifetime);
     }
     const token = newShareToken();
-    const share = await shares.createShare(cleanLabel(r.label), await hashShareToken(token), expiresAt);
+    const share = await shares.createShare(cleanLabel(r.label), await hashShareToken(token), expiresAt,
+                                           r.showsLogbook !== false);
     return { share, token, url: shareURL(token) };
+  }
+
+  /// Changes what a live share's followers see. Returns the live shares.
+  async updateShare(r: UpdateShareRequest): Promise<Share[]> {
+    const now = this.clock();
+    if (typeof r?.id !== "string") throw new ShareError("bad request", 400);
+    if (typeof r.showsLogbook === "boolean" && !(await this.shares.setShowsLogbook(r.id, r.showsLogbook, now))) {
+      throw new ShareError("No such share", 404);
+    }
+    return await this.shares.listShares(now);
   }
 
   /// Ends a share now: the link stops working and followers' Lock Screen cards are taken down.
