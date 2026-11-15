@@ -67,7 +67,9 @@ for (const sc of fixture.scenarios) {
     const problems: string[] = [];
 
     sc.ticks.forEach((t, i) => {
-      if (t.learn && stored.length > 24) calibration = learnCalibration(stored, t.now);
+      // The apps widen from their own ledgers only, so parity leaves out the replay's widening
+      // (checked on its own below), as it leaves out the relay ledger's.
+      if (t.learn && stored.length > 24) calibration = { ...learnCalibration(stored, t.now)!, rangeScale: null };
       let lastError: string | null = null;
       if (t.error !== undefined) {
         lastError = t.error;
