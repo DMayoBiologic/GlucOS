@@ -64,8 +64,8 @@ struct PopoverChartCard: View {
                     return .handled
                 }
                 .onChange(of: chartFocused) { _, focused in if !focused { pinned = nil } }
+                // The chart glides to the new span itself.
                 .onChange(of: settings.chartHours) { _, _ in pinned = nil }
-                .dsAnimation(.standard, value: settings.chartHours)
                 .help("Hover to see readings, or click and use ← →")
                 .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
                 .accessibilityValue(chartSummary(window))
