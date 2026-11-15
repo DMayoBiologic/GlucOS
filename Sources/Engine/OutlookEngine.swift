@@ -88,10 +88,11 @@ enum OutlookEngine {
         let unloggedMeals = DoseMealCheck.unloggedMealTimes(doses: doses, meals: meals)
         let meals = LogCleanup.mealsWithoutRepeats(meals)
         let series = GlucoseSeries(readings)
-        let input = ForecastInputs(readings: series, doses: doses, meals: meals, contexts: contexts,
+        var input = ForecastInputs(readings: series, doses: doses, meals: meals, contexts: contexts,
                                    profile: model.profile, calibration: model.calibration,
                                    morning: model.morning.isUsable ? model.morning : nil,
                                    tuning: model.tuning.tuning, rangeScale: model.rangeScale, now: now)
+        input.unloggedMealTimes = unloggedMeals
         let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
             + unloggedMeals
         return Outlook(at: now,
