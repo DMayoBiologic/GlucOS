@@ -139,6 +139,40 @@ struct ForecastLedger: Codable, Equatable {
                 changed = true
             }
         }
+        if relog(logs, now: now) { changed = true }
+        return changed
+    }
+
+    /// Settled forecasts from this long back have their `afterLog` checked again whenever they're
+    /// scored, because entries can be logged later with an earlier time: "Did you treat this low?"
+    /// logs the treatment up to two hours after the low, at the time it was eaten, and an edit or
+    /// delete can move one. Long enough for a 3-hour forecast issued before a low to still be in
+    /// reach when the question is answered.
+    static let relogWindow: TimeInterval = 12 * 3600
+
+    /// Marks afterLog afresh on settled forecasts from the last `relogWindow`. One that changes and
+    /// was already sent is sent again (the server replaces it), so the server's checks match.
+    private mutating func relog(_ logs: [Date], now: Date) -> Bool {
+        let since = now.addingTimeInterval(-Self.relogWindow)
+        var changed = false
+        for i in records.indices.reversed() {
+            let r = records[i]
+            if r.issuedAt < since { break }
+            guard r.settled else { continue }
+            var touched = false
+            for j in r.points.indices {
+                let target = r.issuedAt.addingTimeInterval(TimeInterval(r.points[j].minutes * 60))
+                let logged = Self.anyLog(in: logs, after: r.issuedAt, before: target)
+                if logged != r.points[j].afterLog {
+                    records[i].points[j].afterLog = logged
+                    touched = true
+                }
+            }
+            if touched {
+                records[i].uploaded = false
+                changed = true
+            }
+        }
         return changed
     }
 

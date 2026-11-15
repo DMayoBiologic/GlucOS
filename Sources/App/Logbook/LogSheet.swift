@@ -10,12 +10,15 @@ enum LogSheetTarget: Identifiable {
     /// "I'm treating it" on a low or high alert (docs/AlertActions.md): a hypo treatment, filled
     /// from the "Treat a low" usual when there is one, or a correction dose.
     case treating(AlertTreatment)
+    /// A hypo treatment at an earlier time: "Did you treat this low?" → Something else.
+    case lowTreatment(at: Date)
 
     var id: String {
         switch self {
         case .new: return "new"
         case .meal(let at): return "meal-\(at.timeIntervalSince1970)"
         case .treating(let t): return "treating-\(t.rawValue)"
+        case .lowTreatment(let at): return "low-\(at.timeIntervalSince1970)"
         case .edit(let e): return e.id.uuidString
         }
     }
@@ -122,6 +125,12 @@ struct LogSheet: View {
             time = min(at, Date())
             parts = [.food]
         }
+        if case .lowTreatment(let at) = target {
+            // Food tagged as a hypo treatment, at the time the low was treated. No dose.
+            time = min(at, Date())
+            parts = [.food]
+            tags = [.hypoTreatment]
+        }
         if case .treating(let t) = target {
             // A low: fast carbs tagged as a hypo treatment, no dose. A high: the correction dose.
             parts = t == .low ? [.food] : [.insulin]
@@ -167,7 +176,10 @@ struct LogSheet: View {
         }
 
         self.onClose = onClose
-        if case .meal = target { forLoggedDose = true } else { forLoggedDose = false }
+        switch target {
+        case .meal, .lowTreatment: forLoggedDose = true
+        default: forLoggedDose = false
+        }
         if case .treating(let t) = target { treating = t } else { treating = nil }
         self.editing = editing
         self.editingID = editingID

@@ -23,6 +23,8 @@ final class LogbookStore: ObservableObject {
     @Published private(set) var foods: [SavedFood] = []
     /// The bolus calculator settings, shared by the user's devices. Nil until set up.
     @Published private(set) var bolusSettings: BolusSettings?
+    /// "No" and dismissals for "Did you treat this low?" (`LowTreatmentCheck`). Synced.
+    @Published private(set) var lowAnswers: [LowAnswer] = []
     /// The entries removed by the last delete, kept in memory so it can be undone.
     @Published private(set) var lastDeleted: [LogEntry] = []
     /// When each entry in `lastDeleted` was deleted, as pushed, so sync can tell this device's own
@@ -49,6 +51,7 @@ final class LogbookStore: ObservableObject {
         var presets: [LogPreset]? = []
         var foods: [SavedFood]? = []
         var bolusSettings: BolusSettings?
+        var lowAnswers: [LowAnswer]? = []
     }
 
     private static var url: URL? {
@@ -85,6 +88,7 @@ final class LogbookStore: ObservableObject {
         presets = file.presets ?? []
         foods = file.foods ?? []
         bolusSettings = file.bolusSettings
+        lowAnswers = file.lowAnswers ?? []
     }
 
     var isEmpty: Bool { doses.isEmpty && meals.isEmpty && siteChanges.isEmpty && contexts.isEmpty }
@@ -122,6 +126,27 @@ final class LogbookStore: ObservableObject {
         }
         upsert(entry)
         touch(entry.id, kind: entry.recordKind)
+        persist()
+    }
+
+    /// Records "No" or a dismissal for "Did you treat this low?". Syncs like any edit.
+    func answerLow(_ low: LowEpisode, _ answer: LowAnswer.Answer, now: Date = Date()) {
+        guard let end = low.end, !lowAnswers.contains(where: { $0.covers(low) }) else { return }
+        let a = LowAnswer(lowStart: low.start, lowEnd: end, answer: answer, answeredAt: now)
+        lowAnswers.append(a)
+        // Only the last 90 days are kept: older lows are never asked about.
+        let cutoff = now.addingTimeInterval(-90 * 86_400)
+        for old in lowAnswers where old.answeredAt < cutoff { touch(old.id, kind: .lowAnswer, deleted: true) }
+        lowAnswers.removeAll { $0.answeredAt < cutoff }
+        touch(a.id, kind: .lowAnswer)
+        persist()
+    }
+
+    /// Takes back a low answer (Undo).
+    func removeLowAnswer(id: UUID) {
+        guard lowAnswers.contains(where: { $0.id == id }) else { return }
+        lowAnswers.removeAll { $0.id == id }
+        touch(id, kind: .lowAnswer, deleted: true)
         persist()
     }
 
@@ -411,7 +436,7 @@ final class LogbookStore: ObservableObject {
 
     var contents: LogbookContents {
         LogbookContents(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets,
-                        foods: foods, bolusSettings: bolusSettings)
+                        foods: foods, bolusSettings: bolusSettings, lowAnswers: lowAnswers)
     }
 
     private func touch(_ id: UUID, kind: LogbookRecordKind, deleted: Bool = false) {
@@ -439,6 +464,7 @@ final class LogbookStore: ObservableObject {
             if c.presets != presets { presets = c.presets }
             if c.foods != foods { foods = c.foods }
             if c.bolusSettings != bolusSettings { bolusSettings = c.bolusSettings }
+            if c.lowAnswers != lowAnswers { lowAnswers = c.lowAnswers }
             persist(notify: false)
             discoverInsulins()
         } else {
@@ -470,7 +496,7 @@ final class LogbookStore: ObservableObject {
         if notify { localChanges.send() }
         guard let url = Self.url else { return }
         let file = File(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets,
-                        foods: foods, bolusSettings: bolusSettings)
+                        foods: foods, bolusSettings: bolusSettings, lowAnswers: lowAnswers)
         Self.writeQueue.async {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .secondsSince1970

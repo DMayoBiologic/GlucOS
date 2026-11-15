@@ -163,6 +163,8 @@ struct PhoneLogBar: View {
         VStack(spacing: 0) {
             // "4 u at 9:12 am. Was it for a meal?" after a bolus with no food near it, once per dose.
             PhoneDoseStrip()
+            // "You went low at 9:12 pm… Did you treat it?" once a low with nothing logged is over.
+            PhoneLowStrip()
             // "Woke up at 6:41?" in the morning, until it's logged or dismissed.
             PhoneWakeStrip()
             HStack(spacing: DS.Space.sm) {
