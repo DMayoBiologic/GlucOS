@@ -890,3 +890,70 @@ To rerun, using the miss ratio described above:
 
 Try this again with at least three weeks of points, so each part of the day has about 20 days.
 Look first at night, which misses the most and has the fewest points.
+
+## 20. Does the insulin-on-board curve fit? (16 Nov 2026)
+
+Saved insulins (docs/Insulins.md) only set a name and a kind. The timing comes from the kind:
+NovoRapid is `.rapid`, which uses `InsulinActionCurve.rapid` (10-minute delay, peak 75 minutes
+after that, finished 6 hours after that). The forecast's insulin effect and the bolus
+calculator's insulin on board (`InsulinActivity.compute`) both use that one curve. The question
+was whether a different peak or duration fits the drops seen after corrections. **None fitted
+better on corrections it hadn't seen, so the curve is unchanged.**
+
+**The data.** The server's readings start on 10 Nov 14:45 UTC. Since then 13 fast-acting doses
+were logged, and 9 went with a meal. That leaves four correction windows, and none is fully
+clean:
+
+| Window (Perth) | Insulin | What muddies it |
+| --- | --- | --- |
+| A, 11 Nov 12:56 | 6 U, plus 8 U from 10:46 | Pancake breakfast 3½ h before; ends at a 61 low and an unlogged rise |
+| B, 14 Nov 20:04 | 1.5 U, then 4 U at 22:00 | Big Mac 3 h before; ends at 23:10, before an unexplained rise |
+| C, 15 Nov 11:30 | 4.5 U, then 10 U at 12:51 | Flat for 80 minutes after the 4.5 U, then 225 mg/dL in 50 minutes; ends at a 92 that bounced straight up |
+| D, 15 Nov 18:38 | 6 U | Taken while glucose was still rising from an unlogged low treatment; ends at a 57 |
+
+Every window ends early, at a low or a rise with nothing logged. So these show the first 1½–3
+hours of the curve, and say little about its tail.
+
+**The test.** Each window was modelled as glucose = a starting level − sensitivity × insulin
+acted since the start, counting every fast-acting dose still on board. The grid had 175 curves:
+delays of 0, 10 and 20 minutes, peaks of 35–100 minutes and durations of 3–6 hours. Each curve
+was scored two ways. First, with its own sensitivity per window, which tests shape only. Second,
+leaving one window out: the curve and one shared sensitivity were chosen on the other three, then
+scored on the held-out window. Typical error is in mg/dL, on 5-minute averages.
+
+| | Shape only, same windows | Held out, from the dose | Held out, from the high |
+| --- | --- | --- | --- |
+| Current curve (10 / 75 min / 6 h) | 15.4 | 17.5 | 16.1 |
+| Best grid curve (0 / 100 min / 5 h) | 15.0 | | |
+| Curve chosen on the other three | | 20.4 | 19.6 |
+
+("From the high" starts each window at its highest reading in the first 40 minutes, to take out
+the rise that was still under way in D.)
+
+On the windows it was picked from, the best curve was only 0.4 mg/dL better, and the top eight
+curves were within 0.1 of each other. Held out, the chosen curve lost in three of the four
+windows. It also moved between folds: peaks of 80–100 minutes and durations of 3½–6 hours. Four
+muddied windows can't pin the curve down. A later peak looked slightly better only because the
+windows start on rises that hadn't finished yet.
+
+**What a change would do to doses.** The calculator takes insulin on board off a correction. The
+current curve leaves 0.83, 0.50, 0.24 and 0.09 of a unit on board after 1, 2, 3 and 4 hours. The
+best grid curve leaves 0.83, 0.51, 0.23 and 0.06. On 14 Nov at 20:04, the 5 U from 17:04 counted
+as 1.20 U on board, and the best curve would have counted 1.15 U. That rounds to the same 1.5 U
+dose. So even the best-looking alternative would barely move suggested doses, and it isn't
+better.
+
+The fitted sensitivities (24–38 mg/dL per unit) are not an estimate of the correction factor.
+Unlogged treatments push glucose up inside every window, which pulls the fit down. Settings
+review (docs/FoodAndBolus.md) is the place for that, and it needs clean examples too.
+
+Try this again once there are about ten corrections that each have 4 hours with no food before or
+after. Logging low treatments is what makes a correction window usable. Without them, every
+window ends at the first low. To find candidate windows:
+
+    select d.user_id, d.payload->>'units' u,
+      to_timestamp((d.payload->>'timestamp')::float) at time zone 'Australia/Perth' t
+    from glucos.logbook d where d.kind = 'dose' and not d.deleted and d.payload->>'kind' in ('rapid', 'ultraRapid')
+      and not exists (select 1 from glucos.logbook m where m.user_id = d.user_id and m.kind = 'meal' and not m.deleted
+        and abs((m.payload->>'timestamp')::float - (d.payload->>'timestamp')::float) < 4 * 3600)
+    order by d.user_id, t;
