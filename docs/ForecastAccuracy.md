@@ -1026,3 +1026,61 @@ To rerun, using the miss ratio above:
 Try again with about three weeks of points, so each band has a few hundred. Look first at flat
 forecasts at turning points: if a trend near zero just after a rise or fall misses as often as a
 fast one, that is a better split than speed alone.
+
+## 22. Should the trend count for less when readings are noisy? (16 Nov 2026)
+
+The forecast follows the trend, the slope of the last 20 minutes of readings, and
+`ForecastTuning.trendGain` already counts it at about 55–70% strength (§3). The idea tested here:
+when readings jitter around their line, the slope is less trustworthy, so count it for less still.
+**It doesn't help. On days they hadn't seen, no noise-based damping beat the forecast as it is at
+15 or 30 minutes, and most did slightly worse, so nothing changed.**
+
+**The data.** Clean points (nothing logged after the forecast) in `glucos.forecast_checks` at 15
+and 30 minutes, from 12 Nov 15:08 Perth to the morning of 16 Nov, on the Mac, iPhone and relay: 469 points
+(279 at 15 minutes and 190 at 30). Jitter was measured from `glucos.readings` over the 15 minutes
+before each forecast, two ways:
+
+- the spread of readings around their straight line (residual standard deviation), and
+- the mean size of the second difference (reading − 2 × previous + the one before), which ignores
+  a steady bend in the line, so a peak or dip isn't counted as noise.
+
+**The test.** A damped forecast keeps everything but the trend's share of it, which is scaled by a
+factor k (1 is the forecast as shown, 0 drops the trend). The trend's share is the whole move for
+trend-only forecasts, and the trend times its effective minutes (6.2 at 15 minutes, 15 at 30, the
+median from trend-only forecasts) for those with insulin and carbs. For each day held out in turn,
+k was learnt from the other days by least absolute error.
+
+| Held-out days, mean error (mg/dL) | 15 min | 30 min |
+|---|---|---|
+| As shown | **17.6** | **27.2** |
+| Trend dropped (k = 0) | 18.4 | 31.2 |
+| One extra damping for all forecasts | 18.1 | 27.3 |
+| Damping per jitter third (spread) | 18.1 | 27.4 |
+| Damping per jitter third (second difference) | 18.4 | 28.4 |
+| Fixed jitter bands (second difference 3 / 5) | 17.9 | 27.4 |
+| k = 1 / (1 + a × spread), a learnt | 18.2 | 27.2 |
+| k = 1 / (1 + a × second difference), a learnt | 18.2 | 27.5 |
+
+The fitted `a` was zero or 0.1–0.2 on 9 of the 10 folds: the best damping by noise was next to none. 15 Nov (the low at 17:16
+and the meals around it) was worse by 1–2 mg/dL under every variant, and no day was better by more
+than 0.7.
+
+**Why.** Noise does mark the forecasts that miss. Split into thirds by second difference, the
+15-minute error is 11.2, 13.8 and 27.1 mg/dL, and the 30-minute error 17.5, 23.8 and 39.9. But the
+best k in the noisiest third was 1.05 at 15 minutes and 1.25 at 30, not less than 1. Jittery
+stretches are mostly fast rises and falls (after meals, during lows), where glucose kept going the
+way the trend said. The trend wasn't overshooting there; the size of the miss was just bigger in
+both directions. That is a reason to widen the range when readings are noisy, not to flatten the
+line.
+
+To get the jitter for each forecast:
+
+    with c as (select id, issued_at from glucos.forecast_checks),
+    r as (select c.id, r.mgdl, lag(r.mgdl) over w l1, lag(r.mgdl, 2) over w l2
+      from c join glucos.readings r on r.at > c.issued_at - interval '15 minutes' and r.at <= c.issued_at
+      window w as (partition by c.id order by r.at))
+    select id, avg(abs(mgdl - 2 * l1 + l2)) jitter from r where l2 is not null group by id;
+
+Next: try range widening by jitter, the same way as §19 and §21 (miss ratio, held-out days,
+interval score), with the noisiest third as its own band. Retest damping with about three weeks of
+points if the noisy third ever shows a best k under 1.
