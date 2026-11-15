@@ -40,9 +40,9 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: release
-  cancel-in-progress: false
+# Serialised per job, not per workflow: a queued run cancels the pending one in its group, so a
+# docs-only push (whose gate skips) must not sit in the group and knock out a waiting code release.
+# Skipped jobs never join their group.
 
 jobs:
   # Only the subject line can skip a release (for a squash merge that's the PR title; for a merge
@@ -75,7 +75,7 @@ jobs:
           esac
           # Docs-only push with no bump marker: nothing to ship.
           if [ "$EVENT" = "push" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            CODE=$(git diff --name-only "$BEFORE" "$AFTER" | grep -vE '(\.md$|^LICENSE$)' || true)
+            CODE=$(git diff --no-renames --name-only "$BEFORE" "$AFTER" | grep -vE '(\.md$|^LICENSE$)' || true)
             if [ -z "$CODE" ]; then
               echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Skipping docs-only push: $TITLE"; exit 0
             fi
@@ -86,6 +86,9 @@ jobs:
     needs: gate
     # Releases only ever come from main, even when run by hand from another branch.
     if: needs.gate.outputs.skip != 'true' && github.ref == 'refs/heads/main'
+    concurrency:
+      group: release
+      cancel-in-progress: false
     runs-on: macos-15
     outputs:
       version: ${{ steps.v.outputs.version }}
@@ -254,6 +257,9 @@ jobs:
   # iPhone app → App Store Connect → TestFlight, with the same version number as the Mac release.
   ios:
     needs: release
+    concurrency:
+      group: release-ios
+      cancel-in-progress: false
     runs-on: macos-15
     env:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -306,6 +312,9 @@ jobs:
   # most of the time is waiting for App Store Connect to finish processing the upload.
   testflight-external:
     needs: [release, ios]
+    concurrency:
+      group: release-testflight
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     env:
       KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
