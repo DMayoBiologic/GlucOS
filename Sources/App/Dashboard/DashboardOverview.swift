@@ -8,6 +8,8 @@ struct OverviewSection: View {
     let events: [ChartEvent]
     /// The period before this one, on its own timestamps.
     let comparison: [GlucoseReading]
+    /// Every stored reading, for the Today so far card.
+    let archive: [GlucoseReading]
 
     @EnvironmentObject private var logbook: LogbookStore
     @EnvironmentObject private var settings: AppSettings
@@ -75,6 +77,10 @@ struct OverviewSection: View {
             .dashboardCard()
 
             if let note = data.historyNote { HistoryNote(text: note) }
+            // Today against the same hours on a usual day, on a live period only (it's about now).
+            if data.isLive {
+                TodaySoFarView(readings: archive, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl)
+            }
             if let st = data.stats, let b = data.breakdown {
                 CardGrid(minColumnWidth: 300, maxColumns: 3, spacing: layout.gutter) {
                     TimeInRangeCard(breakdown: b, data: data)
