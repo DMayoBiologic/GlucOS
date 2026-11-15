@@ -116,6 +116,13 @@ struct PhoneLogSheet: View {
         case .treating(.high):
             startPart = .insulin
             parts = [.insulin]
+        case .lowTreatment(let at):
+            // Food tagged as a hypo treatment, at the time the low was treated. No dose, and no
+            // bolus bridge: the low is over.
+            startPart = .food
+            parts = [.food]
+            tags = [.hypoTreatment]
+            time = min(at, Date())
         case .edit(let entry):
             time = entry.timestamp
             editingID = entry.id
@@ -154,7 +161,10 @@ struct PhoneLogSheet: View {
 
         self.editing = editing
         self.start = startPart
-        if case .meal = target { forLoggedDose = true } else { forLoggedDose = false }
+        switch target {
+        case .meal, .lowTreatment: forLoggedDose = true
+        default: forLoggedDose = false
+        }
         if case .treating(let t) = target { treating = t } else { treating = nil }
         self.editingID = editingID
         self.doseID = doseID

@@ -12,6 +12,8 @@ enum PhoneLogTarget {
     /// "I'm treating it" on a low or high alert (docs/AlertActions.md): a hypo treatment, filled
     /// from the "Treat a low" usual when there is one, or a correction dose.
     case treating(AlertTreatment)
+    /// A hypo treatment at an earlier time: "Did you treat this low?" → Something else.
+    case lowTreatment(at: Date)
 }
 
 struct PhoneLogRequest: Identifiable {
@@ -45,6 +47,12 @@ final class PhoneLogRouter: ObservableObject {
     func treat(_ treatment: AlertTreatment) {
         savedSinceOpen = false
         request = PhoneLogRequest(target: .treating(treatment))
+    }
+
+    /// The log sheet on a hypo treatment at `time`, for a low that's over.
+    func logLowTreatment(at time: Date) {
+        savedSinceOpen = false
+        request = PhoneLogRequest(target: .lowTreatment(at: time))
     }
 
     func edit(_ entry: LogEntry) {

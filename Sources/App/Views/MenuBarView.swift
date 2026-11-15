@@ -84,6 +84,9 @@ struct MenuBarView: View {
             if PopoverDosePrompt.isRelevant(logbook: logbook) {
                 PopoverDosePrompt()
             }
+            if PopoverLowPrompt.isRelevant(logbook: logbook, store: store, settings: settings) {
+                PopoverLowPrompt()
+            }
             if PopoverWakePrompt.isRelevant(logbook: logbook) {
                 PopoverWakePrompt()
             }

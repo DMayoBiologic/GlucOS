@@ -26,6 +26,9 @@ minutes, as far as the forecast looked. A forecast settles 20 minutes after its 
 allows for late readings and for food logged afterwards with an earlier time. A point is marked
 `after_log` when a dose, a meal or an event (other than a wake-up) was logged between the forecast
 and that point.
+Settled forecasts from the last 12 hours have `after_log` checked again whenever logs change,
+because an entry can be logged hours later with an earlier time ("Did you treat this low?",
+[LowTreatmentQuestion.md](LowTreatmentQuestion.md)); one that changes is uploaded again.
 
 - On the device: `forecast-log.json` in the app group container, kept for 90 days. The Outlook
   page (**Forecasts You Were Shown**) shows the last 7 days at every checked horizon. Once both
