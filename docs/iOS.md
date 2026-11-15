@@ -158,6 +158,8 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
   Reduce Motion on, the number just fades in place. Nothing loops, so it costs no extra battery.
 - **Press and drag the chart** to read any reading and its time. A light tick marks crossing your
   low or high line and passing anything you logged; let go and the readout glides back to now.
+- **Stale readings look stale everywhere.** When data stops, the number fades to grey and a strike
+  line draws across it on the app, widgets and Lock Screen; VoiceOver says the reading is stale.
 - **Two followers, one account.** The Mac and the relay each poll LibreLinkUp once a minute.
 - **Without the relay** the app still works while it's open, and the Lock Screen card updates
   whenever iOS gives it background time.
