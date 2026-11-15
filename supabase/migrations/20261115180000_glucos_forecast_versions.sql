@@ -53,25 +53,11 @@ $$;
 revoke all on function public.forecast_push(jsonb) from public, anon;
 grant execute on function public.forecast_push(jsonb) to authenticated;
 
--- One row per scored point, now with the version (appended: a view's columns can only grow at the end).
-create or replace view glucos.forecast_points with (security_invoker = true) as
-select
-  f.user_id, f.id, f.device, f.basis, f.issued_at, f.issued_at at time zone 'Australia/Perth' as issued_perth,
-  f.calibrated, f.tuned, f.morning, f.limitations, f.start_mgdl,
-  (p ->> 'minutes')::int as minutes,
-  (p ->> 'mgdl')::float8 as predicted,
-  (p ->> 'lower')::float8 as lower,
-  (p ->> 'upper')::float8 as upper,
-  (p ->> 'actual')::float8 as actual,
-  coalesce((p ->> 'after_log')::boolean, false) as after_log,
-  f.app_version
-from glucos.forecast_checks f
-cross join lateral jsonb_array_elements(f.points) p
-where p ? 'actual' and jsonb_typeof(p -> 'actual') = 'number';
-
 -- The Insights card's figures per device and version, over the last 30 days: the same clean
 -- 15/30/60-minute points as glucos.forecast_scorecard, so a release can be compared with the one
--- before it. `app_version` null is forecasts from before versions were kept.
+-- before it. `app_version` null is forecasts from before versions were kept. Reads forecast_checks
+-- directly: glucos.forecast_points can't gain a column, because the earlier migration that defines
+-- it is re-applied (CI runs every migration twice) and can't drop one.
 create or replace view glucos.forecast_scorecard_by_version with (security_invoker = true) as
 select
   user_id,
@@ -88,10 +74,20 @@ select
   round((avg(abs(actual - start_mgdl)) / 18.0182)::numeric, 2) as no_change_mae_mmol,
   round(100.0 * avg(case when actual between lower and upper then 1 else 0 end), 0) as inside_range_pct,
   count(*) >= 30 as enough_checks
-from glucos.forecast_points
-where not after_log
-  and minutes in (15, 30, 60)
-  and issued_at >= now() - interval '30 days'
+from (
+  select f.user_id, f.device, f.app_version, f.issued_at, f.start_mgdl,
+         (p ->> 'minutes')::int as minutes,
+         (p ->> 'mgdl')::float8 as predicted,
+         (p ->> 'lower')::float8 as lower,
+         (p ->> 'upper')::float8 as upper,
+         (p ->> 'actual')::float8 as actual
+  from glucos.forecast_checks f
+  cross join lateral jsonb_array_elements(f.points) p
+  where p ? 'actual' and jsonb_typeof(p -> 'actual') = 'number'
+    and not coalesce((p ->> 'after_log')::boolean, false)
+    and f.issued_at >= now() - interval '30 days'
+) pts
+where minutes in (15, 30, 60)
 group by user_id, device, app_version, minutes;
 
 revoke all on glucos.forecast_scorecard_by_version from public, anon;
