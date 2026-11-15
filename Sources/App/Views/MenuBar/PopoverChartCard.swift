@@ -39,9 +39,12 @@ struct PopoverChartCard: View {
             .frame(height: 24)
             .animation(PopoverMotion.quick(reduceMotion), value: pinned)
             let outlook = s.currentOutlook()
-            GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
-                         hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
-                         forecast: settings.showForecast ? (outlook?.forecast ?? []) : [])
+            // The forecast draws in as the popover opens and bends into each new one.
+            ForecastMotion(forecast: settings.showForecast ? (outlook?.forecast ?? []) : []) { forecast, reveal in
+                GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
+                             hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
+                             forecast: forecast, forecastReveal: reveal)
+            }
                 .frame(height: 136)
                 .focusable()
                 .focused($chartFocused)

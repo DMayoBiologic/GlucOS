@@ -252,3 +252,105 @@ struct RollingFigure: View {
             }
     }
 }
+
+// MARK: - Forecast motion
+
+/// Animates the forecast a chart is given: it draws in from the newest reading when the view
+/// appears (and when a forecast turns up where there was none), and a new forecast bends and
+/// slides from the old shape into the new one instead of jumping. `content` gets the forecast to
+/// draw and how much of it is drawn so far (`GlucoseChart(forecast:forecastReveal:)`).
+///
+/// One movement per appearance or per new forecast, never looping (Redesign §4.6). Under Reduce
+/// Motion, or with `enabled` off, the forecast just changes. App screens only: widgets never run
+/// `onAppear`, so there it would only ever show the forecast as given.
+struct ForecastMotion<Content: View>: View {
+    let forecast: [ForecastSample]
+    var enabled: Bool = true
+    @ViewBuilder let content: (_ forecast: [ForecastSample], _ reveal: Double) -> Content
+
+    /// The forecast the morph starts from and the one it ends on.
+    @State private var from: [ForecastSample] = []
+    @State private var to: [ForecastSample]?
+    @State private var phase: Double = 1
+    @State private var reveal: Double = 1
+    /// Counts changes, so a draw-in or morph that's still being set up never overrides a newer one.
+    @State private var generation = 0
+    @State private var onScreen = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var animates: Bool { enabled && !reduceMotion && onScreen }
+
+    var body: some View {
+        ForecastFrame(from: from, to: to ?? forecast, phase: phase, reveal: reveal, content: content)
+            .onAppear {
+                onScreen = true
+                settle(on: forecast)
+                drawIn()
+            }
+            .onDisappear {
+                onScreen = false
+                generation += 1
+            }
+            .onChange(of: forecast) { _, new in change(to: new) }
+    }
+
+    /// Shows `forecast` as it is, with nothing in flight.
+    private func settle(on forecast: [ForecastSample]) {
+        generation += 1
+        withTransaction(Transaction(animation: nil)) {
+            from = forecast
+            to = forecast
+            phase = 1
+            reveal = 1
+        }
+    }
+
+    /// Draws the forecast in from the newest reading.
+    private func drawIn() {
+        guard animates, (to ?? forecast).count > 1 else { return }
+        withTransaction(Transaction(animation: nil)) { reveal = 0 }
+        let generation = self.generation
+        // On the next turn, so the empty first frame is drawn before the reveal starts.
+        DispatchQueue.main.async {
+            guard generation == self.generation else { return }
+            withAnimation(DSMotion.sweep.animation) { reveal = 1 }
+        }
+    }
+
+    private func change(to new: [ForecastSample]) {
+        let shown = to ?? []
+        guard animates, !new.isEmpty else { settle(on: new); return }
+        // Nothing drawn before (switched on, or the first forecast): draw it in.
+        guard !shown.isEmpty, reveal == 1 else { settle(on: new); drawIn(); return }
+        generation += 1
+        let generation = self.generation
+        withTransaction(Transaction(animation: nil)) {
+            from = shown
+            to = new
+            phase = 0
+        }
+        DispatchQueue.main.async {
+            guard generation == self.generation else { return }
+            withAnimation(DSMotion.ambient.animation) { phase = 1 }
+        }
+    }
+}
+
+/// One frame of `ForecastMotion`: SwiftUI steps `phase` and `reveal` through every frame of the
+/// animation, and the chart is handed the forecast for that frame.
+private struct ForecastFrame<Content: View>: View, Animatable {
+    let from: [ForecastSample]
+    let to: [ForecastSample]
+    var phase: Double
+    var reveal: Double
+    let content: (_ forecast: [ForecastSample], _ reveal: Double) -> Content
+
+    var animatableData: AnimatablePair<Double, Double> {
+        get { AnimatablePair(phase, reveal) }
+        set { phase = newValue.first; reveal = newValue.second }
+    }
+
+    var body: some View {
+        content(ForecastMorph.blend(from: from, to: to, t: phase), reveal)
+    }
+}

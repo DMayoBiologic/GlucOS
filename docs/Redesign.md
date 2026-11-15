@@ -416,6 +416,13 @@ appearance without redrawing.
   freshness meter replacing the text age row's dot.
 - Notices, chart, summary card: unchanged structure. The chart's hour picker gets the sliding chip.
 - Opening the popover: hero first, then the cards with `dsEntrance` (as today).
+- The chart's forecast (`ForecastMotion`, Motion.swift) draws in from the newest reading each time
+  the popover opens, and when a forecast turns up where there was none (`.sweep`): the axes already
+  make room for all of it (`GlucoseChart(forecastReveal:)`), so only the dashed line and its range
+  grow. A new forecast bends and slides from the old shape into the new one (`.ambient`), points
+  paired by how far ahead they are (`ForecastMorph`), a longer horizon reaching out from the old end
+  and a shorter one pulling back. One movement per opening or per forecast, never looping (§4.6).
+  Under Reduce Motion, or once it's gone, the forecast just changes.
 
 ### 8.3 Dashboard window
 
