@@ -49,6 +49,8 @@ struct PhoneHeroCard: View {
                     if store.isRefreshing { ProgressView().controlSize(.small) }
                 }
                 .dsAnimation(.standard, value: s.range)
+                // The pill swaps to "No recent data" and back without a jump.
+                .dsAnimation(.standard, value: stale)
                 if let cur = s.current {
                     HStack(alignment: .center, spacing: DS.Space.md) {
                         VStack(alignment: .leading, spacing: DS.Space.xxs) {
@@ -82,6 +84,12 @@ struct PhoneHeroCard: View {
             .padding(.horizontal, DS.Space.xs)
             .padding(.vertical, DS.Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Losing the signal or getting it back: the trend row, needle, rail and freshness meter
+            // fade over with the number (whose own fade and strike come from `.staleStrike`). The
+            // first reading after a sensor warms up fades in over the placeholder. Only fades
+            // remain under Reduce Motion, and nothing repeats.
+            .dsAnimation(.sweep, value: stale)
+            .dsAnimation(.standard, value: s.current == nil)
             // An urgent low gets a rim as well as its colour, so it reads without colour vision.
             .padding(s.range == .urgentLow && !stale ? DS.Space.md : 0)
             .urgentRim(s.range == .urgentLow && !stale,

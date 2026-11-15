@@ -69,7 +69,7 @@ struct GlucoseLiveActivity: Widget {
                     .monospacedDigit()
                     .foregroundStyle(tint)
                     .readingChange(mgdl: state.mgdl, tone: tone)
-                    .strikethrough(stale, color: .secondary)
+                    .staleStrike(stale, color: .secondary, thickness: 2)
                     .accessibilityLabel(state.accessibilitySummary(stale: stale, person: context.person))
             } compactTrailing: {
                 HStack(spacing: 2) {
@@ -94,7 +94,7 @@ struct GlucoseLiveActivity: Widget {
                     .monospacedDigit()
                     .foregroundStyle(tint)
                     .readingChange(mgdl: state.mgdl, tone: tone)
-                    .strikethrough(stale, color: .secondary)
+                    .staleStrike(stale, color: .secondary, thickness: 1.5)
                     .minimumScaleFactor(0.6)
                     .accessibilityLabel(state.accessibilitySummary(stale: stale, person: context.person))
             }
@@ -388,11 +388,8 @@ private struct ActivityValueText: View {
             .foregroundStyle(stale ? AnyShapeStyle(Color.secondary)
                              : state.range == .inRange ? AnyShapeStyle(Color.primary) : AnyShapeStyle(tone.color))
             .readingChange(mgdl: state.mgdl, tone: tone)
-            .overlay {
-                if stale {
-                    Capsule().fill(Color.secondary.opacity(0.8)).frame(height: max(2, size / 18)).rotationEffect(.degrees(-8))
-                }
-            }
+            // Draws in as the signal is lost and retracts when it returns (docs/Redesign.md §4.3).
+            .staleStrike(stale, color: Color.secondary.opacity(0.8), thickness: max(2, size / 18))
             .lineLimit(1)
             .minimumScaleFactor(0.6)
     }
@@ -410,7 +407,7 @@ private struct IslandValue: View {
                 .monospacedDigit()
                 .foregroundStyle(state.tone(stale: stale).color)
                 .readingChange(mgdl: state.mgdl, tone: state.tone(stale: stale))
-                .strikethrough(stale, color: .secondary)
+                .staleStrike(stale, color: .secondary, thickness: 3)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
             Text(state.glucoseUnit.label)

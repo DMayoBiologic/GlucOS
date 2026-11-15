@@ -9,8 +9,10 @@ import Combine
 // The item has to stay cheap, since it is on screen all day. It is drawn into an image only when
 // its `MenuBarGlance` changes: a new reading, the moment a reading goes stale, each minute of a
 // stale reading's age, or a setting. There is no tick and no animation loop. A new value rolls in
-// over `DSMotion.arrival` as a short run of frames, once per reading, and not at all under Reduce
-// Motion.
+// over `DSMotion.arrival` as a short run of frames, once per reading. Losing the signal fades the
+// value to grey as the strike draws in, and data returning reverses it, over `DSMotion.sweep`; the
+// first reading after waiting fades in. Under Reduce Motion rolls are dropped and the stale changes
+// are a quick cross-fade with the strike whole (`MenuBarGlance.Change`).
 //
 // SwiftUI draws a MenuBarExtra label as a monochrome template, so colour has to come from a
 // non-template NSImage. The image holds a light and a dark rendering and picks one each time it is
@@ -87,30 +89,28 @@ final class MenuBarStatusModel: ObservableObject {
     private func show(_ new: MenuBarGlance, from old: MenuBarGlance?) {
         animation?.cancel()
         let label = accessibilityLabel
-        guard let old, Self.animates(from: old, to: new),
-              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            image = MenuBarImage.render(new, previous: nil, progress: 1, accessibilityLabel: label)
+        let change = MenuBarGlance.change(from: old, to: new)
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        guard let old, change != .none, !reduceMotion || change.keepsUnderReduceMotion else {
+            image = MenuBarImage.render(new, previous: nil, change: .none, progress: 1, reduceMotion: reduceMotion,
+                                        accessibilityLabel: label)
             return
         }
-        let duration = DSMotion.arrival.duration
+        // A roll is quick; going stale or coming back is a colour fade, on the sweep's timing.
+        // Under Reduce Motion only the fades play, as a short cross-fade.
+        let duration = reduceMotion ? 0.25 : (change.fadesColour ? DSMotion.sweep.duration : DSMotion.arrival.duration)
         let frames = max(2, Int((duration * Self.framesPerSecond).rounded()))
         let frameDelay = UInt64(duration / Double(frames) * 1_000_000_000)
         animation = Task { @MainActor [weak self] in
             for i in 1...frames {
                 guard let self, !Task.isCancelled else { return }
-                let t = UnitCurve.easeOut.value(at: Double(i) / Double(frames))
-                self.image = MenuBarImage.render(new, previous: i == frames ? nil : old, progress: t,
-                                                 accessibilityLabel: label)
-                if i < frames { try? await Task.sleep(nanoseconds: frameDelay) }
+                let last = i == frames
+                let t = UnitCurve.easeInOut.value(at: Double(i) / Double(frames))
+                self.image = MenuBarImage.render(new, previous: last ? nil : old, change: last ? .none : change,
+                                                 progress: t, reduceMotion: reduceMotion, accessibilityLabel: label)
+                if !last { try? await Task.sleep(nanoseconds: frameDelay) }
             }
         }
-    }
-
-    /// Only a new value or a reading going stale moves. Everything else (a setting, the age of a
-    /// stale reading) just swaps.
-    private static func animates(from old: MenuBarGlance, to new: MenuBarGlance) -> Bool {
-        guard old.hasReading, new.hasReading else { return false }
-        return old.valueText != new.valueText || (old.state == .live && new.state == .stale)
     }
 
     // MARK: Timing
@@ -175,14 +175,15 @@ enum MenuBarImage {
     /// Draws `glance` (with `previous` rolling out, at `progress` 0...1) into an image that picks
     /// its light or dark rendering each time the menu bar draws it.
     @MainActor
-    static func render(_ glance: MenuBarGlance, previous: MenuBarGlance?, progress: Double,
-                       accessibilityLabel: String) -> NSImage {
+    static func render(_ glance: MenuBarGlance, previous: MenuBarGlance?, change: MenuBarGlance.Change,
+                       progress: Double, reduceMotion: Bool, accessibilityLabel: String) -> NSImage {
         let highContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         let scale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
         func cg(dark: Bool) -> CGImage? {
             let colours = MenuBarColours(dark: dark, highContrast: highContrast)
             let renderer = ImageRenderer(content: MenuBarGlanceView(glance: glance, previous: previous,
-                                                                    progress: progress, colours: colours)
+                                                                    change: change, progress: progress,
+                                                                    reduceMotion: reduceMotion, colours: colours)
                 .environment(\.colorScheme, dark ? .dark : .light))
             renderer.scale = scale
             return renderer.cgImage
@@ -256,32 +257,43 @@ struct MenuBarColours {
 struct MenuBarGlanceView: View {
     let glance: MenuBarGlance
     let previous: MenuBarGlance?
+    var change: MenuBarGlance.Change = .none
     let progress: Double
+    var reduceMotion = false
     let colours: MenuBarColours
 
     private static let height: CGFloat = 18
     private static let rollDistance: CGFloat = 8
     private let valueFont = Font.system(size: 13, weight: .semibold).monospacedDigit()
 
+    /// What isn't the number (the trend arrow, the warning sign, the age, the change) fades in
+    /// when the state changes, rather than popping in beside a value that is still fading.
+    private var extrasOpacity: Double {
+        change == .none || change == .roll ? 1 : progress
+    }
+
     var body: some View {
         HStack(spacing: 3) {
-            leadingGlyph
+            leadingGlyph.opacity(extrasOpacity)
             value
-            if let trend = glance.trend, trend != .unknown {
-                Image(systemName: trend.systemImage)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(colours.value(glance))
+            Group {
+                if let trend = glance.trend, trend != .unknown {
+                    Image(systemName: trend.systemImage)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(colours.value(glance))
+                }
+                if let delta = glance.deltaText {
+                    Text(delta)
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .foregroundStyle(colours.secondary)
+                }
+                if let age = glance.ageText {
+                    Text(age)
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .foregroundStyle(colours.stale)
+                }
             }
-            if let delta = glance.deltaText {
-                Text(delta)
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .foregroundStyle(colours.secondary)
-            }
-            if let age = glance.ageText {
-                Text(age)
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .foregroundStyle(colours.stale)
-            }
+            .opacity(extrasOpacity)
             if !glance.sparkline.isEmpty {
                 MenuBarSparkline(points: glance.sparkline)
                     .stroke(glance.state == .stale ? colours.strike : colours.value(glance).opacity(0.85),
@@ -314,21 +326,36 @@ struct MenuBarGlanceView: View {
         }
     }
 
-    /// The number, with the previous one rolling out above or below it: a rise comes up from
-    /// below, a fall drops in from above.
+    /// The number. A new value rolls in with the previous one rolling out above or below it (a
+    /// rise comes up from below, a fall drops in from above). Going stale or coming back, the old
+    /// colour cross-fades into the new one in place, and the strike draws in or retracts over both.
     private var value: some View {
-        let rolling = previous.map { $0.valueText != glance.valueText } ?? false
+        let moving = previous != nil && change != .none
+        let rolling = moving && !reduceMotion && previous?.valueText != glance.valueText
         let direction: CGFloat = (glance.mgdl ?? 0) >= (previous?.mgdl ?? 0) ? 1 : -1
         let shift = rolling ? (1 - progress) * Self.rollDistance * direction : 0
+        let drawn = MenuBarGlance.strikeDrawn(change, state: glance.state, progress: progress, reduceMotion: reduceMotion)
+        let strikeOpacity = MenuBarGlance.strikeOpacity(change, state: glance.state, progress: progress,
+                                                        reduceMotion: reduceMotion)
         return ZStack {
-            if rolling, let previous {
+            if moving, let previous {
                 valueText(previous)
-                    .offset(y: -progress * Self.rollDistance * direction)
+                    .offset(y: rolling ? -progress * Self.rollDistance * direction : 0)
                     .opacity(1 - progress)
             }
             valueText(glance)
                 .offset(y: shift)
-                .opacity(rolling ? progress : 1)
+                .opacity(moving ? progress : 1)
+        }
+        .overlay {
+            if drawn > 0, strikeOpacity > 0 {
+                StrikeLine()
+                    .trim(from: 0, to: drawn)
+                    .stroke(colours.strike, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    .opacity(strikeOpacity)
+                    .rotationEffect(.degrees(-8))
+                    .padding(.horizontal, -1)
+            }
         }
         .frame(height: Self.height)
         .clipped()
@@ -338,17 +365,6 @@ struct MenuBarGlanceView: View {
         Text(g.valueText)
             .font(valueFont)
             .foregroundStyle(colours.value(g))
-            .overlay {
-                if g.state == .stale {
-                    // The popover's stale strike, drawn in as the reading goes stale.
-                    let drawn = previous?.state == .live && g == glance ? progress : 1
-                    StrikeLine()
-                        .trim(from: 0, to: drawn)
-                        .stroke(colours.strike, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                        .rotationEffect(.degrees(-8))
-                        .padding(.horizontal, -1)
-                }
-            }
     }
 }
 
