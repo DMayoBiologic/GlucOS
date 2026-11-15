@@ -194,7 +194,9 @@ near them, and the forecast then expects the full drop from the insulin.
 
 Uploads: `forecast_checks` arrive every 15 minutes from the Mac while it's awake, and from the
 iPhone while the app is open, about 1–2 hours after the forecast (each waits for its last checked
-point plus 20 minutes). The quiet stretch from 2026-11-14 18:42 to 2026-11-15 03:31 UTC
-(02:42–11:31 on 15 Nov in Perth) was Declan asleep: the logbook has him waking at 10:59 Perth
-time, the iPhone sent its next forecasts from 08:42, and the Mac's came half an hour after the
-wake-up. No uploads were missed.
+point plus 20 minutes). The Mac's quiet stretch, 2026-11-14 18:42 to 2026-11-15 03:31 UTC
+(02:42–11:31 on 15 Nov in Perth), lines up with Declan asleep and then not yet at the Mac: the
+logbook has him waking at 10:59 Perth time, and the Mac's first forecast came 32 minutes later.
+The iPhone's own gap was shorter (its forecasts stopped at 02:21 and started again at 08:42 Perth
+time, the times they were made), because the iPhone records a forecast whenever the app is open.
+No uploads were missed.
