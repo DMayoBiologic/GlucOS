@@ -66,6 +66,7 @@ struct OutlookSection: View {
                 }
             }
             .dashboardCard()
+            .dsEntrance(0)
 
             CardGrid(minColumnWidth: 360, maxColumns: 2, spacing: layout.gutter) {
                 if let o = outlook {
@@ -74,15 +75,19 @@ struct OutlookSection: View {
                 AccuracyCard(calibration: model.calibration, tuning: model.tuning,
                              rangeScale: outlookStore.ledger.rangeScale, unit: unit)
             }
+            .dsEntrance(1)
 
             ShownForecastsCard(ledger: outlookStore.ledger, unit: unit)
+                .dsEntrance(2)
 
             CardGrid(minColumnWidth: 360, maxColumns: 2, spacing: layout.gutter) {
                 LearntEffectsCard(profile: model.profile, unit: unit)
                 RecurringPatternsCard(patterns: model.patterns, hasHistory: hasPatternHistory(now: now))
             }
+            .dsEntrance(3)
 
             MorningCard(pattern: model.morning, unit: unit)
+                .dsEntrance(4)
 
             HistoryNote(text: "Forecasts assume nothing new is eaten or dosed, and that background insulin (long-acting or a pump's basal) holds glucose level. Timing uses typical curves for each insulin type. GlucOS never suggests a dose.")
             Disclaimer()

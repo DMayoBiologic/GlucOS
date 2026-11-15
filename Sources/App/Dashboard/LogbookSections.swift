@@ -96,12 +96,11 @@ struct LogbookSection: View {
 
     private var filterBar: some View {
         HStack(spacing: DS.Space.sm + 2) {
-            Picker("Show", selection: $filter) {
-                ForEach(Filter.allCases.filter(showsFilter)) { f in Text(f.title).tag(f) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
+            // The selection slides between filters (docs/Redesign.md §4.5), like the chart hours.
+            SlidingSegments(selection: $filter, options: Filter.allCases.filter(showsFilter)) { $0.title }
+                .fixedSize()
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Show")
             TextField("Search", text: $search, prompt: Text("Search food, insulin or notes"))
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 260)
@@ -307,7 +306,7 @@ struct InsightsSection: View {
                                   siteOf: { logbook.site(of: $0) })
         DashboardPage(maxContentWidth: DashboardMetrics.readableWidth) { _ in
             if let insights {
-                SafetyNote()
+                SafetyNote().dsEntrance(0)
                 if logbook.isEmpty {
                     // The sentence wraps; the button keeps its size.
                     HStack(alignment: .center, spacing: DS.Space.lg) {
@@ -316,25 +315,28 @@ struct InsightsSection: View {
                         logButton
                     }
                     .dashboardCard()
+                    .dsEntrance(1)
                 }
                 if settings.therapy.logsInsulin {
-                    InsulinActionCard(insights: insights, unit: unit)
+                    InsulinActionCard(insights: insights, unit: unit).dsEntrance(2)
                 }
                 MealResponseCard(insights: insights, unit: unit, showsInsulin: settings.therapy.logsInsulin)
+                    .dsEntrance(3)
                 if settings.therapy == .pump {
                     SiteAgeCard(buckets: insights.siteAge, unit: unit, hasSiteChanges: !logbook.siteChanges.isEmpty)
+                        .dsEntrance(4)
                 }
                 if settings.therapy == .injections {
-                    SiteRotationCard()
+                    SiteRotationCard().dsEntrance(4)
                 }
                 Text(periodText)
                     .dsFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                TherapySetupView().dashboardCard()
+                TherapySetupView().dashboardCard().dsEntrance(0)
             }
-            ForecastScorecardCard(outlook: outlookStore)
+            ForecastScorecardCard(outlook: outlookStore).dsEntrance(5)
             Disclaimer()
         }
     }

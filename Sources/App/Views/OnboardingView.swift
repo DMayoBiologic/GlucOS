@@ -358,7 +358,8 @@ struct OnboardingView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 220)
-            TargetRangeEditor(settings: settings)
+            TargetRangeEditor(settings: settings,
+                              readingMgdl: store.snapshot.isStale() ? nil : store.snapshot.current?.mgdl)
                 .glassCard()
             Text("Urgent low (below \(settings.unit.format(mgdl: 54, withUnit: true))) and very high (above \(settings.unit.format(mgdl: 250, withUnit: true))) are fixed. You can change all of this later in Settings → Glucose.")
                 .font(.callout)
