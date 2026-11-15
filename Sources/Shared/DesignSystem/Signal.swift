@@ -518,7 +518,8 @@ private struct StaleStrike: ViewModifier {
     }
 }
 
-private struct StrikeLine: Shape {
+/// A straight line across the middle; `.staleStrike` and the menu bar item draw it.
+struct StrikeLine: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         p.move(to: CGPoint(x: rect.minX, y: rect.midY))

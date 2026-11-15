@@ -199,6 +199,19 @@ enum DSMotion: Sendable {
         self == .ambient || self == .sweep ? .easeInOut(duration: 0.25) : nil
     }
 
+    /// About how long the movement lasts, for drawing that SwiftUI can't animate itself: the Mac
+    /// menu bar item is drawn frame by frame.
+    var duration: TimeInterval {
+        switch self {
+        case .quick: return 0.15
+        case .standard: return 0.3
+        case .emphasized: return 0.5
+        case .ambient: return 0.6
+        case .arrival: return 0.7
+        case .sweep: return 0.9
+        }
+    }
+
     func animation(reduceMotion: Bool) -> Animation? {
         reduceMotion ? reducedAnimation : animation
     }

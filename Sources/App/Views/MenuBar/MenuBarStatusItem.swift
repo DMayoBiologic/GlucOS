@@ -1,0 +1,369 @@
+import SwiftUI
+import AppKit
+import Combine
+
+// The menu bar item: the reading in its range colour with an SF Symbol trend arrow, and optionally
+// the last hour as a tiny sparkline. Stale readings turn grey, crossed through, with an amber
+// warning sign and their age, the same treatment as the popover (#84).
+//
+// The item has to stay cheap, since it is on screen all day. It is drawn into an image only when
+// its `MenuBarGlance` changes: a new reading, the moment a reading goes stale, each minute of a
+// stale reading's age, or a setting. There is no tick and no animation loop. A new value rolls in
+// over `DSMotion.arrival` as a short run of frames, once per reading, and not at all under Reduce
+// Motion.
+//
+// SwiftUI draws a MenuBarExtra label as a monochrome template, so colour has to come from a
+// non-template NSImage. The image holds a light and a dark rendering and picks one each time it is
+// drawn, so it follows the menu bar's own appearance (which depends on the wallpaper, not the
+// app) without being redrawn.
+
+@MainActor
+final class MenuBarStatusModel: ObservableObject {
+    @Published private(set) var image: NSImage
+    @Published private(set) var accessibilityLabel = "GlucOS"
+
+    private let store: GlucoseStore
+    private let settings: AppSettings
+    private var glance: MenuBarGlance?
+    private var cancellables = Set<AnyCancellable>()
+    private var nextChangeTimer: Timer?
+    private var animation: Task<Void, Never>?
+
+    /// Frames per second for a value change. Low on purpose: it is an 8 pt slide in the menu bar.
+    private static let framesPerSecond = 24.0
+
+    init(store: GlucoseStore, settings: AppSettings = .shared) {
+        self.store = store
+        self.settings = settings
+        image = NSImage(size: NSSize(width: 1, height: 1))
+
+        // `$snapshot` fires before the value is stored, and a refresh sets it a few times in a row;
+        // the debounce delivers once, after the store has settled.
+        store.$snapshot
+            .debounce(for: .milliseconds(80), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.refresh() }
+            .store(in: &cancellables)
+        settings.objectWillChange
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.refresh() }
+            .store(in: &cancellables)
+        // Increase Contrast picks other colours; Reduce Motion is read when a value changes.
+        NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification)
+            .sink { [weak self] _ in self?.refresh(force: true) }
+            .store(in: &cancellables)
+        // A timer set while asleep may be well past due on wake.
+        NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didWakeNotification)
+            .sink { [weak self] _ in self?.refresh() }
+            .store(in: &cancellables)
+
+        refresh()
+    }
+
+    /// Works out the glance and redraws only if it differs from what's showing.
+    func refresh(force: Bool = false, now: Date = Date()) {
+        let snapshot = store.snapshot
+        let next = MenuBarGlance.make(snapshot: snapshot,
+                                      recent: settings.showMenuBarSparkline ? lastHour(now: now) : [],
+                                      hasCredentials: settings.hasCredentials,
+                                      showDelta: settings.showDeltaInMenuBar,
+                                      showSparkline: settings.showMenuBarSparkline,
+                                      colorByRange: settings.colorMenuBarIcon,
+                                      now: now)
+        scheduleNextChange(snapshot: snapshot, now: now)
+
+        let label = Self.spokenLabel(for: next, snapshot: snapshot)
+        if label != accessibilityLabel { accessibilityLabel = label }
+
+        guard force || next != glance else { return }
+        let previous = glance
+        glance = next
+        show(next, from: force ? nil : previous)
+    }
+
+    // MARK: Drawing
+
+    private func show(_ new: MenuBarGlance, from old: MenuBarGlance?) {
+        animation?.cancel()
+        let label = accessibilityLabel
+        guard let old, Self.animates(from: old, to: new),
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            image = MenuBarImage.render(new, previous: nil, progress: 1, accessibilityLabel: label)
+            return
+        }
+        let duration = DSMotion.arrival.duration
+        let frames = max(2, Int((duration * Self.framesPerSecond).rounded()))
+        let frameDelay = UInt64(duration / Double(frames) * 1_000_000_000)
+        animation = Task { @MainActor [weak self] in
+            for i in 1...frames {
+                guard let self, !Task.isCancelled else { return }
+                let t = UnitCurve.easeOut.value(at: Double(i) / Double(frames))
+                self.image = MenuBarImage.render(new, previous: i == frames ? nil : old, progress: t,
+                                                 accessibilityLabel: label)
+                if i < frames { try? await Task.sleep(nanoseconds: frameDelay) }
+            }
+        }
+    }
+
+    /// Only a new value or a reading going stale moves. Everything else (a setting, the age of a
+    /// stale reading) just swaps.
+    private static func animates(from old: MenuBarGlance, to new: MenuBarGlance) -> Bool {
+        guard old.hasReading, new.hasReading else { return false }
+        return old.valueText != new.valueText || (old.state == .live && new.state == .stale)
+    }
+
+    // MARK: Timing
+
+    /// One timer, for the next moment the glance changes on its own (see `MenuBarGlance.nextChange`).
+    private func scheduleNextChange(snapshot: GlucoseSnapshot, now: Date) {
+        nextChangeTimer?.invalidate()
+        nextChangeTimer = nil
+        guard let date = MenuBarGlance.nextChange(snapshot: snapshot, now: now) else { return }
+        let timer = Timer(fire: max(date, now.addingTimeInterval(1)), interval: 0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        timer.tolerance = 2
+        RunLoop.main.add(timer, forMode: .common)
+        nextChangeTimer = timer
+    }
+
+    /// The archive's last hour, read from the end (it holds up to 90 days, oldest first), plus any
+    /// newer readings in the snapshot.
+    private func lastHour(now: Date) -> [GlucoseReading] {
+        let cutoff = now.addingTimeInterval(-MenuBarGlance.sparklineWindow)
+        var out: [GlucoseReading] = []
+        for r in store.archive.reversed() {
+            if r.timestamp < cutoff { break }
+            out.append(r)
+        }
+        out.reverse()
+        out.append(contentsOf: store.snapshot.history.filter { $0.timestamp >= cutoff })
+        return out
+    }
+
+    // MARK: VoiceOver
+
+    /// Names the app first, so VoiceOver users moving through the menu bar know whose item it is.
+    /// A live reading leaves out its age, which would be out of date between readings; a stale one
+    /// gives it to the minute.
+    static func spokenLabel(for g: MenuBarGlance, snapshot: GlucoseSnapshot) -> String {
+        let unit = snapshot.unit
+        switch g.state {
+        case .notConnected: return "GlucOS, not connected"
+        case .waiting: return "GlucOS, waiting for a reading"
+        case .stale:
+            let age = g.ageText.map { " from \($0) ago" } ?? ""
+            return "GlucOS, no new reading. Last reading \(g.valueText) \(unit.spokenLabel)\(age). Data is stale"
+        case .live:
+            var parts = ["GlucOS, glucose \(g.valueText) \(unit.spokenLabel)"]
+            if let range = g.range { parts.append(range.label) }
+            if let trend = g.trend, trend != .unknown { parts.append(trend.description) }
+            if let d = g.deltaText { parts.append("change \(d.replacingOccurrences(of: "−", with: "minus "))") }
+            if !g.sparkline.isEmpty, let first = g.sparkline.first, let last = g.sparkline.last {
+                let hour = last - first > 0.15 ? "up" : (first - last > 0.15 ? "down" : "level")
+                parts.append("\(hour) over the last hour")
+            }
+            return parts.joined(separator: ", ")
+        }
+    }
+}
+
+// MARK: - Image
+
+enum MenuBarImage {
+    /// Draws `glance` (with `previous` rolling out, at `progress` 0...1) into an image that picks
+    /// its light or dark rendering each time the menu bar draws it.
+    @MainActor
+    static func render(_ glance: MenuBarGlance, previous: MenuBarGlance?, progress: Double,
+                       accessibilityLabel: String) -> NSImage {
+        let highContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        let scale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
+        func cg(dark: Bool) -> CGImage? {
+            let colours = MenuBarColours(dark: dark, highContrast: highContrast)
+            let renderer = ImageRenderer(content: MenuBarGlanceView(glance: glance, previous: previous,
+                                                                    progress: progress, colours: colours)
+                .environment(\.colorScheme, dark ? .dark : .light))
+            renderer.scale = scale
+            return renderer.cgImage
+        }
+        guard let light = cg(dark: false), let dark = cg(dark: true) else {
+            return NSImage(size: NSSize(width: 1, height: 1))
+        }
+        let size = NSSize(width: CGFloat(light.width) / scale, height: CGFloat(light.height) / scale)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let isDark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            ctx.draw(isDark ? dark : light, in: rect)
+            return true
+        }
+        image.isTemplate = false
+        // Drawn fresh each time, so a change of menu bar appearance picks the other rendering.
+        image.cacheMode = .never
+        image.accessibilityDescription = accessibilityLabel
+        return image
+    }
+}
+
+/// Design-system colours resolved for one menu bar appearance. ImageRenderer doesn't know which
+/// appearance the menu bar has, so every colour is resolved here instead of left dynamic.
+struct MenuBarColours {
+    let label: Color
+    let secondary: Color
+    let stale: Color
+    let strike: Color
+    let warning: Color
+    private let appearance: NSAppearance
+
+    init(dark: Bool, highContrast: Bool) {
+        let name: NSAppearance.Name = switch (dark, highContrast) {
+        case (true, true): .accessibilityHighContrastDarkAqua
+        case (true, false): .darkAqua
+        case (false, true): .accessibilityHighContrastAqua
+        case (false, false): .aqua
+        }
+        let app = NSAppearance(named: name) ?? NSAppearance(named: dark ? .darkAqua : .aqua)!
+        appearance = app
+        let resolve = { (c: NSColor) -> Color in Self.resolve(c, in: app) }
+        label = resolve(.labelColor)
+        secondary = resolve(.secondaryLabelColor)
+        stale = resolve(NSColor(Palette.staleText))
+        strike = resolve(NSColor(Palette.stale))
+        warning = resolve(NSColor(Palette.amber))
+    }
+
+    func rangeColour(_ range: GlucoseRange) -> Color {
+        Self.resolve(NSColor(range.tint), in: appearance)
+    }
+
+    /// The value's colour: its range when coloured, grey when stale, plain text otherwise.
+    func value(_ g: MenuBarGlance) -> Color {
+        if g.state == .stale { return stale }
+        if g.colored, let range = g.range { return rangeColour(range) }
+        return label
+    }
+
+    private static func resolve(_ color: NSColor, in appearance: NSAppearance) -> Color {
+        var out = color
+        appearance.performAsCurrentDrawingAppearance {
+            out = color.usingColorSpace(.sRGB) ?? color
+        }
+        return Color(nsColor: out)
+    }
+}
+
+/// One frame of the menu bar item.
+struct MenuBarGlanceView: View {
+    let glance: MenuBarGlance
+    let previous: MenuBarGlance?
+    let progress: Double
+    let colours: MenuBarColours
+
+    private static let height: CGFloat = 18
+    private static let rollDistance: CGFloat = 8
+    private let valueFont = Font.system(size: 13, weight: .semibold).monospacedDigit()
+
+    var body: some View {
+        HStack(spacing: 3) {
+            leadingGlyph
+            value
+            if let trend = glance.trend, trend != .unknown {
+                Image(systemName: trend.systemImage)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(colours.value(glance))
+            }
+            if let delta = glance.deltaText {
+                Text(delta)
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .foregroundStyle(colours.secondary)
+            }
+            if let age = glance.ageText {
+                Text(age)
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .foregroundStyle(colours.stale)
+            }
+            if !glance.sparkline.isEmpty {
+                MenuBarSparkline(points: glance.sparkline)
+                    .stroke(glance.state == .stale ? colours.strike : colours.value(glance).opacity(0.85),
+                            style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
+                    .frame(width: 22, height: 10)
+                    .padding(.leading, 1)
+            }
+        }
+        .frame(height: Self.height)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var leadingGlyph: some View {
+        switch glance.state {
+        case .notConnected, .waiting:
+            Image(systemName: "drop")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(colours.label)
+        case .stale:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(colours.warning)
+        case .live:
+            if glance.range == .urgentLow {
+                Image(systemName: "exclamationmark.octagon.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(colours.rangeColour(.urgentLow))
+            }
+        }
+    }
+
+    /// The number, with the previous one rolling out above or below it: a rise comes up from
+    /// below, a fall drops in from above.
+    private var value: some View {
+        let rolling = previous.map { $0.valueText != glance.valueText } ?? false
+        let direction: CGFloat = (glance.mgdl ?? 0) >= (previous?.mgdl ?? 0) ? 1 : -1
+        let shift = rolling ? (1 - progress) * Self.rollDistance * direction : 0
+        return ZStack {
+            if rolling, let previous {
+                valueText(previous)
+                    .offset(y: -progress * Self.rollDistance * direction)
+                    .opacity(1 - progress)
+            }
+            valueText(glance)
+                .offset(y: shift)
+                .opacity(rolling ? progress : 1)
+        }
+        .frame(height: Self.height)
+        .clipped()
+    }
+
+    private func valueText(_ g: MenuBarGlance) -> some View {
+        Text(g.valueText)
+            .font(valueFont)
+            .foregroundStyle(colours.value(g))
+            .overlay {
+                if g.state == .stale {
+                    // The popover's stale strike, drawn in as the reading goes stale.
+                    let drawn = previous?.state == .live && g == glance ? progress : 1
+                    StrikeLine()
+                        .trim(from: 0, to: drawn)
+                        .stroke(colours.strike, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                        .rotationEffect(.degrees(-8))
+                        .padding(.horizontal, -1)
+                }
+            }
+    }
+}
+
+/// The last hour, left to right, 0 at the bottom.
+struct MenuBarSparkline: Shape {
+    let points: [Double]
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        guard points.count > 1 else { return p }
+        let step = rect.width / CGFloat(points.count - 1)
+        for (i, v) in points.enumerated() {
+            let pt = CGPoint(x: rect.minX + CGFloat(i) * step, y: rect.maxY - CGFloat(v) * rect.height)
+            if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
+        }
+        return p
+    }
+}

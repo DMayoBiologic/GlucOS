@@ -146,19 +146,12 @@ extension GlucoseStore {
 
     // MARK: Status item
 
-    /// Text next to the menu bar icon. A stale reading swaps its trend arrow for its age, so an old
-    /// value can't be mistaken for a live one at a glance.
+    /// The menu bar item as text (the item itself is drawn by `MenuBarStatusModel`). A stale reading
+    /// swaps its trend arrow for its age, so an old value can't be mistaken for a live one.
     func statusItemText(at now: Date = Date()) -> String {
-        guard let current = snapshot.current else { return "––" }
-        let value = snapshot.unit.format(mgdl: current.mgdl)
-        if snapshot.isStale(at: now) {
-            return "\(value) · \(PopoverFormat.age(current.age(at: now)))"
-        }
-        var t = "\(value) \(current.trend.arrow)"
-        if settings.showDeltaInMenuBar, let d = snapshot.deltaMgdl {
-            t += " " + snapshot.unit.formatDelta(mgdl: d)
-        }
-        return t
+        MenuBarGlance.make(snapshot: snapshot, recent: [], hasCredentials: settings.hasCredentials,
+                           showDelta: settings.showDeltaInMenuBar, showSparkline: false,
+                           colorByRange: false, now: now).text
     }
 
     /// Copies the current reading to the clipboard. Returns false when there's nothing to copy.
