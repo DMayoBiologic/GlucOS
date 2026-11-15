@@ -6,7 +6,7 @@
 import {
   type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
   type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
-  rangeScaleFrom, rangeWindow, type Sensor, type Trend, unitOf,
+  effectiveRangeScale, rangeScaleFrom, rangeWindow, type Sensor, type Trend, unitOf,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
 import {
@@ -22,7 +22,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.9.0";
+export const version = "2.10.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -623,7 +623,10 @@ export class RelayEngine {
       // A forecast cut back to nothing is still kept, so its horizons go on being scored.
       const kept = result.ok ? result.forecast : result.unshown;
       if (kept) {
-        const record = ledgerRecord(kept, w.calibration, log.lastIssuedAt, undefined, log.rangeScale ?? null);
+        // The widening it was drawn with (the ledger's, or the replay's until that has enough), so
+        // the next one is measured against the range before it.
+        const record = ledgerRecord(kept, w.calibration, log.lastIssuedAt, undefined,
+          effectiveRangeScale(log.rangeScale, w.calibration));
         if (record) {
           await ledger.record(owner, record);
           // Kept or not (one was already there), this 15 minutes is done.
