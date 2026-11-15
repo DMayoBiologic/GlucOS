@@ -119,5 +119,9 @@ struct MenuBarLabel: View {
                 openWindow(id: DashboardView.windowID)
                 NSApp.activate()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .glucosOpenLogWindow)) { _ in
+                openWindow(id: LogWindow.id)
+                NSApp.activate()
+            }
     }
 }

@@ -158,6 +158,12 @@ struct AlertPlanner {
         return out.first
     }
 
+    /// Forgets when `kind` last fired, so it fires again on the next reading that calls for it.
+    /// Used for alerts a snooze held back (`unsnoozed`).
+    mutating func release(_ kind: AlertNotice.Kind) {
+        lastFired[kind] = nil
+    }
+
     private mutating func clearPredictions(now: Date) {
         if quietSince == nil { quietSince = now }
         guard let q = quietSince, now.timeIntervalSince(q) >= 15 * 60 else { return }

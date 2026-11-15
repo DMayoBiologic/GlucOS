@@ -7,11 +7,15 @@ enum LogSheetTarget: Identifiable {
     /// Food at an earlier time: the meal a dose was for ("Was it for a meal?" → Meal → Add Food).
     case meal(at: Date)
     case edit(LogEntry)
+    /// "I'm treating it" on a low or high alert (docs/AlertActions.md): a hypo treatment, filled
+    /// from the "Treat a low" usual when there is one, or a correction dose.
+    case treating(AlertTreatment)
 
     var id: String {
         switch self {
         case .new: return "new"
         case .meal(let at): return "meal-\(at.timeIntervalSince1970)"
+        case .treating(let t): return "treating-\(t.rawValue)"
         case .edit(let e): return e.id.uuidString
         }
     }
@@ -39,6 +43,8 @@ struct LogSheet: View {
     private let onClose: (() -> Void)?
     /// Opened to add the meal a logged dose was for: no "bolus for it" step, the dose is in already.
     private let forLoggedDose: Bool
+    /// Opened from "I'm treating it" on an alert.
+    private let treating: AlertTreatment?
 
     /// Set when editing: only that part is shown.
     private let editing: Part?
@@ -116,6 +122,11 @@ struct LogSheet: View {
             time = min(at, Date())
             parts = [.food]
         }
+        if case .treating(let t) = target {
+            // A low: fast carbs tagged as a hypo treatment, no dose. A high: the correction dose.
+            parts = t == .low ? [.food] : [.insulin]
+            if t == .low { tags = [.hypoTreatment] }
+        }
         if case .edit(let entry) = target {
             time = entry.timestamp
             editingID = entry.id
@@ -157,6 +168,7 @@ struct LogSheet: View {
 
         self.onClose = onClose
         if case .meal = target { forLoggedDose = true } else { forLoggedDose = false }
+        if case .treating(let t) = target { treating = t } else { treating = nil }
         self.editing = editing
         self.editingID = editingID
         self.doseID = doseID
@@ -235,7 +247,7 @@ struct LogSheet: View {
             }
         }
         .frame(minWidth: 460, idealWidth: 540, maxWidth: 780)
-        .onAppear { startDose(); focusFirstField() }
+        .onAppear { startDose(); applyTreatingUsual(); focusFirstField() }
         .onChange(of: settings.therapy) { _, therapy in
             // Picked in the setup step above: start from that therapy's defaults.
             guard editing == nil else { return }
@@ -1157,6 +1169,16 @@ struct LogSheet: View {
         return ContextTag.allCases.first(where: tags.contains)?.title ?? "Preset"
     }
 
+    /// Opened from "I'm treating it" on a low: the usual low treatment goes straight in (food only,
+    /// never a dose), still checked by `RepeatCheck` before it's logged. A high opens on the dose
+    /// for the calculator, with the usual correction one tap away: a dose amount is never filled in
+    /// without a click.
+    private func applyTreatingUsual() {
+        guard isNew, treating == .low, appliedUsual == nil,
+              let u = usuals.first(where: { $0.kind == .lowTreatment }) else { return }
+        apply(u)
+    }
+
     private func focusFirstField() {
         guard editing == .dose || editing == .meal else { return }
         // Sheets and new windows take focus a beat after appearing.
@@ -1212,7 +1234,7 @@ struct LogSheet: View {
     /// A dose logged from the usual correction, with no food, is a correction by the user's own
     /// choice, so "Was that dose for a meal?" doesn't ask about it later.
     private func usualPurpose(logsFood: Bool) -> DosePurpose? {
-        guard isNew, appliedUsual?.kind == .correction, !logsFood, kind.isBolus else { return nil }
+        guard isNew, appliedUsual?.kind == .correction || treating == .high, !logsFood, kind.isBolus else { return nil }
         return .correction
     }
 

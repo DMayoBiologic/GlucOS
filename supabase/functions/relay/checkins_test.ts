@@ -4,7 +4,7 @@ import { assert, assertEquals } from "jsr:@std/assert@1";
 import type { PushRequest, PushSender } from "./apns.ts";
 import { checkInAnswerShownFor, checkInOpenFor, checkInPingGap, checkInRemindAfter, cleanName } from "./checkins.ts";
 import { newRow, RelayEngine, type RelayRow, type Store, type Tx } from "./engine.ts";
-import type { Reading } from "./core.ts";
+import { type AlertSnoozes, alertCategory, type Reading, silences, snoozeAlert } from "./core.ts";
 import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
 import { MemoryShareStore } from "./sharing.ts";
 import { handle as shareHandle } from "../share/index.ts";
@@ -300,4 +300,133 @@ Deno.test("check-in: an answer within 5 minutes only goes to whoever asked", asy
   await t.engine.answerCheckIns("help");
   assertEquals(t.to(followerPhone).length, 1);
   assertEquals(t.to(otherPhone), []);
+});
+
+// MARK: - Snooze and "I'm treating it" (docs/AlertActions.md)
+
+Deno.test("snooze: the rules match AlertSnooze.swift", () => {
+  const now = 1_000_000;
+  const s: AlertSnoozes = {};
+  // Urgent lows are never snoozable.
+  assertEquals(snoozeAlert(s, "urgentLow", 30, now), false);
+  assertEquals(snoozeAlert(s, "predictedUrgentLow", 30, now), false);
+  assertEquals(snoozeAlert(s, "stale", 30, now), false);
+  assertEquals(s, {});
+  assert(snoozeAlert(s, "low", 30, now));
+  assert(silences(s, "low", now + 1799));
+  assert(silences(s, "predictedLow", now + 60));
+  assert(!silences(s, "low", now + 1800));
+  assert(!silences(s, "urgentLow", now + 60));
+  assert(!silences(s, "predictedUrgentLow", now + 60));
+  // A high snooze lets a very high through; a very high snooze quiets highs too.
+  assert(snoozeAlert(s, "high", 30, now));
+  assert(silences(s, "predictedHigh", now + 60));
+  assert(!silences(s, "veryHigh", now + 60));
+  const v: AlertSnoozes = {};
+  snoozeAlert(v, "predictedVeryHigh", 30, now);
+  assert(silences(v, "veryHigh", now + 60) && silences(v, "high", now + 60));
+  assert(!silences(v, "low", now + 60));
+  // Capped at an hour, and a shorter snooze never cuts a longer one.
+  const c: AlertSnoozes = {};
+  snoozeAlert(c, "low", 600, now);
+  assertEquals(c.low, now + 3600);
+  snoozeAlert(c, "low", 15, now);
+  assertEquals(c.low, now + 3600);
+  // Buttons: snooze and treat, urgent lows treat only, the rest none.
+  assertEquals(alertCategory("low"), "glucos.alert");
+  assertEquals(alertCategory("veryHigh"), "glucos.alert");
+  assertEquals(alertCategory("urgentLow"), "glucos.alert.urgent");
+  assertEquals(alertCategory("predictedUrgentLow"), "glucos.alert.urgent");
+  assertEquals(alertCategory("rapidChange"), null);
+  assertEquals(alertCategory("stale"), null);
+});
+
+/// A low that lasts 40 minutes, ticking every minute; the owner snoozes it after the first tick
+/// when `snooze` is set. Returns the pushes.
+async function longLow(snooze: boolean) {
+  const t = await setup();
+  t.setMgdl(120);
+  await t.engine.tick();
+  t.advance(60);
+  t.setMgdl(62);
+  t.sent.length = 0;
+  await t.engine.tick();
+  if (snooze) {
+    const r = await t.engine.snoozeAlerts("low", 30);
+    assert(r !== "not snoozable");
+  }
+  const start = t.clock();
+  for (let i = 0; i < 40; i++) {
+    t.advance(60);
+    await t.engine.tick();
+  }
+  const alerts = (token: string) =>
+    t.to(token).filter((p) => p.type === "alert" && (p.collapseId === "glucos.low" || p.collapseId?.startsWith("glucos.low.")));
+  return { t, start, owner: alerts(ownerPhone), follower: alerts(followerPhone) };
+}
+
+Deno.test("snooze: the owner's low pushes stop for 30 minutes, then come straight back", async () => {
+  const plain = await longLow(false);
+  const quiet = await longLow(true);
+  // Without a snooze: the first one and every 15 minutes.
+  assertEquals(plain.owner.length, 3);
+  // Snoozed: the first one, nothing for 30 minutes, then the very first tick after it.
+  assertEquals(quiet.owner.length, 2);
+  assertEquals(aps(quiet.owner[0]).category, "glucos.alert");
+  // The second went out at the tick where the snooze ended (30 min), not a repeat timer later (45).
+  // (An alert push expires 15 minutes after it's sent.)
+  assertEquals(quiet.owner[1].expiration! - 15 * 60, quiet.start + 30 * 60);
+});
+
+Deno.test("snooze: followers get every low alert exactly as without a snooze", async () => {
+  const plain = await longLow(false);
+  const quiet = await longLow(true);
+  assert(plain.follower.length > 0);
+  assertEquals(quiet.follower.length, plain.follower.length);
+  assert(quiet.follower.every((p) => aps(p).category === "glucos.follow.low"));
+});
+
+Deno.test("snooze: an urgent low always gets through, and can't be snoozed", async () => {
+  const t = await setup();
+  t.setMgdl(62);
+  await t.engine.tick();
+  await t.engine.snoozeAlerts("low", 30);
+  assertEquals(await t.engine.snoozeAlerts("urgentLow", 30), "not snoozable");
+  assertEquals(await t.engine.snoozeAlerts("predictedUrgentLow", 30), "not snoozable");
+  t.advance(60);
+  t.setMgdl(50);
+  t.sent.length = 0;
+  await t.engine.tick();
+  const urgent = t.to(ownerPhone).filter((p) => p.type === "alert" && p.collapseId === "glucos.urgentLow");
+  assertEquals(urgent.length, 1);
+  assertEquals(aps(urgent[0]).category, "glucos.alert.urgent");
+});
+
+Deno.test("snooze: a follower's check-in still reaches the owner, and its reminder too", async () => {
+  const t = await setup();
+  await t.engine.tick();
+  await t.engine.snoozeAlerts("low", 30);
+  t.sent.length = 0;
+  (await t.share("/v1/checkin", { installation: "phone-1234", name: "Sam" })).body?.cancel();
+  assertEquals(t.to(ownerPhone).filter((p) => p.collapseId === "glucos.checkin").length, 1);
+  for (let i = 0; i < 6; i++) {
+    t.advance(60);
+    await t.engine.tick();
+  }
+  // Asked once, reminded once at 5 minutes, both to the owner; the follower told too.
+  assertEquals(t.to(ownerPhone).filter((p) => p.collapseId === "glucos.checkin").length, 2);
+  assert(t.to(followerPhone).some((p) => p.type === "alert" && aps(p).alert?.body.includes("your check-in")));
+});
+
+Deno.test("snooze: followers' high alerts carry none of the owner's buttons", async () => {
+  const t = await setup();
+  t.setMgdl(200);
+  t.sent.length = 0;
+  await t.engine.tick();
+  const owner = t.to(ownerPhone).filter((p) => p.collapseId === "glucos.high");
+  const follower = t.to(followerPhone).filter((p) => p.type === "alert" && p.collapseId?.includes("high"));
+  assertEquals(owner.length, 1);
+  assertEquals(aps(owner[0]).category, "glucos.alert");
+  assert(follower.length > 0);
+  assert(follower.every((p) => aps(p).category === undefined));
 });

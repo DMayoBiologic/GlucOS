@@ -9,6 +9,7 @@ import Foundation
 //   GET  /v1/history?since=<unix seconds>  → RelayHistory  (the relay's one-minute readings)
 //   POST /v1/test                          → RelayStatus   (sends a test alert push)
 //   POST /v1/checkins/answer CheckInAnswer → RelayStatus   (the owner answers followers' check-ins)
+//   POST /v1/alerts/snooze AlertSnoozeRequest → RelayStatus (quiet one alert's pushes; AlertSnooze.swift)
 //   GET  /health                           → "ok"          (no secret, for the host's health check)
 
 /// What the phone tells the relay. Every field is optional: nil means "unchanged".

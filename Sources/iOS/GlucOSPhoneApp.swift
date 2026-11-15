@@ -98,14 +98,16 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         Task { @MainActor in await CheckInCoordinator.arrived(userInfo: userInfo) }
     }
 
-    /// Buttons on a notification: check-ins ("I'm okay", "I need help", "Check in") and
-    /// "Was that dose for a meal?" (Meal, Correction).
+    /// Buttons on a notification: "Snooze 30 min" and "I'm treating it" on alerts, check-ins ("I'm
+    /// okay", "I need help", "Check in") and "Was that dose for a meal?" (Meal, Correction).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let action = response.actionIdentifier
         let userInfo = response.notification.request.content.userInfo
         Task { @MainActor in
-            if DoseQuestion.shared.handle(action: action, userInfo: userInfo) {
+            if let tap = AlertNotifications.button(action: action, userInfo: userInfo) {
+                await PhoneAlertActions.handle(tap)
+            } else if DoseQuestion.shared.handle(action: action, userInfo: userInfo) {
                 // Send the answer now, while iOS keeps the app awake, so the Mac stops asking too.
                 if action != UNNotificationDefaultActionIdentifier {
                     await PhoneServices.shared?.logbookSync?.sync()
