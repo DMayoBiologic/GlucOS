@@ -13,9 +13,9 @@ import UserNotifications
 final class DoseQuestion: ObservableObject {
     static let shared = DoseQuestion()
 
-    static let category = "glucos.dose.purpose"
-    static let mealAction = "dose.meal"
-    static let correctionAction = "dose.correction"
+    nonisolated static let category = "glucos.dose.purpose"
+    nonisolated static let mealAction = "dose.meal"
+    nonisolated static let correctionAction = "dose.correction"
     private static let kind = "dosePurpose"
     private static let idPrefix = "glucos.dose.purpose."
     /// How long the confirmation (with Undo) stays after answering in the app.
