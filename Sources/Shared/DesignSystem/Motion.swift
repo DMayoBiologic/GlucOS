@@ -59,21 +59,71 @@ struct LiveDot: View {
         let color = live ? tint : Tone.warning.color
         ZStack {
             if live && !reduceMotion {
-                Circle()
-                    .fill(color.opacity(0.45))
-                    .phaseAnimator([false, true]) { content, expanded in
-                        content
-                            .scaleEffect(expanded ? 2.4 : 1)
-                            .opacity(expanded ? 0 : 0.9)
-                    } animation: { expanded in
-                        expanded ? .easeOut(duration: 1.6) : .linear(duration: 0.01)
-                    }
+                PulseBeat(every: PulseInterval.liveDot) { beat in
+                    Circle()
+                        .fill(color.opacity(0.45))
+                        .pulse(beat: beat, scale: 2.4, opacity: 0.9, duration: 1.6)
+                }
             }
             Circle().fill(color)
         }
         .frame(width: size, height: size)
         .dsAnimation(.standard, value: live)
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Pulse beat
+
+/// Drives a "breathing" pulse (the live dot, the ring at the end of the trace, the rapid-change
+/// halo) as one beat every `every` seconds.
+///
+/// These used to be phase animators with no trigger, which loop forever: while one is on screen,
+/// SwiftUI redraws every frame (120 a second on ProMotion iPhones and Macs) and the display can
+/// never drop to its low-power refresh rate. With one ~1.6 s beat every few seconds the screen
+/// idles in between, and a beat is only a few frames of work. The content gets the beat number
+/// as its phase animator's trigger.
+struct PulseBeat<Content: View>: View {
+    var every: TimeInterval
+    @ViewBuilder var content: (Int) -> Content
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: every)) { context in
+            content(Int(context.date.timeIntervalSinceReferenceDate / every))
+        }
+    }
+}
+
+/// How often each pulse beats.
+enum PulseInterval {
+    /// The live dot beside "Updated…": calm, it only says readings are arriving.
+    static let liveDot: TimeInterval = 6
+    /// The ring at the end of the chart's trace.
+    static let trace: TimeInterval = 6
+    /// The halo around a rapidly changing trend: more often, since it's meant to catch the eye.
+    static let rapid: TimeInterval = 3.5
+}
+
+private enum PulsePhase: CaseIterable {
+    /// Between beats: not drawn, so nothing sits on screen waiting for the next one.
+    case rest
+    /// Appears at full strength and its own size...
+    case start
+    /// ...then swells out and fades away.
+    case out
+}
+
+extension View {
+    /// One pulse each time `beat` changes: the view appears at `opacity`, grows to `scale` while
+    /// fading out over `duration`, and stays hidden until the next beat. Use inside `PulseBeat`.
+    func pulse(beat: Int, scale: CGFloat, opacity: Double, duration: Double) -> some View {
+        phaseAnimator(PulsePhase.allCases, trigger: beat) { content, phase in
+            content
+                .scaleEffect(phase == .out ? scale : 1)
+                .opacity(phase == .start ? opacity : 0)
+        } animation: { phase in
+            phase == .out ? .easeOut(duration: duration) : .linear(duration: 0.01)
+        }
     }
 }
 

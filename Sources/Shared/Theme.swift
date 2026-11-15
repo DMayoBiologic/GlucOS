@@ -321,23 +321,22 @@ struct TrendDial: View {
 }
 
 /// A slow ring that swells out of the dial while glucose is changing fast, so a rapid rise or
-/// fall reads as urgent at a glance. Holds still (the plain outline above) under Reduce Motion
-/// and in widgets, where the first phase is what's drawn.
+/// fall reads as urgent at a glance: one swell every few seconds (`PulseBeat`). Under Reduce Motion
+/// and in widgets only the plain outline above is drawn.
 private struct RapidHalo: View {
     let tint: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if !reduceMotion {
-            Circle()
-                .strokeBorder(tint.opacity(0.5), lineWidth: 1.5)
-                .padding(-4)
-                .phaseAnimator([false, true]) { content, out in
-                    content.scaleEffect(out ? 1.22 : 1).opacity(out ? 0 : 0.7)
-                } animation: { out in
-                    out ? .easeOut(duration: 1.8) : .linear(duration: 0.01)
-                }
-                .allowsHitTesting(false)
+            // One swell every few seconds rather than a loop (see `PulseBeat`).
+            PulseBeat(every: PulseInterval.rapid) { beat in
+                Circle()
+                    .strokeBorder(tint.opacity(0.5), lineWidth: 1.5)
+                    .padding(-4)
+                    .pulse(beat: beat, scale: 1.22, opacity: 0.7, duration: 1.8)
+            }
+            .allowsHitTesting(false)
         }
     }
 }
