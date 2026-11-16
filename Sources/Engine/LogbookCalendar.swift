@@ -87,11 +87,12 @@ struct LogbookCalendar: Equatable {
 
     /// "M T W T F S S" for a Monday-first calendar.
     static func weekdaySymbols(calendar: Calendar, locale: Locale) -> [String] {
+        // Setting the locale resets firstWeekday to the locale's, so keep the grid's own.
         var c = calendar
         c.locale = locale
         let symbols = c.veryShortStandaloneWeekdaySymbols
         guard symbols.count == 7 else { return symbols }
-        let first = max(0, min(6, c.firstWeekday - 1))
+        let first = max(0, min(6, calendar.firstWeekday - 1))
         return Array(symbols[first...] + symbols[..<first])
     }
 }
