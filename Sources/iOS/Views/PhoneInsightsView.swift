@@ -96,14 +96,23 @@ struct PhoneWeekInReviewCard: View {
 }
 
 /// Lows over the last 7, 14 or 30 days: how many, how long, treated or not, and when (`LowsCardView`).
+/// Tapping it zooms the card into the Logbook on Lows over the same days; Back shrinks it home.
 struct PhoneLowsCard: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var logbook: LogbookStore
+    @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        LowsCardView(readings: store.archive, meals: logbook.meals, contexts: logbook.contexts,
-                     answers: logbook.lowAnswers, unit: store.snapshot.unit, lowMgdl: store.snapshot.lowMgdl)
+        let card = LowsCardView(readings: store.archive, meals: logbook.meals, contexts: logbook.contexts,
+                                answers: logbook.lowAnswers, unit: store.snapshot.unit,
+                                lowMgdl: store.snapshot.lowMgdl,
+                                openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .lows)), in: navigator.zoom)
+        } else {
+            card
+        }
     }
 }
 

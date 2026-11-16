@@ -119,6 +119,8 @@ struct PhoneHomeView: View {
     /// The stage has scrolled under the navigation bar, so the bar shows the reading instead.
     @State private var stageHidden = false
     @Namespace private var routes
+    /// The stack's screens, so a card further in (Insights → Logbook) can push one.
+    @State private var path = NavigationPath()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PhoneSetupView.pendingKey) private var setupPending = false
     @ObservedObject private var snoozeStore = AlertSnoozeStore.shared
@@ -129,7 +131,7 @@ struct PhoneHomeView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 VStack(spacing: DS.Space.lg) {
                     PhoneBanners { anchor in
@@ -161,7 +163,7 @@ struct PhoneHomeView: View {
                     PhoneOnBoardCard().dsEntrance(1)
                     PhoneChartCard().dsEntrance(2)
                     PhoneLogbookCard()
-                        .matchedTransitionSource(id: PhoneRoute.logbook, in: routes)
+                        .matchedTransitionSource(id: PhoneRoute.logbook.zoomSource, in: routes)
                         .dsEntrance(3)
                     // Today against the same hours on a usual day; hidden until today has an
                     // hour of readings. Below the logbook, so logging stays near the top.
@@ -172,7 +174,7 @@ struct PhoneHomeView: View {
                     // Time in range, mornings and forecast accuracy live one tap away, so the
                     // logbook isn't pushed below three cards of statistics.
                     PhoneInsightsRow()
-                        .matchedTransitionSource(id: PhoneRoute.insights, in: routes)
+                        .matchedTransitionSource(id: PhoneRoute.insights.zoomSource, in: routes)
                         .dsEntrance(5)
                     if let sensor = store.snapshot.sensor {
                         PhoneSensorCard(sensor: sensor).dsEntrance(6)
@@ -242,17 +244,24 @@ struct PhoneHomeView: View {
                 }
             }
             .navigationDestination(for: PhoneRoute.self) { route in
-                // The card grows into its screen.
-                Group {
+                // The card grows into its screen, and shrinks back into it on Back. A plain push
+                // under Reduce Motion.
+                let screen = Group {
                     switch route {
                     case .logbook: PhoneLogbookView()
                     case .insights: PhoneInsightsView()
+                    case .logbookLink(let link): PhoneLogbookView(link: link)
                     }
                 }
-                .navigationTransition(.zoom(sourceID: route, in: routes))
+                if reduceMotion {
+                    screen
+                } else {
+                    screen.navigationTransition(.zoom(sourceID: route.zoomSource, in: routes))
+                }
             }
             .navigationDestination(for: FollowRoute.self) { FollowRouteView(route: $0) }
         }
+        .environment(\.phoneNavigator, PhoneNavigator(push: { path.append($0) }, zoom: routes))
         // One countdown for the undo toast, whichever screen it's showing on.
         .phoneUndoCountdown()
         // On the stack rather than its root, so the log sheet also opens over a pushed screen

@@ -8,6 +8,10 @@ import SwiftUI
 /// card first shows, and the figures count up there where `figuresCountUp` is on (iPhone and Mac
 /// Insights). A new period rolls each figure to its new value and glides the bars; nothing loops,
 /// and Reduce Motion shows the new values at once. Callers give it their own card surface.
+///
+/// With `openLogbook`, tapping the card (or its "See these lows in the Logbook" row) opens the
+/// Logbook on the Lows chip over the same days (`LogbookLink.lows`). The iPhone zooms the card
+/// into it; the Mac cross-fades to its Logbook section (docs/LogbookSearch.md, "From the Lows card").
 struct LowsCardView: View {
     let readings: [GlucoseReading]
     let meals: [MealEntry]
@@ -15,6 +19,7 @@ struct LowsCardView: View {
     let answers: [LowAnswer]
     let unit: GlucoseUnit
     let lowMgdl: Double
+    var openLogbook: ((LogbookLink) -> Void)? = nil
 
     @AppStorage("insights.lowsDays") private var periodDays = LowsSummary.Period.fortnight.rawValue
     @State private var value: LowsSummary?
@@ -110,6 +115,33 @@ struct LowsCardView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(LowsSummaryText.title)
         .accessibilityValue(LowsSummaryText.spoken(s, lowLine: lowLine))
+        // The figures open the Logbook too, not just the row under them. The period picker stays
+        // its own control.
+        .contentShape(Rectangle())
+        .onTapGesture { if s.count > 0 { open(s) } }
+        if s.count > 0, openLogbook != nil {
+            Button { open(s) } label: {
+                HStack(spacing: DS.Space.xs) {
+                    Text(LowsSummaryText.logbookLine(s.period))
+                    Spacer(minLength: DS.Space.sm)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                }
+                .dsFont(.label)
+                .foregroundStyle(Palette.brand)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(LowsSummaryText.logbookHint)
+        }
+    }
+
+    /// The Lows chip over the days the card counted, up to its newest reading.
+    private func open(_ s: LowsSummary) {
+        guard let openLogbook else { return }
+        openLogbook(.lows(s.period, newestReading: s.end, now: Date()))
     }
 }
 

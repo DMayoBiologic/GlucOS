@@ -80,3 +80,25 @@ tested in DayInRangeTests).
 
 Mac: the bar only fills for days inside the readings the dashboard has loaded for the toolbar's
 period, like the Glucose column.
+
+## From the Lows card
+
+Round 34 joined the Insights Lows card to the Logbook, on iPhone and Mac (`LogbookLink`, Engine,
+tested in LogbookLinkTests).
+
+- **What opens.** Tapping the card's figures, or the "See the last 14 days in the Logbook" row at
+  its foot, opens the Logbook on the **Lows** chip over the card's period. Only when the period
+  had a low; the period picker stays its own control.
+- **Which days.** The same ones the card counted: 7, 14 or 30 × 24 hours up to the newest reading,
+  not from a midnight (typing "last 14 days" would start at midnight 13 days ago and miss the first
+  morning). It runs on to now, so a treatment logged after the last reading still shows. Nothing is
+  typed into the search field: the period shows as the usual chip ("Last 14 days ✕"). ✕ or Search
+  All Dates drops it and keeps the chip; Clear Filters drops both. A day typed into the field wins
+  over the card's period.
+- **iPhone motion.** The card zooms into the Logbook (`navigationTransition(.zoom)`, iOS 18) and
+  shrinks back into it on Back, keyed on the card rather than its period, so the way back still
+  finds it after a new reading. A plain push under Reduce Motion, for every zoom on the home stack.
+- **Mac.** The dashboard cross-fades from Insights to its Logbook section (instant under Reduce
+  Motion). The Logbook then has "‹ Insights" at the top, which cross-fades back and scrolls to the
+  Lows card. Picking another section in the sidebar ends the trip. A period on the Mac looks past
+  the toolbar's period, as any search does.
