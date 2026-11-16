@@ -121,7 +121,7 @@ struct PhoneSignInView: View {
             problem = await store.signIn(email: email.trimmingCharacters(in: .whitespaces), password: password, region: region)
             working = false
             if problem == nil {
-                Haptics.success()
+                Haptics.play(.done)
                 UserDefaults.standard.set(PhoneMode.sensor.rawValue, forKey: "phoneMode")
                 if onFollowInstead == nil { dismiss() }
             }

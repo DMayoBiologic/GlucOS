@@ -208,7 +208,7 @@ struct PhoneLogbookView: View {
                 onEdit: { router.edit(entry) },
                 // Both wait for the card to land back in its row, so the list moves after it does:
                 // the copy slides in lit, or the row folds away with Undo, as from a swipe.
-                onLogAgain: { opener.close { logbook.duplicate(entry); Haptics.success() } },
+                onLogAgain: { opener.close { logbook.duplicate(entry); Haptics.play(.done) } },
                 onDelete: { opener.close { logbook.delete(ids: [entry.id]) } }
             )
         }
@@ -227,7 +227,7 @@ struct PhoneLogbookView: View {
     private func clearFilters() {
         query = ""
         kind = nil
-        Haptics.tap()
+        Haptics.play(.choice)
     }
 
     // MARK: Pieces
@@ -250,7 +250,7 @@ struct PhoneLogbookView: View {
                       action: @escaping () -> Void) -> some View {
         Button {
             action()
-            Haptics.tap()
+            Haptics.play(.choice)
         } label: {
             HStack(spacing: DS.Space.xs) {
                 if let systemImage { Image(systemName: systemImage).imageScale(.small) }
@@ -300,14 +300,14 @@ struct PhoneLogbookView: View {
             }
         }
         .swipeActions(edge: .leading) {
-            Button { logbook.duplicate(entry); Haptics.success() } label: {
+            Button { logbook.duplicate(entry); Haptics.play(.done) } label: {
                 Label("Log Again", systemImage: "arrow.clockwise")
             }
             .tint(entry.part.logbookTint)
         }
         .contextMenu {
             Button("Edit", systemImage: "pencil") { router.edit(entry) }
-            Button("Log Again Now", systemImage: "arrow.clockwise") { logbook.duplicate(entry); Haptics.success() }
+            Button("Log Again Now", systemImage: "arrow.clockwise") { logbook.duplicate(entry); Haptics.play(.done) }
             Button("Delete", systemImage: "trash", role: .destructive) { logbook.delete(ids: [entry.id]) }
         }
     }
@@ -319,7 +319,7 @@ struct PhoneLogbookView: View {
             if let period = search.period {
                 Button {
                     query = search.withoutPeriod
-                    Haptics.tap()
+                    Haptics.play(.choice)
                 } label: {
                     HStack(spacing: DS.Space.xs) {
                         Image(systemName: "calendar").imageScale(.small)
@@ -358,7 +358,7 @@ struct PhoneLogbookView: View {
                                actionTitle: "Clear Filters", action: clearFilters)
                 // When the day was the problem, the same words across every date may still find it.
                 if search.period != nil && (!search.terms.isEmpty || kind != nil) {
-                    Button("Search All Dates") { query = search.withoutPeriod; Haptics.tap() }
+                    Button("Search All Dates") { query = search.withoutPeriod; Haptics.play(.choice) }
                         .dsFont(.label)
                 }
             }

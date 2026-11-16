@@ -59,7 +59,7 @@ final class PhoneWakeLogger: ObservableObject {
         guard let logbook else { return }
         let e = WakeLog.entry(at: min(date, Date()))
         logbook.save(.context(e))
-        Haptics.success()
+        Haptics.play(.done)
         show(Confirmation(entry: e, alreadyLogged: false))
     }
 

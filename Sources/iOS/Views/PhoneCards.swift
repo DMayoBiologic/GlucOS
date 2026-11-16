@@ -130,11 +130,11 @@ struct PhoneHeroCard: View {
         }
         // A tap you can feel when a new reading, with the app open, crosses into a low (warning)
         // or comes back into range (success). Nothing on first load or for other changes.
-        .sensoryFeedback(trigger: s.range) { old, new in
+        .haptic(trigger: s.range) { old, new in
             guard let old, let new, old != new else { return nil }
             switch new {
-            case .low, .urgentLow: return .warning
-            case .inRange: return .success
+            case .low, .urgentLow: return .enteredLow
+            case .inRange: return .backInRange
             case .high, .veryHigh: return nil
             }
         }
@@ -496,7 +496,7 @@ struct PhoneChartCard: View {
                 Eyebrow(title: "Glucose", systemImage: "chart.xyaxis.line")
                 SlidingSegments(selection: $settings.chartHours, options: Self.choices) { "\($0)h" }
                     .frame(maxWidth: 200)
-                    .sensoryFeedback(.selection, trigger: settings.chartHours)
+                    .haptic(.choice, trigger: settings.chartHours)
                     .accessibilityLabel("Chart hours")
             }
             // The chart gets the longest span's readings and markers and shows `hours` of them,

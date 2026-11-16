@@ -490,7 +490,7 @@ struct PhoneLogSheet: View {
         // Waking up and going to sleep show on their own tiles; anything else opens its card.
         if p.tags.contains(where: { !$0.isMoment }) { next.insert(.event) }
         parts = next
-        Haptics.tap()
+        Haptics.play(.choice)
     }
 
     private func applyLast(_ d: InsulinDose) {
@@ -499,7 +499,7 @@ struct PhoneLogSheet: View {
         unitsText = LogFormat.number(d.units)
         if !viaPump || InsulinKind.pumpKinds.contains(d.kind) { kind = d.kind }
         insulinName = d.name
-        Haptics.tap()
+        Haptics.play(.choice)
     }
 
     /// Opened from "I'm treating it" on a low: the usual low treatment goes straight in (food only,
@@ -527,7 +527,7 @@ struct PhoneLogSheet: View {
         unitsText = LogFormat.number(units)
         if let k = u.insulinKind, k.isBolus, !viaPump || InsulinKind.pumpKinds.contains(k) { kind = k }
         if !u.insulinName.isEmpty { insulinName = u.insulinName }
-        Haptics.tap()
+        Haptics.play(.choice)
     }
 
     private func apply(_ f: RecentFood) {
@@ -535,7 +535,7 @@ struct PhoneLogSheet: View {
         parts.insert(.food)
         food = f.food
         if f.carbs > 0 { carbsText = LogFormat.number(f.carbs) }
-        Haptics.tap()
+        Haptics.play(.choice)
     }
 
     // MARK: Usual
@@ -606,7 +606,7 @@ struct PhoneLogSheet: View {
             }
         }
         focus = nil
-        Haptics.tap()
+        Haptics.play(.choice)
         UsualAnnouncer.say(u.filledAnnouncement)
     }
 
@@ -659,7 +659,7 @@ struct PhoneLogSheet: View {
         typesInsulin = false
         kind = insulin.kind
         insulinName = insulin.name
-        Haptics.tap()
+        Haptics.play(.choice)
     }
 
     /// A new entry starts on the user's usual insulin and, for an injection, the site used
@@ -754,7 +754,7 @@ struct PhoneLogSheet: View {
     }
 
     private func toggle(_ moment: LogMoment) {
-        Haptics.tap()
+        Haptics.play(.choice)
         switch moment {
         case .eating:
             if parts.contains(.food) { parts.remove(.food) } else { parts.insert(.food) }
@@ -800,7 +800,7 @@ struct PhoneLogSheet: View {
             }
             BridgeButton(title: "Eating with this? Add the food", systemImage: "fork.knife", tint: Palette.food) {
                 parts.insert(.food)
-                Haptics.tap()
+                Haptics.play(.choice)
             }
         }
     }
@@ -813,7 +813,7 @@ struct PhoneLogSheet: View {
                 startDose(bolus: true)
                 parts.insert(.insulin)
                 focus = nil
-                Haptics.tap()
+                Haptics.play(.choice)
             }
         }
     }
@@ -830,7 +830,7 @@ struct PhoneLogSheet: View {
                             onUse: { s in
                                 unitsText = LogFormat.number(s.units)
                                 usedSuggestion = s
-                                Haptics.tap()
+                                Haptics.play(.choice)
                             },
                             onSetUp: { showsBolusSettings = true },
                             onUpdate: { live, recompute in
@@ -883,7 +883,7 @@ struct PhoneLogSheet: View {
                                 typesInsulin = true
                                 // An edited dose keeps its name until the user changes it.
                                 if isNew { insulinName = "" }
-                                Haptics.tap()
+                                Haptics.play(.choice)
                             } label: {
                                 Label("Other", systemImage: "pencil")
                             }
@@ -974,7 +974,7 @@ struct PhoneLogSheet: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: DS.Space.xs + 2) {
                         ForEach(Self.carbChips, id: \.self) { g in
-                            Button("\(g) g") { carbsText = "\(g)"; Haptics.tap() }
+                            Button("\(g) g") { carbsText = "\(g)"; Haptics.play(.choice) }
                                 .buttonStyle(ChipButtonStyle(selected: carbs == Double(g), tint: Palette.food))
                         }
                     }
@@ -1059,7 +1059,7 @@ struct PhoneLogSheet: View {
         PhoneLogPanel(part: .site, title: "Infusion site change") {
             LazyVGrid(columns: gridColumns(typeSize.dsLargeText ? 1 : 2), spacing: DS.Space.sm) {
                 ForEach(InjectionSite.allCases) { s in
-                    Button { newSite = s; Haptics.tap() } label: {
+                    Button { newSite = s; Haptics.play(.choice) } label: {
                         Text(s.title).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(ChipButtonStyle(selected: newSite == s, tint: Palette.site))
@@ -1086,7 +1086,7 @@ struct PhoneLogSheet: View {
                 ForEach(tagChoices) { t in
                     Button {
                         if tags.contains(t) { tags.remove(t) } else { tags.insert(t) }
-                        Haptics.tap()
+                        Haptics.play(.choice)
                     } label: {
                         Label(t.title, systemImage: t.systemImage)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1368,7 +1368,7 @@ struct PhoneLogSheet: View {
     /// logged-twice notice on it), so the checkmark never stands in for a warning.
     private func finishSaving() {
         focus = nil
-        Haptics.success()
+        Haptics.play(.done)
         PhoneLogRouter.shared.noteSaved()
         DS.animate(.emphasized, reduceMotion: reduceMotion) { saved = true }
         AccessibilityNotification.Announcement(LogFlow.savedTitle(isNew: isNew)).post()
@@ -1396,11 +1396,6 @@ extension PhoneLogPart {
         case .event: return Palette.context
         }
     }
-}
-
-enum Haptics {
-    static func tap() { UISelectionFeedbackGenerator().selectionChanged() }
-    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
 }
 
 // MARK: - Building blocks
@@ -1674,7 +1669,7 @@ private struct PhoneAmountField: View {
             let current = Double(text.replacingOccurrences(of: ",", with: ".")) ?? 0
             let next = min(range.upperBound, max(range.lowerBound, ((current + delta) / step).rounded() * step))
             text = LogFormat.number(next)
-            Haptics.tap()
+            Haptics.play(.choice)
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .bold))
@@ -1704,7 +1699,7 @@ private struct PhoneInjectionSitePicker: View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             Button {
                 withAnimation(DSMotion.quick.animation) { expanded.toggle() }
-                Haptics.tap()
+                Haptics.play(.choice)
             } label: {
                 HStack(spacing: DS.Space.sm) {
                     Text("Injection site").dsFont(.label).foregroundStyle(.secondary)
@@ -1733,7 +1728,7 @@ private struct PhoneInjectionSitePicker: View {
             }
             if expanded {
                 if let suggested, selection != suggested {
-                    Button { selection = suggested; Haptics.tap() } label: {
+                    Button { selection = suggested; Haptics.play(.choice) } label: {
                         Label("Use \(suggested.title)", systemImage: "sparkle")
                             .dsLineLimit(1)
                     }
@@ -1774,7 +1769,7 @@ private struct PhoneInjectionSitePicker: View {
     private func siteButton(_ s: InjectionSite, last: Date?, suggested: Bool) -> some View {
         Button {
             selection = selection == s ? nil : s
-            Haptics.tap()
+            Haptics.play(.choice)
         } label: {
             VStack(spacing: 1) {
                 HStack(spacing: 3) {
@@ -1814,7 +1809,7 @@ struct PhoneTherapyPicker: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             ForEach([TherapyType.injections, .pump, .noInsulin]) { t in
-                Button { settings.therapy = t; Haptics.tap() } label: {
+                Button { settings.therapy = t; Haptics.play(.choice) } label: {
                     HStack(spacing: DS.Space.md) {
                         Image(systemName: t.systemImage)
                             .font(.title2)

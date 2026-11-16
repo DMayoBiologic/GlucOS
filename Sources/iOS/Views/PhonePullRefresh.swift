@@ -70,7 +70,7 @@ private struct PhonePullRefresh: ViewModifier {
                     .overlay(alignment: .top) { puck }
             }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: landed)
+        .haptic(.newData, trigger: landed)
     }
 
     private var pullProgress: Double { PullRefresh.pullProgress(overscroll: overscroll) }

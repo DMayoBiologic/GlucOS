@@ -35,7 +35,7 @@ struct PhoneDoseStrip: View {
                     .dsFont(.headline)
                     .accessibilityHint("Logs what you ate at \(ClockLabel.time(c.dose.timestamp))")
                 }
-                Button("Undo") { question.undo(); Haptics.tap() }
+                Button("Undo") { question.undo(); Haptics.play(.undone) }
                     .dsFont(.headline)
             }
             .padding(.bottom, DS.Space.sm)
@@ -66,7 +66,7 @@ struct PhoneDoseStrip: View {
                 HStack(spacing: DS.Space.sm) {
                     Button {
                         question.answer(.meal, doseID: dose.id)
-                        Haptics.success()
+                        Haptics.play(.done)
                     } label: {
                         Label("Meal", systemImage: "fork.knife").dsFont(.headline).frame(maxWidth: .infinity)
                     }
@@ -75,7 +75,7 @@ struct PhoneDoseStrip: View {
                     .accessibilityHint("It was for food that isn't logged. The forecast won't expect its full drop.")
                     Button {
                         question.answer(.correction, doseID: dose.id)
-                        Haptics.success()
+                        Haptics.play(.done)
                     } label: {
                         Label("Correction", systemImage: "arrow.down.right").dsFont(.headline).frame(maxWidth: .infinity)
                     }

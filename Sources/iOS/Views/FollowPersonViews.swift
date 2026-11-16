@@ -133,10 +133,11 @@ struct FollowStage: View {
             guard old != new, !reduceMotion else { return }
             ripple += 1
         }
-        .sensoryFeedback(trigger: card.range) { old, new in
+        .haptic(trigger: card.range) { old, new in
+            guard old != new else { return nil }
             switch new {
-            case .low, .urgentLow: return old == new ? nil : .warning
-            case .inRange: return old == new ? nil : .success
+            case .low, .urgentLow: return .enteredLow
+            case .inRange: return .backInRange
             case .high, .veryHigh: return nil
             }
         }
@@ -287,7 +288,7 @@ struct FollowCheckInCard: View {
         Task {
             do {
                 try await follows.checkIn(follow.id)
-                Haptics.success()
+                Haptics.play(.done)
             } catch {
                 self.error = error.localizedDescription
             }
@@ -363,7 +364,7 @@ struct FollowCheckInBar: View {
                 Task {
                     do {
                         try await follows.checkIn(follow.id)
-                        Haptics.success()
+                        Haptics.play(.done)
                     } catch {
                         self.error = error.localizedDescription
                     }
@@ -510,7 +511,7 @@ struct FollowChartCard: View {
                 Eyebrow(title: "Glucose", systemImage: "chart.xyaxis.line")
                 SlidingSegments(selection: $hours, options: Self.choices) { "\($0)h" }
                     .frame(maxWidth: 200)
-                    .sensoryFeedback(.selection, trigger: hours)
+                    .haptic(.choice, trigger: hours)
                     .accessibilityLabel("Chart hours")
             }
             // The longest span's readings, `span` of them shown: the chart glides between spans itself.

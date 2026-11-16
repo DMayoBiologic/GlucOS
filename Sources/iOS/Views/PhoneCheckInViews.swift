@@ -92,11 +92,11 @@ struct FollowCheckInRow: View {
         .dsAnimation(.emphasized, value: checkIn?.status)
         // The answer is felt as well as seen: success for "okay", a warning for "needs help" or
         // no answer. Only on a change while this screen is open, never on first draw.
-        .sensoryFeedback(trigger: checkIn?.status) { old, new in
+        .haptic(trigger: checkIn?.status) { old, new in
             guard old != nil, old != new else { return nil }
             switch new {
-            case .okay: return .success
-            case .help, .noAnswer: return .warning
+            case .okay: return .followerOkay
+            case .help, .noAnswer: return .followerNeedsHelp
             case .asked, nil: return nil
             }
         }

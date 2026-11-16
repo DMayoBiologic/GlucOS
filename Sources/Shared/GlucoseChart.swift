@@ -614,7 +614,7 @@ private struct TracePulse: View {
     }
 }
 
-/// Changes each time a scrub tick is due, so `sensoryFeedback` fires even for two of a kind in a row.
+/// Changes each time a scrub tick is due, so `.haptic` fires even for two of a kind in a row.
 private struct ScrubTickTrigger: Equatable {
     private(set) var count = 0
     private(set) var tick: ChartScrub.Tick?
@@ -632,10 +632,10 @@ private extension View {
     func scrubFeedback(_ enabled: Bool, trigger: ScrubTickTrigger) -> some View {
         #if os(iOS)
         if enabled {
-            sensoryFeedback(trigger: trigger) { _, new -> SensoryFeedback? in
+            haptic(trigger: trigger) { _, new in
                 switch new.tick {
-                case .rangeEdge: return .impact(weight: .light, intensity: 0.9)
-                case .logged: return .impact(weight: .light, intensity: 0.6)
+                case .rangeEdge: return .scrubRangeEdge
+                case .logged: return .scrubLogged
                 case nil: return nil
                 }
             }
