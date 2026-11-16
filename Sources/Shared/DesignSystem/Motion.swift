@@ -195,8 +195,8 @@ private struct FiguresCountUpKey: EnvironmentKey {
 
 extension EnvironmentValues {
     /// Figures on this screen count up when their card appears (`RollingFigure`). Set on the
-    /// iPhone Insights screen only. Off everywhere else, including widgets and the Mac, where a
-    /// figure just rolls to a new value as it always has.
+    /// iPhone Insights screen and the Mac Dashboard's Insights page only. Off everywhere else,
+    /// including widgets, where a figure just rolls to a new value as it always has.
     var figuresCountUp: Bool {
         get { self[FiguresCountUpKey.self] }
         set { self[FiguresCountUpKey.self] = newValue }

@@ -424,6 +424,10 @@ struct InsightsSection: View {
             ForecastScorecardCard(outlook: outlookStore).dsEntrance(7)
             Disclaimer()
         }
+        // As on iPhone Insights: each card's figures count up as it assembles, with its bars
+        // drawing in, and roll from the old figure to the new one when the data changes. Once per
+        // appearance, never a loop; still under Reduce Motion; VoiceOver hears the final value.
+        .environment(\.figuresCountUp, true)
     }
 
     private var startLogging: some View {
@@ -501,14 +505,25 @@ private struct NeedsMore: View {
     let need: Int
     let explanation: String
 
+    @Environment(\.figuresCountUp) private var countsUp
+    /// How much of the bar is drawn; fills with the count where figures count up.
+    @State private var drawn: Double = 0
+
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             HStack(spacing: DS.Space.sm + 2) {
-                ProgressView(value: Double(min(have, need)), total: Double(need))
+                ProgressView(value: Double(min(have, need)) * (countsUp ? drawn : 1), total: Double(need))
                     .frame(width: 120)
-                Text("\(have) of \(need) examples so far")
-                    .fontWeight(.medium).dsFont(.callout)
-                    .monospacedDigit()
+                    .modifier(DrawIn(enabled: countsUp, progress: $drawn))
+                    .accessibilityValue("\(min(have, need)) of \(need)")
+                HStack(spacing: 0) {
+                    RollingFigure(Double(have)) { "\(Int($0.rounded()))" }
+                    Text(" of \(need) examples so far")
+                }
+                .fontWeight(.medium).dsFont(.callout)
+                .monospacedDigit()
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(have) of \(need) examples so far")
             }
             Text(explanation)
                 .dsFont(.callout)
@@ -523,14 +538,47 @@ private func spreadText(_ s: Spread?, need: Int, have: Int, format: (Double) -> 
     return "\(format(s.median)) (\(format(s.lower))–\(format(s.upper)))"
 }
 
-private func durationSpread(_ s: Spread?, need: Int, have: Int) -> String {
-    spreadText(s, need: need, have: have, format: LogFormat.duration)
+/// A spread written as `spreadText` does ("2.1 (1.6–2.8) mmol/L"), with each figure a
+/// `RollingFigure`, so it counts up on Insights and rolls to new values. VoiceOver hears the
+/// finished text as one phrase.
+private struct SpreadFigure: View {
+    let spread: Spread?
+    let need: Int
+    let have: Int
+    var unitLabel: String? = nil
+    /// Where this row sits on its card, so figures settle top to bottom.
+    var order: Int = 0
+    let format: (Double) -> String
+
+    var body: some View {
+        if let s = spread {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                RollingFigure(s.median, order: order, text: format)
+                Text(" (")
+                RollingFigure(s.lower, order: order, text: format)
+                Text("–")
+                RollingFigure(s.upper, order: order, text: format)
+                Text(")")
+                if let unitLabel { Text(" " + unitLabel) }
+            }
+            .fixedSize()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(spreadText(s, need: need, have: have, format: format)
+                                + (unitLabel.map { " " + $0 } ?? ""))
+        } else {
+            Text(spreadText(nil, need: need, have: have, format: format))
+        }
+    }
 }
 
-/// A glucose spread with the unit after it, e.g. "2.1 (1.6–2.8) mmol/L".
-private func glucoseSpread(_ s: Spread?, need: Int, have: Int, unit: GlucoseUnit) -> String {
-    let text = spreadText(s, need: need, have: have, format: { unit.format(mgdl: $0) })
-    return s == nil ? text : "\(text) \(unit.label)"
+/// A count of examples in a table cell, rolling like the figures beside it.
+private struct CountFigure: View {
+    let count: Int
+    var order: Int = 0
+
+    var body: some View {
+        RollingFigure(Double(count), order: order) { "\(Int($0.rounded()))" }
+    }
 }
 
 // MARK: Insulin action
@@ -569,13 +617,17 @@ private struct InsulinActionCard: View {
                         .fontWeight(.medium).dsFont(.caption)
                         .foregroundStyle(.secondary)
                         Divider().gridCellUnsizedAxes(.horizontal)
-                        ForEach([overall] + insights.byArea + insights.byTag) { s in
+                        let all = [overall] + insights.byArea + insights.byTag
+                        ForEach(Array(all.enumerated()), id: \.element.id) { i, s in
                             GridRow {
                                 Text(s.title).fontWeight(s.area == nil ? .semibold : .regular)
-                                Text("\(s.examples)").monospacedDigit()
-                                Text(durationSpread(s.onset, need: need, have: s.measurable))
-                                Text(durationSpread(s.timeToLowest, need: need, have: s.measurable))
-                                Text(glucoseSpread(s.dropPerUnit, need: need, have: s.examples, unit: unit))
+                                CountFigure(count: s.examples, order: i)
+                                SpreadFigure(spread: s.onset, need: need, have: s.measurable, order: i,
+                                             format: LogFormat.duration)
+                                SpreadFigure(spread: s.timeToLowest, need: need, have: s.measurable, order: i,
+                                             format: LogFormat.duration)
+                                SpreadFigure(spread: s.dropPerUnit, need: need, have: s.examples,
+                                             unitLabel: unit.label, order: i) { unit.format(mgdl: $0) }
                             }
                             .dsFont(.callout)
                             .monospacedDigit()
@@ -650,14 +702,17 @@ private struct MealResponseCard: View {
                         .fontWeight(.medium).dsFont(.caption)
                         .foregroundStyle(.secondary)
                         Divider().gridCellUnsizedAxes(.horizontal)
-                        ForEach(rows) { row in
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
                             let s = row.summary
                             GridRow {
                                 Text(row.name).fontWeight(.semibold)
-                                Text("\(s.examples)").monospacedDigit()
-                                Text(glucoseSpread(s.rise, need: need, have: s.examples, unit: unit))
-                                Text(durationSpread(s.timeToPeak, need: need, have: s.examples))
-                                Text(glucoseSpread(s.risePer10g, need: need, have: s.examples, unit: unit))
+                                CountFigure(count: s.examples, order: i)
+                                SpreadFigure(spread: s.rise, need: need, have: s.examples,
+                                             unitLabel: unit.label, order: i) { unit.format(mgdl: $0) }
+                                SpreadFigure(spread: s.timeToPeak, need: need, have: s.examples, order: i,
+                                             format: LogFormat.duration)
+                                SpreadFigure(spread: s.risePer10g, need: need, have: s.examples,
+                                             unitLabel: unit.label, order: i) { unit.format(mgdl: $0) }
                             }
                             .dsFont(.callout)
                             .monospacedDigit()
@@ -686,6 +741,16 @@ private struct SiteAgeCard: View {
     let unit: GlucoseUnit
     let hasSiteChanges: Bool
 
+    @Environment(\.figuresCountUp) private var countsUp
+    /// How far the bars have grown from the baseline; they grow once, with the figures counting up.
+    @State private var grown: Double = 0
+
+    /// Fixed while the bars grow, so they rise against the finished scale rather than filling a
+    /// shrunken one. Headroom for the labels above each bar.
+    private var yTop: Double {
+        max(1, (buckets.map { unit.value(fromMgdl: $0.meanMgdl) }.max() ?? 1) * 1.2)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             SectionHeader("Glucose by Day of Site Wear")
@@ -695,18 +760,34 @@ private struct SiteAgeCard: View {
                           ? "Each day of wear needs at least two sites' worth of readings. Keep logging site changes."
                           : "Log each infusion site change (+ button → Changed infusion site) to see whether your glucose changes as a site ages.")
             } else {
+                let shown = countsUp ? grown : 1
                 Chart(buckets) { b in
-                    BarMark(x: .value("Day", b.title), y: .value("Average", unit.value(fromMgdl: b.meanMgdl)))
+                    BarMark(x: .value("Day", b.title), y: .value("Average", unit.value(fromMgdl: b.meanMgdl) * shown))
                         .foregroundStyle(Palette.site.gradient)
                         .annotation(position: .top, spacing: 4) {
+                            // The labels ride the same growth: they roll from zero to the figure as
+                            // the bar rises (no state of their own, which an annotation can lose).
+                            let mean = b.meanMgdl * shown
+                            let inRange = b.timeInRange * shown
                             VStack(spacing: 0) {
-                                Text(unit.format(mgdl: b.meanMgdl)).fontWeight(.semibold).dsFont(.caption)
-                                Text("\(Format.percent(b.timeInRange)) in range").dsFont(.caption).foregroundStyle(.secondary)
+                                Text(unit.format(mgdl: mean))
+                                    .contentTransition(.numericText(value: mean))
+                                    .fontWeight(.semibold).dsFont(.caption)
+                                Text("\(Format.percent(inRange)) in range")
+                                    .contentTransition(.numericText(value: inRange))
+                                    .dsFont(.caption).foregroundStyle(.secondary)
                             }
+                            .monospacedDigit()
+                            .accessibilityHidden(true)
                         }
+                        // The finished figures, never a bar on its way up.
+                        .accessibilityLabel(b.title)
+                        .accessibilityValue("Average \(unit.format(mgdl: b.meanMgdl)) \(unit.label), \(Format.percent(b.timeInRange)) in range")
                 }
+                .chartYScale(domain: 0...yTop)
                 .chartYAxisLabel { Text("Average (\(unit.label))") }
                 .frame(height: 200)
+                .modifier(DrawIn(enabled: countsUp, progress: $grown))
                 Text("Average glucose on each day a site was worn, across \(buckets.map(\.sites).max() ?? 0) sites.")
                     .dsFont(.caption)
                     .foregroundStyle(.secondary)

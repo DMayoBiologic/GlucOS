@@ -4,7 +4,7 @@ import SwiftUI
 /// over the last 7 days beside the 7 before, and the best and hardest part of the day this week.
 /// Worked out off the main thread once per data change (`WeekInReviewCache`). Nothing here runs a
 /// timer or loops (docs/Redesign.md power rules): the in-range and average figures roll once to a
-/// new value, and count up when the card appears where `figuresCountUp` is on (iPhone Insights).
+/// new value, and count up when the card appears where `figuresCountUp` is on (iPhone and Mac Insights).
 /// Callers give it their own card surface.
 struct WeekInReviewView: View {
     let readings: [GlucoseReading]
@@ -59,7 +59,8 @@ struct WeekInReviewView: View {
                          rolling: .init(w.thisWeek.meanMgdl) { unit.format(mgdl: $0) })
                 StatTile("Lows", value: WeekInReviewText.lowsValue(w.thisWeek.lows),
                          caption: WeekInReviewText.lowsCaption(w),
-                         tone: w.thisWeek.lows > 0 ? .glucose(.low) : .neutral)
+                         tone: w.thisWeek.lows > 0 ? .glucose(.low) : .neutral,
+                         rolling: .init(Double(w.thisWeek.lows)) { WeekInReviewText.lowsValue(Int($0.rounded())) })
             }
             .monospacedDigit()
             let lines = WeekInReviewText.lines(w)
