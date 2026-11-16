@@ -48,6 +48,40 @@ enum LogKeyboard {
     }
 }
 
+// MARK: - Your usual
+
+/// One-tap repeats from the keyboard (docs/UsualEntries.md): ⌥⌘1, ⌥⌘2 and ⌥⌘3 fill in the first
+/// three "Your usual" entries, in the order they're shown, in the log sheet and from the menu bar
+/// popover. ⌥⌘ so they never clash with ⌘1–⌘9 (moments in the sheet, chart range in the popover).
+/// A key only ever fills the entry in; it's logged with Log, after the same checks as a click.
+enum UsualKeys {
+    /// How many entries get a key. The sheet rarely offers more than three.
+    static let limit = 3
+
+    /// The digit for the entry at `index`, or nil past the limit.
+    static func digit(for index: Int) -> Character? {
+        guard (0..<limit).contains(index) else { return nil }
+        return Character(String(index + 1))
+    }
+
+    /// "⌥⌘1" for the first entry, nil past the limit.
+    static func display(for index: Int) -> String? {
+        digit(for: index).map { "⌥⌘\($0)" }
+    }
+
+    /// "Option Command 1", for VoiceOver.
+    static func spoken(for index: Int) -> String? {
+        digit(for: index).map { "Option Command \($0)" }
+    }
+
+    /// The keys for `count` entries, as a ⌘? row shows them: "⌥⌘1", "⌥⌘1 – ⌥⌘3". Nil for none.
+    static func range(count: Int) -> String? {
+        let last = min(count, limit)
+        guard last > 0 else { return nil }
+        return last == 1 ? "⌥⌘1" : "⌥⌘1 – ⌥⌘\(last)"
+    }
+}
+
 // MARK: - Global shortcut
 
 /// A key combination for the "open the log window from anywhere" shortcut. Stored by key code,
@@ -139,6 +173,7 @@ enum ShortcutCatalog {
         [
             ShortcutGroup(title: "Menu bar", rows: [
                 ShortcutRow(keys: "⌘L", action: "Log insulin, food or a moment"),
+                ShortcutRow(keys: UsualKeys.range(count: UsualKeys.limit) ?? "", action: "Fill in one of Your usual, in the log window"),
                 ShortcutRow(keys: "⌘R", action: "Refresh"),
                 ShortcutRow(keys: "⌘D", action: "Open the dashboard"),
                 ShortcutRow(keys: "⌘1  ⌘2  ⌘3", action: "Chart: 3, 6 or 12 hours"),
@@ -153,8 +188,9 @@ enum ShortcutCatalog {
         ].compactMap { $0 }
     }
 
-    static func logSheet(momentCount: Int, globalKey: LogHotKey?) -> [ShortcutGroup] {
-        [logging(momentCount: momentCount), anywhere(globalKey)].compactMap { $0 }
+    /// `usualCount` is how many "Your usual" entries the sheet is offering.
+    static func logSheet(momentCount: Int, usualCount: Int = 0, globalKey: LogHotKey?) -> [ShortcutGroup] {
+        [logging(momentCount: momentCount, usualCount: usualCount), anywhere(globalKey)].compactMap { $0 }
     }
 
     static func dashboard(globalKey: LogHotKey?) -> [ShortcutGroup] {
@@ -181,8 +217,9 @@ enum ShortcutCatalog {
         ].compactMap { $0 }
     }
 
-    /// The log sheet's own keys. `momentCount` is how many moments the therapy type offers.
-    static func logging(momentCount: Int) -> ShortcutGroup {
+    /// The log sheet's own keys. `momentCount` is how many moments the therapy type offers,
+    /// `usualCount` how many "Your usual" entries are offered right now.
+    static func logging(momentCount: Int, usualCount: Int = 0) -> ShortcutGroup {
         var rows = [
             ShortcutRow(keys: "←  →  ↑  ↓", action: "Move between the moments"),
             ShortcutRow(keys: "Return", action: "Pick the moment and fill it in"),
@@ -191,6 +228,9 @@ enum ShortcutCatalog {
         if momentCount > 0 {
             let last = min(momentCount, 9)
             rows.append(ShortcutRow(keys: last == 1 ? "⌘1" : "⌘1 – ⌘\(last)", action: "Turn a moment on or off from anywhere in the sheet"))
+        }
+        if let keys = UsualKeys.range(count: usualCount) {
+            rows.append(ShortcutRow(keys: keys, action: "Fill in one of Your usual"))
         }
         rows += [
             ShortcutRow(keys: "⌘F", action: "Search foods"),

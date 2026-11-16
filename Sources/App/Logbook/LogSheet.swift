@@ -12,6 +12,9 @@ enum LogSheetTarget: Identifiable {
     case treating(AlertTreatment)
     /// A hypo treatment at an earlier time: "Did you treat this low?" → Something else.
     case lowTreatment(at: Date)
+    /// A "Your usual" entry picked in the menu bar popover (docs/UsualEntries.md): a new entry,
+    /// filled in from it as if its chip had been clicked here. Logged only with Log.
+    case usual(UsualEntry)
 
     var id: String {
         switch self {
@@ -19,6 +22,7 @@ enum LogSheetTarget: Identifiable {
         case .meal(let at): return "meal-\(at.timeIntervalSince1970)"
         case .treating(let t): return "treating-\(t.rawValue)"
         case .lowTreatment(let at): return "low-\(at.timeIntervalSince1970)"
+        case .usual(let u): return "usual-\(u.id)-\(u.lastLogged.timeIntervalSince1970)"
         case .edit(let e): return e.id.uuidString
         }
     }
@@ -48,6 +52,8 @@ struct LogSheet: View {
     private let forLoggedDose: Bool
     /// Opened from "I'm treating it" on an alert.
     private let treating: AlertTreatment?
+    /// The usual entry picked in the popover, filled in once the sheet appears.
+    private let startingUsual: UsualEntry?
 
     /// Set when editing: only that part is shown.
     private let editing: Part?
@@ -188,6 +194,7 @@ struct LogSheet: View {
         default: forLoggedDose = false
         }
         if case .treating(let t) = target { treating = t } else { treating = nil }
+        if case .usual(let u) = target { startingUsual = u } else { startingUsual = nil }
         self.editing = editing
         self.editingID = editingID
         self.doseID = doseID
@@ -266,7 +273,7 @@ struct LogSheet: View {
             }
         }
         .frame(minWidth: 460, idealWidth: 540, maxWidth: 780)
-        .onAppear { startDose(); applyTreatingUsual(); focusFirstField() }
+        .onAppear { startDose(); applyTreatingUsual(); applyStartingUsual(); focusFirstField() }
         .onChange(of: settings.therapy) { _, therapy in
             // Picked in the setup step above: start from that therapy's defaults.
             guard editing == nil else { return }
@@ -326,6 +333,7 @@ struct LogSheet: View {
         }
         .sheet(isPresented: $showsShortcutList) {
             ShortcutListView(groups: ShortcutCatalog.logSheet(momentCount: isNew ? moments.count : 0,
+                                                              usualCount: isNew ? usuals.count : 0,
                                                               globalKey: settings.activeGlobalLogShortcut)) {
                 showsShortcutList = false
             }
@@ -508,7 +516,7 @@ struct LogSheet: View {
                     .accessibilityAddTraits(.isHeader)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        ForEach(entries) { u in
+                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, u in
                             Button { apply(u) } label: {
                                 Label {
                                     Text(u.title) + Text(u.detail.isEmpty ? "" : "  \(u.detail)").foregroundColor(.secondary)
@@ -517,7 +525,8 @@ struct LogSheet: View {
                                 }
                             }
                             .buttonStyle(ChipButtonStyle(selected: appliedUsual?.id == u.id || u.kind == .lowTreatment, tint: u.tint))
-                            .help(u.spokenHint)
+                            .usualShortcut(index)
+                            .help(UsualKeys.display(for: index).map { "\(u.spokenHint) (\($0))" } ?? u.spokenHint)
                             .accessibilityLabel(u.spokenLabel)
                             .accessibilityHint(u.spokenHint)
                             .transition(.opacity.combined(with: .scale(scale: 0.96)))
@@ -1286,6 +1295,15 @@ struct LogSheet: View {
     private func applyTreatingUsual() {
         guard isNew, treating == .low, appliedUsual == nil,
               let u = usuals.first(where: { $0.kind == .lowTreatment }) else { return }
+        apply(u)
+    }
+
+    /// Opened from a "Your usual" chip in the popover: filled in from that entry, if the sheet
+    /// still offers it (worked out again now, so a correction that stopped applying because
+    /// glucose came down isn't filled in). Nothing is logged until Log, after `RepeatCheck`.
+    private func applyStartingUsual() {
+        guard isNew, appliedUsual == nil, let picked = startingUsual,
+              let u = usuals.first(where: { $0.id == picked.id }) else { return }
         apply(u)
     }
 

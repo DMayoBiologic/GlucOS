@@ -58,6 +58,8 @@ final class UsualEntriesTests: XCTestCase {
         XCTAssertEqual(u?.units, 4.5)
         XCTAssertEqual(u?.insulinName, "NovoRapid")
         XCTAssertEqual(u?.detail, "Toast and banana · 45 g")
+        // The popover's chip names the food itself.
+        XCTAssertEqual(u?.shortTitle, "Toast and banana")
         XCTAssertEqual(u?.spokenLabel, "Usual breakfast: Toast and banana, 45 grams of carbs")
     }
 
@@ -84,6 +86,7 @@ final class UsualEntriesTests: XCTestCase {
         let u = UsualEntries.usualMeal(meals, doses: [], now: now, calendar: utc)
         XCTAssertEqual(u?.carbs, 40)
         XCTAssertEqual(u?.detail, "40 g")
+        XCTAssertEqual(u?.shortTitle, "40 g carbs")
         XCTAssertNil(u?.units)
     }
 
@@ -99,6 +102,7 @@ final class UsualEntriesTests: XCTestCase {
                                           glucose: low, logsInsulin: true, calendar: utc)
         XCTAssertEqual(during.map(\.kind), [.lowTreatment, .meal(.breakfast)])
         XCTAssertEqual(during.first?.detail, "Jelly beans · 15 g")
+        XCTAssertEqual(during.first?.shortTitle, "Treat a low")
         XCTAssertNil(during.first?.units)
 
         // In range: no low treatment, and hypo food never counts as a usual meal.
@@ -137,6 +141,7 @@ final class UsualEntriesTests: XCTestCase {
         XCTAssertEqual(c?.count, 3)
         XCTAssertEqual(c?.detail, "2 u NovoRapid")
         XCTAssertEqual(c?.spokenLabel, "Usual correction: 2 units, NovoRapid")
+        XCTAssertEqual(c?.shortTitle, "Correction 2 u")
 
         XCTAssertFalse(UsualEntries.suggest(meals: meals, doses: doses, contexts: [], now: now, glucose: inRange,
                                             logsInsulin: true, calendar: utc).contains { $0.kind == .correction })

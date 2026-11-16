@@ -8,6 +8,22 @@ most mornings, the same correction when running high, the same jelly beans for a
 Rules: `Sources/Engine/UsualEntries.swift` (tests `UsualEntriesTests`). App side:
 `Sources/Bolus/UsualEntryViews.swift`.
 
+## On the Mac: popover and keyboard
+
+Round 26. The menu bar popover shows the same entries, up to three, as a **Your usual** row above
+the toolbar (`PopoverUsualRow`). The chips are short ("Toast and banana", "Correction 2 u",
+"Treat a low", `UsualEntry.shortTitle`); the tooltip and VoiceOver give the whole entry. A click
+opens the log window filled in from that entry (`LogSheetTarget.usual`), exactly as clicking its
+chip in the sheet would. **Nothing is logged from the popover:** the entry is logged with Log in
+that window, after `RepeatCheck`, the calculator and its confirm step. The sheet works the entries
+out again when it opens and fills nothing in if the one picked is no longer offered (a correction
+after glucose came down, say).
+
+Keyboard: **⌥⌘1 – ⌥⌘3** pick the first three entries, in the popover and in the log sheet
+(`UsualKeys`, listed in the ⌘? lists; the sheet lists them only while it offers some). Holding ⌘
+in the popover shows the keys on the chips. ⌥⌘ keeps them clear of ⌘1–⌘9 (moments in the sheet,
+chart range in the popover).
+
 ## What's offered
 
 | Tile | Read from | Shown when | Fills in |

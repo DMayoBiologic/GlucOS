@@ -11,7 +11,7 @@ import AppKit
 /// 5. **Actions** (`PopoverToolbar`) and a one-line footer.
 ///
 /// Keyboard: ⌘L log, ⌘R refresh, ⌘D dashboard, ⌘, settings, ⌘C copy reading, ⌘1–3 chart range,
-/// ⌘I show or hide details, ⌘Q quit, ← → step through chart readings, Escape closes. Hold ⌘ to
+/// ⌘I show or hide details, ⌥⌘1–3 one of "Your usual" (`PopoverUsualRow`), ⌘Q quit, ← → step through chart readings, Escape closes. Hold ⌘ to
 /// see the shortcuts on the buttons; ⌘? lists them all (`ShortcutCatalog.popover`).
 struct MenuBarView: View {
     @EnvironmentObject var store: GlucoseStore
@@ -111,6 +111,9 @@ struct MenuBarView: View {
                                    onToggleDetails: toggleDetails, onOpenDashboard: showDashboard)
                     .popoverEntrance(.summary, showing: showing, shown: sectionsIn)
             }
+            // One-click repeats, next to the actions: each opens the log window filled in.
+            PopoverUsualRow(showsShortcuts: commandKey.isHeld)
+                .popoverEntrance(.toolbar, showing: showing, shown: sectionsIn)
             PopoverToolbar(showsShortcuts: commandKey.isHeld,
                            onLog: showLogSheet, onRefresh: refresh, onDashboard: showDashboard,
                            onSettings: showSettings, onCopy: copyReading,

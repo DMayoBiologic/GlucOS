@@ -5,6 +5,8 @@ Logging on the Mac can be done without touching the mouse.
 ## Opening the log window
 
 - **⌘L** in the menu bar popover or the dashboard opens the log sheet.
+- **⌥⌘1 – ⌥⌘3** in the menu bar popover open it filled in from one of "Your usual" (the chips
+  above the toolbar, in the order shown). Return then logs it, after the same checks as the button.
 - **From any app (optional):** Settings → Logging → Keyboard → "Open the log window from any app".
   It is **off by default**, because a system-wide shortcut takes that key combination away from
   every other app. The suggested combination is **⌃⌥⌘L**; click the shortcut to record another.
@@ -27,6 +29,7 @@ A new entry opens with the keyboard on "What's happening?".
 | Return on a moment that's already on | Log, once the entry is ready ("Woke up", Return, Return logs a wake-up). It never turns the moment off. |
 | Space | Turn a moment on or off and stay on the tiles, to pick several (eating and a bolus). |
 | ⌘1 – ⌘6 | Turn a moment on or off from anywhere in the sheet. |
+| ⌥⌘1 – ⌥⌘3 | Fill in one of "Your usual", as clicking its chip does. Listed only while the sheet offers them. |
 | ⌘F | Search foods. |
 | Return in a field | Log, once the entry is ready. |
 | Esc | Cancel. |
@@ -46,7 +49,7 @@ lists can't drift apart.
 ## Code
 
 - Rules (unit-tested in `LogKeyboardTests`): `Sources/App/Logbook/LogKeyboard.swift`:
-  `LogKeyboard.move` (grid navigation), `LogKeyboard.action` (Return and Space), `LogHotKey`,
+  `LogKeyboard.move` (grid navigation), `LogKeyboard.action` (Return and Space), `UsualKeys` (⌥⌘1–3), `LogHotKey`,
   `ShortcutCatalog`.
 - Hot key: `Sources/App/GlobalLogShortcut.swift`, started from `AppDelegate`.
-- Views: `LogSheet.momentPicker`, `ShortcutListView`, Settings `KeyboardLoggingSection`.
+- Views: `LogSheet.momentPicker`, `PopoverUsualRow`, `ShortcutListView`, Settings `KeyboardLoggingSection`.
