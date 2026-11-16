@@ -87,7 +87,8 @@ period, like the Glucose column.
 Round 37 lets a day's bar open into that day's chart (`DayChart`, Engine, tested in
 DayChartTests; drawn by `DayMiniChart`).
 
-- **Where.** On iPhone, tap a day header that has a bar: the bar grows in place into a small chart
+- **Where.** On iPhone, tap the bar on a day header (round 44 moved taps on the day's name to the
+  calendar, below): the bar grows in place into a small chart
   of the day, midnight to midnight, on its target band, with doses, meals and wake-ups marked
   along the bottom. "Lowest 3.9 at 4:10 am · Highest 12.1 at 1:30 pm" takes the bar's place under
   it, beside "78% in range". Tap again and the chart shrinks back into the bar. One day is open at
@@ -105,6 +106,26 @@ DayChartTests; drawn by `DayMiniChart`).
   4:10 am, highest 12.1 mmol/L at 1:30 pm. Target 3.9 to 10.0. 3 entries logged."
   (`DayChartText.spoken`); the chart itself is hidden.
 - **Cost.** Only the open day is worked out, once per day or readings change (`DayChartCache`).
+
+## Jump to a date
+
+Round 44 adds a compact month calendar to the Logbook, on iPhone and Mac (`LogbookCalendar` and
+`LogbookJump`, Engine, tested in LogbookCalendarTests; drawn by `LogbookCalendarView`, shared).
+
+- **Where.** On iPhone, tap a day header's name or totals (a small calendar glyph sits beside the
+  name): the calendar pops over the header, open on that day's month with the day filled. The bar
+  under it still opens the day's chart. On the Mac, ⌘J in the Logbook (or the Jump to Date button
+  beside the search) opens the same calendar. Elsewhere in the dashboard ⌘J is still Back to Now.
+- **Which days.** Days with nothing logged are dimmed and can't be picked; alerts alone don't
+  count. Today is ringed, later days are dimmed. The chevrons step a month at a time, from the
+  first month with an entry up to this one. **Latest** goes to the newest day with entries.
+  VoiceOver reads each day as "Tuesday 12 November, 3 entries" or "nothing logged".
+- **Landing.** Picking a day closes the calendar and the list springs (the emphasized spring) so
+  that day's header sits at the top, then the header lights once and VoiceOver says "Showing
+  Tuesday 12 November". Under Reduce Motion the list dips out, moves, and fades back instead. If
+  the search or a chip is hiding that day's entries, they're cleared first so there's a day to
+  land on (`LogbookJump.plan`). On the Mac, a day outside the toolbar's period moves the period
+  so it ends with that day (24 hours at least), and that day's rows light once as they arrive.
 
 ## From the Insights cards
 

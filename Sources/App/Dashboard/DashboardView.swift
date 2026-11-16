@@ -38,6 +38,8 @@ struct DashboardView: View {
     @State private var returnToCard: LogbookFilter?
     /// The entry the Logbook should select and bring into view (the popover's "last logged" line).
     @State private var revealEntry: UUID?
+    /// ⌘J in the Logbook: it takes this as "open the jump-to-a-date calendar" and clears it.
+    @State private var jumpToDate = false
     /// Asks from outside this window (the menu bar popover) for an entry in the Logbook.
     @ObservedObject private var request = DashboardRequest.shared
     /// Notices closed this session. Keyed by content, so a new problem shows again.
@@ -167,6 +169,7 @@ struct DashboardView: View {
         switch section {
         case .logbook:
             LogbookSection(data: data, focusSearch: $focusLogbookSearch, link: $logbookLink, reveal: $revealEntry,
+                           jumpToDate: $jumpToDate, showDay: { showLogbookDay($0) },
                            backToInsights: cameFromCard.map { card -> () -> Void in { backToInsights(card) } },
                            backCardTitle: cameFromCard.map(Self.cardTitle) ?? LogbookFilter.lows.title) { logSheet = $0 }
         case .outlook:
@@ -344,9 +347,10 @@ struct DashboardView: View {
             .controlGroupStyle(.navigation)
 
             if !data.isLive && section.usesRange {
+                // In the Logbook ⌘J jumps to a date instead (its calendar has Latest).
                 Button("Now") { goToNow() }
-                    .keyboardShortcut("j", modifiers: .command)
-                    .help("Jump back to the latest readings (⌘J)")
+                    .keyboardShortcut(section == .logbook ? nil : KeyboardShortcut("j", modifiers: .command))
+                    .help(section == .logbook ? "Jump back to the latest readings" : "Jump back to the latest readings (⌘J)")
             }
         }
 
@@ -439,6 +443,10 @@ struct DashboardView: View {
                 focusLogbookSearch = true
             }
             .keyboardShortcut("f", modifiers: .command)
+            if section == .logbook {
+                Button("Jump to a Date") { jumpToDate = true }
+                    .keyboardShortcut("j", modifiers: .command)
+            }
             Button("Keyboard Shortcuts", action: showShortcutsHelp)
                 .keyboardShortcut("/", modifiers: .command)
             Button("Keyboard Shortcuts", action: showShortcutsHelp)
@@ -520,6 +528,13 @@ struct DashboardView: View {
     }
 
     private func goToNow() { setPeriodEnd(nil) }
+
+    /// The Logbook's calendar picked a day outside the period: show a period ending with that day,
+    /// a whole day at least, so its rows are listed at the top of the table.
+    private func showLogbookDay(_ day: Date) {
+        if range.duration < 86_400 { range = .h24 }
+        setPeriodEnd(Calendar.current.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86_400))
+    }
 
     /// Opens one whole day on the Overview chart.
     private func showDay(_ day: Date) {
