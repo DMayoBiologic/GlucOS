@@ -62,6 +62,11 @@ struct ChartSpanTransition: Equatable {
     var domainHours: Double
     /// The span that is plotted.
     var dataHours: Double
+    /// The span whose level of detail the drawn trace keeps while the axis moves: where the move
+    /// started. Charts that thin readings to fit (the Mac dashboard) thin by this until the move
+    /// has finished, so the trace keeps its shape while it glides and is redrawn only once, at
+    /// the end. Equal to `domainHours` when nothing is changing.
+    private(set) var detailHours: Double
     /// Bumped on every change, so a movement that finishes after a newer one began doesn't trim
     /// the newer one's data.
     var generation = 0
@@ -69,12 +74,18 @@ struct ChartSpanTransition: Equatable {
     init(hours: Double) {
         domainHours = hours
         dataHours = hours
+        detailHours = hours
     }
+
+    /// True between `prepare` and `settle`: more is plotted than the axis shows, or the trace
+    /// still has the detail of the span the move started from.
+    var isChanging: Bool { dataHours != domainHours || detailHours != domainHours }
 
     /// Step one, without animation: plot enough for both ends of the move.
     mutating func prepare(for hours: Double) {
         generation += 1
         dataHours = max(dataHours, domainHours, hours)
+        detailHours = domainHours
     }
 
     /// Step two, animated: move the axis.
@@ -87,6 +98,7 @@ struct ChartSpanTransition: Equatable {
     mutating func settle(generation: Int) {
         guard generation == self.generation else { return }
         dataHours = domainHours
+        detailHours = domainHours
     }
 
     /// Straight to the new span, for Reduce Motion.
@@ -94,5 +106,51 @@ struct ChartSpanTransition: Equatable {
         generation += 1
         domainHours = hours
         dataHours = hours
+        detailHours = hours
+    }
+}
+
+/// The Mac dashboard chart's readings for a period: like `ChartSpan`, but the axis ends at the
+/// period's end (a 5-minute boundary on a live period, or a past moment) rather than at the
+/// newest reading, and runs from 3 hours to 30 days. `readings` is the whole archive, oldest →
+/// newest; only binary searches and slices are taken from it, so a 90-day archive costs nothing
+/// to window.
+struct PeriodSpan {
+    /// The period on the axis (the chart runs the axis on past it when it draws a forecast).
+    let domain: ClosedRange<Date>
+    /// The readings inside the period: what the chart describes, summarises and lets you inspect.
+    let visible: ArraySlice<GlucoseReading>
+    /// What is drawn: `visible`, plus everything the other end of a range change needs and one
+    /// `ChartSpan.lead` past the left edge, so readings slide in and out instead of popping.
+    let plotted: ArraySlice<GlucoseReading>
+    /// While the span changes: readings at or after this keep the detail they had when the move
+    /// began, and older ones (off screen until the axis widens) are thinned for the wider span.
+    /// Nil when nothing is changing.
+    let detailStart: Date?
+    /// The stretch `plotted` covers, for anything else drawn with the trace (logged events).
+    let plotDomain: ClosedRange<Date>
+
+    init(readings: [GlucoseReading], end: Date, transition t: ChartSpanTransition,
+         lead: TimeInterval = ChartSpan.lead) {
+        let start = end.addingTimeInterval(-t.domainHours * 3600)
+        domain = start...end
+        let upper = Self.firstIndex(in: readings, after: end)
+        let lo = ChartSpan.firstIndex(in: readings, atOrAfter: start)
+        visible = readings[min(lo, upper)..<upper]
+        let plotStart = end.addingTimeInterval(-max(t.dataHours, t.domainHours) * 3600 - max(0, lead))
+        let plo = ChartSpan.firstIndex(in: readings, atOrAfter: plotStart)
+        plotted = readings[min(plo, upper)..<upper]
+        plotDomain = min(plotStart, start)...end
+        detailStart = t.isChanging ? end.addingTimeInterval(-t.detailHours * 3600) : nil
+    }
+
+    /// The first reading later than `date`.
+    static func firstIndex(in readings: [GlucoseReading], after date: Date) -> Int {
+        var lo = 0, hi = readings.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if readings[mid].timestamp <= date { lo = mid + 1 } else { hi = mid }
+        }
+        return lo
     }
 }

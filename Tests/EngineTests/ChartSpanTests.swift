@@ -94,4 +94,70 @@ final class ChartSpanTests: XCTestCase {
         XCTAssertEqual(t.domainHours, 24)
         XCTAssertEqual(t.dataHours, 24)
     }
+
+    // MARK: Detail kept through a move (Mac dashboard)
+
+    func testDetailStaysAtTheStartingSpanUntilTheMoveSettles() {
+        var t = ChartSpanTransition(hours: 3)
+        XCTAssertFalse(t.isChanging)
+        t.prepare(for: 720)                          // 3 hours to 30 days
+        XCTAssertTrue(t.isChanging)
+        XCTAssertEqual(t.detailHours, 3)
+        t.move(to: 720)
+        XCTAssertEqual(t.detailHours, 3)             // still drawn at 3-hour detail while gliding
+        t.settle(generation: t.generation)
+        XCTAssertEqual(t.detailHours, 720)
+        XCTAssertFalse(t.isChanging)
+    }
+
+    func testNarrowingKeepsTheWideDetailUntilItSettles() {
+        var t = ChartSpanTransition(hours: 720)
+        t.prepare(for: 3)
+        t.move(to: 3)
+        XCTAssertEqual(t.detailHours, 720)
+        XCTAssertTrue(t.isChanging)
+        t.settle(generation: t.generation)
+        XCTAssertEqual(t.detailHours, 3)
+    }
+
+    func testJumpClearsDetail() {
+        var t = ChartSpanTransition(hours: 3)
+        t.prepare(for: 24)
+        t.jump(to: 168)
+        XCTAssertEqual(t.detailHours, 168)
+        XCTAssertFalse(t.isChanging)
+    }
+
+    // MARK: PeriodSpan (Mac dashboard)
+
+    func testPeriodSpanEndsAtThePeriodEndNotTheNewestReading() {
+        let r = readings(hours: 48)
+        let end = start.addingTimeInterval(24 * 3600)          // a past period
+        let p = PeriodSpan(readings: r, end: end, transition: ChartSpanTransition(hours: 3))
+        XCTAssertEqual(p.domain, end.addingTimeInterval(-3 * 3600)...end)
+        XCTAssertEqual(p.visible.count, 37)
+        XCTAssertTrue(p.visible.allSatisfy { p.domain.contains($0.timestamp) })
+        XCTAssertTrue(p.plotted.allSatisfy { $0.timestamp <= end })
+        XCTAssertEqual(p.plotted.filter { $0.timestamp < p.domain.lowerBound }.count, 2)   // the lead
+        XCTAssertNil(p.detailStart)
+    }
+
+    func testPeriodSpanPlotsTheWiderEndWhileWidening() {
+        let r = readings(hours: 48)
+        let end = r.last!.timestamp
+        var t = ChartSpanTransition(hours: 3)
+        t.prepare(for: 24)
+        let p = PeriodSpan(readings: r, end: end, transition: t, lead: 0)
+        XCTAssertEqual(p.visible.count, 37)                    // the axis hasn't moved yet
+        XCTAssertEqual(p.plotted.count, 24 * 12 + 1)           // but 24 hours are drawn
+        XCTAssertEqual(p.detailStart, end.addingTimeInterval(-3 * 3600))
+    }
+
+    func testPeriodSpanWithNoReadingsInThePeriod() {
+        let r = readings(hours: 2)
+        let p = PeriodSpan(readings: r, end: start.addingTimeInterval(-3600), transition: ChartSpanTransition(hours: 3))
+        XCTAssertTrue(p.visible.isEmpty)
+        XCTAssertTrue(p.plotted.isEmpty)
+        XCTAssertTrue(PeriodSpan(readings: [], end: start, transition: ChartSpanTransition(hours: 3)).plotted.isEmpty)
+    }
 }

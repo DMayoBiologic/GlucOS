@@ -122,6 +122,14 @@ Changing 3h / 6h / 12h / 24h is three steps (`ChartSpanTransition`): plot what b
 screen stretch or squeeze to the new scale instead of fading out and in. Under Reduce Motion the
 span switches at once. Nothing repeats: one movement per reading or per tap (§4.6).
 
+The Mac dashboard's Overview chart (`TrendChart`) does the same from 3 hours to 30 days, with the
+axis ending at the period's end (`PeriodSpan`) rather than at the newest reading. While the range
+changes the trace keeps the detail it had when the move began (only readings off screen are
+thinned for the wider span), so its shape holds through the glide and it's redrawn at the new
+range's detail once, at the end. A new reading, or a live period's end moving on to the next
+5 minutes, slides it along. It scrolls only while zoomed, and a new range starts unzoomed. Moving
+to another stretch of time (⌘[ / ⌘]) still wipes in (§8.3).
+
 ### 4.2 Range change ("sweep")
 
 When the range changes, the range field's colour sweeps (`.sweep`) and the range pill swaps with a
@@ -429,7 +437,8 @@ appearance without redrawing.
 - **Overview** hero on a `RangeField` with live drift (it's a window you look at), rail and meter.
 - **Sidebar**: selection highlight slides between sections.
 - **Sections** (Outlook, Patterns, Days, Readings, Logbook, Insights, Report): unchanged layout; charts
-  wipe in when their period changes; stat tiles roll their numbers.
+  wipe in when their period changes; stat tiles roll their numbers. The Overview chart glides to a
+  new range on the same stretch of time instead of wiping (§4.1).
 
 ### 8.4 Onboarding, Settings, Log sheet, Quick log
 
