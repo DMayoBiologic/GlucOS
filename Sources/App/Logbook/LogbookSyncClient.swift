@@ -165,6 +165,8 @@ struct ForecastUpload: Encodable, Equatable {
     let morning: Bool
     /// The app version that showed it. Left out for records from before versions were kept.
     let app_version: String?
+    /// True for a forecast kept between the quarter-hour checks (`ForecastRecord.extra`). Left out otherwise.
+    let extra: Bool?
 
     init(_ r: ForecastRecord) {
         id = r.id
@@ -181,5 +183,6 @@ struct ForecastUpload: Encodable, Equatable {
         tuned = r.tuned
         morning = r.morning
         app_version = r.appVersion
+        extra = r.isExtra ? true : nil
     }
 }

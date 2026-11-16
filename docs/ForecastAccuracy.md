@@ -226,7 +226,8 @@ it can't count.
 
 Uploads: `forecast_checks` arrive every 15 minutes from the Mac while it's awake, and from the
 iPhone while the app is open, about 1–2 hours after the forecast (each waits for its last checked
-point plus 20 minutes). The Mac's quiet stretch, 2026-11-14 18:42 to 2026-11-15 03:31 UTC
+point plus 20 minutes). Since round 30 (§35) both keep one every 5 minutes and send each once its
+first hour is scored, then again when it settles. The Mac's quiet stretch, 2026-11-14 18:42 to 2026-11-15 03:31 UTC
 (02:42–11:31 on 15 Nov in Perth), lines up with Declan asleep and then not yet at the Mac: the
 logbook has him waking at 10:59 Perth time, and the Mac's first forecast came 32 minutes later.
 The iPhone's own gap was shorter (its forecasts stopped at 02:21 and started again at 08:42 Perth
@@ -2090,4 +2091,84 @@ select fp.device,
 from glucos.forecast_points fp join glucos.forecast_checks fc on fc.id = fp.id
 where fp.minutes in (15, 30, 60) and not fp.after_log
 group by 1, 2, 3, 4 order by 1, 4, 3, 2;
+```
+
+## 35. More forecast checks from the Mac and iPhone (16 Nov 2026)
+
+The question: §34 couldn't judge a release on the Mac or iPhone because each had 1 to 4 checks
+per version. Why so few, and can they record more without changing any forecast? **They kept one
+forecast per 15 minutes, only while awake, and sent each one only after it settled 3 h 20 min
+later. Both now keep one every 5 minutes while fresh readings come in and send each one once its
+first hour is scored. What's drawn is decided exactly as before.**
+
+Nothing here touches dosing, the forecast's sums, or the relay's ledger (still one per 15 minutes).
+
+**Why there were so few.** Gaps between the Mac's and iPhone's consecutive forecast checks, last
+3 days (`glucos.forecast_checks`, 16 Nov 06:15 UTC):
+
+| Gap | Mac (n, hours) | iPhone (n, hours) |
+|---|---|---|
+| Under 16 min | 62, 15.8 | 23, 5.9 |
+| 16–20 min | 21, 5.7 | 14, 4.0 |
+| 20–30 min | 3, 1.2 | 16, 7.1 |
+| 30 min – 2 h | 3, 3.1 | 25, 26.3 |
+| Over 2 h | 4, 44.9 | 8, 26.8 |
+
+1. **Cadence.** The ledger's `spacing` of 15 minutes was a hard ceiling: at most 4 an hour however
+   long the Mac was awake with readings every minute. That was most of the Mac's shortfall.
+2. **Asleep.** 45 of the Mac's 70 hours were 4 stretches over 2 hours (overnight, lid closed). The
+   iPhone records only while the app is open or woken for a background refresh, so most of its
+   gaps are 30 minutes to hours. Neither can be fixed without polling while asleep, which the power
+   rule from #94 rules out, and a forecast can't be recorded after the fact: that would be a
+   replay, not what was shown.
+3. **Upload lag.** A forecast was sent only once settled, 20 minutes after its last point (up to
+   3 hours), so a version that lived 30 minutes had almost nothing on the server when §34 looked.
+   Since 1.0 the server had 8 Mac forecasts and 10 iPhone ones in total.
+
+Not a cause: dedupe. Each device's ledger keeps only its own forecasts, one per issue time, and
+the server's `forecast_push` replaces on the forecast's id.
+
+**What changed** (`ForecastLedger`, `ForecastLedgerStore`, `ForecastUpload`, migration
+`20261116070000_glucos_forecast_extra_checks.sql`):
+
+- `note` keeps a forecast when it's 5 minutes (`checkSpacing`) after the last one kept. The
+  first one 15 minutes after the last quarter-hour check is always kept as a quarter-hour check,
+  even if an extra was kept a minute before, so the quarter-hour checks land exactly where the
+  old log put them. The others carry `extra = true` (nil on quarter-hour ones and every older
+  record). No new timer: `note` runs on the readings the apps already fetch.
+- **What's drawn doesn't change.** The range widening (`rangeScale`), the live horizon cut
+  (`liveHorizon`) and the back-in-range gate read `ForecastLedger.quarterHourly`, the
+  quarter-hour checks only: the same records, with the same values, as before. Using the extras
+  there too would change the drawn forecast, and 5-minute checks overlap (their 15-minute points
+  share 10 minutes of readings), so their thresholds would mean less. That's a separate question.
+- **The Insights card and since-update line count every check**, as do the server's
+  `glucos.forecast_scorecard` and `glucos.forecast_scorecard_by_version`, which mirror them. The
+  views are unchanged and still match the apps: they count every row, and extras are rows. A
+  horizon reaches the card's 30 checks about 3 times sooner on the Mac. Bear in mind the overlap:
+  30 checks 5 minutes apart are worth roughly 10 to 15 independent ones, so a ratio on just
+  over 30 is still loose. The mean miss itself isn't biased by the spacing.
+- `forecast_checks.extra` (default false; older app versions send nothing) lets an analysis
+  keep the old spacing: add `and not fc.extra` to compare with weeks before 16 Nov or with the
+  relay.
+- Sending: a forecast goes up as soon as its points up to 60 minutes have their readings
+  (`earlyUploadMinutes`) and again when it settles (settling clears `uploaded`). The server
+  already replaced points on a resend. Same once-a-minute sync, at most one more small push per
+  forecast.
+- Extras are kept 8 days on the device (`extraRetention`), enough for the card's week and the
+  since-update figures; quarter-hour checks keep 90. The 3 weeks the trend line compares with are
+  quarter-hour checks only, which doesn't bias a mean miss. The file grows by about a fifth,
+  not threefold.
+
+**What to expect.** The Mac was awake with readings about 26 hours in those 3 days: about 310
+checks instead of about 100, roughly 100 a waking day. The iPhone gains less, since most of its
+opens are shorter than 5 minutes; its checks also arrive sooner now. §34's "100 clean 15-minute
+checks since 1.0" should take about a waking day on the Mac rather than two or three.
+
+SQL (Supabase), checks per device and version with and without extras:
+
+```sql
+select device, app_version, count(*) checks, count(*) filter (where not extra) quarter_hour
+from glucos.forecast_checks
+where issued_at > now() - interval '2 days' and device <> 'relay'
+group by 1, 2 order by 1, 2;
 ```
