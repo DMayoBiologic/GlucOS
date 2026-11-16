@@ -2172,3 +2172,102 @@ from glucos.forecast_checks
 where issued_at > now() - interval '2 days' and device <> 'relay'
 group by 1, 2 order by 1, 2;
 ```
+
+## 36. Are forecasts worse when glucose is low or high? (16 Nov 2026)
+
+The question: do the 15 and 30 minute forecasts miss more, or hold their range less often, when
+they start below 4.5 mmol/L (81 mg/dL), between 4.5 and 10, or above 10 (180 mg/dL)? And would a
+trend damping or a range widening of its own for each band do better on days it hadn't seen?
+**Yes, the bands differ, and in a consistent direction: forecasts that start low run low and ones
+that start high run high. But neither fix beat what ships on held-out days, so nothing changed.**
+
+Nothing here touches dosing, the insulin or carb effects, the low alerts or the relay.
+
+**The data.** Clean points (nothing logged after the forecast) at 15 and 30 minutes in
+`glucos.forecast_checks`, Mac, iPhone and relay, from 12 Nov 15:23 to 16 Nov 14:21 Perth: 531
+points (325 at 15 minutes, 206 at 30). None are §35's 5-minute extras yet: 1.25, which sends
+them, was released at 14:43 Perth, after the last settled point. The band is the reading the
+forecast started from.
+
+**As shown.** Bias is actual minus forecast, so positive means the forecast ran low.
+
+| Start | Horizon | Points | Miss (mean) | No change | Bias | Inside range | Width |
+|---|---|---|---|---|---|---|---|
+| Under 4.5 | 15 min | 30 | 25.6 | 24.6 | +24.0 | 63% | 43.8 |
+| 4.5–10 | 15 min | 198 | 15.4 | 17.0 | +2.6 | 73% | 43.6 |
+| Over 10 | 15 min | 97 | 16.9 | 16.6 | −9.9 | 78% | 49.0 |
+| Under 4.5 | 30 min | 8 | 74.7 | 67.4 | +74.7 | 38% | 59.7 |
+| 4.5–10 | 30 min | 135 | 25.1 | 27.3 | +6.8 | 70% | 64.3 |
+| Over 10 | 30 min | 63 | 23.2 | 28.1 | −16.0 | 83% | 71.4 |
+
+(mg/dL, except inside range.) The pattern holds in finer steps too: the 15-minute bias goes from
++24 under 4.5 through about 0 between 6.7 and 10 to −9 to −12 above 10, and every sender shows it.
+
+- **Low.** The forecast never missed *below* its range when it started low: all 11 misses at
+  15 minutes and all 5 at 30 were glucose coming back up faster than the range allowed, 9 of the
+  30 by more than 2 mmol/L in 15 minutes. That is lows being treated (or compression lows ending,
+  §17) without the treatment logged, which is what "Did you treat this low?" (#125) is there to
+  catch: answering it moves those points out of the clean set. "No change" does no better here. The 30-minute low band is 8 points
+  on two days, too few to read anything into.
+- **High.** Forecasts above 10 run about 10 mg/dL high at 15 minutes and 16 at 30, on both
+  trend-only and model forecasts, so highs come down faster than forecast. The range still holds
+  (78% and 83%): it's already wide enough there.
+- **In range** is where the 4.5–10 band's coverage gap is (73% and 70% as shown), as §21 found
+  for slow and flat trends.
+
+**The tests.** Leave one day out, as in §21 and §22. Damping is f − (1 − k)·trend share, with k
+learnt per band by least absolute error and bands with under 25 training points falling back to
+one k. The widening is learnt per horizon and per group to hold 80%, never below 1, with the same
+25-point fallback and interval score as §21.
+
+| Held out, mean miss (mg/dL) | 15 min | 30 min |
+|---|---|---|
+| As shown | 16.80 | 26.46 |
+| No change | 17.56 | 29.11 |
+| One extra damping for all | 16.87 | 26.37 |
+| Damping per band | 16.83 | 26.44 |
+| Damping per band, above 4.5 only | 16.87 | 26.46 |
+| Damping above 10 only | 16.58 | 26.52 |
+| Shift forecasts above 10 by their median bias (not damping) | 16.41 | 25.63 |
+
+| Held out, ranges, 15 + 30 min | Inside | Mean width | Interval score |
+|---|---|---|---|
+| As shown | 73.1% | 53.4 | 113.4 |
+| One figure | 78.7% | 66.9 | 115.1 |
+| Steady / fast at 1.5 (what §9 does) | 79.1% | 69.6 | 112.4 |
+| Per band (under 4.5, 4.5–10, over 10) | 78.0% | 65.3 | 114.7 |
+| Under 4.5 apart from the rest | 77.2% | 63.4 | 114.0 |
+| Band × steady / fast | 77.0% | 63.5 | 112.4 |
+| Steady / fast, under 4.5 apart | 79.1% | 67.1 | 112.1 |
+
+- **Damping per band** changes nothing that matters. The fitted k is about 1 (no extra damping)
+  at 30 minutes in every band with enough points. The low band would want much more damping
+  (k ≈ 0.26 at 15 minutes), but that pulls falling forecasts up and so makes predicted lows
+  later, which is ruled out; and with 30 points it falls back to one k anyway.
+- **Ranges per band** lose to the speed split on both coverage and score. Bands and speed
+  overlap (fast falls end low, fast rises end high), so splitting by band mostly re-cuts the same
+  points into smaller groups. The last row is within noise of what ships: only the low band
+  changes, it nearly always falls back to one figure, and its coverage stays at 66.7%.
+- **Shifting highs down** by the median bias is the one thing that won overall (2.3% at
+  15 minutes, 3.1% at 30). It was not part of the question and it doesn't pass the tuner's own
+  bar (at least 3% better, and better in both halves): at 15 minutes it lost on 12 Nov and tied on 13 Nov, and most
+  of the gain is 15 Nov's 42 points. It is also the learnt drift PR #53 rejected, now for one
+  band. It would make "Back in range ≈ X min" (§24, highs only) sooner too, and that line has its
+  own gate. Worth rerunning once §35's extras have filled a week.
+
+**Low warnings.** Nothing tested here shipped, so low warnings (§13, §30) are exactly as before
+on the apps and the relay. For the record, the shown forecast never ran high when it started
+low, so it doesn't make low warnings late from that side.
+
+To rerun the first table:
+
+```sql
+with p as (select c.start_mgdl s, (e->>'minutes')::int m, (e->>'actual')::float a,
+  (e->>'mgdl')::float f, (e->>'lower')::float lo, (e->>'upper')::float up,
+  coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e)
+select m, case when s < 81 then 'under 4.5' when s <= 180 then '4.5-10' else 'over 10' end band,
+  count(*), avg(abs(a - f)) miss, avg(abs(a - s)) no_change, avg(a - f) bias,
+  avg((abs(a - f) <= case when a >= f or lo <= 39.5 then up - f else f - lo end)::int) inside
+from p where a is not null and not al and m in (15, 30) group by 1, 2 order by 1, 2;
+```
