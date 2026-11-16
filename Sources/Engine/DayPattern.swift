@@ -66,7 +66,21 @@ struct DayPattern: Hashable {
 
     static func compute(readings: [GlucoseReading], window: Window, now: Date = Date(),
                         calendar: Calendar = .autoupdatingCurrent) -> DayPattern? {
-        let cutoff = now.addingTimeInterval(-Double(window.days) * 86_400)
+        compute(readings: readings, after: now.addingTimeInterval(-Double(window.days) * 86_400), upTo: now,
+                window: window, dayCap: window.days, calendar: calendar)
+    }
+
+    /// The usual day over any stretch of days (a Logbook export's period: readings at or after
+    /// `start` and before `end`). Same rules as the Insights card; `window` is the nearer of the
+    /// card's two periods, only so the result has one.
+    static func compute(readings: [GlucoseReading], from start: Date, to end: Date, days: Int,
+                        calendar: Calendar = .autoupdatingCurrent) -> DayPattern? {
+        compute(readings: readings.filter { $0.timestamp < end }, after: start.addingTimeInterval(-0.001),
+                upTo: end, window: days > 21 ? .month : .fortnight, dayCap: days, calendar: calendar)
+    }
+
+    private static func compute(readings: [GlucoseReading], after cutoff: Date, upTo now: Date, window: Window,
+                                dayCap: Int, calendar: Calendar) -> DayPattern? {
         // (day key × buckets per day + bucket) -> (sum, n)
         let bucketsPerDay = 1440 / bucketMinutes
         var buckets: [Int: (sum: Double, n: Int)] = [:]
@@ -99,7 +113,7 @@ struct DayPattern: Hashable {
         let present = raw.compactMap { $0 }.count
         guard Double(present) >= minimumSlotShare * Double(slotCount) else { return nil }
         // A 14-day window touches 15 calendar days (part of the first and today).
-        return DayPattern(window: window, slots: smooth(raw), days: min(dayKeys.count, window.days))
+        return DayPattern(window: window, slots: smooth(raw), days: min(dayKeys.count, dayCap))
     }
 
     /// Linear interpolation between the two nearest ranks. `sorted` must be ascending and non-empty.

@@ -17,7 +17,10 @@ struct PhoneLogbookView: View {
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var router: PhoneLogRouter
     @EnvironmentObject var sync: LogbookSyncService
+    @EnvironmentObject var store: GlucoseStore
     @State private var query = ""
+    /// The clinic-visit export sheet (`PhoneExportView`).
+    @State private var showsExport = false
     @State private var kind: LogbookFilter?
     /// Low and high alerts show as quiet rows between the entries unless turned off here.
     @AppStorage(AlertLogRow.showsKey) private var showsAlerts = true
@@ -50,12 +53,17 @@ struct PhoneLogbookView: View {
         .navigationTitle("Logbook")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showsExport = true } label: { Image(systemName: "square.and.arrow.up") }
+                    .accessibilityLabel("Export for a clinic visit")
+            }
             ToolbarItem(placement: .topBarTrailing) { alertsMenu }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { router.open(nil) } label: { Image(systemName: "plus") }
                     .accessibilityLabel("Log something")
             }
         }
+        .sheet(isPresented: $showsExport) { exportSheet }
         // An opened row, drawn over the list it grew out of.
         .overlay { detail(all: all, terms: search.terms) }
         // Undo, just above the bottom edge. The countdown that sends it away runs on the home
@@ -79,6 +87,15 @@ struct PhoneLogbookView: View {
         .task {
             try? await Task.sleep(for: .seconds(1))
             assembled = true
+        }
+    }
+
+    /// The export takes a copy of what's on the phone now: the owner's own readings and entries.
+    private var exportSheet: some View {
+        let snapshot = store.snapshot
+        return NavigationStack {
+            PhoneExportView(readings: store.archive, entries: logbook.entries, unit: snapshot.unit,
+                            lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl)
         }
     }
 
