@@ -84,6 +84,15 @@ struct PhoneLogbookView: View {
     /// The entry to open once the screen is up (the "last logged" line under Today's chart).
     @State private var opening: UUID?
 
+    /// The day whose header has the jump-to-a-date calendar open over it.
+    @State private var calendarFrom: String?
+    /// A picked day the list is on its way to.
+    @State private var jumping: LogbookJumpRequest?
+    /// The day just landed on: its header lights once, then fades.
+    @State private var landed: String?
+    /// The list's opacity, dipped for the Reduce Motion cross-fade while it moves to a day.
+    @State private var listFade = 1.0
+
     /// Opened from a card (`LogbookLink`): its chip picked and its period above the list. Opened on
     /// an entry (`opening`): that entry's row opens into its detail once the push has landed.
     init(link: LogbookLink? = nil, opening: UUID? = nil) {
@@ -173,6 +182,15 @@ struct PhoneLogbookView: View {
 
     private func list(all: [LogEntry], kinds: [LogbookFilter], shown: [PhoneLogbookItem],
                       search: LogbookQuery) -> some View {
+        ScrollViewReader { proxy in
+            listBody(all: all, kinds: kinds, shown: shown, search: search)
+                .opacity(listFade)
+                .task(id: jumping) { await land(jumping, proxy: proxy) }
+        }
+    }
+
+    private func listBody(all: [LogEntry], kinds: [LogbookFilter], shown: [PhoneLogbookItem],
+                          search: LogbookQuery) -> some View {
         List {
             if kinds.count > 1 || kind != nil {
                 Section {
@@ -217,6 +235,7 @@ struct PhoneLogbookView: View {
         let snapshot = store.snapshot
         let ranges = dayRanges.figures(readings: store.archive, days: days.map(\.start),
                                        low: snapshot.lowMgdl, high: snapshot.highMgdl, now: now)
+        let shownDays = Set(days.map(\.start))
         ForEach(Array(days.enumerated()), id: \.element.id) { i, day in
             Section {
                 ForEach(Array(day.items.enumerated()), id: \.element.id) { j, item in
@@ -225,13 +244,18 @@ struct PhoneLogbookView: View {
                 }
             } header: {
                 // Day headers stay pinned, on a blur, while their day scrolls under them.
-                dayHeader(day, totals: totals[day.id] ?? day.totals, range: ranges[day.start], all: all, now: now)
+                dayHeader(day, totals: totals[day.id] ?? day.totals, range: ranges[day.start], all: all, now: now,
+                          shownDays: shownDays)
                     .padding(.horizontal, DS.Space.lg)
                     .padding(.vertical, DS.Space.xs + 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    // The day a jump landed on lights once under its name.
+                    .background(Palette.brand.opacity(landed == day.id ? 0.14 : 0))
                     .background(.bar)
                     .listRowInsets(EdgeInsets())
             }
+            // What a jump to a date scrolls to (`LogbookJump.sectionID`).
+            .id(day.id)
         }
     }
 
@@ -357,8 +381,12 @@ struct PhoneLogbookView: View {
     /// Tapping a day with a bar opens it in place into that day's chart (`DayMiniChart`): the bar
     /// grows into the chart and the chart shrinks back into the bar on a second tap. Opening
     /// another day closes this one. Under Reduce Motion the two cross-fade instead. Nothing loops.
+    ///
+    /// Tapping the day's name (and its totals) opens a compact calendar over it instead
+    /// (`LogbookCalendarView`): days with nothing logged are dimmed, and picking one springs the
+    /// list to that day, or cross-fades it there under Reduce Motion (`land`).
     private func dayHeader(_ day: PhoneLogbookDay, totals: String, range: DayInRange?, all: [LogEntry],
-                           now: Date) -> some View {
+                           now: Date, shownDays: Set<Date>) -> some View {
         let open = range != nil && openDay == day.id
         let snapshot = store.snapshot
         let segments: [[DayChartPoint]] = open
@@ -370,57 +398,119 @@ struct PhoneLogbookView: View {
                 Text(day.title)
                     .dsFont(.headline)
                     .foregroundStyle(.primary)
+                // Says the name opens the calendar, without shouting it.
+                Image(systemName: "calendar")
+                    .imageScale(.small)
+                    .foregroundStyle(.tertiary)
                 Spacer(minLength: DS.Space.sm)
                 Text(totals)
                     .dsFont(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            if let range {
-                if open {
-                    DayMiniChart(start: day.start, segments: segments, markers: markers, unit: snapshot.unit,
-                                 lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl)
-                        .padding(.top, DS.Space.xs)
-                        .dayChartMatch(day.id, in: dayChartSpace, enabled: !reduceMotion)
-                        .transition(.opacity)
+            .contentShape(Rectangle())
+            .onTapGesture { openCalendar(day.id) }
+            .popover(isPresented: Binding(get: { calendarFrom == day.id },
+                                          set: { if !$0, calendarFrom == day.id { calendarFrom = nil } }),
+                     arrowEdge: .top) {
+                LogbookCalendarView(counts: LogbookCalendar.counts(all.map(\.timestamp)), current: day.start) { picked in
+                    jump(to: picked, all: all, shownDays: shownDays)
                 }
-                HStack(spacing: DS.Space.sm) {
+                .presentationCompactAdaptation(.popover)
+            }
+            if let range {
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
                     if open {
-                        Text(DayChartText.caption(segments, unit: snapshot.unit) ?? "No readings")
-                            .dsFont(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .transition(.opacity)
-                    } else {
-                        DayRangeBar(id: day.id, figures: range, drawn: drawnBars)
-                            .frame(maxWidth: .infinity)
+                        DayMiniChart(start: day.start, segments: segments, markers: markers, unit: snapshot.unit,
+                                     lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl)
+                            .padding(.top, DS.Space.xs)
                             .dayChartMatch(day.id, in: dayChartSpace, enabled: !reduceMotion)
                             .transition(.opacity)
                     }
-                    Text("\(DayInRangeText.percent(range)) in range")
-                        .dsFont(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.numericText())
-                        .dsAnimation(.standard, value: range.inRange)
+                    HStack(spacing: DS.Space.sm) {
+                        if open {
+                            Text(DayChartText.caption(segments, unit: snapshot.unit) ?? "No readings")
+                                .dsFont(.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .transition(.opacity)
+                        } else {
+                            DayRangeBar(id: day.id, figures: range, drawn: drawnBars)
+                                .frame(maxWidth: .infinity)
+                                .dayChartMatch(day.id, in: dayChartSpace, enabled: !reduceMotion)
+                                .transition(.opacity)
+                        }
+                        Text("\(DayInRangeText.percent(range)) in range")
+                            .dsFont(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .contentTransition(.numericText())
+                            .dsAnimation(.standard, value: range.inRange)
+                    }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { toggleDay(day.id) }
             }
         }
         .textCase(nil)
-        .contentShape(Rectangle())
-        .onTapGesture { if range != nil { toggleDay(day.id) } }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(open
             ? DayChartText.spoken(day: spokenDay, figures: range, segments: segments, unit: snapshot.unit,
                                   low: snapshot.lowMgdl, high: snapshot.highMgdl, logged: markers.count)
             : DayInRangeText.spoken(spokenDay, range))
         .accessibilityValue(totals)
-        .accessibilityAddTraits(range != nil ? [.isHeader, .isButton] : .isHeader)
-        .accessibilityHint(range == nil ? "" : (open ? "Hides the day's chart" : "Shows the day's chart"))
-        .accessibilityAction { if range != nil { toggleDay(day.id) } }
+        .accessibilityAddTraits([.isHeader, .isButton])
+        .accessibilityHint(range == nil ? "Jumps to a date" : (open ? "Hides the day's chart" : "Shows the day's chart"))
+        .accessibilityAction { if range != nil { toggleDay(day.id) } else { openCalendar(day.id) } }
+        .accessibilityAction(named: "Jump to a Date") { openCalendar(day.id) }
+    }
+
+    private func openCalendar(_ id: String) {
+        Haptics.play(.choice)
+        calendarFrom = id
+    }
+
+    /// A day picked in the calendar: closes it, and moves the list there. If a search or chip is
+    /// hiding that day's entries, those go first, so there's a day to land on.
+    private func jump(to day: Date, all: [LogEntry], shownDays: Set<Date>) {
+        calendarFrom = nil
+        switch LogbookJump.plan(day: day, shownDays: shownDays, counts: LogbookCalendar.counts(all.map(\.timestamp))) {
+        case .scroll(let d):
+            jumping = LogbookJumpRequest(day: d)
+        case .clearFiltersThenScroll(let d):
+            query = ""
+            kind = nil
+            linked = nil
+            jumping = LogbookJumpRequest(day: d)
+        case .none:
+            break
+        }
+    }
+
+    /// Once the calendar has gone (and any cleared search has rebuilt the list): springs the list
+    /// so the day's header is at the top, or under Reduce Motion dips the list out, moves it, and
+    /// fades it back. The header then lights once, and VoiceOver says where it landed.
+    private func land(_ request: LogbookJumpRequest?, proxy: ScrollViewProxy) async {
+        guard let request else { return }
+        let id = LogbookJump.sectionID(request.day)
+        try? await Task.sleep(for: .milliseconds(reduceMotion ? 80 : 200))
+        guard !Task.isCancelled else { return }
+        if reduceMotion {
+            withAnimation(.easeOut(duration: 0.15)) { listFade = 0 }
+            try? await Task.sleep(for: .milliseconds(160))
+            proxy.scrollTo(id, anchor: .top)
+            withAnimation(.easeIn(duration: 0.2)) { listFade = 1 }
+        } else {
+            withAnimation(DSMotion.emphasized.animation) { proxy.scrollTo(id, anchor: .top) }
+        }
+        Haptics.play(.choice)
+        LoggedElsewhere.announce(LogbookJump.announcement(request.day, now: Date()))
+        withAnimation(DSMotion.quick.animation) { landed = id }
+        try? await Task.sleep(for: .seconds(1.2))
+        DS.animate(.ambient, reduceMotion: reduceMotion) { if landed == id { landed = nil } }
     }
 
     /// Opens a day into its chart, or closes it: the bar grows into the chart (a spring the eye can

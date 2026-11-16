@@ -66,14 +66,14 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 - **Opening the popover**: your last reading is there at once, dimmed with its age, and fades to the live value when it arrives.
 - **Logging shows on the chart**: a meal, dose or treatment you log pops onto the popover chart at its time, and a deleted one shrinks away.
 - **Changing your target range**: the chart's band glides to the new range and the time-in-range figures roll to their new values.
-- **Moving into or out of range**: the reading in the popover gets one brief colour wash as it crosses your target range. It won't repeat while you hover at the edge, and there's no wash with Reduce Motion on.
+- **Moving into or out of range**: the reading in the popover gets one brief colour wash as it crosses your target range. The wash only fires once the reading has been at least 5 mg/dL (0.3 mmol/L) inside its side before it crosses: with a low of 70, readings of 72 then 69 give no wash, but 75 then 69 do. So it won't repeat while you hover at the edge, and there's no wash with Reduce Motion on.
 - **Dashboard** (⌘D in the popover, or the expand button on the chart): a resizable window with
   - an interactive chart from 3 hours to 30 days: hover for any reading (with its 15-minute change),
     drag across it to select a stretch and see its average, time in range and change, pinch or
     ⌘+ / ⌘− to zoom, scroll sideways or ⌥← / ⌥→ to pan, and an overview strip to jump around while zoomed;
   - overlays you can switch on and off: logged insulin, food, context and site changes, shaded data
     gaps, and the previous period as a dashed line for comparison;
-  - ⌘[ / ⌘] to step back through stored history a period at a time, ⌘J to come back to now;
+  - ⌘[ / ⌘] to step back through stored history a period at a time, ⌘J to come back to now (in the Logbook ⌘J jumps to a date);
   - time in range across five ranges, average, GMI, standard deviation, CV, lowest/highest, data capture
     and highlights (longest stretch in range, low and high episodes), with changes vs the previous period;
   - daily patterns (median and percentile bands by time of day) or the last 7 days overlaid, plus time in
@@ -119,7 +119,9 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   the part it needs, food always above the dose for it. Describe a meal in words ("2 slices of
   toast and a banana") or search, and the carbs are worked out. Tick **Save as preset** to keep a
   combination; manage presets in **Settings → Logging**. In **Dashboard → Logbook** you can filter,
-  search, edit, "Log Again Now", and undo a delete (⌘Z).
+  search, edit, "Log Again Now", and undo a delete (⌘Z). ⌘J (or the calendar button by the search) opens a
+  month calendar with days that have nothing logged dimmed; pick a day and the table springs to it, moving the
+  toolbar's period there if it's outside it.
 - **Colour-coded menu bar icon** (Settings → General, off by default): tints the drop green/orange/red by
   range. An urgent low is always shown in colour, whatever the setting. Stale data always shows the
   plain warning sign, with the reading's age in place of the trend arrow.
