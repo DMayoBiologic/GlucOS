@@ -160,6 +160,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Your usual day moves.** In Insights, the bands of Your usual day draw in when the card appears and glide when you switch between 14 and 30 days. With Reduce Motion on, they just change.
 - **Today so far moves.** On Today, the Today so far card counts up when it first shows, and its figures roll as new readings come in. With Reduce Motion on, they just change.
 - **Insights glides between periods.** Range bars glide, Day by day columns grow to their new heights, Week in review cross-fades and every figure rolls when you change period. With Reduce Motion on, they just change.
+- **Each Logbook day shows its time in range.** A thin bar with the percentage sits on every day header and draws in once; VoiceOver reads it, for example "Tuesday, 78% in range".
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
