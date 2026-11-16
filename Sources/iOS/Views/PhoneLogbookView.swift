@@ -32,6 +32,10 @@ struct PhoneLogbookView: View {
     @State private var fresh: Set<UUID> = []
     /// The entry opened into its detail, if any, and how far open it is.
     @State private var opener = LogbookRowOpener()
+    /// Each day's time in range for the header bars, worked out once per data change.
+    @State private var dayRanges = DayInRangeCache()
+    /// Day bars that have drawn in, so each plays once.
+    @State private var drawnBars = DrawnOnce()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -155,6 +159,9 @@ struct PhoneLogbookView: View {
                                                   uniquingKeysWith: { a, _ in a })
         let days = PhoneLogbookDay.group(shown, now: now)
         let starts = PhoneLogbookDay.rowStarts(days)
+        let snapshot = store.snapshot
+        let ranges = dayRanges.figures(readings: store.archive, days: days.map(\.start),
+                                       low: snapshot.lowMgdl, high: snapshot.highMgdl, now: now)
         ForEach(Array(days.enumerated()), id: \.element.id) { i, day in
             Section {
                 ForEach(Array(day.items.enumerated()), id: \.element.id) { j, item in
@@ -163,7 +170,7 @@ struct PhoneLogbookView: View {
                 }
             } header: {
                 // Day headers stay pinned, on a blur, while their day scrolls under them.
-                dayHeader(day, totals: totals[day.id] ?? day.totals)
+                dayHeader(day, totals: totals[day.id] ?? day.totals, range: ranges[day.start], now: now)
                     .padding(.horizontal, DS.Space.lg)
                     .padding(.vertical, DS.Space.xs + 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -267,19 +274,39 @@ struct PhoneLogbookView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func dayHeader(_ day: PhoneLogbookDay, totals: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(day.title)
-                .dsFont(.headline)
-                .foregroundStyle(.primary)
-            Spacer(minLength: DS.Space.sm)
-            Text(totals)
-                .dsFont(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+    /// The day's name and totals, with its time in range under them as a thin bar and a figure
+    /// (`DayRangeBar`). Days without enough readings have no bar. VoiceOver reads one header:
+    /// "Tuesday 12 November, 78% in range, 4% below", then the totals.
+    private func dayHeader(_ day: PhoneLogbookDay, totals: String, range: DayInRange?, now: Date) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(day.title)
+                    .dsFont(.headline)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: DS.Space.sm)
+                Text(totals)
+                    .dsFont(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            if let range {
+                HStack(spacing: DS.Space.sm) {
+                    DayRangeBar(id: day.id, figures: range, drawn: drawnBars)
+                        .frame(maxWidth: .infinity)
+                    Text("\(DayInRangeText.percent(range)) in range")
+                        .dsFont(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
+                        .dsAnimation(.standard, value: range.inRange)
+                }
+            }
         }
         .textCase(nil)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(DayInRangeText.spoken(ClockLabel.day(of: day.start, now: now), range))
+        .accessibilityValue(totals)
+        .accessibilityAddTraits(.isHeader)
     }
 
     private func row(_ entry: LogEntry, terms: [String]) -> some View {
@@ -414,6 +441,8 @@ enum PhoneLogbookItem: Identifiable {
 /// One day of the logbook, newest first, with what was taken and eaten that day.
 struct PhoneLogbookDay: Identifiable {
     let id: String
+    /// Local midnight the day starts at.
+    let start: Date
     let title: String
     let items: [PhoneLogbookItem]
 
@@ -454,9 +483,9 @@ struct PhoneLogbookDay: Identifiable {
             let start = calendar.startOfDay(for: e.timestamp)
             let id = "\(Int(start.timeIntervalSince1970))"
             if let last = out.last, last.id == id {
-                out[out.count - 1] = PhoneLogbookDay(id: id, title: last.title, items: last.items + [e])
+                out[out.count - 1] = PhoneLogbookDay(id: id, start: start, title: last.title, items: last.items + [e])
             } else {
-                out.append(PhoneLogbookDay(id: id, title: ClockLabel.dayTitle(ClockLabel.day(of: e.timestamp, now: now)),
+                out.append(PhoneLogbookDay(id: id, start: start, title: ClockLabel.dayTitle(ClockLabel.day(of: e.timestamp, now: now)),
                                            items: [e]))
             }
         }
