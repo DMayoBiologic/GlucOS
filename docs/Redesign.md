@@ -376,7 +376,8 @@ old, last 6.2." Follower: prefixed with the person's name.
   roll over to each new reading on `.arrival`, its colour cross-fades across a range edge on `.sweep`,
   and the trend row's `TrendArrow` turns rather than swapping glyphs (the needle already swings). Each
   plays once per change; under Reduce Motion the number just changes; VoiceOver reads only the new
-  reading. The collapsed title's value and arrow do the same.
+  reading. The collapsed title's value and arrow do the same. Since round 23 a reading crossing a
+  range edge moves figure and colour together on `.sweep` (`ReadingRoll`), on the Mac popover too.
 - **Collapsing header.** Scrolling up shrinks the stage; once its value scrolls under the navigation
   bar, the bar's title becomes the value and trend arrow in the range colour (iOS 18
   `onScrollGeometryChange`), so the reading is never off screen.
@@ -433,6 +434,12 @@ appearance without redrawing.
   the sections on screen take a turn, so a popover without notices doesn't pause where they would
   be. It plays once per opening and never again while the popover stays open (§4.6); a notice
   that turns up later uses its own transition. Under Reduce Motion everything is simply there.
+- A new reading rolls the hero value's digits over to it (`.readingChange`, as on the iPhone), up
+  or down with the change, on `.arrival`; the delta rolls with it, the trend words cross-fade and
+  the needle swings. A reading that crosses a range edge moves the figure and its colour together
+  on the slower `.sweep` fade (`ReadingRoll`), so the colour isn't hurried along by the roll. Each
+  plays once per change, never on opening (the stagger only moves the card's opacity and offset);
+  under Reduce Motion the number just changes; VoiceOver reads only the new reading.
 - Changing the summary card's period cross-slides its figures: the old ones slide 18 pt out as the
   new ones come in from the other side, a longer period from the trailing edge. Reduce Motion
   swaps them.

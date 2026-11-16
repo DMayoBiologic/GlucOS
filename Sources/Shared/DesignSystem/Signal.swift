@@ -758,9 +758,13 @@ extension View {
     /// A reading's figure changing to a new reading (docs/Redesign.md §6.5): the number counts over
     /// to its new value, up or down with the change, and its range colour cross-fades. Works between
     /// two Live Activity states and two widget timeline entries, since both are an animation on a
-    /// value rather than a timer. Under Reduce Motion the old figure fades into the new one in place,
-    /// or, with `instantUnderReduceMotion` (the app's own screens, where nothing has to bridge two
-    /// system-rendered states), the new figure and colour simply replace the old.
+    /// value rather than a timer. Under Reduce Motion the old figure fades into the new one in place.
+    ///
+    /// With `instantUnderReduceMotion` (the app's own screens, where nothing has to bridge two
+    /// system-rendered states) the modifier remembers the figure it last drew (`ReadingRoll`): a
+    /// reading that crosses a range edge moves its figure and colour together on the slower
+    /// `.sweep` fade rather than hurrying the colour along with the roll, and under Reduce Motion
+    /// the new figure and colour simply replace the old.
     /// Apply it to the `Text` itself, after its `foregroundStyle`.
     func readingChange(mgdl: Double, tone: Tone, instantUnderReduceMotion: Bool = false) -> some View {
         modifier(ReadingChange(mgdl: mgdl, tone: tone, instantUnderReduceMotion: instantUnderReduceMotion))
@@ -772,6 +776,8 @@ private struct ReadingChange: ViewModifier {
     let tone: Tone
     var instantUnderReduceMotion = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The figure last drawn, on the app's own screens, to tell a roll from a range change.
+    @State private var shown: Key?
 
     private struct Key: Equatable {
         var mgdl: Double
@@ -779,15 +785,22 @@ private struct ReadingChange: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        if reduceMotion, instantUnderReduceMotion {
-            // The figure just changes: no roll and no fade, even inside a surrounding animation.
+        let key = Key(mgdl: mgdl, tone: tone)
+        if instantUnderReduceMotion {
+            // App screens: one animation per change, chosen by what changed. Under Reduce Motion
+            // the figure just changes, with no roll and no fade, even inside a surrounding animation.
+            let roll = ReadingRoll.between(from: shown.map { (mgdl: $0.mgdl, band: $0.tone) },
+                                           to: (mgdl: mgdl, band: tone), reduceMotion: reduceMotion)
             content
-                .contentTransition(.identity)
+                .contentTransition(reduceMotion ? .identity : .numericText(value: mgdl))
+                .animation(Self.animation(for: roll), value: key)
+                .onAppear { shown = key }
+                .onChange(of: key) { _, new in shown = new }
         } else if reduceMotion {
             // Nothing rolls; one short cross-fade carries both the figure and its colour.
             content
                 .contentTransition(.opacity)
-                .animation(DSMotion.sweep.reducedAnimation, value: Key(mgdl: mgdl, tone: tone))
+                .animation(DSMotion.sweep.reducedAnimation, value: key)
         } else {
             // The roll on the `.arrival` spring, the colour on `.sweep`. Both settle well inside the
             // 2 seconds ActivityKit allows between states, and neither repeats.
@@ -795,6 +808,14 @@ private struct ReadingChange: ViewModifier {
                 .contentTransition(.numericText(value: mgdl))
                 .animation(DSMotion.arrival.animation, value: mgdl)
                 .animation(DSMotion.sweep.animation, value: tone)
+        }
+    }
+
+    private static func animation(for roll: ReadingRoll) -> Animation? {
+        switch roll {
+        case .instant: return nil
+        case .recolour: return DSMotion.sweep.animation
+        case .roll, .none: return DSMotion.arrival.animation
         }
     }
 }

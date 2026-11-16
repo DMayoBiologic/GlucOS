@@ -135,10 +135,15 @@ struct PopoverHero: View {
                 .font(.system(size: (54 * (1 + (textScale.scale - 1) * 0.5)).rounded(), weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(numberStyle(tint)))
+                // A new reading rolls the digits over to it, up or down with the change, like the
+                // iPhone and the Live Activity. Crossing a range edge moves the figure and its colour
+                // together on the slower colour fade. Once per change, never while the popover just
+                // sits open; under Reduce Motion the number just changes. VoiceOver reads the card's
+                // label, which is always the new reading, never a figure part-way through the roll.
+                .readingChange(mgdl: cur.mgdl, tone: s.displayTone(), instantUnderReduceMotion: true)
                 // A stale value is crossed through lightly, so it can't be read as current even in
                 // a quick glance or a screenshot. The line draws across as the data goes stale.
                 .staleStrike(stale)
-                .contentTransition(.numericText(value: cur.mgdl))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(s.unit.label)
@@ -155,14 +160,19 @@ struct PopoverHero: View {
                 .foregroundStyle(.secondary)
         } else {
             HStack(spacing: 6) {
+                // The words cross-fade when the trend turns (the dial's needle swings with them).
                 Text(cur.trend.description)
                     .fontWeight(.semibold).dsFont(.callout)
+                    .contentTransition(.opacity)
+                    .dsAnimation(.sweep, value: cur.trend)
                 if let d = s.deltaMgdl {
                     Text(s.unit.formatDelta(mgdl: d))
                         .fontWeight(.medium).dsFont(.callout)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
-                        .contentTransition(.numericText(value: d))
+                        // Rolls with the reading; just changes under Reduce Motion.
+                        .contentTransition(reduceMotion ? .identity : .numericText(value: d))
+                        .dsAnimation(.arrival, value: d)
                         .help("Change since the previous reading")
                 }
             }
