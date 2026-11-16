@@ -98,6 +98,16 @@ final class PhoneServices: ObservableObject {
         liveActivity.relayActivityID = { [weak self] in self?.relayStatus?.activityID }
         liveActivity.startObserving()
 
+        // A snooze, a Resume, the relay's snoozes or one ending: the Lock Screen card's bell-slash
+        // follows at once rather than on the next reading. The store publishes only on a change
+        // (and once when each snooze ends), so this never ticks.
+        AlertSnoozeStore.shared.$snoozes
+            .dropFirst()
+            .removeDuplicates()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { [weak self] _ in Task { @MainActor in await self?.showLiveActivity(canStart: false) } }
+            .store(in: &cancellables)
+
         // Account, units, thresholds and alert switches go to the relay when they change.
         store.settings.objectWillChange
             .merge(with: relaySettings.objectWillChange)
@@ -176,6 +186,9 @@ final class PhoneServices: ObservableObject {
         state.checkIn = relaySettings.isConfigured
             ? (relayStatus.map { $0.checkIn } ?? liveActivity.currentCheckIn)
             : nil
+        // While alerts are snoozed: the bell-slash and "until 2:30 pm". This phone's snoozes have
+        // taken the relay's (`apply`), so the card says the same as the pushes it gets.
+        state.snooze = AlertSnoozeStore.shared.snoozes.badge(at: Date())
         await liveActivity.show(state, wantsPushUpdates: relaySettings.isConfigured, canStart: canStart)
     }
 

@@ -51,6 +51,14 @@ final class MenuBarStatusModel: ObservableObject {
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.refresh() }
             .store(in: &cancellables)
+        // A snooze starting, resumed or ending (the store publishes once at each end, without a
+        // tick): the bell-slash, tooltip and VoiceOver label follow.
+        AlertSnoozeStore.shared.$snoozes
+            .dropFirst()
+            .removeDuplicates()
+            .debounce(for: .milliseconds(80), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.refresh() }
+            .store(in: &cancellables)
         // Increase Contrast picks other colours; Reduce Motion is read when a value changes.
         NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification)
@@ -68,20 +76,22 @@ final class MenuBarStatusModel: ObservableObject {
     /// Works out the glance and redraws only if it differs from what's showing.
     func refresh(force: Bool = false, now: Date = Date()) {
         let snapshot = store.snapshot
+        let snooze = AlertSnoozeStore.shared.snoozes.badge(at: now)
         let next = MenuBarGlance.make(snapshot: snapshot,
                                       recent: settings.showMenuBarSparkline ? lastHour(now: now) : [],
                                       hasCredentials: settings.hasCredentials,
                                       showDelta: settings.showDeltaInMenuBar,
                                       showSparkline: settings.showMenuBarSparkline,
                                       colorByRange: settings.colorMenuBarIcon,
+                                      snooze: snooze,
                                       now: now)
         scheduleNextChange(snapshot: snapshot, now: now)
 
         let back = settings.showForecast ? snapshot.backInRange(at: now)?.minutes : nil
-        let label = Self.spokenLabel(for: next, snapshot: snapshot, backInRangeMinutes: back, now: now)
+        let label = Self.spokenLabel(for: next, snapshot: snapshot, backInRangeMinutes: back, snooze: snooze, now: now)
         if label != accessibilityLabel { accessibilityLabel = label }
         toolTip = MenuBarGlance.toolTip(snapshot: snapshot, hasCredentials: settings.hasCredentials,
-                                        showForecast: settings.showForecast, now: now)
+                                        showForecast: settings.showForecast, snooze: snooze, now: now)
         StatusItemToolTip.apply(toolTip)
 
         guard force || next != glance else { return }
@@ -153,8 +163,16 @@ final class MenuBarStatusModel: ObservableObject {
     /// Names the app first, so VoiceOver users moving through the menu bar know whose item it is.
     /// A live reading leaves out its age, which would be out of date between readings; a stale one
     /// gives it to the minute.
+    /// While alerts are snoozed it ends with "Low alerts snoozed until 2:30 pm".
     static func spokenLabel(for g: MenuBarGlance, snapshot: GlucoseSnapshot, backInRangeMinutes: Int? = nil,
-                            now: Date = Date()) -> String {
+                            snooze: SnoozeBadge? = nil, now: Date = Date()) -> String {
+        let reading = readingLabel(for: g, snapshot: snapshot, backInRangeMinutes: backInRangeMinutes, now: now)
+        guard g.hasReading, let snooze, snooze.isRunning(at: now) else { return reading }
+        return reading + ". " + snooze.sentence()
+    }
+
+    private static func readingLabel(for g: MenuBarGlance, snapshot: GlucoseSnapshot, backInRangeMinutes: Int?,
+                                     now: Date) -> String {
         let unit = snapshot.unit
         switch g.state {
         case .notConnected: return "GlucOS, not connected"
@@ -325,6 +343,14 @@ struct MenuBarGlanceView: View {
                     Text(delta)
                         .font(.system(size: 11, weight: .medium).monospacedDigit())
                         .foregroundStyle(colours.secondary)
+                }
+                // Alerts snoozed: a small bell-slash, in the quiet secondary colour. The tooltip and
+                // VoiceOver say until when.
+                if glance.snoozed {
+                    Image(systemName: "bell.slash.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(colours.secondary)
+                        .padding(.leading, 1)
                 }
                 if let age = glance.ageText {
                     Text(age)

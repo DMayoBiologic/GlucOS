@@ -37,6 +37,10 @@ struct MenuBarGlance: Equatable {
     /// While warming up, how much of the hour has passed (0...1), in whole minutes so it changes
     /// once a minute with the countdown. Nil otherwise.
     var warmUpFraction: Double? = nil
+    /// The owner's alerts are snoozed: a small bell-slash after the reading (docs/AlertActions.md,
+    /// "Snoozed in the menu bar"). Only a yes or no, so the item redraws when a snooze starts or
+    /// ends and never for its minutes; the tooltip and VoiceOver say until when.
+    var snoozed: Bool = false
 
     var hasReading: Bool { state == .live || state == .stale }
 
@@ -50,6 +54,7 @@ struct MenuBarGlance: Equatable {
             var t = valueText
             if let trend { t += " \(trend.arrow)" }
             if let deltaText { t += " \(deltaText)" }
+            if snoozed { t += " (snoozed)" }
             return t
         }
     }
@@ -123,6 +128,7 @@ extension MenuBarGlance {
                      showDelta: Bool,
                      showSparkline: Bool,
                      colorByRange: Bool,
+                     snooze: SnoozeBadge? = nil,
                      now: Date = Date()) -> MenuBarGlance {
         // Checked before the reading: during warm-up `current` is still the old sensor's last one.
         if let warmUp = snapshot.warmUp(at: now) {
@@ -151,7 +157,8 @@ extension MenuBarGlance {
             ageText: stale ? age(current.age(at: now)) : nil,
             range: range,
             sparkline: showSparkline ? sparkline(recent + [current], endingAt: current.timestamp) : [],
-            colored: !stale && (colorByRange || range == .urgentLow))
+            colored: !stale && (colorByRange || range == .urgentLow),
+            snoozed: !stale && snooze?.isRunning(at: now) == true)
     }
 
     /// The next moment the glance would change with no new data: when a live reading goes stale,
@@ -212,9 +219,20 @@ extension MenuBarGlance {
     /// forecast, when it says glucose is back in range (`GlucoseSnapshot.backInRange(at:)`). The
     /// back-in-range line gives a clock time as well as minutes, since the tooltip isn't redrawn
     /// between readings. Nothing in it ticks: a stale reading says since when, not how long.
+    /// While alerts are snoozed it ends with "Low alerts snoozed until 2:30 pm" (a clock time, so
+    /// it's right whenever it's read).
     static func toolTip(snapshot: GlucoseSnapshot, hasCredentials: Bool, showForecast: Bool,
+                        snooze: SnoozeBadge? = nil,
                         now: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
                         locale: Locale = .autoupdatingCurrent) -> String {
+        let lines = readingToolTip(snapshot: snapshot, hasCredentials: hasCredentials, showForecast: showForecast,
+                                   now: now, calendar: calendar, locale: locale)
+        guard let snooze, snooze.isRunning(at: now), hasCredentials else { return lines }
+        return lines + "\n" + snooze.sentence(calendar: calendar, locale: locale)
+    }
+
+    private static func readingToolTip(snapshot: GlucoseSnapshot, hasCredentials: Bool, showForecast: Bool,
+                                       now: Date, calendar: Calendar, locale: Locale) -> String {
         if let warmUp = snapshot.warmUp(at: now) {
             let line = "GlucOS: sensor warming up. \(warmUp.headline(at: now))"
             guard warmUp.minutesLeft(at: now) > 0 else { return line }

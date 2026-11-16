@@ -165,8 +165,10 @@ extension GlucoseActivityState {
     func accessibilitySummary(stale: Bool, person: String?) -> String {
         let who = person.map { "\($0), " } ?? ""
         let value = glucoseUnit.format(mgdl: mgdl)
+        // "Low alerts snoozed until 2:30 pm.", last: owner's card only.
+        let snoozed = person == nil ? runningSnooze().map { " " + $0.sentence() + "." } ?? "" : ""
         if stale {
-            return who + "Glucose reading is out of date. Last reading \(value) \(glucoseUnit.spokenLabel)."
+            return who + "Glucose reading is out of date. Last reading \(value) \(glucoseUnit.spokenLabel)." + snoozed
         }
         var parts = ["Glucose \(value) \(glucoseUnit.spokenLabel)", range.label]
         if glucoseTrend != .unknown { parts.append(glucoseTrend.description) }
@@ -179,7 +181,7 @@ extension GlucoseActivityState {
         } else if let f = forecastHeadline {
             s += " Forecast about \(glucoseUnit.format(mgdl: f.mgdl)) in \(f.minutes) minutes."
         }
-        return s
+        return s + snoozed
     }
 }
 
@@ -496,9 +498,38 @@ private struct ActivityStatusLabel: View {
                 .lineLimit(1)
                 .id(stale ? "stale" : state.range.label)
                 .transition(.push(from: state.glucoseTrend.isFalling ? .top : .bottom))
+            if person == nil { ActivitySnoozeBadge(snooze: state.runningSnooze()) }
         }
         // The push needs an animation on the change; under Reduce Motion the word swaps at once.
         .dsAnimation(.emphasized, value: stale ? "stale" : state.range.label)
+    }
+}
+
+/// While the owner's alerts are snoozed: a bell-slash and "until 2:30 pm", after the status on the
+/// Lock Screen card and in the expanded Dynamic Island (docs/AlertActions.md, "Snoozed on the Lock
+/// Screen"). It goes when the snooze ends: the app and the relay both send a card without it then,
+/// and a card drawn after the end leaves it off anyway (`runningSnooze`). Fades in and out once,
+/// instant under Reduce Motion. VoiceOver reads it as a sentence ("Low alerts snoozed until
+/// 2:30 pm"); on the Lock Screen card that's part of the card's one summary instead.
+private struct ActivitySnoozeBadge: View {
+    let snooze: SnoozeBadge?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let snooze {
+                Text("·").foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                Label(snooze.shortText(), systemImage: "bell.slash.fill")
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityLabel(snooze.sentence())
+                    .transition(.opacity)
+            }
+        }
+        .dsAnimation(.standard, value: snooze)
     }
 }
 

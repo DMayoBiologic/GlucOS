@@ -161,6 +161,22 @@ struct AlertSnoozes: Codable, Hashable {
     }
 }
 
+// MARK: - The Lock Screen and menu bar badge
+
+extension AlertSnoozes {
+    /// What the Live Activity and the Mac menu bar item show while anything is snoozed (nil when
+    /// nothing is): one bell-slash "until" the last snooze ends. The relay's copy is `cardSnooze`
+    /// in core.ts. A very-high snooze covers highs, so a high snooze that ends no later isn't named.
+    func badge(at now: Date) -> SnoozeBadge? {
+        var active = self.active(at: now)
+        if let vh = active.first(where: { $0.level == .veryHigh }) {
+            active.removeAll { $0.level == .high && $0.until <= vh.until }
+        }
+        guard let last = active.map({ $0.until }).max() else { return nil }
+        return SnoozeBadge(until: last.timeIntervalSince1970, levels: active.map { $0.level.rawValue })
+    }
+}
+
 // MARK: - The "snoozed" chip (docs/AlertActions.md, "Snoozed chip")
 
 /// What iPhone Today and the Mac popover show while alerts are snoozed: "Low alerts snoozed until

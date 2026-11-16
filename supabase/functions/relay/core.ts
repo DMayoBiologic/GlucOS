@@ -1106,6 +1106,35 @@ export function runningSnoozes(s: AlertSnoozes | null | undefined, now: number):
   return out;
 }
 
+/// A running snooze, as the owner's Live Activity shows it (`SnoozeBadge` in
+/// Sources/Shared/GlucoseActivityState.swift, built there by `AlertSnoozes.badge(at:)`).
+export interface CardSnooze {
+  /// When the last running snooze ends, seconds since 1970.
+  until: number;
+  /// The snoozed levels, soonest end first.
+  levels: SnoozeLevel[];
+}
+
+/// The card's snooze, or undefined when nothing is snoozed at `now`. A very-high snooze covers
+/// highs, so a high snooze that ends no later isn't named.
+export function cardSnooze(s: AlertSnoozes | null | undefined, now: number): CardSnooze | undefined {
+  const order: SnoozeLevel[] = ["low", "high", "veryHigh"];
+  let active = order
+    .map((level) => ({ level, until: s?.[level] }))
+    .filter((a): a is { level: SnoozeLevel; until: number } => typeof a.until === "number" && a.until > now)
+    .sort((a, b) => a.until - b.until || order.indexOf(a.level) - order.indexOf(b.level));
+  const vh = active.find((a) => a.level === "veryHigh");
+  if (vh) active = active.filter((a) => !(a.level === "high" && a.until <= vh.until));
+  if (active.length === 0) return undefined;
+  return { until: Math.max(...active.map((a) => a.until)), levels: active.map((a) => a.level) };
+}
+
+/// The owner's card with its snooze on it (or not).
+export function withSnooze(card: CardState, snooze: CardSnooze | undefined): CardState {
+  if (!snooze) return card;
+  return { ...card, snooze };
+}
+
 /// The owner's alerts this tick, from the owner's own planner, minus the snoozed ones. A snoozed
 /// alert's repeat timer is cleared, so it fires on the first tick after the snooze if still due.
 /// Followers keep the shared planner (`processTick`), so their alerts and check-ins never change.
@@ -1243,6 +1272,9 @@ export interface CardState {
   source: string;
   /// A check-in on this card (checkins.ts). Never set by `makeCard`: the relay adds it per card.
   checkIn?: CheckInCard;
+  /// The owner's alerts are snoozed (`cardSnooze`): a bell-slash and "until 2:30 pm". Owner's
+  /// card only, never a follower's; never set by `makeCard`. Relay 2.16.0 on.
+  snooze?: CardSnooze;
 }
 
 const cardStep = 5 * 60;

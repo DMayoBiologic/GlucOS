@@ -46,6 +46,11 @@ struct GlucoseActivityState: Codable, Hashable {
     /// placeholders. Only the app sets it; the relay's cards never have it, so its first reading
     /// replaces the countdown.
     var warmUpEndsAt: Double?
+    /// The owner's alerts are snoozed: a small bell-slash and "until 2:30 pm" on the card
+    /// (docs/AlertActions.md, "Snoozed on the Lock Screen"). Owner's card only; a follower's never
+    /// has it, since a snooze never changes what followers get. Set by the app from its snoozes and
+    /// by the relay (2.16.0 on) from the ones it pushes by; never by `make`.
+    var snooze: SnoozeBadge?
 
     static let historyStep: TimeInterval = 5 * 60
     /// How much history the card's sparkline covers.
@@ -102,6 +107,13 @@ struct GlucoseActivityState: Codable, Hashable {
     var warmUpStart: Date { readingDate }
 
     var lowExpectedDate: Date? { lowExpectedAt.map { Date(timeIntervalSince1970: $0) } }
+
+    /// The snooze, while it's still running at `now`. A card drawn after it ended (before the next
+    /// update arrives) leaves the bell-slash off.
+    func runningSnooze(at now: Date = Date()) -> SnoozeBadge? {
+        guard let snooze, snooze.isRunning(at: now) else { return nil }
+        return snooze
+    }
 
     /// "Back in range ≈ X min", minutes from the reading, when the card may say it: a live
     /// reading above range, no low expected, and an estimate after the reading. Never on a low.
@@ -185,6 +197,50 @@ struct GlucoseActivityState: Codable, Hashable {
             state.backInRangeAt = s.backInRange(at: now)?.date.timeIntervalSince1970
         }
         return state
+    }
+}
+
+/// A running alert snooze, as the Lock Screen card and the Mac menu bar item show it: a bell-slash
+/// and "until 2:30 pm". Plain numbers and strings (it rides in Live Activity pushes, and the widget
+/// extension can't see `AlertSnoozes`). Built by `AlertSnoozes.badge(at:)` in the apps and by
+/// `cardSnooze` in the relay's core.ts.
+struct SnoozeBadge: Codable, Hashable {
+    /// When the last running snooze ends, seconds since 1970. The badge names this one time; the
+    /// in-app chip gives each level's own.
+    var until: Double
+    /// The snoozed levels (`AlertSnoozeLevel.rawValue`: "low", "high", "veryHigh"), soonest end
+    /// first. A very-high snooze covers highs, so a high one ending no later isn't listed.
+    var levels: [String]
+
+    var untilDate: Date { Date(timeIntervalSince1970: until) }
+    func isRunning(at now: Date = Date()) -> Bool { until > now.timeIntervalSince1970 }
+
+    /// "until 2:30 pm", beside the bell-slash.
+    func shortText(calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent) -> String {
+        "until \(ClockLabel.time(untilDate, calendar: calendar, locale: locale))"
+    }
+
+    /// "Low alerts snoozed until 2:30 pm", "High and very high alerts snoozed until 2:30 pm": for
+    /// VoiceOver and the menu bar tooltip. Levels it doesn't know read as plain "Alerts".
+    func sentence(calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent) -> String {
+        var words: [String] = []
+        for l in levels {
+            let named: [String]
+            switch l {
+            case "low": named = ["low"]
+            case "high": named = ["high"]
+            case "veryHigh": named = ["high", "very high"]
+            default: named = []
+            }
+            for w in named where !words.contains(w) { words.append(w) }
+        }
+        let what: String
+        switch words.count {
+        case 0: what = "alerts"
+        case 1: what = "\(words[0]) alerts"
+        default: what = words.dropLast().joined(separator: ", ") + " and \(words.last!) alerts"
+        }
+        return what.prefix(1).uppercased() + what.dropFirst() + " snoozed " + shortText(calendar: calendar, locale: locale)
     }
 }
 
