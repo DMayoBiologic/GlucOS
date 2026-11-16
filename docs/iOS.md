@@ -204,6 +204,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Entries logged from elsewhere are pointed out once.** Something you log from Siri, a control, an alert or a widget gets a brief highlight and a caption on its Logbook row and chart marker the next time you open the app.
 - **Pinch the Today chart to change its span.** Spread two fingers for fewer hours or pinch together for more, stepping through 3, 6, 12 and 24 hours like the control above it. The axes spring to the new span (with Reduce Motion on, it cross-fades), and the app opens on the span you chose last.
 - **Insights cards go in the order you choose.** Tap Edit in Insights, or touch and hold a card, to drag cards into a new order or hide them. Hidden cards stay in a Hidden section until you bring them back, and new cards show up by default.
+- **Streaks of good days.** The In-range streaks card in Insights shows your current and longest run of days at 70% or more in range, with the last 14 days as dots. Tap it to open the Logbook on the longest run.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
