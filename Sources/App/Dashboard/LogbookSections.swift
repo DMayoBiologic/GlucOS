@@ -16,7 +16,7 @@ struct LogbookSection: View {
     @Binding var reveal: UUID?
     /// While the Logbook was opened from an Insights card: back to that card.
     let backToInsights: (() -> Void)?
-    /// The card it was opened from ("Lows", "Highs", "Overnight"), for the back button's tooltip.
+    /// The card it was opened from ("Lows", "Highs", "Overnight", "Weekdays and weekends"), for the back button's tooltip.
     let backCardTitle: String
     let open: (LogSheetTarget) -> Void
 
@@ -609,10 +609,10 @@ struct InsightsSection: View {
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
-    /// Set when coming back from the Logbook a card opened (Lows, Highs or Overnight, by its chip): scroll to
+    /// Set when coming back from the Logbook a card opened (Lows, Highs, Overnight or a weekday side, by its chip): scroll to
     /// that card, then cleared.
     @Binding var returnTo: LogbookFilter?
-    /// The Lows, Highs or Overnight card was tapped: open the Logbook on its chip and days.
+    /// The Lows, Highs, Overnight or Weekdays and weekends card was tapped: open the Logbook on its chip and days.
     let openLogbook: (LogbookLink) -> Void
     let onLog: () -> Void
 
@@ -681,6 +681,11 @@ struct InsightsSection: View {
                         .dashboardCard()
                         .id(Self.cardID(.overnight))
                         .dsEntrance(8)
+                    WeekdayWeekendCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                                           openLogbook: openLogbook)
+                        .dashboardCard()
+                        .id(Self.cardID(.weekdays))
+                        .dsEntrance(9)
                 }
                 .onAppear {
                     guard let card = returnTo else { return }
@@ -691,8 +696,8 @@ struct InsightsSection: View {
             }
             DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
-                .dsEntrance(9)
-            ForecastScorecardCard(outlook: outlookStore).dsEntrance(10)
+                .dsEntrance(10)
+            ForecastScorecardCard(outlook: outlookStore).dsEntrance(11)
             Disclaimer()
         }
         // As on iPhone Insights: each card's figures count up as it assembles, with its bars
@@ -701,8 +706,9 @@ struct InsightsSection: View {
         .environment(\.figuresCountUp, true)
     }
 
-    /// "insights.lows", "insights.highs", "insights.overnight": where Back from the Logbook scrolls to.
-    private static func cardID(_ card: LogbookFilter) -> String { "insights.\(card.rawValue)" }
+    /// "insights.lows", "insights.highs", "insights.overnight", "insights.weekdays": where Back from
+    /// the Logbook scrolls to. Weekends comes back to the Weekdays and weekends card too.
+    private static func cardID(_ card: LogbookFilter) -> String { "insights.\(card.insightsCard.rawValue)" }
 
     private var startLogging: some View {
         Label("Start by logging your insulin and food. Patterns appear here once GlucOS has a few clean examples.",
