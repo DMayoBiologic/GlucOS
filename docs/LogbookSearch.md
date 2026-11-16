@@ -106,7 +106,7 @@ DayChartTests; drawn by `DayMiniChart`).
   (`DayChartText.spoken`); the chart itself is hidden.
 - **Cost.** Only the open day is worked out, once per day or readings change (`DayChartCache`).
 
-## From the Lows and Highs cards
+## From the Insights cards
 
 Round 34 joined the Insights Lows card to the Logbook, on iPhone and Mac (`LogbookLink`, Engine,
 tested in LogbookLinkTests).
@@ -132,3 +132,10 @@ tested in LogbookLinkTests).
   iPhone, and "‹ Insights" on the Mac scrolls back to the Highs card rather than Lows. A chip a
   card opened with stays in the chip bar even when it has nothing to show, so the empty list
   still says what it's filtered by.
+- **Overnight (round 39).** The Insights Overnight card opens the Logbook on an **Overnight** chip
+  over its own 7, 14 or 30 days (`LogbookLink.overnight`): every entry and alert between midnight
+  and 6 am local time on those days, so the nights the card counted can be read through. It opens
+  whenever the card has nights to show, not only when there was a low. Overnight is a time of day
+  rather than a kind of entry, so the chip bar lists it only while the card has opened on it
+  (`LogbookFilter.isListed`); new entries arriving don't drop it. iPhone zoom and Mac "‹ Insights"
+  work as for Lows and Highs.

@@ -48,12 +48,12 @@ struct PhoneInsightsRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressScaleStyle())
-        .accessibilityHint("Opens time in range by day, week in review, lows, your usual day, mornings and forecast accuracy")
+        .accessibilityHint("Opens time in range by day, week in review, lows, highs, overnight, your usual day, mornings and forecast accuracy")
     }
 }
 
 /// How things have been going: time in range over 24 hours to 14 days, each of the last seven
-/// days side by side, this week against last, lows and when they start, time above range and the longest high, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
+/// days side by side, this week against last, lows and when they start, time above range and the longest high, how the nights go, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
 struct PhoneInsightsView: View {
     @EnvironmentObject var store: GlucoseStore
 
@@ -65,9 +65,10 @@ struct PhoneInsightsView: View {
                 PhoneWeekInReviewCard().dsEntrance(2)
                 PhoneLowsCard().dsEntrance(3)
                 PhoneHighsCard().dsEntrance(4)
-                PhoneDayPatternCard().dsEntrance(5)
-                PhoneMorningCard(outlook: store.outlook).dsEntrance(6)
-                PhoneForecastAccuracyCard(outlook: store.outlook).dsEntrance(7)
+                PhoneOvernightCard().dsEntrance(5)
+                PhoneDayPatternCard().dsEntrance(6)
+                PhoneMorningCard(outlook: store.outlook).dsEntrance(7)
+                PhoneForecastAccuracyCard(outlook: store.outlook).dsEntrance(8)
                 Text("Mornings and forecast accuracy appear once GlucOS has enough wake-ups and forecasts to report on.")
                     .dsFont(.caption)
                     .foregroundStyle(.tertiary)
@@ -134,6 +135,26 @@ struct PhoneHighsCard: View {
             .dsCard(.standard, padding: DS.Space.lg)
         if let navigator {
             card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .highs)), in: navigator.zoom)
+        } else {
+            card
+        }
+    }
+}
+
+/// Nights over the last 7, 14 or 30 days, midnight to 6 am: time in range, lows, and the usual
+/// change across the night (`OvernightCardView`). Tapping it zooms the card into the Logbook on
+/// what was logged overnight over the same days; Back shrinks it home.
+struct PhoneOvernightCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @Environment(\.phoneNavigator) private var navigator
+
+    var body: some View {
+        let card = OvernightCardView(readings: store.archive, unit: store.snapshot.unit,
+                                     lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                     openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
+            .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .overnight)), in: navigator.zoom)
         } else {
             card
         }

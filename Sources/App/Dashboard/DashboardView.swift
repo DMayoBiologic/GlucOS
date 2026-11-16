@@ -30,7 +30,7 @@ struct DashboardView: View {
     @State private var showLogbookExport = false
     /// ⌘F: the Logbook section takes this as "put the cursor in the search field" and clears it.
     @State private var focusLogbookSearch = false
-    /// The Insights Lows or Highs card asked for the Logbook on its chip and days (`LogbookLink`).
+    /// An Insights card (Lows, Highs or Overnight) asked for the Logbook on its chip and days (`LogbookLink`).
     @State private var logbookLink: LogbookLink?
     /// The Logbook on screen came from this card (by its chip), so it offers the way back to it.
     @State private var cameFromCard: LogbookFilter?
@@ -459,7 +459,7 @@ struct DashboardView: View {
         DS.animate(.emphasized, reduceMotion: reduceMotion) { section = s }
     }
 
-    /// The Insights Lows or Highs card was tapped: cross-fade to the Logbook on its chip over the
+    /// An Insights card (Lows, Highs or Overnight) was tapped: cross-fade to the Logbook on its chip over the
     /// card's days (instant under Reduce Motion), with the way back to the card.
     private func openLogbook(_ link: LogbookLink) {
         logbookLink = link

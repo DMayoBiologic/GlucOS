@@ -1,8 +1,8 @@
 import Foundation
 
 // Opening the Logbook from somewhere else with a chip and a stretch of time already picked
-// (docs/LogbookSearch.md, "From the Lows and Highs cards"). Today that's the Insights Lows and
-// Highs cards: tapping one shows its chip over the same days the card counted.
+// (docs/LogbookSearch.md, "From the Insights cards"). Today that's the Insights Lows, Highs and
+// Overnight cards: tapping one shows its chip over the same days the card counted.
 
 /// The chip and period the Logbook opens with. Nothing is typed into the search field: the period
 /// shows as the usual chip above the list ("Last 14 days ✕"), and ✕ or Clear Filters drops it.
@@ -22,6 +22,12 @@ struct LogbookLink: Hashable, Sendable {
     /// the Highs chip: high alerts and insulin marked as a correction.
     static func highs(_ period: HighsSummary.Period, newestReading: Date?, now: Date) -> LogbookLink {
         card(.highs, days: period.days, newestReading: newestReading, now: now)
+    }
+
+    /// The Overnight card's period, read the same way, on the Overnight chip: everything logged
+    /// between midnight and 6 am on those days, lows, treatments, alerts and all.
+    static func overnight(_ period: OvernightSummary.Period, newestReading: Date?, now: Date) -> LogbookLink {
+        card(.overnight, days: period.days, newestReading: newestReading, now: now)
     }
 
     private static func card(_ filter: LogbookFilter, days: Int, newestReading: Date?, now: Date) -> LogbookLink {
