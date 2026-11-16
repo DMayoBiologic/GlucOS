@@ -4,7 +4,7 @@
   "installCommand": "",
   "buildCommand": "",
   "outputDirectory": "web",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- web vercel.json",
+  "ignoreCommand": "[ -n \"$VERCEL_GIT_PREVIOUS_SHA\" ] && git diff --quiet \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD -- web vercel.json",
   "git": { "deploymentEnabled": { "claude/**": false } },
   "headers": [
     {
