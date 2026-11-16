@@ -130,6 +130,10 @@ logging the treatment was the log bar and three taps.
   the sheet opens filled in and nothing is logged until you log it.
 - **Motion**: fades in once and out once; instant under Reduce Motion. Its caption redraws once a
   minute, nothing loops.
+- **Keyboard (Mac)**: while it shows in the popover, ⌘L presses it instead of the toolbar's Log
+  button (which keeps its click), and ⌘? lists "⌘L during a low".
+- **Siri (iPhone)**: "Log treatment in GlucOS" opens the same sheet at any time (docs/iOS.md, "Siri
+  and Shortcuts"). It never logs by itself either.
 - Rules: `Sources/Engine/LowTreatButton.swift` (tests `LowTreatButtonTests`); view and app glue
   `Sources/App/Views/LowTreatButtonView.swift` (`LowTreatButton.current`), shared by both apps.
   Followers don't see it (their view is the follower screen, which has Check in).

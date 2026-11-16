@@ -116,6 +116,7 @@ struct MenuBarView: View {
             if let lowTreat {
                 LowTreatButtonView(reason: lowTreat,
                                    hasUsual: LowQuestion.shared.usual(logbook: logbook) != nil,
+                                   shortcut: KeyboardShortcut("l"),
                                    action: openLowTreatment)
                     .transition(.opacity)
                     .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
@@ -141,6 +142,7 @@ struct MenuBarView: View {
             PopoverUsualRow(showsShortcuts: commandKey.isHeld)
                 .popoverEntrance(.toolbar, showing: showing, shown: sectionsIn)
             PopoverToolbar(showsShortcuts: commandKey.isHeld,
+                           lowTreatmentHoldsLogKey: lowTreat != nil,
                            onLog: showLogSheet, onRefresh: refresh, onDashboard: showDashboard,
                            onSettings: showSettings, onCopy: copyReading,
                            onShortcuts: toggleShortcutList)

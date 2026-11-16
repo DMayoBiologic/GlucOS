@@ -24,6 +24,24 @@ Shortcuts, the Action button), and `glucos://log` (or `glucos://log/insulin|food
 None of them ever fill in an amount: GlucOS records what you enter, and only the bolus calculator
 suggests a dose.
 
+### Siri and Shortcuts
+
+Two more App Shortcuts (Siri, Spotlight, Shortcuts, the Action button), in
+`Sources/iOS/GlucoseIntents.swift`, with their phrases in `GlucOSAppShortcuts`:
+
+- **"What's my glucose in GlucOS"** (also "What's my GlucOS reading", "Check my glucose in GlucOS")
+  answers out loud without opening the app: the reading, its range, trend, change and age, then the
+  forecast's caveat line when there is one ("About the forecast: Trend only for now: …"). The words
+  are the widgets' spoken reading (`SpokenGlucose`, tests `SpokenGlucoseTests`). If the saved
+  reading isn't fresh it asks for a new one and waits up to 8 seconds. A reading older than 6
+  minutes is said to be **stale**, with its age, and never as the current glucose: no range, no
+  trend, no forecast. Past 30 minutes it says there's no recent reading and when the last was. It
+  also returns the sentence as text, for a Shortcut to use.
+- **"Log treatment in GlucOS"** (also "I'm treating a low in GlucOS") opens the app on the same
+  low treatment sheet as the inline Log treatment button and the alert's button (`.treating(.low)`,
+  docs/AlertActions.md), filled in from your "Treat a low" usual. **It never logs anything by
+  itself**: you check it and tap Log.
+
 The **Your Usual** Home Screen widget (medium) shows the same "Your usual" entries as the log sheet,
 up to three. A tap opens the log sheet filled in from that entry, the same as tapping its tile there;
 nothing is logged until you tap Log, after the logged-twice check (docs/UsualEntries.md).

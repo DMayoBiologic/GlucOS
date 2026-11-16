@@ -73,5 +73,18 @@ struct GlucOSAppShortcuts: AppShortcutsProvider {
                               "I just woke up in \(.applicationName)"],
                     shortTitle: "Woke Up",
                     systemImageName: "sunrise.fill")
+        AppShortcut(intent: ReadGlucoseIntent(),
+                    phrases: ["What's my glucose in \(.applicationName)",
+                              "What's my \(.applicationName) reading",
+                              "Check my glucose in \(.applicationName)",
+                              "\(.applicationName) glucose"],
+                    shortTitle: "My Glucose",
+                    systemImageName: "drop.fill")
+        AppShortcut(intent: LogLowTreatmentIntent(),
+                    phrases: ["Log treatment in \(.applicationName)",
+                              "Log a low treatment in \(.applicationName)",
+                              "I'm treating a low in \(.applicationName)"],
+                    shortTitle: "Log Treatment",
+                    systemImageName: "cube.fill")
     }
 }

@@ -168,11 +168,14 @@ struct ShortcutGroup: Equatable, Sendable {
 /// wherever they appear. `globalKey` is the "open from anywhere" shortcut when it's turned on.
 enum ShortcutCatalog {
     static let showList = ShortcutRow(keys: "⌘?", action: "Show this list")
+    /// ⌘L in the popover while its Log treatment button shows (docs/AlertActions.md).
+    static let lowTreatment = ShortcutRow(keys: "⌘L during a low", action: "Log treatment, filled in from Treat a low")
 
     static func popover(globalKey: LogHotKey?) -> [ShortcutGroup] {
         [
             ShortcutGroup(title: "Menu bar", rows: [
                 ShortcutRow(keys: "⌘L", action: "Log insulin, food or a moment"),
+                lowTreatment,
                 ShortcutRow(keys: UsualKeys.range(count: UsualKeys.limit) ?? "", action: "Fill in one of Your usual, in the log window"),
                 ShortcutRow(keys: "⌘R", action: "Refresh"),
                 ShortcutRow(keys: "⌘D", action: "Open the dashboard"),
