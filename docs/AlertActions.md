@@ -107,6 +107,33 @@ builds need nothing new.
 - It also quiets that alert while the treatment works: 15 minutes for a low (the usual recheck
   after fast carbs), 30 for a high. Never an urgent low.
 
+## Log treatment in the app
+
+The same button, inline: under the reading on iPhone Today and in the Mac popover (round 34). An
+alert's button only helps while the notification is in front of you; open the app during a low and
+logging the treatment was the log bar and three taps.
+
+- **When**: the latest fresh reading is below your low line, or the forecast crosses it within the
+  predicted low alert's lead time (the same rule, `PredictiveAlertRules`, on the same forecast,
+  `Outlook.alertForecast`, and only while predicted low alerts are switched on). Never on a stale
+  reading.
+- **Gone** once any food or a hypo treatment tag is logged with a time in the last 15 minutes (a
+  few minutes ahead counts too, for another device's clock), or once the reading is back at or
+  above the line with no low predicted. Still low a quarter of an hour after treating, it comes
+  back: the usual recheck.
+- **What it does**: exactly the alert button's log sheet (`.treating(.low)`), filled in from your
+  "Treat a low" usual, food only, through `RepeatCheck`. **It never logs anything by itself.** It
+  doesn't snooze alerts: that is the notification's job, and a low you're looking at in the app
+  should still alert if it carries on.
+- **Words**: "Log treatment · Low now" / "· Low predicted in about 12 min". VoiceOver reads "Log
+  treatment for this low" or "Log treatment. Low predicted in about 12 minutes", and the hint says
+  the sheet opens filled in and nothing is logged until you log it.
+- **Motion**: fades in once and out once; instant under Reduce Motion. Its caption redraws once a
+  minute, nothing loops.
+- Rules: `Sources/Engine/LowTreatButton.swift` (tests `LowTreatButtonTests`); view and app glue
+  `Sources/App/Views/LowTreatButtonView.swift` (`LowTreatButton.current`), shared by both apps.
+  Followers don't see it (their view is the follower screen, which has Check in).
+
 ## In the Logbook
 
 Each low or high alert, and which button was tapped on it ("Tapped Log treatment", "Snoozed 30

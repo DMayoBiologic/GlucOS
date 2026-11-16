@@ -112,6 +112,7 @@ struct PhoneHomeView: View {
     @EnvironmentObject var services: PhoneServices
     @EnvironmentObject var follows: FollowStore
     @EnvironmentObject var router: PhoneLogRouter
+    @EnvironmentObject var logbook: LogbookStore
     @State private var showsSettings = false
     @State private var settingsAnchor: PhoneSettingsView.Jump?
     @State private var showsSharing = false
@@ -121,6 +122,11 @@ struct PhoneHomeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PhoneSetupView.pendingKey) private var setupPending = false
     @ObservedObject private var snoozeStore = AlertSnoozeStore.shared
+
+    /// Why "Log treatment" shows under the reading, if it does (`LowTreatButton`).
+    private var lowTreat: LowTreatButton.Reason? {
+        LowTreatButton.current(store: store, logbook: logbook, settings: settings)
+    }
 
     var body: some View {
         NavigationStack {
@@ -138,6 +144,16 @@ struct PhoneHomeView: View {
                     if snoozeStore.isSnoozing {
                         AlertSnoozeChipView(snoozes: snoozeStore.snoozes, error: services.snoozeResumeError) {
                             Task { await services.resumeAlerts() }
+                        }
+                        .transition(.opacity)
+                    }
+                    // During a low, or with one predicted: the alert's Log treatment button, inline.
+                    // It opens the log sheet filled in from the "Treat a low" usual; nothing is logged
+                    // until Log.
+                    if let lowTreat {
+                        LowTreatButtonView(reason: lowTreat,
+                                           hasUsual: LowQuestion.shared.usual(logbook: logbook) != nil) {
+                            router.treat(.low)
                         }
                         .transition(.opacity)
                     }
@@ -171,6 +187,7 @@ struct PhoneHomeView: View {
                 .padding(.bottom, DS.Space.lg)
                 // The snoozed chip fades in and out once; instant under Reduce Motion.
                 .animation(DSMotion.standard.animation(reduceMotion: reduceMotion), value: snoozeStore.isSnoozing)
+                .animation(DSMotion.standard.animation(reduceMotion: reduceMotion), value: lowTreat != nil)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
