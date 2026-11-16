@@ -10,6 +10,10 @@ struct OutlookSection: View {
     @EnvironmentObject var settings: AppSettings
     let onLog: () -> Void
 
+    /// When the forecast starts drawing in: the card's `dsEntrance(0)` starts at once and is most
+    /// of the way in about 0.3 s later.
+    private static let forecastDelay: TimeInterval = 0.3
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
             content(now: ctx.date)
@@ -40,8 +44,13 @@ struct OutlookSection: View {
                     EmptyStateView(systemImage: "drop", title: "No Recent Readings",
                                    message: "The forecast starts once readings are coming in.")
                 } else {
-                    GlucoseChart(readings: recent, unit: unit, lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl,
-                                 hours: 3, interactive: true, forecast: current?.forecast ?? [])
+                    // The forecast draws in from the newest reading as the page opens, once this
+                    // card is most of the way in, and bends into each new forecast rather than
+                    // jumping (as in the popover). Under Reduce Motion it just changes.
+                    ForecastMotion(forecast: current?.forecast ?? [], drawInDelay: Self.forecastDelay) { forecast, reveal in
+                        GlucoseChart(readings: recent, unit: unit, lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl,
+                                     hours: 3, interactive: true, forecast: forecast, forecastReveal: reveal)
+                    }
                         .frame(height: layout.chartHeight(reserving: 420, minimum: 220, maximum: 380))
                     legend(current)
                     // Why it's trend-only, shorter or wider. No forecast at all has its own banner below.
