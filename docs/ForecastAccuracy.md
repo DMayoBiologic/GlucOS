@@ -1348,7 +1348,7 @@ learner) alone.
 **The test.** Every insulin-and-carb forecast (`trendInsulinCarbs`) in the 2 hours after a meal in
 `glucos.forecast_checks`, 12–15 Nov: 44 forecasts after 5 meals (green juice, burrito bowl, the
 late-night sports drink, eggs and potato, hamburger), scored at 15–60 minutes on points not marked
-`after_log` (174 points). The correction replaces the carb term with `scale × K × carb rate(t −
+`after_log` (150 points with a reading). The correction replaces the carb term with `scale × K × carb rate(t −
 delay)` under the same 30-minute trend fade, every logged meal counted (K = 2.8 mg/dL per gram, the
 learnt value, §1). Scale 0.5–3, delay 0–120 minutes were fitted on four meals and scored on the
 fifth.
