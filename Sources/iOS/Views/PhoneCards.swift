@@ -494,6 +494,7 @@ struct PhoneChartCard: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var logbook: LogbookStore
+    @Environment(\.phoneNavigator) private var navigator
 
     private static let choices = [3, 6, 12, 24]
     /// What the chart is handed whatever span is picked, plus its lead past the left edge.
@@ -526,6 +527,7 @@ struct PhoneChartCard: View {
             }
                 .frame(height: 260)
             legend(outlook)
+            lastLogged
             ForecastCaveatLine(caveat: caveat(s, outlook: outlook))
             if let outlook, !outlook.forecast.isEmpty { forecastLine(outlook, unit: s.unit) }
         }
@@ -535,6 +537,18 @@ struct PhoneChartCard: View {
     private func events(hours: Double) -> [ChartLogMarker] {
         ChartLogMarker.logbook(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts,
                                since: Date().addingTimeInterval(-hours * 3600))
+    }
+
+    /// "Meal 1 h 40 m ago · 45 g" (`LastLogged`): what was logged last, in the last 12 hours. A tap
+    /// zooms into the Logbook with that entry opening. Hidden when nothing was logged.
+    @ViewBuilder
+    private var lastLogged: some View {
+        let line = LastLoggedLine(entries: logbook.entries) { id in navigator?.push(.logbookEntry(id)) }
+        if let navigator {
+            line.matchedTransitionSource(id: AnyHashable(PhoneRoute.lastLoggedSource), in: navigator.zoom)
+        } else {
+            line
+        }
     }
 
     @ViewBuilder

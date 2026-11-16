@@ -403,6 +403,12 @@ old, last 6.2." Follower: prefixed with the person's name.
   `PhoneChartCard.forecastDelay`) and bends into each new forecast, with the same `ForecastMotion`
   as the Mac popover (§8.2): `.sweep` draw-in, `.ambient` morph, once per appearance or forecast,
   never looping. Under Reduce Motion it just changes. Widgets and follower cards are unchanged.
+- **Last logged line** (round 38, `LastLogged`): under the chart's legend, "Meal 1 h 40 m ago · 45 g"
+  or "Dose 25 m ago · 4 u", the newest entry logged in the last 12 hours, hidden when there isn't
+  one. It says only what was logged, never insulin or carbs on board. It redraws once a minute, on
+  the minute the entry's age ticks over; the figure rolls once when it changes (just changes under
+  Reduce Motion), and nothing loops. A tap zooms into the Logbook and opens that entry's row into
+  its detail, as a tap on the row would.
 - **Insights row → Insights**, **Logbook card → Logbook**: zoom transitions from the card.
 - **Bottom log bar**: unchanged position; the plus symbol bounces once when the sheet closes after a
   save.
@@ -501,6 +507,10 @@ appearance without redrawing.
   paired by how far ahead they are (`ForecastMorph`), a longer horizon reaching out from the old end
   and a shorter one pulling back. One movement per opening or per forecast, never looping (§4.6).
   Under Reduce Motion, or once it's gone, the forecast just changes.
+
+- The same **last logged line** as the iPhone (§7.1) sits under the chart. Clicking it opens the
+  dashboard on the Logbook with that entry selected and lit once; the period goes back to now and
+  widens to 12 or 24 hours only if the one picked is too short to hold the entry.
 
 ### 8.3 Dashboard window
 

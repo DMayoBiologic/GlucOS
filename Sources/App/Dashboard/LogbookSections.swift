@@ -12,6 +12,8 @@ struct LogbookSection: View {
     @Binding var focusSearch: Bool
     /// Set by the Insights Lows or Highs card: open on its chip and period, then cleared.
     @Binding var link: LogbookLink?
+    /// Set by the popover's "last logged" line: select that entry and light it, then cleared.
+    @Binding var reveal: UUID?
     /// While the Logbook was opened from an Insights card: back to that card.
     let backToInsights: (() -> Void)?
     /// The card it was opened from ("Lows", "Highs"), for the back button's tooltip.
@@ -19,12 +21,14 @@ struct LogbookSection: View {
     let open: (LogSheetTarget) -> Void
 
     init(data: DashboardData, focusSearch: Binding<Bool> = .constant(false),
-         link: Binding<LogbookLink?> = .constant(nil), backToInsights: (() -> Void)? = nil,
+         link: Binding<LogbookLink?> = .constant(nil), reveal: Binding<UUID?> = .constant(nil),
+         backToInsights: (() -> Void)? = nil,
          backCardTitle: String = LogbookFilter.lows.title,
          open: @escaping (LogSheetTarget) -> Void) {
         self.data = data
         self._focusSearch = focusSearch
         self._link = link
+        self._reveal = reveal
         self.backToInsights = backToInsights
         self.backCardTitle = backCardTitle
         self.open = open
@@ -118,9 +122,10 @@ struct LogbookSection: View {
             }
         }
         // ⌘F (a dashboard shortcut, so it also brings this section up) puts the cursor in the search.
-        .onAppear { takeFocusRequest(); takeLink() }
+        .onAppear { takeFocusRequest(); takeLink(); takeReveal() }
         .onChange(of: focusSearch) { _, _ in takeFocusRequest() }
         .onChange(of: link) { _, _ in takeLink() }
+        .onChange(of: reveal) { _, _ in takeReveal() }
         // After a delete: what went and Undo, rising from the bottom edge (`LogbookUndoToast`).
         .overlay(alignment: .bottom) { LogbookUndoToast() }
         // Entries that arrive (logged, undone, synced from the iPhone) light up once.
@@ -295,6 +300,24 @@ struct LogbookSection: View {
         allDates = false
         filter = l.filter
         linked = l.period
+    }
+
+    /// Opened on one entry (the popover's "last logged" line): nothing filtered out, so its row is
+    /// listed, and that row selected and lit once with its colour like a new entry. It's the newest
+    /// entry, so it sits at the top of the table.
+    private func takeReveal() {
+        guard let id = reveal else { return }
+        reveal = nil
+        search = ""
+        allDates = false
+        filter = nil
+        linked = nil
+        selection = [id]
+        Task { @MainActor in
+            // After the section's cross-fade, so the light is seen.
+            try? await Task.sleep(for: .seconds(0.3))
+            markFresh([id])
+        }
     }
 
     /// The dashboard asked for the search field (⌘F): focus it, once it's on screen.

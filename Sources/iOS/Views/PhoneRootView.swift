@@ -253,6 +253,7 @@ struct PhoneHomeView: View {
                     case .logbook: PhoneLogbookView()
                     case .insights: PhoneInsightsView()
                     case .logbookLink(let link): PhoneLogbookView(link: link)
+                    case .logbookEntry(let id): PhoneLogbookView(opening: id)
                     }
                 }
                 if reduceMotion {

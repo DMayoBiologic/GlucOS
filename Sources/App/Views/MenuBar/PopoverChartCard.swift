@@ -8,6 +8,7 @@ struct PopoverChartCard: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var logbook: LogbookStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openWindow) private var openWindow
 
     var showsShortcuts: Bool
     /// When the forecast starts drawing in after the popover opens, so it follows the card's own
@@ -79,6 +80,8 @@ struct PopoverChartCard: View {
                 .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
                 .accessibilityValue(chartSummary(window))
                 .accessibilityHint("Use the left and right arrow keys to step through readings")
+            // "Meal 1 h 40 m ago · 45 g": the last thing logged in 12 hours, opening in the Logbook.
+            LastLoggedLine(entries: logbook.entries, open: openInLogbook)
             if let outlook, outlook.showsInsulin || (settings.showForecast && !outlook.forecast.isEmpty) {
                 OutlookSummaryRow(outlook: settings.showForecast ? outlook : withoutForecast(outlook),
                                   unit: s.unit, lowMgdl: s.lowMgdl)
@@ -103,7 +106,14 @@ struct PopoverChartCard: View {
                                since: Date().addingTimeInterval(-12 * 3600))
     }
 
-        private func withoutForecast(_ o: OutlookSnapshot) -> OutlookSnapshot {
+    /// The dashboard, on the Logbook with this entry selected (`DashboardRequest`).
+    private func openInLogbook(_ id: UUID) {
+        DashboardRequest.shared.logbookEntry = id
+        openWindow(id: DashboardView.windowID)
+        NSApp.activate()
+    }
+
+    private func withoutForecast(_ o: OutlookSnapshot) -> OutlookSnapshot {
         var copy = o
         copy.forecast = []
         return copy
