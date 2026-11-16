@@ -461,7 +461,10 @@ appearance without redrawing.
 - **Sections** (Outlook, Patterns, Days, Readings, Logbook, Insights, Report): unchanged layout; charts
   wipe in when their period changes; stat tiles roll their numbers. Insights counts its figures up
   and draws its bars in as each card assembles, as on iPhone (§7.2 Insights row). The Overview chart glides to a
-  new range on the same stretch of time instead of wiping (§4.1).
+  new range on the same stretch of time instead of wiping (§4.1). The Outlook chart's forecast draws
+  in from the newest reading each time the page opens, once its card is most of the way in (0.3 s,
+  `OutlookSection.forecastDelay`), and bends into each new forecast, with the same `ForecastMotion`
+  as the popover (§8.2). Under Reduce Motion it just changes.
 
 ### 8.4 Onboarding, Settings, Log sheet, Quick log
 
