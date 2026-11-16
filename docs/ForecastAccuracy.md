@@ -2730,8 +2730,9 @@ The question: when a second meal is logged while the first is still being absorb
 minutes of it), do forecasts after the second meal run high or low, and would combining the two
 meals' absorption (slowing or queueing the second, or treating them as one meal) do better? **There
 is only one such pair in the history, so nothing can be tested on meals the fit hasn't seen. On that
-pair the forecast ran low, every way of delaying or slowing the second meal made it worse, and the
-one version that helped changes the first meal's curve too, which §15 already turned down. Nothing
+pair the forecast ran low, delaying or slowing the second meal made it worse at 60 and 90 minutes
+(a 30-minute wait was level to slightly better at 15–45), and the versions that helped change the
+first meal's curve too, which §15 already turned down. Nothing
 shipped; no app or relay code changed.**
 
 **What ships today.** Every meal's carbs go on their own copy of the standard curve (ten-minute
@@ -2755,7 +2756,14 @@ as separate meals. Stored forecasts after those two pull opposite ways: after th
 with the engine's maths (20-minute trend, 30-minute fade, 60% gain, carbs at 2.8 mg/dL per gram,
 rapid insulin at 19.2 mg/dL per unit) and scored against the readings up to the 19:08 burrito bowl
 (`scripts/stacked-meals.py`, export query at its top). Mean miss, with the bias in brackets
-(negative is the forecast below what happened):
+(negative is the forecast below what happened). In the first hour after a log the engine draws
+the trend alone unless its fresh-model check allows the model (`freshModel`); after the juice the
+apps drew the model (7 of the 8 stored forecasts), so every origin is replayed with it, and the
+script also prints the first hour (12 origins) and the rest (13) apart. "Both over 4 h" and
+"merged" come out best in both parts; a 30-minute wait is a little better than what ships after the
+first hour (33.8 against 34.0 at 60 minutes) and worse within it (38.3 against 35.4).
+
+Mean miss (mg/dL), all 25 origins:
 
 | Model of the two meals | 30 min | 60 min | 90 min |
 |---|---|---|---|
@@ -2768,7 +2776,9 @@ rapid insulin at 19.2 mg/dL per unit) and scored against the readings up to the 
 | Both meals absorbed over 4 h | 15.7 (−11.4) | 31.6 (−18.9) | 50.6 (−13.6) |
 | Both meals absorbed over 5 h | 16.1 | 36.4 | 57.9 |
 
-- **Making the second meal wait or last longer is worse at every horizon.** The forecast was
+- **Making the second meal wait or last longer is worse at 60 and 90 minutes.** Only the 30-minute
+  wait is level or a little better earlier on (17.9 against 18.2 at 30 minutes), and longer waits
+  are worse everywhere. The forecast was
   already low: glucose went from 104 at the juice down to 82, then up to 158 two and a half hours
   later, a rise of 76 mg/dL against the 46 that 16.6 g is worth. Pushing the juice's carbs later
   moves more of them past the drawn points and lowers the line further.
@@ -2793,8 +2803,14 @@ Rerun once five or more meals are logged within 90 minutes of an earlier one (no
 same meal logged twice or low treatments, §37). To find them:
 
 ```sql
-with m as (select to_timestamp((payload->>'timestamp')::float) t, payload->>'food' food, (payload->>'carbs')::float carbs
-           from glucos.logbook where kind = 'meal' and not deleted and coalesce((payload->>'carbs')::float, 0) > 0)
+-- Leaves out low treatments (logged under 70 mg/dL) and repeat logs of the same food within
+-- 20 minutes before pairing, so neither hides a real pair.
+with m0 as (select to_timestamp((payload->>'timestamp')::float) t, payload->>'food' food, (payload->>'carbs')::float carbs
+            from glucos.logbook where kind = 'meal' and not deleted and coalesce((payload->>'carbs')::float, 0) > 0),
+m1 as (select m0.*, (select mgdl from glucos.readings r where r.at <= m0.t order by r.at desc limit 1) at_log,
+         lag(t) over (partition by food order by t) same_food_before from m0),
+m as (select * from m1 where coalesce(at_log, 100) >= 70
+        and (same_food_before is null or t - same_food_before > interval '20 min'))
 select * from (select t at time zone 'Australia/Perth' perth, food, carbs,
   round(extract(epoch from t - lag(t) over (order by t)) / 60) gap_min from m) x
 where gap_min < 90 order by perth;

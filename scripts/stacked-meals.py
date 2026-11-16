@@ -44,7 +44,7 @@ def ins_act(el, delay=600, peak=75*60, dur=6*3600):
 def slope(t):
     i, j = bisect.bisect_left(T, t - 1200), bisect.bisect_right(T, t)
     p = [((T[k] - t) / 60, R[k][1]) for k in range(i, j)]
-    if len(p) < 2: return None
+    if len(p) < 2 or p[-1][0] - p[0][0] < 9: return None  # the engine needs 9+ minutes of readings
     mx = st.mean(x for x, _ in p); my = st.mean(y for _, y in p)
     sxx = sum((x - mx) ** 2 for x, _ in p)
     return max(-4, min(4, sum((x - mx) * (y - my) for x, y in p) / sxx))
@@ -53,6 +53,10 @@ def at(t, tol=150):
     c = [j for j in (i - 1, i) if 0 <= j < len(T)]
     j = min(c, key=lambda j: abs(T[j] - t))
     return R[j][1] if abs(T[j] - t) <= tol else None
+def before(t, tol=300):
+    """Latest reading at or before t (replay start: nothing from the future)."""
+    j = bisect.bisect_right(T, t) - 1
+    return R[j][1] if j >= 0 and t - T[j] <= tol else None
 def variants():
     yield 'ships (two curves)', lambda t: carb_rate(t - SUSHI, 53.9) + carb_rate(t - JUICE, 16.6)
     for ab in (4, 5):
@@ -71,25 +75,31 @@ def variants():
         yield f'both meals over {ab} h', lambda t, ab=ab: carb_rate(t - SUSHI, 53.9, absorb=ab*3600) + carb_rate(t - JUICE, 16.6, absorb=ab*3600)
     yield 'no change (flat)', None
 def forecast(t0, carbs, fade):
-    g = at(t0, 60); tr = slope(t0)
+    g = before(t0); tr = slope(t0)
     if g is None or tr is None: return None
     out = {}
-    if carbs is None: return {m: g for m in (15, 30, 45, 60, 90)}
+    if carbs is None: return {m: g for m in range(1, 91)}
     for m in range(90):
         mid = m + .5; tt = t0 + mid * 60; w = max(0, 1 - mid / fade)
         model = K * carbs(tt) - S * sum(u * ins_act(tt - d) for d, u in doses)
         g += w * GAIN * tr + (1 - w) * model
-        if (m + 1) in (15, 30, 45, 60, 90): out[m + 1] = g
+        out[m + 1] = g  # every minute: low warnings read them all, scoring reads H
     return out
 fade = float(sys.argv[2]) if len(sys.argv) > 2 else 30
 H = (15, 30, 45, 60, 90)
+# Within an hour of a log the engine draws the trend alone unless its fresh-model check allows
+# the model (GlucoseForecaster `freshModel`). On 12 Nov the apps drew the model after the juice,
+# so all origins are scored with it; the split shows the first hour and the rest apart.
 print(f'fade {fade}; forecasts every 5 min from juice log to +2h')
-for name, c in variants():
+for part, lo, hi in (('all', 0, 7200), ('first hour after the juice', 0, 3599), ('after that', 3600, 7200)):
+  print(f'-- {part}')
+  for name, c in variants():
     errs = {h: [] for h in H}; lows = 0
-    for t0 in range(JUICE, JUICE + 7201, 300):
+    for t0 in range(JUICE + lo - lo % 300 + (300 if lo % 300 else 0), JUICE + hi + 1, 300):
         f = forecast(t0, c, fade)
-        if not f: continue
-        if c is not None and min(v for h, v in f.items() if h <= 30) < 70: lows += 1
+        if not f:
+            continue
+        if c is not None and min(v for h, v in f.items() if h <= 30) < 70: lows += 1  # every minute to 30
         for h in H:
             if t0 + h * 60 >= BURRITO: continue
             a = at(t0 + h * 60)
