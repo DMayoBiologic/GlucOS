@@ -1931,3 +1931,82 @@ right only about half the time at 30 minutes: test showing "rising" only once th
 10 minutes, scored on the balanced score and the falls-before-lows check together.
 `python3 scripts/trend-arrow.py DIR` with readings.json ([[unix, mgdl, trend], ...] from
 `glucos.readings`) prints every table here.
+
+## 33. Can Today so far say where today will end up? (16 Nov 2026)
+
+The question: the Today so far card says how today's time in range compares with your usual day
+by now. Could it also say "Today is on track for about X% in range", from today's hours so far
+plus your usual day for the rest, and be right to within about 5 points? **Not yet. The
+projection beats both simpler guesses, but it missed by a median 7 points (10 counting only
+earlier days), and by 9 to 43 points before midday, when it would be worth reading. Nothing
+shipped.** No app or relay code changed; the card still shows today against the same hours on
+your usual day.
+
+Nothing here touches dosing: insulin, carbs and the bolus calculator were not read.
+
+**What there is.** Five whole Perth days, 11 to 15 Nov (16 Nov was still going), readings
+averaged into 5-minute buckets as the card does, target 70–180 mg/dL. Each day's time in range:
+
+| Day | In range |
+|---|---|
+| 11 Nov | 28% |
+| 12 Nov | 86% |
+| 13 Nov | 75% |
+| 14 Nov | 52% |
+| 15 Nov | 37% |
+
+**The projection.** At each whole hour from 01:00 to 23:00 (115 cuts), the share of the day gone
+times today's time in range so far, plus the share still to come times the median of the other
+days' time in range over those same remaining hours. Checked against the day's real end figure.
+Two "usual" versions: every other day (more days, but it uses later days too), and only days
+before it (honest, but 1 to 4 days). The app's own usual day needs 5 earlier days
+(`DayPattern.minimumDays`), so on this data it would not have shown at all.
+
+| From | Cuts | Projection, other days | Projection, earlier days only | Today so far only | Usual whole day |
+|---|---|---|---|---|---|
+| 01:00–06:00 | 30 | 26.6 | 21.7 | 23.2 | 30.2 |
+| 07:00–12:00 | 30 | 9.2 | 11.2 | 14.2 | 30.2 |
+| 13:00–18:00 | 30 | 2.9 | 6.5 | 13.2 | 30.2 |
+| 19:00–23:00 | 25 | 2.8 | 3.1 | 6.3 | 30.2 |
+| **All** | 115 | **7.0** | **10.3** | 14.2 | 30.2 |
+
+Median miss in percentage points. Within 5 points: 44% of projections, 16% for today so far.
+The 90th percentile miss was 36 points overall and 26 from 13:00 to 18:00.
+
+Why nothing shipped:
+
+- **It fails the bar.** A median miss of 7 to 10 points is over the ~5 points set for this
+  round, and one projection in ten was off by more than a third of the day.
+- **It only passes when it says little.** From 13:00 the median miss falls under 5, but by then
+  most of the day is known, and on 11 Nov it was still off by 24 to 30 points all afternoon (the
+  evening went far higher than any other day's). Before midday, when "on track for" would change
+  how someone reads their day, it missed by 9 to 43 points.
+- **Days differ more than hours do.** Days ranged from 28% to 86% in range. A usual rest of the
+  day is a median of very different days, so it pulls every projection toward the middle; good
+  days were projected too low and bad ones too high all morning (bias −15 to +43 points by day).
+- **A gate couldn't open honestly.** A self-check like back in range (§24) needs earlier days to
+  score itself on, and with fewer than 5 earlier days the card has no usual day to project from.
+
+Retest around 2026-12-03, once there are 3 weeks of whole days: run the same cuts with a 14-day
+usual from earlier days only, and ship (gated per device by its own past misses, from midday)
+only if the median miss is 5 points or less before 18:00.
+
+SQL (Supabase, `glucos.readings`; change the window and cut list to rerun):
+
+```sql
+with r as (select (at at time zone 'Australia/Perth') l, mgdl from glucos.readings
+           where mgdl > 0 and at >= '2026-11-10 16:00Z' and at < '2026-11-15 16:00Z'),
+b as (select l::date d, (extract(hour from l)*12 + floor(extract(minute from l)/5))::int k,
+             avg(mgdl) m from r group by 1, 2),
+bi as (select d, k, (m >= 70 and m <= 180)::int i from b),
+cuts as (select generate_series(12, 276, 12) c),
+days as (select distinct d from bi),
+sofar as (select D.d, c, avg(i) t from days D cross join cuts join bi on bi.d = D.d and bi.k < c group by 1, 2),
+rest as (select D.d, c, avg(i) t from days D cross join cuts join bi on bi.d = D.d and bi.k >= c group by 1, 2),
+actual as (select d, avg(i) t from bi group by d)
+select s.d, s.c / 12 as hour, a.t as actual,
+       s.c / 288.0 * s.t + (1 - s.c / 288.0) *
+         (select percentile_cont(0.5) within group (order by r2.t)
+            from rest r2 where r2.c = s.c and r2.d < s.d) as projected
+from sofar s join actual a on a.d = s.d;
+```
