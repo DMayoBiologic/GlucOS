@@ -1,18 +1,19 @@
-# Alert buttons: Snooze 30 min and I'm treating it
+# Alert buttons: Log treatment and Snooze 30 min
 
 Low and high alerts on the iPhone and the Mac carry two buttons. They work the same whether the
 alert came from the relay as a push or from the device itself.
 
 | Alert | Buttons |
 | --- | --- |
-| Low, predicted low | I'm treating it, Snooze 30 min |
-| High, very high, predicted high, predicted very high | I'm treating it, Snooze 30 min |
-| Urgent low, predicted urgent low | I'm treating it (never snoozable) |
+| Low, predicted low | Log treatment, Snooze 30 min |
+| High, very high, predicted high, predicted very high | Log treatment, Snooze 30 min |
+| Urgent low, predicted urgent low | Log treatment (never snoozable) |
 | Rapid change, no data, sensor, connection | none |
 
 ## Snooze 30 min
 
-- Quiets that alert's level for 30 minutes: lows (low and predicted low), highs (high and predicted
+- Quiets that one alert for 30 minutes, nothing else: no other alert's level, nothing a follower
+  gets. The level is the alert's family: lows (low and predicted low), highs (high and predicted
   high) or very highs (very high and predicted very high, and highs with them). Snoozing a high lets
   a very high through. Escalation always gets through.
 - **Urgent lows are never snoozed**, by either button, on any device or by the relay. Their
@@ -28,12 +29,18 @@ alert came from the relay as a push or from the device itself.
   a quiet notification, since the push may still come. The Mac's snooze is its own (the Mac has no
   relay connection).
 
-## I'm treating it
+## Log treatment
 
-- Opens the log sheet (iPhone: the app; Mac: the quick-log window).
-- **Low** (including urgent): food tagged as a hypo treatment. When you have a "Treat a low" usual
-  (docs/UsualEntries.md) it's filled in straight away, food only and never a dose, and it still
-  goes through `RepeatCheck` ("Already logged?") before it's logged.
+Called "I'm treating it" until round 31. Only the title changed: the action identifier
+(`alert.treat`), the categories and what the button does are the same, so the relay and older
+builds need nothing new.
+
+- Opens the log sheet (iPhone: the app; Mac: the quick-log window). **It never logs anything by
+  itself**: nothing is saved until you tap Log.
+- **Low** (including urgent and predicted): filled in from your "Treat a low" usual
+  (docs/UsualEntries.md) when you have one, food only and never a dose, and it still goes through
+  `RepeatCheck` ("Already logged?") before it's logged. With no usual yet it opens on the food step
+  tagged as a hypo treatment, the same as the low entry in Your usual.
 - **High**: the dose step for a correction, with the bolus calculator and your usual correction one
   tap away. A dose amount is never filled in without a tap. The #54 double-dose check runs as for
   any dose, and a dose logged this way with no food is saved as a correction, so "Was that dose for
@@ -43,12 +50,14 @@ alert came from the relay as a push or from the device itself.
 
 ## In the Logbook
 
-Each low or high alert, and which button was tapped on it, also shows as a quiet row in the
+Each low or high alert, and which button was tapped on it ("Tapped Log treatment", "Snoozed 30
+min"), also shows as a quiet row in the
 Logbook on both devices. See docs/AlertLog.md.
 
 ## Where it lives
 
-- Rules: `Sources/Core/AlertSnooze.swift` (tests `AlertSnoozeTests`), relay copy in
+- Rules and button titles: `Sources/Core/AlertSnooze.swift` (`AlertSnoozes.buttonTitles(for:)`,
+  tests `AlertSnoozeTests`), relay copy in
   `supabase/functions/relay/core.ts` (`snoozeLevel`, `silences`, `ownerNotices`; tests "snooze: …"
   in `checkins_test.ts`).
 - Notification categories `glucos.alert` and `glucos.alert.urgent`, registered by both apps

@@ -1,11 +1,13 @@
 import Foundation
 
-// The buttons on a low or high alert (docs/AlertActions.md): "Snooze 30 min" and "I'm treating it".
+// The buttons on a low or high alert (docs/AlertActions.md): "Log treatment" and "Snooze 30 min".
+// (Round 31 renamed "I'm treating it" to "Log treatment"; the action identifiers and categories are
+// unchanged, so the relay's pushes and older builds keep working.)
 // Plain Foundation so the rules are unit-tested, and the relay's copy (snoozeLevel and friends in
 // supabase/functions/relay/core.ts) follows the same table.
 //
 // - Urgent lows (a reading under 54, or one forecast) are never snoozed, by either button, on any
-//   device or by the relay. Their notifications only offer "I'm treating it".
+//   device or by the relay. Their notifications only offer "Log treatment".
 // - A snooze only quiets the owner's own alerts. Followers' alerts, check-ins and their reminders
 //   and the Lock Screen card carry on exactly as before.
 // - Snoozing a very high quiets highs too; snoozing a high lets a very high through. Escalation
@@ -18,7 +20,7 @@ enum AlertSnoozeLevel: String, Codable, CaseIterable, Hashable {
     case low, high, veryHigh
 }
 
-/// What "I'm treating it" opens the log sheet on.
+/// What "Log treatment" opens the log sheet on.
 enum AlertTreatment: String, Codable, Hashable {
     /// Food tagged as a hypo treatment (the "Treat a low" usual entry when there is one).
     case low
@@ -37,7 +39,7 @@ extension AlertNotice.Kind {
         }
     }
 
-    /// What "I'm treating it" logs for this alert. Nil: no button.
+    /// What "Log treatment" opens the log sheet on for this alert. Nil: no button.
     var treatment: AlertTreatment? {
         switch self {
         case .urgentLow, .predictedUrgentLow, .low, .predictedLow: return .low
@@ -80,7 +82,7 @@ struct AlertSnoozes: Codable, Hashable {
     }
 
     static let snoozeMinutes = 30
-    /// "I'm treating it" quiets the same alert while the treatment works: 15 minutes for a low
+    /// "Log treatment" quiets the same alert while the treatment works: 15 minutes for a low
     /// (the usual time to recheck after fast carbs), 30 for a high. Never an urgent low.
     static func treatingMinutes(_ t: AlertTreatment) -> Int { t == .low ? 15 : 30 }
     /// The relay refuses anything longer.
@@ -90,6 +92,15 @@ struct AlertSnoozes: Codable, Hashable {
     static let treatOnlyCategory = "glucos.alert.urgent"
     static let snoozeAction = "alert.snooze"
     static let treatAction = "alert.treat"
+    /// The button titles. "Log treatment" only opens the log sheet: nothing is logged until Log.
+    static let treatTitle = "Log treatment"
+    static var snoozeTitle: String { "Snooze \(snoozeMinutes) min" }
+
+    /// The buttons an alert's notification shows, in order. Urgent lows: Log treatment only.
+    static func buttonTitles(for kind: AlertNotice.Kind) -> [String] {
+        guard kind.treatment != nil else { return [] }
+        return kind.snoozeLevel == nil ? [treatTitle] : [treatTitle, snoozeTitle]
+    }
 
     init() {}
 

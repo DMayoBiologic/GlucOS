@@ -146,7 +146,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
   app, so when the relay starts the next 8-hour Lock Screen card the phone can't hand back its new
   push token, and the card stops updating until you open GlucOS again. Alerts are unaffected.
 - **Low and high alerts have two buttons.** *Snooze 30 min* quiets your own alerts (followers still
-  get every one), and *I'm treating it* opens the log sheet on your usual low treatment or a
+  get every one), and *Log treatment* opens the log sheet on your usual low treatment or a
   correction. Urgent lows can't be snoozed. See [AlertActions.md](AlertActions.md).
 - **Pull down on Today to refresh.** A ring fills as your readings arrive and you feel a light tap when there's something new. Under Reduce Motion you get the standard system indicator.
 - **Your alerts are in the Logbook.** Each low or high alert gets a quiet row showing when it went off and what you did about it. Use the filter to hide these rows. They never count as treatments.

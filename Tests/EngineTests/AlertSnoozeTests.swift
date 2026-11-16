@@ -1,7 +1,7 @@
 import XCTest
 @testable import GlucOSEngine
 
-// "Snooze 30 min" and "I'm treating it" (docs/AlertActions.md). The relay's copy of these rules is
+// "Log treatment" and "Snooze 30 min" (docs/AlertActions.md). The relay's copy of these rules is
 // tested against the same cases in supabase/functions/relay/checkins_test.ts ("snooze: …").
 final class AlertSnoozeTests: XCTestCase {
     let now = referenceNow
@@ -98,5 +98,35 @@ final class AlertSnoozeTests: XCTestCase {
         let t = now.addingTimeInterval(60)
         let due = planner.evaluate(snapshot(50, at: t), prefs: AlertPreferences(), now: t)
         XCTAssertEqual(planner.unsnoozed(due, snoozes: snoozes, now: t).map(\.kind), [.urgentLow])
+    }
+
+    /// Round 31: lows and predicted lows show Log treatment and Snooze 30 min, urgent lows Log
+    /// treatment only, and the rules behind the buttons are unchanged.
+    func testLowAlertButtons() {
+        XCTAssertEqual(AlertSnoozes.buttonTitles(for: .low), ["Log treatment", "Snooze 30 min"])
+        XCTAssertEqual(AlertSnoozes.buttonTitles(for: .predictedLow), ["Log treatment", "Snooze 30 min"])
+        XCTAssertEqual(AlertSnoozes.buttonTitles(for: .urgentLow), ["Log treatment"])
+        XCTAssertEqual(AlertSnoozes.buttonTitles(for: .predictedUrgentLow), ["Log treatment"])
+        XCTAssertEqual(AlertSnoozes.buttonTitles(for: .high), ["Log treatment", "Snooze 30 min"])
+        XCTAssertEqual(AlertSnoozes.buttonTitles(for: .stale), [])
+        XCTAssertEqual(AlertSnoozes.buttonTitles(for: .rapidChange), [])
+        // Same identifiers the relay's pushes name, so nothing changes for older builds.
+        XCTAssertEqual(AlertSnoozes.treatAction, "alert.treat")
+        XCTAssertEqual(AlertSnoozes.snoozeAction, "alert.snooze")
+        XCTAssertEqual(AlertNotice.Kind.predictedLow.treatment, .low)
+        XCTAssertEqual(AlertSnoozes.treatingMinutes(.low), 15)
+    }
+
+    /// Snooze 30 min on a low quiets that low (and the predicted low with it) only: highs, very
+    /// highs and urgent lows still fire.
+    func testALowSnoozeLeavesOtherAlertsAlone() {
+        var s = AlertSnoozes()
+        XCTAssertTrue(s.snooze(.predictedLow, minutes: AlertSnoozes.snoozeMinutes, now: now))
+        let t = now.addingTimeInterval(60)
+        XCTAssertTrue(s.silences(.predictedLow, at: t))
+        XCTAssertTrue(s.silences(.low, at: t))
+        for kind: AlertNotice.Kind in [.urgentLow, .predictedUrgentLow, .high, .veryHigh, .predictedHigh, .rapidChange] {
+            XCTAssertFalse(s.silences(kind, at: t), "\(kind)")
+        }
     }
 }

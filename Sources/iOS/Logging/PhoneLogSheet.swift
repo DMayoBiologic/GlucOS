@@ -24,7 +24,7 @@ struct PhoneLogSheet: View {
     private let start: PhoneLogPart?
     /// Opened to add the meal a logged dose was for: no "bolus for it" step, the dose is in already.
     private let forLoggedDose: Bool
-    /// Opened from "I'm treating it" on an alert.
+    /// Opened from "Log treatment" on an alert.
     private let treating: AlertTreatment?
     /// Opened from a button on the Your usual widget: the entry to fill in once the sheet appears.
     private let startingUsualID: String?
@@ -502,7 +502,7 @@ struct PhoneLogSheet: View {
         Haptics.play(.choice)
     }
 
-    /// Opened from "I'm treating it" on a low: the usual low treatment goes straight in (food only,
+    /// Opened from "Log treatment" on a low: the usual low treatment goes straight in (food only,
     /// never a dose), still checked by `RepeatCheck` before it's logged. A high opens on the dose
     /// for the calculator, with the usual correction one tap away in "Your usual": a dose amount is
     /// never filled in without a tap.
@@ -1308,7 +1308,7 @@ struct PhoneLogSheet: View {
         }
     }
 
-    /// A dose logged from the usual correction (or from "I'm treating it" on a high), with no food,
+    /// A dose logged from the usual correction (or from "Log treatment" on a high), with no food,
     /// is a correction by the user's own choice, so "Was that dose for a meal?" doesn't ask about it later.
     private func usualPurpose(logsFood: Bool) -> DosePurpose? {
         guard isNew, appliedUsual?.kind == .correction || treating == .high, !logsFood, kind.isBolus else { return nil }

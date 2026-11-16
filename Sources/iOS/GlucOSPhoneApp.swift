@@ -107,7 +107,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         }
     }
 
-    /// Buttons on a notification: "Snooze 30 min" and "I'm treating it" on alerts, check-ins ("I'm
+    /// Buttons on a notification: "Snooze 30 min" and "Log treatment" on alerts, check-ins ("I'm
     /// okay", "I need help", "Check in") and "Was that dose for a meal?" (Meal, Correction).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {

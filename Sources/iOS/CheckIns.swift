@@ -28,7 +28,7 @@ enum CheckInNotifications {
             UNNotificationCategory(identifier: ownerCategory, actions: [okay, help], intentIdentifiers: []),
             UNNotificationCategory(identifier: followerLowCategory, actions: [ask], intentIdentifiers: []),
             // Not check-ins, but categories are set all at once: "Was that dose for a meal?", and
-            // "Snooze 30 min" / "I'm treating it" on the owner's own low and high alerts.
+            // "Snooze 30 min" / "Log treatment" on the owner's own low and high alerts.
             DoseQuestion.notificationCategory,
         ] + AlertNotifications.categories))
     }

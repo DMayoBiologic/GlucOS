@@ -7,7 +7,7 @@ enum LogSheetTarget: Identifiable {
     /// Food at an earlier time: the meal a dose was for ("Was it for a meal?" → Meal → Add Food).
     case meal(at: Date)
     case edit(LogEntry)
-    /// "I'm treating it" on a low or high alert (docs/AlertActions.md): a hypo treatment, filled
+    /// "Log treatment" on a low or high alert (docs/AlertActions.md): a hypo treatment, filled
     /// from the "Treat a low" usual when there is one, or a correction dose.
     case treating(AlertTreatment)
     /// A hypo treatment at an earlier time: "Did you treat this low?" → Something else.
@@ -54,7 +54,7 @@ struct LogSheet: View {
     private let onClose: (() -> Void)?
     /// Opened to add the meal a logged dose was for: no "bolus for it" step, the dose is in already.
     private let forLoggedDose: Bool
-    /// Opened from "I'm treating it" on an alert.
+    /// Opened from "Log treatment" on an alert.
     private let treating: AlertTreatment?
     /// The id of the usual entry picked in the popover or on the widget, filled in once the sheet
     /// appears.
@@ -1297,7 +1297,7 @@ struct LogSheet: View {
         return ContextTag.allCases.first(where: tags.contains)?.title ?? "Preset"
     }
 
-    /// Opened from "I'm treating it" on a low: the usual low treatment goes straight in (food only,
+    /// Opened from "Log treatment" on a low: the usual low treatment goes straight in (food only,
     /// never a dose), still checked by `RepeatCheck` before it's logged. A high opens on the dose
     /// for the calculator, with the usual correction one tap away: a dose amount is never filled in
     /// without a click.

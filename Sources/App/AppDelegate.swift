@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Must be set before launch finishes, or a click on a notification that launched us is lost.
         UNUserNotificationCenter.current().delegate = self
         // "Was that dose for a meal?" with Meal and Correction buttons, and the low/high alerts'
-        // "Snooze 30 min" and "I'm treating it".
+        // "Snooze 30 min" and "Log treatment".
         UNUserNotificationCenter.current().setNotificationCategories(
             Set([DoseQuestion.notificationCategory] + AlertNotifications.categories))
     }
@@ -97,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 extension Notification.Name {
     /// Posted for `glucos://dashboard` (the widgets' dashboard button).
     static let glucosOpenDashboard = Notification.Name("au.com.declanmayo.glucos.open-dashboard")
-    /// Posted for "I'm treating it" on an alert: open the quick-log window on `LogWindowRequest`.
+    /// Posted for "Log treatment" on an alert: open the quick-log window on `LogWindowRequest`.
     static let glucosOpenLogWindow = Notification.Name("au.com.declanmayo.glucos.open-log-window")
 }
 
