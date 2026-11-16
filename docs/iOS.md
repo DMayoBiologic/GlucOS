@@ -206,6 +206,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Insights cards go in the order you choose.** Tap Edit in Insights, or touch and hold a card, to drag cards into a new order or hide them. Hidden cards stay in a Hidden section until you bring them back, and new cards show up by default.
 - **Streaks of good days.** The In-range streaks card in Insights shows your current and longest run of days at 70% or more in range, with the last 14 days as dots. The run and the dots count back from the latest reading, so after readings stop they describe the days up to then. Tap it to open the Logbook on the longest run.
 - **Best and toughest days.** An Insights card picks the whole days with the most and least time in range over the last 7, 14 or 30 days, each with a small chart of the day that draws in (a cross-fade with Reduce Motion on). Tap either day to open the Logbook on it.
+- **StandBy shows your glucose at a glance.** When the iPhone is charging on its side, the Glucose widget in StandBy shows a large reading, the trend arrow and a thin range band. It dims under the red Night Mode tint and updates without flicker.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
