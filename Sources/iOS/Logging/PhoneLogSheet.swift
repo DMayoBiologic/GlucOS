@@ -26,6 +26,8 @@ struct PhoneLogSheet: View {
     private let forLoggedDose: Bool
     /// Opened from "I'm treating it" on an alert.
     private let treating: AlertTreatment?
+    /// Opened from a button on the Your usual widget: the entry to fill in once the sheet appears.
+    private let startingUsualID: String?
     private let editingID: UUID?
     private let doseID: UUID
     private let mealID: UUID
@@ -123,6 +125,21 @@ struct PhoneLogSheet: View {
             parts = [.food]
             tags = [.hypoTreatment]
             time = min(at, Date())
+        case .usual(let id):
+            // The part the entry fills, so the sheet still opens there if the entry is no longer
+            // offered (a correction once glucose has come down). Nothing is filled in then.
+            switch id {
+            case "correction":
+                startPart = .insulin
+                parts = [.insulin]
+            case "low":
+                startPart = .food
+                parts = [.food]
+                tags = [.hypoTreatment]
+            default:
+                startPart = .food
+                parts = [.food]
+            }
         case .edit(let entry):
             time = entry.timestamp
             editingID = entry.id
@@ -166,6 +183,7 @@ struct PhoneLogSheet: View {
         default: forLoggedDose = false
         }
         if case .treating(let t) = target { treating = t } else { treating = nil }
+        if case .usual(let id) = target { startingUsualID = id } else { startingUsualID = nil }
         self.editingID = editingID
         self.doseID = doseID
         self.mealID = mealID
@@ -269,7 +287,7 @@ struct PhoneLogSheet: View {
             }
         }
         .interactiveDismissDisabled(saved)
-        .onAppear { startDose(); applyTreatingUsual(); focusFirstField() }
+        .onAppear { startDose(); applyTreatingUsual(); applyStartingUsual(); focusFirstField() }
         .onChange(of: settings.therapy) { _, therapy in
             // Picked in the setup step: keep the part the sheet was opened for if this therapy
             // has it, otherwise start from that therapy's default.
@@ -491,6 +509,15 @@ struct PhoneLogSheet: View {
     private func applyTreatingUsual() {
         guard isNew, treating == .low, appliedUsual == nil,
               let u = usuals.first(where: { $0.kind == .lowTreatment }) else { return }
+        apply(u)
+    }
+
+    /// Opened from a Your usual widget button: filled in from that entry, if the sheet still offers
+    /// it (worked out again now, so a correction that stopped applying because glucose came down
+    /// isn't filled in). Nothing is logged until Log, after `RepeatCheck`.
+    private func applyStartingUsual() {
+        guard isNew, appliedUsual == nil, let id = startingUsualID,
+              let u = usuals.first(where: { $0.id == id }) else { return }
         apply(u)
     }
 

@@ -14,6 +14,9 @@ enum PhoneLogTarget {
     case treating(AlertTreatment)
     /// A hypo treatment at an earlier time: "Did you treat this low?" → Something else.
     case lowTreatment(at: Date)
+    /// A button on the Your usual widget (`UsualEntry.id`): filled in from that entry if the sheet
+    /// still offers it, never logged until Log (docs/UsualEntries.md).
+    case usual(id: String)
 }
 
 struct PhoneLogRequest: Identifiable {
@@ -53,6 +56,12 @@ final class PhoneLogRouter: ObservableObject {
     func logLowTreatment(at time: Date) {
         savedSinceOpen = false
         request = PhoneLogRequest(target: .lowTreatment(at: time))
+    }
+
+    /// The log sheet filled in from a usual entry: the Your usual widget's buttons.
+    func openUsual(_ id: String) {
+        savedSinceOpen = false
+        request = PhoneLogRequest(target: .usual(id: id))
     }
 
     func edit(_ entry: LogEntry) {

@@ -386,3 +386,35 @@ enum RepeatCheck {
 protocol TimedEntry { var timestamp: Date { get } }
 extension InsulinDose: TimedEntry {}
 extension MealEntry: TimedEntry {}
+
+extension UsualGlance {
+    /// The entry as the Your usual widget draws it (Sources/Shared/WidgetGlance.swift).
+    init(_ u: UsualEntry, now: Date = Date(), calendar: Calendar = .current) {
+        let kind: Kind
+        var until: Date?
+        switch u.kind {
+        case .meal(let slot):
+            kind = .meal
+            until = slot.end(after: now, calendar: calendar)
+        case .correction: kind = .correction
+        case .lowTreatment: kind = .low
+        }
+        self.init(id: u.id, kind: kind, title: u.title, detail: u.detail, systemImage: u.systemImage,
+                  spoken: u.spokenLabel, until: until)
+    }
+}
+
+extension MealSlot {
+    /// The first hour after `now` that falls in another part of the day: 11:00 for breakfast. Nil
+    /// if `now` isn't in this part at all.
+    func end(after now: Date, calendar: Calendar = .current) -> Date? {
+        guard MealSlot.at(now, calendar: calendar) == self,
+              var hour = calendar.dateInterval(of: .hour, for: now)?.start else { return nil }
+        for _ in 0..<24 {
+            guard let next = calendar.date(byAdding: .hour, value: 1, to: hour) else { return nil }
+            hour = next
+            if MealSlot.at(hour, calendar: calendar) != self { return hour }
+        }
+        return nil
+    }
+}

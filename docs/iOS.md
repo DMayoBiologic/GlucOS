@@ -24,6 +24,10 @@ Shortcuts, the Action button), and `glucos://log` (or `glucos://log/insulin|food
 None of them ever fill in an amount: GlucOS records what you enter, and only the bolus calculator
 suggests a dose.
 
+The **Your Usual** Home Screen widget (medium) shows the same "Your usual" entries as the log sheet,
+up to three. A tap opens the log sheet filled in from that entry, the same as tapping its tile there;
+nothing is logged until you tap Log, after the logged-twice check (docs/UsualEntries.md).
+
 ```
 LibreLinkUp ──► push relay (Supabase edge function, every minute) ──APNs──► iPhone: alerts + Lock Screen card
            └──► iPhone app (while it's open)
