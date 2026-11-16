@@ -29,7 +29,9 @@ extension PopoverNotice {
     static func current(store: GlucoseStore, onRefresh: @escaping () -> Void, now: Date = Date()) -> [PopoverNotice] {
         let s = store.snapshot
         var out: [PopoverNotice] = []
-        if let cur = s.current, s.isStale(at: now) {
+        // While a new sensor warms up, its countdown card says when readings start instead: the
+        // old sensor's last reading is hidden, so there's no old number to warn about.
+        if let cur = s.current, s.isStale(at: now), s.warmUp(at: now) == nil {
             out.append(PopoverNotice(
                 kind: .stale, severity: .warning, systemImage: "clock.badge.exclamationmark.fill",
                 title: "No new reading for \(PopoverFormat.age(cur.age(at: now)))",

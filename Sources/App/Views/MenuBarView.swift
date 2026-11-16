@@ -85,13 +85,9 @@ struct MenuBarView: View {
         let showsWake = PopoverWakePrompt.isRelevant(logbook: logbook)
         let showing = staggerSections(hasNotices: !notices.isEmpty, hasPrompts: showsDose || showsLow || showsWake)
         return VStack(alignment: .leading, spacing: PopoverLayout.stackSpacing) {
-            Group {
-                if s.current != nil {
-                    PopoverHero(onCopy: copyReading, onRefresh: refresh, onOpenDashboard: showDashboard)
-                        .accessibilitySortPriority(4)
-                } else {
-                    emptyState
-                }
+            // Redrawn once more when a warm-up runs out with the popover open, so the card gives way.
+            TimelineView(.explicit(warmUpEnd)) { context in
+                heroSlot(warmUp: s.warmUp(at: context.date))
             }
             .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
             PopoverNotices(notices: notices)
@@ -128,6 +124,31 @@ struct MenuBarView: View {
                 VoiceOver.announce(n.severity.accessibilityPrefix + n.title)
             }
         }
+    }
+
+    /// The top card: a new sensor's warm-up countdown, the reading, or what to do with none. The
+    /// first reading cross-fades in over the countdown: a fade, so it stays under Reduce Motion
+    /// (`.sweep` keeps a short one there).
+    private func heroSlot(warmUp: SensorWarmUp?) -> some View {
+        Group {
+            if let warmUp {
+                PopoverWarmUpCard(warmUp: warmUp, onRefresh: refresh)
+                    .accessibilitySortPriority(4)
+                    .transition(.opacity)
+            } else if s.current != nil {
+                PopoverHero(onCopy: copyReading, onRefresh: refresh, onOpenDashboard: showDashboard)
+                    .accessibilitySortPriority(4)
+                    .transition(.opacity)
+            } else {
+                emptyState
+                    .transition(.opacity)
+            }
+        }
+        .dsAnimation(.sweep, value: warmUp == nil)
+    }
+
+    private var warmUpEnd: [Date] {
+        s.warmUp().map { [$0.endsAt.addingTimeInterval(SensorWarmUp.grace)] } ?? []
     }
 
     /// The sections taking a turn in this opening's stagger.
@@ -247,22 +268,25 @@ struct MenuBarView: View {
 
     private var emptyState: some View {
         Group {
-            if settings.hasCredentials {
+            if settings.hasCredentials, let step = noReadingsStep {
+                // Signed in and connected with nothing to show: a new account, a sensor that has
+                // ended, LibreLink not uploading. Says what to do next.
+                ContentUnavailableView {
+                    Label(step.title, systemImage: step.systemImage)
+                } description: {
+                    Text(step.detail)
+                } actions: {
+                    checkAgainButton
+                }
+            } else if settings.hasCredentials {
                 ContentUnavailableView {
                     Label("Waiting for Data", systemImage: "drop")
                 } description: {
-                    Text("Fetching from LibreLinkUp. If this takes more than a minute, check the notice below.")
+                    Text(store.connectionProblem == nil
+                         ? "Getting your latest reading from LibreLinkUp…"
+                         : "Couldn't reach LibreLinkUp. The notice below says what to do.")
                 } actions: {
-                    Button {
-                        refresh()
-                    } label: {
-                        if store.isRefreshing {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Text("Refresh")
-                        }
-                    }
-                    .disabled(store.isRefreshing)
+                    checkAgainButton
                 }
             } else {
                 ContentUnavailableView {
@@ -282,6 +306,17 @@ struct MenuBarView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, DS.Space.sm)
         .dsCard(.standard)
+    }
+
+    private var noReadingsStep: NoReadingsStep? {
+        NoReadingsStep.current(snapshot: s, hasConnectionProblem: store.connectionProblem != nil)
+    }
+
+    private var checkAgainButton: some View {
+        Button(action: refresh) {
+            Label(store.isRefreshing ? "Checking…" : "Check Again", systemImage: "arrow.clockwise")
+        }
+        .disabled(store.isRefreshing)
     }
 
     /// `LSUIElement` apps don't come forward on their own, so the Settings window would open

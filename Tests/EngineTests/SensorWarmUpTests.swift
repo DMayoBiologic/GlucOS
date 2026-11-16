@@ -67,4 +67,37 @@ final class SensorWarmUpTests: XCTestCase {
         let encoded = try JSONEncoder().encode(state)
         XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("warmUpEndsAt"))
     }
+
+    func testNextChangeIsEachMinuteOfTheCountdownThenTheEnd() throws {
+        let w = SensorWarmUp(startedAt: start)
+        let now = start.addingTimeInterval(18 * 60 + 10)   // 41 min 50 s left: "42 min"
+        let next = try XCTUnwrap(w.nextChange(after: now))
+        XCTAssertEqual(next, start.addingTimeInterval(19 * 60))
+        XCTAssertEqual(w.minutesLeft(at: next), 41, "the countdown reads differently right at the change")
+        XCTAssertEqual(w.minutesLeft(at: next.addingTimeInterval(-1)), 42)
+        // The last minute gives way to "any minute now", then the end of the grace.
+        XCTAssertEqual(w.nextChange(after: start.addingTimeInterval(3600 - 30)), start.addingTimeInterval(3600))
+        XCTAssertEqual(w.nextChange(after: start.addingTimeInterval(3600)),
+                       start.addingTimeInterval(3600 + SensorWarmUp.grace))
+        XCTAssertNil(w.nextChange(after: start.addingTimeInterval(3600 + SensorWarmUp.grace)))
+        let moments = w.changeMoments(from: now)
+        XCTAssertEqual(moments.count, 43, "42 minute steps down to the hour, then the end of the grace")
+        XCTAssertEqual(moments.last, start.addingTimeInterval(3600 + SensorWarmUp.grace))
+        XCTAssertEqual(moments, moments.sorted())
+    }
+
+    func testNoReadingsStepSaysWhatToDoNext() {
+        var s = GlucoseSnapshot()
+        XCTAssertNil(NoReadingsStep.current(snapshot: s, hasConnectionProblem: false, at: start),
+                     "nothing to say before the first fetch")
+        s.fetchedAt = start
+        XCTAssertEqual(NoReadingsStep.current(snapshot: s, hasConnectionProblem: false, at: start)?.title, "No readings yet")
+        XCTAssertNil(NoReadingsStep.current(snapshot: s, hasConnectionProblem: true, at: start),
+                     "a connection problem has its own notice")
+        s.sensor = sensor(start.addingTimeInterval(-16 * 86_400))
+        XCTAssertEqual(NoReadingsStep.current(snapshot: s, hasConnectionProblem: false, at: start)?.title,
+                       "Your sensor has ended")
+        s.current = GlucoseReading(timestamp: start, mgdl: 110, trend: .flat)
+        XCTAssertNil(NoReadingsStep.current(snapshot: s, hasConnectionProblem: false, at: start))
+    }
 }

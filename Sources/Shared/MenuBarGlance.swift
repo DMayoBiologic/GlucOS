@@ -12,6 +12,9 @@ struct MenuBarGlance: Equatable {
         case live
         /// The latest reading is older than `GlucoseSnapshot.staleAfter`.
         case stale
+        /// A new sensor's first hour (`SensorWarmUp`): a small ring and the minutes left instead of
+        /// the old sensor's last reading.
+        case warmingUp
     }
 
     var state: State
@@ -31,6 +34,9 @@ struct MenuBarGlance: Equatable {
     var sparkline: [Double]
     /// Whether the value is drawn in its range colour (urgent lows always are).
     var colored: Bool
+    /// While warming up, how much of the hour has passed (0...1), in whole minutes so it changes
+    /// once a minute with the countdown. Nil otherwise.
+    var warmUpFraction: Double? = nil
 
     var hasReading: Bool { state == .live || state == .stale }
 
@@ -38,6 +44,7 @@ struct MenuBarGlance: Equatable {
     var text: String {
         switch state {
         case .notConnected, .waiting: return valueText
+        case .warmingUp: return "Warming up \(valueText)"
         case .stale: return "\(valueText) · \(ageText ?? "")"
         case .live:
             var t = valueText
@@ -117,6 +124,14 @@ extension MenuBarGlance {
                      showSparkline: Bool,
                      colorByRange: Bool,
                      now: Date = Date()) -> MenuBarGlance {
+        // Checked before the reading: during warm-up `current` is still the old sensor's last one.
+        if let warmUp = snapshot.warmUp(at: now) {
+            let minutes = warmUp.minutesLeft(at: now)
+            let hour = Int(SensorWarmUp.duration / 60)
+            return MenuBarGlance(state: .warmingUp, valueText: minutes > 0 ? "\(minutes)m" : "soon", mgdl: nil,
+                                 trend: nil, deltaText: nil, ageText: nil, range: nil, sparkline: [], colored: false,
+                                 warmUpFraction: Double(max(0, hour - minutes)) / Double(hour))
+        }
         guard let current = snapshot.current else {
             return MenuBarGlance(state: hasCredentials ? .waiting : .notConnected, valueText: "––", mgdl: nil,
                                  trend: nil, deltaText: nil, ageText: nil, range: nil, sparkline: [], colored: false)
@@ -143,6 +158,8 @@ extension MenuBarGlance {
     /// or when a stale reading's age ticks over to the next minute (the next day past a day).
     /// Nil with no reading. The item sets one timer for this instead of re-checking on a tick.
     static func nextChange(snapshot: GlucoseSnapshot, now: Date = Date()) -> Date? {
+        // Warming up: each minute of the countdown, then the end of the warm-up.
+        if let warmUp = snapshot.warmUp(at: now) { return warmUp.nextChange(after: now) }
         guard let current = snapshot.current else { return nil }
         let age = current.age(at: now)
         if age <= GlucoseSnapshot.staleAfter {
@@ -198,6 +215,11 @@ extension MenuBarGlance {
     static func toolTip(snapshot: GlucoseSnapshot, hasCredentials: Bool, showForecast: Bool,
                         now: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
                         locale: Locale = .autoupdatingCurrent) -> String {
+        if let warmUp = snapshot.warmUp(at: now) {
+            let line = "GlucOS: sensor warming up. \(warmUp.headline(at: now))"
+            guard warmUp.minutesLeft(at: now) > 0 else { return line }
+            return line + " (around \(ClockLabel.time(warmUp.endsAt, calendar: calendar, locale: locale)))"
+        }
         guard let current = snapshot.current else {
             return hasCredentials ? "GlucOS: waiting for a reading" : "GlucOS: not connected"
         }

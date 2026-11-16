@@ -158,6 +158,8 @@ final class MenuBarStatusModel: ObservableObject {
         switch g.state {
         case .notConnected: return "GlucOS, not connected"
         case .waiting: return "GlucOS, waiting for a reading"
+        case .warmingUp:
+            return "GlucOS, sensor warming up" + (snapshot.warmUp().map { ". \($0.headline())" } ?? "")
         case .stale:
             let age = g.ageText.map { " from \($0) ago" } ?? ""
             return "GlucOS, no new reading. Last reading \(g.valueText) \(unit.spokenLabel)\(age). Data is stale"
@@ -246,6 +248,7 @@ struct MenuBarColours {
     let stale: Color
     let strike: Color
     let warning: Color
+    let brand: Color
     private let appearance: NSAppearance
 
     init(dark: Bool, highContrast: Bool) {
@@ -263,6 +266,7 @@ struct MenuBarColours {
         stale = resolve(NSColor(Palette.staleText))
         strike = resolve(NSColor(Palette.stale))
         warning = resolve(NSColor(Palette.amber))
+        brand = resolve(NSColor(Palette.brand))
     }
 
     func rangeColour(_ range: GlucoseRange) -> Color {
@@ -349,6 +353,11 @@ struct MenuBarGlanceView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(colours.warning)
+        case .warmingUp:
+            // The hour filling, a minute at a time: redrawn with the countdown, never animated.
+            MenuBarWarmUpRing(fraction: glance.warmUpFraction ?? 0, track: colours.secondary.opacity(0.35),
+                              tint: colours.brand)
+                .frame(width: 11, height: 11)
         case .live:
             if glance.range == .urgentLow {
                 Image(systemName: "exclamationmark.octagon.fill")
@@ -397,6 +406,24 @@ struct MenuBarGlanceView: View {
         Text(g.valueText)
             .font(valueFont)
             .foregroundStyle(colours.value(g))
+    }
+}
+
+/// The menu bar's warm-up ring: a thin track with the passed part of the hour drawn over it.
+struct MenuBarWarmUpRing: View {
+    let fraction: Double
+    let track: Color
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(track, lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: max(0.03, min(1, fraction)))
+                .stroke(tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .padding(1)
     }
 }
 
