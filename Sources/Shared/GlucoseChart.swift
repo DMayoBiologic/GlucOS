@@ -55,6 +55,12 @@ struct GlucoseChart: View {
     @State private var seenMarkers: [ChartLogMarker]?
     /// Markers popping in or shrinking out right now, drawn over the chart until they settle.
     @State private var flights: [MarkerFlight] = []
+    /// Markers logged from outside the Logbook (Siri, a control, an alert, a widget), each with
+    /// its one soft ring and caption the first time this chart shows it (`LoggedElsewhere`).
+    @State private var glows: [MarkerGlow] = []
+    /// Between `onAppear` and `onDisappear`. A Mac popover that's closed keeps its chart, so a
+    /// highlight waits for it to open again rather than playing where no one can see it.
+    @State private var onScreen = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The real reading nearest the pointer. Only actual readings are ever shown, never an
@@ -172,13 +178,20 @@ struct GlucoseChart: View {
         guard popsMarkers, interactive, let old = seenMarkers else { return }
         seenMarkers = events
         let change = MarkerPop.change(from: old.map(\.id), to: events.map(\.id))
-        guard change.animates else { return }
+        LoggedElsewhere.shared.forget(change.removed)
+        guard change.animates else {
+            // A burst arriving at once changes silently, but an entry logged from elsewhere in it
+            // still gets its highlight.
+            glowLoggedElsewhere(events.filter { change.added.contains($0.id) && $0.date >= start }, pop: nil)
+            return
+        }
         let added = events.filter { change.added.contains($0.id) && $0.date >= start }
         let removed = old.filter { change.removed.contains($0.id) && $0.date >= start }
         guard !(added.isEmpty && removed.isEmpty) else { return }
-        if let text = MarkerPop.announcement(added: added.compactMap(\.kind), removed: removed.compactMap(\.kind)) {
+        let pop = MarkerPop.announcement(added: added.compactMap(\.kind), removed: removed.compactMap(\.kind))
+        if !glowLoggedElsewhere(added, pop: pop), let pop {
             // Low priority, so it waits for "Saved" or "Deleted" from the sheet or toast to finish.
-            var spoken = AttributedString(text)
+            var spoken = AttributedString(pop)
             spoken.accessibilitySpeechAnnouncementPriority = .low
             AccessibilityNotification.Announcement(spoken).post()
         }
@@ -190,6 +203,59 @@ struct GlucoseChart: View {
         next += added.map { MarkerFlight(marker: $0, leaving: false) }
         next += removed.map { MarkerFlight(marker: $0, leaving: true) }
         withTransaction(Transaction(animation: nil)) { flights = next }
+    }
+
+    /// Starts the ring and caption on any of `markers` logged from elsewhere and not yet shown on
+    /// this chart. VoiceOver hears it once, folded into the pop's own line when there is one. True
+    /// when it said something, so the caller doesn't say the pop line again.
+    @discardableResult
+    private func glowLoggedElsewhere(_ markers: [ChartLogMarker], pop: String?) -> Bool {
+        guard onScreen else { return false }
+        var spoke = false
+        for m in markers {
+            guard let h = LoggedElsewhere.shared.take(m.id, on: .chart) else { continue }
+            glows.removeAll { $0.marker.id == m.id }
+            glows.append(MarkerGlow(marker: m, origin: h.origin, delay: h.delay))
+            if h.announces, !spoke {
+                LoggedElsewhere.announce(LoggedElsewhereMarks.chartSpoken(h.origin, pop: pop))
+                spoke = true
+            }
+        }
+        return spoke
+    }
+
+    /// Markers popping in or shrinking out, and the rings on ones logged from elsewhere. The chart
+    /// leaves a popping marker out until it lands, then draws it in the same place, so the
+    /// hand-over can't be seen.
+    @ViewBuilder
+    private func markerOverlays(proxy: ChartProxy, yd: ClosedRange<Double>) -> some View {
+        ForEach(flights) { flight in
+            MarkerFlightView(proxy: proxy, flight: flight, value: markerY(lane: flight.marker.lane, yd: yd)) {
+                landed(flight)
+            }
+        }
+        ForEach(glows) { glow in
+            LoggedElsewhereMarkerGlow(proxy: proxy, date: glow.marker.date,
+                                      value: markerY(lane: glow.marker.lane, yd: yd),
+                                      tint: glow.marker.tint, origin: glow.origin, delay: glow.delay) {
+                glows.removeAll { $0.id == glow.id }
+            }
+        }
+    }
+
+    private func appeared(visibleFrom start: Date) {
+        if interactive, range == nil { range = ChartSpanTransition(hours: hours) }
+        onScreen = true
+        guard popsMarkers, interactive else { return }
+        if seenMarkers == nil { seenMarkers = events }
+        // What's there when the chart opens doesn't pop, but an entry logged from elsewhere while
+        // it was away (the Mac's shortcut, Siri) still gets its one highlight.
+        glowLoggedElsewhere(events.filter { $0.date >= start }, pop: nil)
+    }
+
+    private func disappeared() {
+        onScreen = false
+        glows = []
     }
 
     private func landed(_ flight: MarkerFlight) {
@@ -392,18 +458,10 @@ struct GlucoseChart: View {
             if interactive, !stale, !reduceMotion, let last = window.last {
                 TracePulse(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl), tint: currentTint)
             }
-            // Markers popping in or shrinking out. The chart leaves a popping marker out until it
-            // lands, then draws it in the same place, so the hand-over can't be seen.
-            ForEach(flights) { flight in
-                MarkerFlightView(proxy: proxy, flight: flight, value: markerY(lane: flight.marker.lane, yd: yd)) {
-                    landed(flight)
-                }
-            }
+            markerOverlays(proxy: proxy, yd: yd)
         }
-        .onAppear {
-            if interactive, range == nil { range = ChartSpanTransition(hours: hours) }
-            if popsMarkers, interactive, seenMarkers == nil { seenMarkers = events }
-        }
+        .onAppear { appeared(visibleFrom: window.first?.timestamp ?? .distantFuture) }
+        .onDisappear { disappeared() }
         .onChange(of: events.map(\.id)) { _, _ in
             markersChanged(visibleFrom: window.first?.timestamp ?? .distantFuture)
         }
@@ -497,6 +555,14 @@ struct ChartLogMarker: Identifiable {
     let label: String
     /// What it is, for "Meal added to chart" (`MarkerPop`). `nil` says nothing.
     var kind: MarkerPop.Kind? = nil
+}
+
+/// A marker logged from elsewhere, glowing once.
+private struct MarkerGlow: Identifiable {
+    let id = UUID()
+    let marker: ChartLogMarker
+    let origin: LogOrigin
+    let delay: TimeInterval
 }
 
 /// A marker popping in or shrinking out.

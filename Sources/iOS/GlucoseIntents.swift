@@ -46,7 +46,7 @@ struct LogLowTreatmentIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        PhoneLogRouter.shared.treat(.low)
+        PhoneLogRouter.shared.treat(.low, from: .siri)
         return .result()
     }
 }

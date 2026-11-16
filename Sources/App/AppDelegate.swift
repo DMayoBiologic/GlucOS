@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().setNotificationCategories(
             Set([DoseQuestion.notificationCategory] + AlertNotifications.categories))
         // The in-app alert banner's buttons do what the notification's do.
-        AlertBannerCenter.shared.perform = { MacAlertActions.handle($0) }
+        AlertBannerCenter.shared.perform = { MacAlertActions.handle($0, from: .alertBanner) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "log":
             // The Your usual widget: glucos://log/usual/<id> opens the log window filled in from
             // that entry (if it's still offered), glucos://log on a new entry. Never logs.
-            LogWindowRequest.shared.target = UsualGlance.usualID(from: url).map { .usualID($0, at: Date()) } ?? .new
+            LogWindowRequest.shared.open(UsualGlance.usualID(from: url).map { .usualID($0, at: Date()) } ?? .new, from: .widget)
             NotificationCenter.default.post(name: .glucosOpenLogWindow, object: nil)
         default:
             // glucos://open and anything unrecognised: show the reading.
@@ -105,11 +105,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 /// the in-app banner (docs/AlertActions.md). The Mac's snoozes are its own.
 @MainActor
 enum MacAlertActions {
-    static func handle(_ tap: AlertNotifications.Tap) {
+    /// `origin`: the notification's button or the in-app banner's, for the caption on what's logged.
+    static func handle(_ tap: AlertNotifications.Tap, from origin: LogOrigin = .notification) {
         if let minutes = tap.snoozeMinutes { AlertSnoozeStore.shared.snooze(tap.kind, minutes: minutes) }
         if case .treat(_, let treatment) = tap {
             // The quick-log window, opened by the menu bar label (it can reach openWindow).
-            LogWindowRequest.shared.target = .treating(treatment)
+            LogWindowRequest.shared.open(.treating(treatment), from: origin)
             NotificationCenter.default.post(name: .glucosOpenLogWindow, object: nil)
         }
     }

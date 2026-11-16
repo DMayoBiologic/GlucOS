@@ -37,7 +37,7 @@ struct GlucOSPhoneApp: App {
         ControlActions.open = { PhoneLogRouter.shared.openControl($0) }
         // The in-app alert banner's buttons do what the notification's do, Logbook sync included.
         AlertBannerCenter.shared.perform = { tap in
-            await PhoneAlertActions.handle(tap)
+            await PhoneAlertActions.handle(tap, from: .alertBanner)
             await PhoneServices.shared?.logbookSync?.sync()
         }
         // Likewise the Meal / Correction buttons after a dose with no food near it.

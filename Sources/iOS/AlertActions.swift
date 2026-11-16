@@ -6,8 +6,9 @@ import UserNotifications
 @MainActor
 enum PhoneAlertActions {
     /// Returns once the relay has the snooze (or it has failed), so iOS keeps the app awake for it.
-    static func handle(_ tap: AlertNotifications.Tap) async {
-        if case .treat(_, let treatment) = tap { PhoneLogRouter.shared.treat(treatment) }
+    /// `origin`: the notification's button or the in-app banner's, for the caption on what's logged.
+    static func handle(_ tap: AlertNotifications.Tap, from origin: LogOrigin = .notification) async {
+        if case .treat(_, let treatment) = tap { PhoneLogRouter.shared.treat(treatment, from: origin) }
         // Urgent lows: the log sheet only, nothing is ever quieted.
         guard let minutes = tap.snoozeMinutes else { return }
         AlertSnoozeStore.shared.snooze(tap.kind, minutes: minutes)

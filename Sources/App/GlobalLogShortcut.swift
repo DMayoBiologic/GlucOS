@@ -84,7 +84,7 @@ final class GlobalLogShortcut: ObservableObject {
         // Closed with its close button, the window can keep an old target (a low being treated).
         let isOpen = NSApp.windows.contains { $0.isVisible && $0.identifier?.rawValue.hasPrefix(LogWindow.id + "-") == true }
             || NSApp.windows.contains { $0.isVisible && $0.identifier?.rawValue == LogWindow.id }
-        if !isOpen { LogWindowRequest.shared.target = .new }
+        if !isOpen { LogWindowRequest.shared.open(.new, from: .keyboardShortcut) }
         NotificationCenter.default.post(name: .glucosOpenLogWindow, object: nil)
         NSApp.activate()
     }

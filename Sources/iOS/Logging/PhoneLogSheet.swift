@@ -28,6 +28,9 @@ struct PhoneLogSheet: View {
     private let treating: AlertTreatment?
     /// Opened from a button on the Your usual widget: the entry to fill in once the sheet appears.
     private let startingUsualID: String?
+    /// Where it was opened from, when that wasn't the app itself (`LogOrigin`): what it logs is
+    /// highlighted once on Today's chart and in the Logbook.
+    private let origin: LogOrigin?
     private let editingID: UUID?
     private let doseID: UUID
     private let mealID: UUID
@@ -81,7 +84,7 @@ struct PhoneLogSheet: View {
     @State private var saved = false
     @FocusState private var focus: LogFieldFocus?
 
-    init(target: PhoneLogTarget) {
+    init(target: PhoneLogTarget, origin: LogOrigin? = nil) {
         let s = AppSettings.shared
         var editing: PhoneLogPart?
         var startPart: PhoneLogPart?
@@ -184,6 +187,7 @@ struct PhoneLogSheet: View {
         }
         if case .treating(let t) = target { treating = t } else { treating = nil }
         if case .usual(let id) = target { startingUsualID = id } else { startingUsualID = nil }
+        self.origin = origin
         self.editingID = editingID
         self.doseID = doseID
         self.mealID = mealID
@@ -1327,6 +1331,17 @@ struct PhoneLogSheet: View {
         let logsInsulin = includes(.insulin)
         let logsFood = includes(.food)
         let trimmedName = insulinName.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Opened from Siri, a control, an alert, a widget or the shortcut: the new entries get one
+        // highlight where they next appear (`LoggedElsewhere`). Before saving, so the Logbook and
+        // chart see it as the entries arrive.
+        if isNew {
+            var ids: [UUID] = []
+            if logsInsulin, units != nil { ids.append(doseID) }
+            if logsFood, carbs != nil { ids.append(mealID) }
+            if includes(.site) { ids.append(siteID) }
+            if !tags.isEmpty { ids.append(contextID) }
+            LoggedElsewhere.shared.record(ids, from: origin)
+        }
         if logsInsulin, let units {
             // An edited dose keeps its calculator record only while it's still the dose that was worked out.
             let existing = editing == .insulin ? logbook.doses.first { $0.id == doseID } : nil

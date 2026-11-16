@@ -437,7 +437,8 @@ struct PhoneLogbookView: View {
         // one of it on screen. Under Reduce Motion the card fades in over it, so it stays.
         let lifted = opener.openID == entry.id && opener.style == .matched
         return Button { opener.open(entry.id, reduceMotion: reduceMotion) } label: {
-            PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) }, highlight: terms)
+            PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) }, highlight: terms,
+                        marksLoggedElsewhere: true)
                 .contentShape(Rectangle())
                 .logbookRowFrame(entry.id, in: opener)
                 .opacity(lifted ? 0 : 1)

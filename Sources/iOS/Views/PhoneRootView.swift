@@ -290,7 +290,7 @@ struct PhoneHomeView: View {
         // Right after the first sign-in: range, alerts and insulin, then home.
         .sheet(isPresented: $setupPending) { PhoneSetupView() }
         .sheet(item: $router.request) { request in
-            PhoneLogSheet(target: request.target)
+            PhoneLogSheet(target: request.target, origin: request.origin)
                 .presentationDragIndicator(.visible)
         }
     }

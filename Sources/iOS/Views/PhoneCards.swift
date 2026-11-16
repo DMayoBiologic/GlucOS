@@ -137,9 +137,10 @@ struct PhoneHeroCard: View {
             ripple += 1
         }
         // VoiceOver hears a new trend once, here only (the trend row and title arrows say nothing
-        // of their own). The same trend again, or a reading going stale, stays quiet.
+        // of their own). The same trend again, or a reading going stale, stays quiet, and so does a
+        // reading that's already stale when it arrives (a late fetch): its trend isn't news.
         .onChange(of: s.current?.trend) { old, new in
-            if let text = TrendTurn.announcement(from: old, to: new) {
+            if !s.isStale(at: .now), let text = TrendTurn.announcement(from: old, to: new) {
                 AccessibilityNotification.Announcement(text).post()
             }
         }
