@@ -3319,3 +3319,106 @@ select m, count(*), avg(abs(a - f)) shipped, avg(abs(a - f - 0.2 * (u1 - u0))) s
   sum((a < 70 and f < 90)::int) low_line_90, sum((a < 70 and f + 0.2 * (u1 - f) < 90)::int) low_line_90_level
 from w group by 1 order by 1;
 ```
+
+## 49. Do forecasts made 4–8 am miss the dawn rise? (17 Nov 2026)
+
+§16 found a real dawn rise (glucose climbed between 05:00 and 07:00 on every night) and tried the
+usual day's shape for it, which lost at 60 minutes. This asks a narrower question: do forecasts
+issued 04:00–07:59 Perth run low, and if so, does a small fixed rise allowance for that window
+(not the usual day's curve) fix it on held-out days? The bar: at least 3% better at 30 minutes,
+range coverage not worse, and no low drawn later. **They do run a little low, but no more than
+forecasts either side of the window, and the allowance doesn't hold up on days it wasn't fitted
+on: 30 minutes gets slightly worse, 60 minutes is 1.9% better with one day much worse. Nothing
+ships.**
+
+Nothing here touches dosing, the insulin or carb effects, the low alerts, the relay or `web/`.
+
+**Data.** The forecast log has almost nothing at dawn (the Mac sleeps and the iPhone is in the
+background): 28 clean shown points at 15 minutes and 2 at 30, from three mornings. So this is a
+replay on the server's readings (10 Nov 22:45 to 17 Nov 07:07 Perth): the engine's trend (20-minute
+least-squares slope, clamped to ±4 mg/dL a minute, 30-minute fade) issued every 5 minutes, at gain
+0.45 (Mac and relay) and 0.6 (iPhone), scored against the reading within 2 minutes of each target.
+Clean only: no meal or rapid dose from 3 hours before the forecast to its target, which drops
+11 Nov (breakfast at 06:12) and the end of 12 Nov (breakfast at 07:26). Six mornings, 12–17 Nov,
+255 / 248 / 234 points at 15 / 30 / 60 minutes.
+
+**The miss.** Bias is actual minus forecast, so positive means the forecast ran low. Gain 0.45:
+
+| Issued (Perth) | 15 min | 30 min | 45 min | 60 min |
+|---|---|---|---|---|
+| 03:00–03:59 (63 points, 5 mornings) | +1.1 | −0.5 | +5.5 | +12.9 |
+| **04:00–07:59** (234–255, 6) | +1.7 | +4.0 | +6.1 | +9.0 |
+| 08:00–09:59 (76–83, 4) | +1.4 | +4.9 | +8.7 | +10.8 |
+
+At 30 minutes the dawn window runs low on four of six mornings (+7 to +11 on 13–15 Nov, about 0
+on 12 and 16 Nov, −4 on 17 Nov) and at 60 minutes on five. But the median miss is small (+2.7 at
+30 minutes, +6.5 at 60); the mean is pulled up by a few large rises on 14 and 15 Nov, which
+started at 190–330 mg/dL. And the hour before and the two hours after run just as low at 60
+minutes, so this is §44's in-range drift showing up at dawn, not something tied to the clock.
+
+**The test.** Add r mg/dL a minute for each minute of the forecast that falls before 08:00, weighted
+like the model's part of the line (1 − the trend's fade weight, so it builds in as the trend fades,
+the same way `MorningPatternLearner`'s wake-up rise is added). That's +15r at 30 minutes and +45r at
+60 for a forecast issued well inside the window. r from 0 to 0.8 in steps of 0.05, picked on five
+mornings and scored on the sixth, separately for 30 and 60 minutes. A guarded version (no allowance
+when the line is under 100 or the trend is falling) was also tried. Typical error, mg/dL:
+
+| Held out, gain 0.45 | 12 Nov | 13 | 14 | 15 | 16 | 17 | All |
+|---|---|---|---|---|---|---|---|
+| 30 min: what ships | 13.0 | 11.8 | 27.4 | 19.9 | 22.1 | 13.7 | 18.6 |
+| 30 min: allowance (r picked) | 13.4 (0.3) | 11.0 (0.1) | 26.9 (0.15) | 19.5 (0.15) | 22.9 (0.3) | 15.0 (0.3) | 18.7 |
+| 60 min: what ships | 19.2 | 20.3 | 47.1 | 25.2 | 20.4 | 15.2 | 26.0 |
+| 60 min: allowance (r picked) | 17.0 | 17.0 | 45.2 | 24.8 | 20.6 | 22.1 | 25.5 |
+
+At gain 0.6 it's the same story (30 minutes 19.4 → 19.5, 60 minutes 26.6 → 26.3). The guarded
+version's held-out pick was r = 0 on five of six days (30 minutes 18.56 → 18.60). The picked r swings
+from 0.1 to 0.3 depending on which morning is left out, and the mornings that want the most (12, 16
+and 17 Nov) are the ones where it does harm, because the rise comes at a different time and size
+each morning: on 17 Nov glucose fell from about 195 into the 130s through the window, and the allowance
+makes the 60-minute miss 15.2 → 22.1.
+
+Even fitted on all six mornings at once (r = 0.15), it's 18.57 → 18.42 at 30 minutes (0.8%) and
+25.96 → 24.93 at 60 (4.0%), with coverage flat (79.8% → 79.4% at 30 minutes, the band being the
+10th–90th percentile of what ships' misses).
+
+**Low warnings.** Four points at 15 and 30 minutes ended under 70, all on 16 Nov (under 70 from about
+04:50, down to 53). At r = 0.3, one of the two 30-minute lines that were under 90 is lifted above it, so the
+chart would draw that low later. Nothing shipped, so low warnings (§13, §30) and "a low is
+possible" are unchanged on the apps and the relay.
+
+**Why the wake-up rise doesn't cover it either.** `MorningPatternLearner` (docs/Mornings.md) adds
+a learnt rise after a logged wake-up. Five wake-ups are logged (05:30, 08:14, 07:15, 10:59 and
+08:50), four of them after 07:00, while the rise usually starts around 05:00. So most of the dawn
+rise happens before the wake-up it would be tied to; that's the behaviour to expect, not a bug,
+since the rise is hormonal and starts in sleep.
+
+**What would settle it.** Three weeks of mornings, and forecasts actually logged through the window
+(the relay's ledger, once it has enough nights). If it's rerun, hold out by morning, require ≥3% at
+30 minutes with most mornings better, and keep the allowance off lines under 100 so a low is never
+drawn later. If the in-range drift is ever fixed generally (§44's pull with lows left alone), check
+the dawn window again after it, since most of what's here is that drift. To rerun the held-out
+table:
+
+```sql
+with r as (select at, mgdl, (at at time zone 'Australia/Perth') l from glucos.readings),
+lg as (select to_timestamp((payload->>'timestamp')::float) t from glucos.logbook
+  where not deleted and (kind = 'meal' or (kind = 'dose' and payload->>'kind' = 'rapid'))),
+iss as (select r.at t, r.l, r.mgdl v0 from r
+  where extract(minute from r.l)::int % 5 = 0 and r.l::time between '04:00' and '07:59'),
+tr as (select i.*, s.sl, s.n, s.span from iss i cross join lateral (select regr_slope(mgdl, extract(epoch from at) / 60) sl,
+    count(*) n, extract(epoch from max(at) - min(at)) / 60 span from r where r.at > i.t - interval '20 min' and r.at <= i.t) s),
+pts as (select tr.*, h, (select mgdl from r where r.at between tr.t + (h - 2) * interval '1 min' and tr.t + (h + 2) * interval '1 min'
+      order by abs(extract(epoch from r.at - tr.t) - h * 60) limit 1) a,
+    exists(select 1 from lg where lg.t between tr.t - interval '3 hours' and tr.t + h * interval '1 min') logged,
+    (select sum(1 - greatest(0, 1 - (m + 0.5) / 30)) from generate_series(0, h - 1) m
+      where (tr.l + (m + 0.5) * interval '1 min')::time < '08:00') k
+  from tr cross join (values (30), (60)) hh(h) where n >= 3 and span >= 9),
+f as (select l::date d, h, a, coalesce(k, 0) k, v0 + 0.45 * greatest(-4, least(4, sl)) * 15 f
+  from pts where a is not null and not logged),
+grid as (select x / 20.0 rr from generate_series(0, 16) x),
+sc as (select f.d hd, o.h, rr, avg(abs(o.a - o.f - rr * o.k)) e
+  from (select distinct d from f) f cross join grid join f o on o.d <> f.d group by 1, 2, 3),
+pick as (select distinct on (hd, h) hd, h, rr from sc order by hd, h, e, rr)
+select f.h, f.d, count(*), p.rr, avg(abs(f.a - f.f)) shipped, avg(abs(f.a - f.f - p.rr * f.k)) allowance
+from f join pick p on p.hd = f.d and p.h = f.h group by grouping sets ((1, 2, 4), (1)) order by 1, 2;
+```
