@@ -174,6 +174,7 @@ enum ShortcutCatalog {
                 ShortcutRow(keys: "⌘R", action: "Refresh"),
                 ShortcutRow(keys: "⌃⌘F", action: "Enter or exit full screen"),
                 ShortcutRow(keys: "⇧⌘P", action: "Export report as PDF"),
+                ShortcutRow(keys: "⇧⌘E", action: "Export the Logbook for a clinic visit"),
                 ShortcutRow(keys: "⌘/  ⌘?", action: "Show this list"),
             ]),
             anywhere(globalKey),

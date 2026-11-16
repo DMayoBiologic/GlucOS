@@ -1,13 +1,22 @@
-# Logbook export for clinic visits (iPhone)
+# Logbook export for clinic visits (iPhone and Mac)
 
-Round 23 of the improvement loop. The Logbook's share button (top right) opens **Export for a
-clinic visit**: pick the days, pick PDF or CSV, then share the file through the usual share sheet
-(Mail, Messages, AirDrop, Save to Files, Print).
+Round 23 of the improvement loop built it on the iPhone; round 24 brought the same export to the
+Mac.
+
+- **iPhone.** The Logbook's share button (top right) opens **Export for a clinic visit**: pick the
+  days, pick PDF or CSV, then share the file through the usual share sheet (Mail, Messages,
+  AirDrop, Save to Files, Print).
+- **Mac.** In the dashboard, **Export ▸ Logbook for a Clinic Visit…** (⇧⌘E, also in the ⌘? list)
+  opens the same choices in a sheet. **Save PDF…** or **Save CSV…** asks where to save it, and a
+  toast says when it's saved.
+
+Both make the same file from the same code. The only difference is the footer's "Made on this
+iPhone" or "Made on this Mac".
 
 ## Days
 
-14, 30 or 90 days up to today, or a custom From/To. Whole calendar days in the phone's time zone.
-A custom range never ends after today and is capped at 90 days, the most the phone keeps; the
+14, 30 or 90 days up to today, or a custom From/To. Whole calendar days in the device's time zone.
+A custom range never ends after today and is capped at 90 days, the most either app keeps; the
 latest 90 are kept. The footer shows the dates and how many entries fall in them.
 
 ## PDF summary (A4)
@@ -41,12 +50,14 @@ number) gets a leading apostrophe so a spreadsheet never runs a note as a formul
 
 ## Privacy and offline
 
-- Made on the phone from what's already stored there: `GlucoseStore.archive` (the owner's own
-  readings) and `LogbookStore.entries`. Nothing is fetched, so it works with no connection.
+- Made on the device from what's already stored there: `GlucoseStore.archive` (the owner's own
+  readings) and `LogbookStore.entries`. Nothing is fetched, so it works with no connection. The Mac reads its own
+  `GlucoseStore.archive` and `LogbookStore.entries` the same way.
 - Nothing about anyone the person follows is read: no followed readings, check-ins or share
   links. Alert rows aren't included. Follower-only phones don't have a Logbook, so no export.
-- The file is written to the app's temporary folder with complete file protection, and that
-  folder is cleared before each new export. Nothing leaves the phone until it's shared.
+- iPhone: the file is written to the app's temporary folder with complete file protection, and
+  that folder is cleared before each new export. Nothing leaves the phone until it's shared.
+- Mac: the file is written only where the person picks in the save panel. Nothing else is kept.
 
 ## Not changed
 
@@ -58,6 +69,13 @@ suggests a change.
 - Rules and words: `Sources/Engine/LogbookExport.swift` (`LogbookExport.Period`, `summary`,
   `report`, `row`, `csv`), tested by `LogbookExportTests`. `DayPattern.compute(readings:from:to:days:)`
   gives the usual day over any days; the Insights card's 14/30-day call is unchanged.
-- PDF drawing: `Sources/iOS/Export/LogbookPDF.swift` (UIGraphicsPDFRenderer, fixed print colours).
-- Screen: `Sources/iOS/Export/PhoneExportView.swift`, opened from `PhoneLogbookView`'s toolbar.
+  `LogbookExport.Device` (iPhone or Mac) only changes the footer and the no-readings line; a test
+  checks the figures don't move with it.
+- PDF drawing: `Sources/App/Export/LogbookPDF.swift`, one file for both apps (fixed sRGB print
+  colours). Everything draws through Core Graphics and attributed-string drawing on a top-left
+  origin page: UIGraphicsPDFRenderer on the iPhone, a Core Graphics PDF context with a flipped
+  `NSGraphicsContext` on the Mac. The iPhone target lists the file in `project.yml`.
+- Screens: `Sources/iOS/Export/PhoneExportView.swift` (opened from `PhoneLogbookView`'s toolbar)
+  and `Sources/App/Export/MacExportView.swift` (opened from the dashboard's Export menu). Both keep
+  the chosen days and format under the same `export.*` keys.
 - UI is compile-checked in CI only.

@@ -3,7 +3,7 @@ import Foundation
 // A Logbook export for a clinic visit: pick some days, then share a PDF summary (time in range, the
 // average, lows, the usual day by time of day, and every entry) or a CSV of the entries.
 //
-// Everything here is worked out on the phone from what's already stored on it: the owner's own
+// Everything here is worked out on the device (iPhone or Mac) from what's already stored on it: the owner's own
 // readings (`GlucoseStore.archive`, up to 90 days) and the owner's own logbook entries. Nothing is
 // fetched, so it works offline, and nothing about anyone the owner follows (their readings,
 // check-ins, share links) is read at all. Alert rows aren't included either.
@@ -19,8 +19,8 @@ import Foundation
 //
 // Observational only, like Insights: it reports what was logged and measured and never suggests a
 // change to insulin or settings. The logged-insulin and carb totals are sums of what the person
-// entered, nothing more. Plain Foundation, so it's unit-tested; the PDF itself is drawn on iOS
-// (Sources/iOS/Export/LogbookPDF.swift).
+// entered, nothing more. Plain Foundation, so it's unit-tested; the PDF itself is drawn by
+// Sources/App/Export/LogbookPDF.swift, one file for both the iPhone and the Mac.
 
 enum LogbookExport {
     /// The archive holds 90 days, so a longer period would only add empty days.
@@ -245,17 +245,26 @@ enum LogbookExport {
         /// The period's entries as table rows, oldest first.
         var rows: [Row]
         var made: Date
+        /// Which app made it, for the footer ("Made on this Mac").
+        var device: Device = .iPhone
+    }
+
+    /// The app making the export. Only changes the words, never the figures.
+    enum Device: String, Hashable {
+        case iPhone, mac
+
+        var name: String { self == .mac ? "Mac" : "iPhone" }
     }
 
     static func report(readings: [GlucoseReading], entries all: [LogEntry], period: Period, unit: GlucoseUnit,
-                       low: Double, high: Double, now: Date = Date(),
+                       low: Double, high: Double, device: Device = .iPhone, now: Date = Date(),
                        calendar: Calendar = .autoupdatingCurrent) -> Report {
         let inPeriod = entries(all, period: period)
         return Report(period: period, unit: unit, lowMgdl: low, highMgdl: high,
                       summary: summary(readings: readings, period: period, low: low, high: high),
                       pattern: DayPattern.compute(readings: readings, from: period.start, to: period.end,
                                                   days: period.days, calendar: calendar),
-                      totals: totals(inPeriod), rows: inPeriod.map(row), made: now)
+                      totals: totals(inPeriod), rows: inPeriod.map(row), made: now, device: device)
     }
 
     /// Rows grouped by calendar day, oldest first, for the PDF's day headings.
@@ -370,9 +379,17 @@ enum LogbookExport {
         return lines
     }
 
-    static let footnote = "Made on this iPhone by GlucOS from its own readings and logbook. Totals are what was logged, not what was delivered. Observations, not advice. Personal use, not a medical device."
+    static var footnote: String { footnote(.iPhone) }
 
-    static let noReadingsLine = "No glucose readings were stored on this iPhone for these days."
+    static func footnote(_ device: Device) -> String {
+        "Made on this \(device.name) by GlucOS from its own readings and logbook. Totals are what was logged, not what was delivered. Observations, not advice. Personal use, not a medical device."
+    }
+
+    static var noReadingsLine: String { noReadingsLine(.iPhone) }
+
+    static func noReadingsLine(_ device: Device) -> String {
+        "No glucose readings were stored on this \(device.name) for these days."
+    }
 
     static func dateFormatter(_ format: String, calendar: Calendar) -> DateFormatter {
         let f = DateFormatter()

@@ -187,4 +187,22 @@ final class LogbookExportTests: XCTestCase {
         XCTAssertEqual(LogbookExport.lowsValue(0), "None")
         XCTAssertEqual(LogbookExport.loggedLines(LogbookExport.totals([]), days: 14), ["Nothing was logged in these days."])
     }
+
+    /// The Mac's export (round 24) is the iPhone's with only the device named differently.
+    func testDeviceOnlyChangesTheWords() {
+        let readings = series(from: day(-20), to: referenceNow)
+        let fortnight = LogbookExport.Period.days(from: day(-14), to: day(-1), now: referenceNow, calendar: utc)
+        let phone = LogbookExport.report(readings: readings, entries: [], period: fortnight, unit: .mmol,
+                                         low: 70, high: 180, now: referenceNow, calendar: utc)
+        let mac = LogbookExport.report(readings: readings, entries: [], period: fortnight, unit: .mmol,
+                                       low: 70, high: 180, device: .mac, now: referenceNow, calendar: utc)
+        XCTAssertEqual(phone.device, .iPhone)
+        XCTAssertEqual(mac.device, .mac)
+        XCTAssertEqual(phone.summary, mac.summary)
+        XCTAssertEqual(phone.pattern, mac.pattern)
+        XCTAssertEqual(phone.rows, mac.rows)
+        XCTAssertTrue(LogbookExport.footnote(.mac).hasPrefix("Made on this Mac by GlucOS"))
+        XCTAssertEqual(LogbookExport.footnote, LogbookExport.footnote(.iPhone))
+        XCTAssertEqual(LogbookExport.noReadingsLine(.mac), "No glucose readings were stored on this Mac for these days.")
+    }
 }
