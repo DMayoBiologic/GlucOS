@@ -183,6 +183,50 @@ struct SensorWarmUp: Hashable {
         if m <= 0 { return "Readings start any minute now" }
         return "Readings start in about \(m) min"
     }
+
+    /// The next moment the countdown reads differently with no new data: each minute of the hour,
+    /// then the end of the grace, when the warm-up gives way to the usual waiting screen. Nil once
+    /// it's over. The Mac menu bar item sets one timer for this instead of ticking.
+    func nextChange(after now: Date) -> Date? {
+        let m = minutesLeft(at: now)
+        if m > 0 { return endsAt.addingTimeInterval(-Double(m - 1) * 60) }
+        let over = endsAt.addingTimeInterval(Self.grace)
+        return over > now ? over : nil
+    }
+
+    /// Every such moment from `now` to the end of the grace, for a view that redraws only then.
+    func changeMoments(from now: Date) -> [Date] {
+        var out: [Date] = []
+        var t = now
+        while let next = nextChange(after: t), out.count < 100 {
+            out.append(next)
+            t = next
+        }
+        return out
+    }
+}
+
+/// Signed in and connected, but LibreLinkUp has no reading at all: what to do about it, for the
+/// iPhone's Today and the Mac popover. Nil while the first fetch is still going, or when there's a
+/// connection problem (its own notice already says what to do).
+struct NoReadingsStep: Equatable {
+    let title: String
+    let detail: String
+    let systemImage: String
+
+    static func current(snapshot s: GlucoseSnapshot, hasConnectionProblem: Bool, at now: Date = Date()) -> NoReadingsStep? {
+        guard s.current == nil, !hasConnectionProblem, s.fetchedAt != .distantPast else { return nil }
+        if let sensor = s.sensor, sensor.daysRemaining(at: now) <= 0 {
+            return NoReadingsStep(
+                title: "Your sensor has ended",
+                detail: "Apply a new sensor and start it in the LibreLink app. GlucOS counts down its hour of warm-up here, then shows the first reading.",
+                systemImage: "sensor.tag.radiowaves.forward")
+        }
+        return NoReadingsStep(
+            title: "No readings yet",
+            detail: "Starting a new sensor? Start it in the LibreLink app; readings arrive about an hour later and GlucOS counts down to them here. Already wearing one? Open LibreLink on the phone that reads the sensor so it can upload.",
+            systemImage: "drop")
+    }
 }
 
 extension GlucoseSnapshot {

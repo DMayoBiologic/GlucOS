@@ -167,4 +167,62 @@ final class MenuBarGlanceTests: XCTestCase {
                        accuracy: 1e-9)
         XCTAssertEqual(MenuBarGlance.strikeOpacity(.goingStale, state: .stale, progress: 0.3, reduceMotion: false), 1)
     }
+
+    // MARK: Warm-up
+
+    private func warmingUp(minutesIn: Double) -> (GlucoseSnapshot, Date) {
+        let started = referenceNow
+        var s = GlucoseSnapshot()
+        s.unit = .mmol
+        // The old sensor's last reading, from before the new one started.
+        s.current = GlucoseReading(timestamp: started.addingTimeInterval(-2 * 3600), mgdl: 50, trend: .falling)
+        s.sensor = SensorInfo(serial: "0M0001ABCDE", activated: started, lifetimeDays: 15)
+        return (s, started.addingTimeInterval(minutesIn * 60))
+    }
+
+    func testWarmUpShowsTheCountdownNotTheOldSensorsReading() {
+        let (s, now) = warmingUp(minutesIn: 18.2)
+        let g = glance(s, delta: true, sparkline: true, now: now)
+        XCTAssertEqual(g.state, .warmingUp)
+        XCTAssertEqual(g.valueText, "42m")
+        XCTAssertEqual(g.text, "Warming up 42m")
+        XCTAssertNil(g.mgdl)
+        XCTAssertNil(g.range)
+        XCTAssertFalse(g.colored, "the old sensor's urgent low isn't shown as current")
+        XCTAssertTrue(g.sparkline.isEmpty)
+        XCTAssertEqual(g.warmUpFraction ?? -1, 18.0 / 60, accuracy: 0.0001)
+        XCTAssertFalse(g.hasReading)
+    }
+
+    func testWarmUpChangesOncePerMinuteAndTheFirstReadingFadesIn() throws {
+        let (s, now) = warmingUp(minutesIn: 18.2)
+        XCTAssertEqual(glance(s, now: now), glance(s, now: now.addingTimeInterval(30)),
+                       "nothing changes inside a minute")
+        let next = try XCTUnwrap(MenuBarGlance.nextChange(snapshot: s, now: now))
+        XCTAssertEqual(next, referenceNow.addingTimeInterval(19 * 60))
+        XCTAssertEqual(glance(s, now: next).valueText, "41m")
+        XCTAssertEqual(glance(s, now: referenceNow.addingTimeInterval(61 * 60)).valueText, "soon")
+        XCTAssertEqual(glance(s, now: referenceNow.addingTimeInterval(61 * 60)).warmUpFraction, 1)
+
+        var first = s
+        first.current = GlucoseReading(timestamp: referenceNow.addingTimeInterval(60 * 60), mgdl: 115, trend: .flat)
+        let live = glance(first, now: referenceNow.addingTimeInterval(61 * 60))
+        XCTAssertEqual(live.state, .live)
+        XCTAssertEqual(MenuBarGlance.change(from: glance(s, now: now), to: live), .firstReading)
+        XCTAssertEqual(MenuBarGlance.change(from: glance(s, now: now), to: glance(s, now: next)), .none,
+                       "the countdown steps without an animation")
+    }
+
+    func testWarmUpToolTipSaysWhenReadingsStart() {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let locale = Locale(identifier: "en_US")
+        let (s, now) = warmingUp(minutesIn: 18.2)
+        let tip = MenuBarGlance.toolTip(snapshot: s, hasCredentials: true, showForecast: true, now: now,
+                                        calendar: utc, locale: locale)
+        XCTAssertTrue(tip.hasPrefix("GlucOS: sensor warming up. Readings start in about 42 min (around "), tip)
+        let late = MenuBarGlance.toolTip(snapshot: s, hasCredentials: true, showForecast: true,
+                                         now: referenceNow.addingTimeInterval(65 * 60), calendar: utc, locale: locale)
+        XCTAssertEqual(late, "GlucOS: sensor warming up. Readings start any minute now")
+    }
 }

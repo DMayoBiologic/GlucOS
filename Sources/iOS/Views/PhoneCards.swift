@@ -180,14 +180,8 @@ struct PhoneHeroCard: View {
 
     /// Signed in and connected, but LibreLinkUp has no reading: what to do about it. Nil while the
     /// first fetch is still going or when a connection problem's banner already says.
-    private var emptyStep: (title: String, detail: String)? {
-        guard s.current == nil, store.connectionProblem == nil, s.fetchedAt != .distantPast else { return nil }
-        if let sensor = s.sensor, sensor.daysRemaining() <= 0 {
-            return ("Your sensor has ended",
-                    "Apply a new sensor and start it in the LibreLink app. GlucOS counts down its hour of warm-up here, then shows the first reading.")
-        }
-        return ("No readings yet",
-                "Starting a new sensor? Start it in the LibreLink app; readings arrive about an hour later and GlucOS counts down to them here. Already wearing one? Open LibreLink on the phone that reads the sensor so it can upload.")
+    private var emptyStep: NoReadingsStep? {
+        NoReadingsStep.current(snapshot: s, hasConnectionProblem: store.connectionProblem != nil)
     }
 
     /// What the empty card says, for VoiceOver.
@@ -329,45 +323,6 @@ struct PhoneWarmUpView: View {
         }
         .dsAnimation(.standard, value: minutes)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// A ring that fills as the warm-up passes, with the minutes left inside.
-struct WarmUpRing: View {
-    /// 0...1 of the hour passed.
-    let fraction: Double
-    let minutes: Int
-    var size: CGFloat = 96
-
-    var body: some View {
-        let line = max(6, size / 12)
-        ZStack {
-            Circle()
-                .stroke(Tone.brand.color.opacity(0.18), lineWidth: line)
-            Circle()
-                .trim(from: 0, to: max(0.001, fraction))
-                .stroke(Tone.brand.color, style: StrokeStyle(lineWidth: line, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .dsAnimation(.standard, value: fraction)
-            VStack(spacing: 0) {
-                if minutes > 0 {
-                    Text("\(minutes)")
-                        .font(.system(size: size * 0.34, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .contentTransition(.numericText(value: Double(minutes)))
-                    Text("min")
-                        .font(.system(size: size * 0.13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Image(systemName: "sensor.fill")
-                        .font(.system(size: size * 0.3, weight: .semibold))
-                        .foregroundStyle(Tone.brand.color)
-                }
-            }
-            .dsAnimation(.standard, value: minutes)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
     }
 }
 
