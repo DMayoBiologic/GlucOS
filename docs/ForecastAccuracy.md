@@ -3124,3 +3124,113 @@ select m, count(*), avg(abs(a - f)) miss, avg(abs(a - f - d)) corrected,
   sum((a < 70 and lo < 70)::int) low_bottom, sum((a < 70 and lo + d < 70)::int) low_bottom_corrected
 from r group by 1 order by 1;
 ```
+
+## 47. Allowing for how late each reading arrives (16 Nov 2026)
+
+The question: LibreLinkUp readings reach the apps and the relay a little after the time they carry.
+Would starting the forecast from the reading's time plus that lag, rather than from when it was
+fetched, bring the line closer and the range around more readings at 15, 30 and 60 minutes, on days
+it wasn't tuned on, without making a low warning later? **No. Readings arrive about 30 seconds after
+their time at the relay and under a minute and a half on the apps, and the forecast already starts
+from the reading's own time. The one place that reads it from fetch time, the "In 30 min ≈ …"
+headline, is level or slightly worse when moved on by the lag. Nothing shipped; no app or relay code
+changed, so the relay stays 2.17.0.**
+
+Not a repeat of §31: that was forecasts after a gap of minutes to hours (or the app waking). This is
+the ordinary under-a-minute delay on every reading.
+
+**How late readings arrive.** `glucos.readings` has no arrival time, so the relay's own state was
+read once a minute (`work->'current'->'t'` against `work->'lastFetchAt'`, six fetches 20:35–20:41
+UTC): every reading was first fetched 30–31 seconds after its time. The relay ticks at about :01 each
+minute and the sensor's readings carry about :31, so LinkUp had each one within 30 seconds. A
+reading LinkUp was later with would show as 90 seconds and would leave a missing minute in the stored
+readings: of 7,678 steps between live readings, 94.7% are a minute, 348 are two minutes (one minute
+missed, by LinkUp or by a skipped tick), 43 are three to six, and 13 are longer gaps (§31's ground).
+The Mac and iPhone poll every 60 seconds (`pollIntervalSeconds`) from whenever they started, so their
+reading is on average about 30 seconds plus LinkUp's delay old when fetched, at worst about 90.
+
+**What already allows for it.** `GlucoseForecaster` sets `t0 = latest.timestamp`, and the relay's
+`forecast` uses `latest.t`, so every point is drawn at the reading's time plus its minutes, and the
+ledger scores it there (`issuedAt` + minutes). The chart, the range, the predicted-low lookahead and
+every scored figure in this document are already "reading time plus the lag", whatever the lag was.
+The headline (`OutlookFormat.headlineSample`) and the Outlook rows take
+`OutlookSnapshot.sample(minutesAhead:)`, the point 15, 30 or 60 minutes after the reading, and the
+person reads it at fetch time or later. That label is effectively a forecast started at fetch time,
+really 30 − a minutes away for a reading a minutes old. The candidate picks the point at m + a
+instead, so "in 30 min" means 30 minutes from when it's read.
+
+**The test.** Scored against the reading m + a minutes after each start (interpolated to the
+second), for a = 0.5 (relay), 1.0 (apps on average), 1.5 (apps, worst ordinary case), 3 and 5
+(a late upload or a widget still showing an older reading).
+
+- Replay: the engine's trend forecast every 5 minutes, away from logs (nothing logged from 3 h before
+  to the target), 730 points, 11–17 Nov Perth, at the gains the tuner fits (0.45 / 0.6 / 0.7).
+  Coverage from the 10th–90th percentile of the label's misses on the other six days.
+- Stored: the shown, clean points in `glucos.forecast_checks` (Mac, iPhone and relay, trend and
+  insulin-and-carbs forecasts), the candidate interpolated between the stored 15/30/45/60-minute
+  points, range included.
+
+Mean miss as shipped → reading-time-plus-lag (gain 0.6 for the replay):
+
+| Age | 15 min replay | 30 min replay | 60 min replay | 15 min stored | 30 min stored | 60 min stored |
+|---|---|---|---|---|---|---|
+| 0.5 min | 14.88 → 14.91 (+0.2%) | 20.99 → 20.99 | 33.39 → 33.39 | 19.08 → 19.10 (+0.1%) | 31.27 → 31.27 | 55.64 → 55.64 |
+| 1.0 min | 15.10 → 15.16 (+0.4%) | 21.21 → 21.21 | 33.57 → 33.57 | 19.13 → 19.16 (+0.1%) | 31.11 → 31.11 | 54.97 → 54.97 |
+| 1.5 min | 15.21 → 15.30 (+0.6%) | 21.38 → 21.38 | 33.75 → 33.75 | 19.91 → 19.94 (+0.2%) | 31.61 → 31.62 | 55.72 → 55.72 |
+| 3 min | 15.64 → 15.80 (+1.0%) | 22.01 → 22.01 | 34.40 → 34.40 | 21.71 → 21.75 (+0.2%) | 32.78 → 32.82 (+0.1%) | 54.96 → 54.96 |
+| 5 min | 16.52 → 16.81 (+1.8%) | 23.09 → 23.09 | 35.15 → 35.15 | | | |
+
+- **At 15 minutes it's worse at every age and gain** (gain 0.45: +0.1 to +0.9%; 0.7: +0.3 to
+  +2.5%), better on at most 2 of 7 held-out days. Carrying the trend further adds the part of it
+  that doesn't carry on; the fitted gain already sets how much does.
+- **At 30 and 60 minutes it's the same line.** The trend fades out by 30 minutes (§1), so a minute
+  or three more changes nothing; insulin and carbs move under a mg/dL a minute, so the stored
+  insulin-and-carb forecasts move by under 0.1%. The stored forecasts stop at 60 minutes, so the
+  60-minute label can't be moved on at all.
+- **Coverage** moves by under a point in the replay. In the stored points it rises at 15 minutes
+  (72.3 → 73.9% at 1 minute, 66.4 → 70.1% at 3) only because the range at 15 + a is interpolated
+  toward the wider 30-minute one; the line is no closer.
+- **What the lag itself costs** is small and nothing here wins it back: a reading read a minute late
+  is 15.10 instead of 14.72 at 15 minutes (2.6%), 21.21 instead of 20.81 at 30 (1.9%).
+
+**Low warnings.** Of the points that ended under 70, the line under 70 and the range bottom under
+70 are the same as shipped for every age, horizon and gain in the replay (15 minutes: 6 of 8 lines,
+8 of 8 bottoms at gain 0.6), and in the stored points (16 / 6 / 3 lows at 0.5 minutes, every bottom
+and line unchanged). The predicted-low lookahead already counts from the reading's time (§13, §30),
+so nothing about when a low warning fires depends on this.
+
+**Dosing.** Not touched: this would only have changed which forecast point a label reads.
+
+**Caveats.** Six relay fetches is a small sample of arrival, but the stored minute steps (94.7% a
+minute apart) say the same over seven days; delays under 30 seconds can't be seen at the relay's
+phase. The 5-minute row is a widget or Lock Screen card still showing an older reading, where the
+label isn't redrawn at all; the reading's age is on screen there, and the forecast goes at 6 minutes
+(`GlucoseSnapshot.staleAfter`). Sensor lag behind blood glucose (interstitial fluid, minutes) is a
+different thing and can't be measured from sensor readings alone.
+
+Rerun with `python3 scripts/reading-latency.py dir`: readings.json (live readings, as §45), logs.json
+(the query in §31) and samples.json ([[reading_t, fetched_at], ...] from the relay row, read a few
+times a minute apart). Only take a lag-aware label if it's 3% better at 30 minutes on most held-out
+days with the low check unchanged, which needs a forecast that still bends after 30 minutes. For the
+stored version:
+
+```sql
+with p0 as (select c.id, c.issued_at t, (e->>'minutes')::int m, (e->>'mgdl')::float f,
+  (e->>'lower')::float lo, (e->>'upper')::float up,
+  coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al, coalesce(e->>'shown', 'true') shown
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e),
+p as (select a.*, b.f fn, b.lo lon, b.up upn from p0 a left join p0 b on b.id = a.id and b.m = a.m + 15
+  where not a.al and a.shown <> 'false' and a.m in (15, 30, 60)),
+x as (select p.*, ag, case when fn is null then f else f + (fn - f) * ag / 15 end fc,
+  case when fn is null then lo else lo + (lon - lo) * ag / 15 end loc,
+  case when fn is null then up else up + (upn - up) * ag / 15 end upc,
+  (select r.mgdl from glucos.readings r where r.trend > 0
+     and r.at between p.t + make_interval(secs => (p.m + ag) * 60) - interval '40 s'
+                  and p.t + make_interval(secs => (p.m + ag) * 60) + interval '40 s'
+     order by abs(extract(epoch from r.at - (p.t + make_interval(secs => (p.m + ag) * 60)))) limit 1) a
+  from p cross join unnest(array[0.5, 1.0, 1.5, 3.0]) ag)
+select ag, m, count(*), avg(abs(a - f)) shipped, avg(abs(a - fc)) lag_aware,
+  avg((a between lo and up)::int) inside, avg((a between loc and upc)::int) lag_aware_inside,
+  sum((a < 70 and lo < 70)::int) low_bottom, sum((a < 70 and loc < 70)::int) low_bottom_lag_aware
+from x where a is not null group by 1, 2 order by 1, 2;
+```
