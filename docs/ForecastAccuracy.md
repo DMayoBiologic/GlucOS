@@ -1409,3 +1409,88 @@ reads the export below and the meal list, and needs nothing else:
     where f.basis = 'trendInsulinCarbs' and p.minutes <= 60 and not p.after_log and p.actual is not null
       and not exists (select 1 from m n where n.t > m.t and n.t <= f.issued_at)
     order by f.issued_at, p.minutes;
+
+## 27. Should the forecast be drawn 90 or 120 minutes ahead after meals? (16 Nov 2026)
+
+§26 put §25's low post-meal peak down to the horizon: real peaks come 2 to 3 hours after eating
+and the forecast is drawn about 60 minutes ahead. The idea here: after a meal, draw the same
+forecast to 90 or 120 minutes with a range that widens with it, and show the peak if it gets
+close. **It doesn't. Drawn to 120 minutes far more forecasts turn over (5 → 21), but the peak is
+still typically 41 mg/dL (2.3 mmol/L) too low and 24 minutes early, and the held-out gate never
+opens. 90 minutes beats "no change" overall but not on 12 Nov's meals, 120 minutes loses to it,
+and the range that would honestly go with them is 7 to 8.5 mmol/L wide. Nothing shipped; no app
+code changed.**
+
+**Nothing that doses reads the forecast** (checked in §26): the bolus calculator and insulin on
+board don't touch `GlucoseForecaster`, so this was a forecast-only question. The carb and insulin
+effects themselves were left exactly as each device had learnt them.
+
+**The test.** Every insulin-and-carb forecast (`trendInsulinCarbs`, no morning adjustment) in
+`glucos.forecast_checks` issued in the 2 hours after a meal, 12–14 Nov: 43 forecasts from the Mac
+and iPhone after 5 meals (green juice, burrito bowl, the late-night sports drink, eggs and potato,
+hamburger). The Coke on 15 Nov has only 15-minute forecasts and the eggs forecast issued 30
+seconds after logging is left out (another log came 11 minutes later). Each forecast was carried
+on from its stored 60-minute point exactly as `GlucoseForecaster` would have drawn it with a
+longer horizon: past the trend fade the line is only the model, `K × carb rate − S × insulin
+activity` on the standard curves, with the logs known at the time. K and S aren't stored, so they
+were recovered per device and meal from the stored points after 45 minutes (fit error 0.0–0.8
+mg/dL per step). The Mac's hamburger forecasts, which the app did draw to 150 minutes, came out
+within 0.1 mg/dL at 90 and 120, so the extension is the app's own line, not a new model. Actual
+values are the live readings within 2½ minutes of each point (LinkUp graph points left out, §23),
+and points after the next log are dropped.
+
+| Ahead | Checks | Meals | Typical miss | No change | Ratio | Bias (actual − forecast) |
+|---|---|---|---|---|---|---|
+| 60 min (as drawn now) | 43 | 5 | 33.2 mg/dL | 38.6 | 0.86 | −8 |
+| 75 min | 42 | 5 | 37.1 | 44.3 | 0.84 | −11 |
+| 90 min | 41 | 5 | 43.7 | 49.5 | 0.88 | −17 |
+| 105 min | 39 | 4 | 46.7 | 51.0 | 0.92 | −24 |
+| 120 min | 38 | 4 | 52.6 | 51.7 | **1.02** | −28 |
+
+Pooled, 90 and 105 minutes clear the app's own bar (§1: 30 checks and at most 0.95 of "no
+change"). Split by day they don't hold: on 12 Nov's three meals 90 minutes is 0.96 of no change
+and 120 is 1.07; on 13–14 Nov it's 0.73 and 0.90. The sports drink (a low being treated) loses at
+every horizon and runs 48–66 mg/dL high at 90–120 minutes; without it the line is 0.72 of no
+change at 90 and 0.82 at 120, but still runs high late (−6 at 90, −12 at 120), because forecasts
+made after the peak expect the rise to keep going.
+
+**The peak.** Same estimate and gate as §25 (highest point of the drawn line when it turns over
+inside what's drawn, against the highest live reading to 3 hours after the meal; held out by
+meal, open at a typical miss of 18 mg/dL and 15 minutes with at least 5 checks):
+
+| Drawn to | Turns over | Still rising | Falling or flat | Typical height miss | Typical time miss | Gate opened |
+|---|---|---|---|---|---|---|
+| 60 min | 5 | 25 | 13 | 41 mg/dL low | 21 min early | never |
+| 90 min | 15 | 15 | 13 | 41 mg/dL low | 24 min early | never |
+| 120 min | 21 | 9 | 13 | 41 mg/dL low | 24 min early | never |
+
+Drawing further gives the line room to turn, but it turns at the wrong height: on the juice,
+burrito bowl and hamburger the turn is 26–68 mg/dL below the real peak, and on the sports drink 75
+mg/dL above it. The line's shape after meals (one figure per gram on a standard 3-hour curve)
+is what's off, not only where it's cut.
+
+**The range.** Set from the other meals' 10th–90th percentile misses (never narrower than the
+app's floor) and tried on the held-out meal, it held 76% of readings at 90 minutes and 79% at 120,
+close to the 8 in 10 it aims for, but only by being 133 mg/dL (7.4 mmol/L) wide at 90 and 153
+(8.5 mmol/L) at 120. A band from 6 to 13 mmol/L says little a person can act on.
+
+**Why it stays at 60.** The app already decides the horizon from its own checks: the replay's
+`allowedHorizon` (to 180 minutes) and each device's live checks (§8) can only shorten it, and
+the first hour after a log uses the fresh-forecast figures (§3). That's why the hamburger was
+drawn to 150 on the Mac and most meals stop at 60. Forcing 90 or 120 after meals would bypass
+those checks for a line that, on these meals, doesn't hold up on both days and doesn't find the
+peak. Left as it is.
+
+Re-run with 10 or more meals with insulin-and-carb forecasts (ideally with fat and protein in the
+food data, §15), or if the post-meal curve changes. The longer points are worth having either
+way: forecasts that the checks do allow past 60 are already logged to 180 minutes. The export
+(join each forecast to its meal and the readings as in §25's query; K and S are fitted from the
+`points` steps after 45 minutes):
+
+    select f.id, f.device, f.issued_at, f.start_mgdl, f.points
+    from glucos.forecast_checks f
+    where f.basis = 'trendInsulinCarbs' and not f.morning
+      and exists (select 1 from glucos.logbook l where not l.deleted and l.kind = 'meal'
+        and f.issued_at between to_timestamp((l.payload->>'timestamp')::float)
+                            and to_timestamp((l.payload->>'timestamp')::float) + interval '2 hours')
+    order by f.issued_at;
