@@ -101,6 +101,8 @@ final class LogKeyboardTests: XCTestCase {
         let dashboardKeys = ShortcutCatalog.dashboard(globalKey: nil).flatMap(\.rows).map(\.keys)
         XCTAssertTrue(dashboardKeys.contains("⌘F"))
         XCTAssertTrue(dashboardKeys.contains("⌃⌘F"))
+        // The Logbook export for a clinic visit.
+        XCTAssertTrue(dashboardKeys.contains("⇧⌘E"))
     }
 
     func testEveryListOffersCommandQuestionMarkAndLogging() {

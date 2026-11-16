@@ -18,6 +18,8 @@ struct DashboardView: View {
     /// End of the period on screen. Nil follows the latest readings.
     @State private var periodEnd: Date?
     @State private var showShortcuts = false
+    /// The Logbook export for a clinic visit (⇧⌘E).
+    @State private var showLogbookExport = false
     /// ⌘F: the Logbook section takes this as "put the cursor in the search field" and clears it.
     @State private var focusLogbookSearch = false
     /// Notices closed this session. Keyed by content, so a new problem shows again.
@@ -57,6 +59,7 @@ struct DashboardView: View {
                 if width > 0 && padding != detailPadding { detailPadding = padding }
             }
             .overlay(alignment: .bottom) { toastView }
+            .sheet(isPresented: $showLogbookExport) { logbookExportSheet }
             .sheet(isPresented: $showShortcuts) {
                 ShortcutListView(groups: ShortcutCatalog.dashboard(globalKey: settings.activeGlobalLogShortcut)) {
                     showShortcuts = false
@@ -347,10 +350,13 @@ struct DashboardView: View {
                 Button("Report as PDF…") { exportPDF(data) }
                     .keyboardShortcut("p", modifiers: [.command, .shift])
                     .disabled(data.readings.isEmpty)
+                Divider()
+                Button("Logbook for a Clinic Visit…", action: openLogbookExport)
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
-            .help("Export the readings or a report for this period")
+            .help("Export the readings or a report for this period, or the Logbook for a clinic visit (⇧⌘E)")
 
             Button { windowState.toggleFullScreen() } label: {
                 Label(windowState.isFullScreen ? "Exit Full Screen" : "Enter Full Screen",
@@ -377,6 +383,11 @@ struct DashboardView: View {
     /// Not over the log sheet: two sheets at once would stack.
     private func showShortcutsHelp() {
         if logSheet == nil { showShortcuts = true }
+    }
+
+    /// Not over another sheet, for the same reason.
+    private func openLogbookExport() {
+        if logSheet == nil && !showShortcuts { showLogbookExport = true }
     }
 
     private var rangeBinding: Binding<DashboardRange> {
@@ -479,6 +490,20 @@ struct DashboardView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         if !ReportExporter.writePDF(model: reportModel(data), to: url) {
             showExportFailure(url)
+        }
+    }
+
+    /// A copy of what's on this Mac now: the owner's own readings and entries, never followers'.
+    private var logbookExportSheet: some View {
+        let snapshot = store.snapshot
+        return MacExportView(readings: store.archive, entries: logbook.entries, unit: snapshot.unit,
+                             lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl) { result in
+            switch result {
+            case .success(let url):
+                showToast(DashboardToast(severity: .info, title: "Saved \(url.lastPathComponent)"))
+            case .failure(let problem):
+                showExportFailure(problem.url)
+            }
         }
     }
 
