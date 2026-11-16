@@ -54,6 +54,8 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   ⌘1 / ⌘2 / ⌘3 chart range, ⌘Q quit. Hold ⌘ to see them. Right-click the reading for the same actions.
   In the log sheet, use the arrow keys and Return to pick the moment, and ⌘? to list every shortcut. You can also
   turn on a shortcut that opens logging from any app (**Settings → Logging**, off by default; see docs/KeyboardLogging.md).
+- **Back in range ≈ X min**: when you're high, this shows under the popover forecast and in the menu bar item's tooltip.
+  It only appears while this Mac's past estimates have usually been within 15 minutes, and never during lows.
 - **Dashboard** (⌘D in the popover, or the expand button on the chart): a resizable window with
   - an interactive chart from 3 hours to 30 days: hover for any reading (with its 15-minute change),
     drag across it to select a stretch and see its average, time in range and change, pinch or
