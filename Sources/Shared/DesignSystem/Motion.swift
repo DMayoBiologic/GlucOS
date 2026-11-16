@@ -266,6 +266,9 @@ struct RollingFigure: View {
 struct ForecastMotion<Content: View>: View {
     let forecast: [ForecastSample]
     var enabled: Bool = true
+    /// How long the draw-in on appearing waits, so it can start once the card around it has come
+    /// in (the Mac popover's `PopoverStagger`). Later forecasts morph straight away.
+    var drawInDelay: TimeInterval = 0
     @ViewBuilder let content: (_ forecast: [ForecastSample], _ reveal: Double) -> Content
 
     /// The forecast the morph starts from and the one it ends on.
@@ -285,7 +288,7 @@ struct ForecastMotion<Content: View>: View {
             .onAppear {
                 onScreen = true
                 settle(on: forecast)
-                drawIn()
+                drawIn(after: drawInDelay)
             }
             .onDisappear {
                 onScreen = false
@@ -306,14 +309,14 @@ struct ForecastMotion<Content: View>: View {
     }
 
     /// Draws the forecast in from the newest reading.
-    private func drawIn() {
+    private func drawIn(after delay: TimeInterval = 0) {
         guard animates, (to ?? forecast).count > 1 else { return }
         withTransaction(Transaction(animation: nil)) { reveal = 0 }
         let generation = self.generation
         // On the next turn, so the empty first frame is drawn before the reveal starts.
         DispatchQueue.main.async {
             guard generation == self.generation else { return }
-            withAnimation(DSMotion.sweep.animation) { reveal = 1 }
+            withAnimation(DSMotion.sweep.animation.delay(max(0, delay))) { reveal = 1 }
         }
     }
 

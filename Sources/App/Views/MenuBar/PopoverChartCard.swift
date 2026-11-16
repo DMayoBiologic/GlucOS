@@ -9,6 +9,9 @@ struct PopoverChartCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var showsShortcuts: Bool
+    /// When the forecast starts drawing in after the popover opens, so it follows the card's own
+    /// entrance (`PopoverStagger.forecastDelay`).
+    var forecastDelay: TimeInterval = 0
 
     @FocusState private var chartFocused: Bool
     @State private var pinned: Date?
@@ -39,8 +42,10 @@ struct PopoverChartCard: View {
             .frame(height: 24)
             .animation(PopoverMotion.quick(reduceMotion), value: pinned)
             let outlook = s.currentOutlook()
-            // The forecast draws in as the popover opens and bends into each new one.
-            ForecastMotion(forecast: settings.showForecast ? (outlook?.forecast ?? []) : []) { forecast, reveal in
+            // The forecast draws in as the popover opens, once its card is most of the way in, and
+            // bends into each new one.
+            ForecastMotion(forecast: settings.showForecast ? (outlook?.forecast ?? []) : [],
+                           drawInDelay: forecastDelay) { forecast, reveal in
                 GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                              hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
                              forecast: forecast, forecastReveal: reveal)
