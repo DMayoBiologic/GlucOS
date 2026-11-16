@@ -127,17 +127,28 @@ struct TodaySoFar: Hashable {
 
     /// The runs `lowRuns` counts, oldest first, so other cards (Insights Lows) read lows the same way.
     static func lowSpans(_ points: [(Date, Double)], low: Double) -> [LowSpan] {
-        var spans: [LowSpan] = []
+        spans(points, outside: { $0 < low })
+    }
+
+    /// Runs above `high` read the same way as lows: 15 minutes or more over the line, from the first
+    /// high bucket until glucose is back at or below it, a gap of over 30 minutes ending one
+    /// (Insights Highs).
+    static func highSpans(_ points: [(Date, Double)], high: Double) -> [LowSpan] {
+        spans(points, outside: { $0 > high })
+    }
+
+    private static func spans(_ points: [(Date, Double)], outside: (Double) -> Bool) -> [LowSpan] {
+        var out: [LowSpan] = []
         var start: Date?
         var lastLow: Date?
         let size = Double(bucketMinutes) * 60
         func close(_ end: Date) {
-            if let s = start, end.timeIntervalSince(s) >= lowMinimum { spans.append(LowSpan(start: s, end: end)) }
+            if let s = start, end.timeIntervalSince(s) >= lowMinimum { out.append(LowSpan(start: s, end: end)) }
             start = nil; lastLow = nil
         }
         for (t, mgdl) in points {
             if let l = lastLow, t.timeIntervalSince(l) > lowMaxGap { close(l.addingTimeInterval(size)) }
-            if mgdl < low {
+            if outside(mgdl) {
                 if start == nil { start = t }
                 lastLow = t
             } else if start != nil {
@@ -146,7 +157,7 @@ struct TodaySoFar: Hashable {
         }
         // A bucket covers five minutes, so a run's last low bucket lasts to its end.
         if let l = lastLow { close(l.addingTimeInterval(size)) }
-        return spans
+        return out
     }
 
     static func median(_ values: [Double]) -> Double {

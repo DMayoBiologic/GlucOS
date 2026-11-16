@@ -24,7 +24,8 @@ rows it found. Tapping the chip drops the time part and keeps the words.
 ## Quick filter chips
 
 All, then whichever of these would show something: **Meals**, **Insulin**, **Lows** (Hypo treatment
-tags, the food or insulin logged with one, and low alert rows), **Notes** (anything with a note),
+tags, the food or insulin logged with one, and low alert rows), **Highs** (high and very high
+alert rows, and insulin marked as a correction), **Notes** (anything with a note),
 **Sites**, **Moments**, **Alerts**. One chip at a time, on top of the search.
 
 ## Highlights and the empty list
@@ -105,7 +106,7 @@ DayChartTests; drawn by `DayMiniChart`).
   (`DayChartText.spoken`); the chart itself is hidden.
 - **Cost.** Only the open day is worked out, once per day or readings change (`DayChartCache`).
 
-## From the Lows card
+## From the Lows and Highs cards
 
 Round 34 joined the Insights Lows card to the Logbook, on iPhone and Mac (`LogbookLink`, Engine,
 tested in LogbookLinkTests).
@@ -126,3 +127,8 @@ tested in LogbookLinkTests).
   Motion). The Logbook then has "‹ Insights" at the top, which cross-fades back and scrolls to the
   Lows card. Picking another section in the sidebar ends the trip. A period on the Mac looks past
   the toolbar's period, as any search does.
+- **Highs (round 37).** The Insights Highs card does the same on the **Highs** chip, over its own
+  7, 14 or 30 days counted the same way (`LogbookLink.highs`). It zooms from its own card on
+  iPhone, and "‹ Insights" on the Mac scrolls back to the Highs card rather than Lows. A chip a
+  card opened with stays in the chip bar even when it has nothing to show, so the empty list
+  still says what it's filtered by.

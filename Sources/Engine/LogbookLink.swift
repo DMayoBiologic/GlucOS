@@ -1,8 +1,8 @@
 import Foundation
 
 // Opening the Logbook from somewhere else with a chip and a stretch of time already picked
-// (docs/LogbookSearch.md, "From the Lows card"). Today that's the Insights Lows card: tapping it
-// shows the Lows chip over the same days the card counted.
+// (docs/LogbookSearch.md, "From the Lows and Highs cards"). Today that's the Insights Lows and
+// Highs cards: tapping one shows its chip over the same days the card counted.
 
 /// The chip and period the Logbook opens with. Nothing is typed into the search field: the period
 /// shows as the usual chip above the list ("Last 14 days ✕"), and ✕ or Clear Filters drops it.
@@ -15,11 +15,20 @@ struct LogbookLink: Hashable, Sendable {
     /// a midnight, which would leave out the first day's early lows. It runs on to now, so a
     /// treatment logged after the last reading (a sensor gap, a stale phone) still shows.
     static func lows(_ period: LowsSummary.Period, newestReading: Date?, now: Date) -> LogbookLink {
+        card(.lows, days: period.days, newestReading: newestReading, now: now)
+    }
+
+    /// The Highs card's period, read the same way as the Lows card's (`HighsSummary.compute`), on
+    /// the Highs chip: high alerts and insulin marked as a correction.
+    static func highs(_ period: HighsSummary.Period, newestReading: Date?, now: Date) -> LogbookLink {
+        card(.highs, days: period.days, newestReading: newestReading, now: now)
+    }
+
+    private static func card(_ filter: LogbookFilter, days: Int, newestReading: Date?, now: Date) -> LogbookLink {
         let end = max(newestReading ?? now, now)
-        let start = (newestReading ?? now).addingTimeInterval(-Double(period.days) * 86_400)
-        let label = "Last \(period.days) days"
-        return LogbookLink(filter: .lows,
-                           period: .init(label: label, phrase: "in the last \(period.days) days",
+        let start = (newestReading ?? now).addingTimeInterval(-Double(days) * 86_400)
+        return LogbookLink(filter: filter,
+                           period: .init(label: "Last \(days) days", phrase: "in the last \(days) days",
                                          interval: DateInterval(start: start, end: end)))
     }
 

@@ -22,12 +22,12 @@ struct DashboardView: View {
     @State private var showLogbookExport = false
     /// ⌘F: the Logbook section takes this as "put the cursor in the search field" and clears it.
     @State private var focusLogbookSearch = false
-    /// The Insights Lows card asked for the Logbook on its chip and days (`LogbookLink`).
+    /// The Insights Lows or Highs card asked for the Logbook on its chip and days (`LogbookLink`).
     @State private var logbookLink: LogbookLink?
-    /// The Logbook on screen came from the Lows card, so it offers the way back to it.
-    @State private var cameFromLows = false
-    /// Back from that Logbook: Insights scrolls to the Lows card.
-    @State private var returnToLows = false
+    /// The Logbook on screen came from this card (by its chip), so it offers the way back to it.
+    @State private var cameFromCard: LogbookFilter?
+    /// Back from that Logbook: Insights scrolls to this card.
+    @State private var returnToCard: LogbookFilter?
     /// Notices closed this session. Keyed by content, so a new problem shows again.
     @State private var dismissedNotices: Set<String> = []
     @State private var toast: DashboardToast?
@@ -153,12 +153,13 @@ struct DashboardView: View {
         switch section {
         case .logbook:
             LogbookSection(data: data, focusSearch: $focusLogbookSearch, link: $logbookLink,
-                           backToInsights: cameFromLows ? { backToLows() } : nil) { logSheet = $0 }
+                           backToInsights: cameFromCard.map { card -> () -> Void in { backToInsights(card) } },
+                           backCardTitle: cameFromCard?.title ?? LogbookFilter.lows.title) { logSheet = $0 }
         case .outlook:
             OutlookSection { logSheet = .new }
         case .insights:
             InsightsSection(readings: store.archive, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl,
-                            returnToLows: $returnToLows, openLogbook: { openLogbook($0) },
+                            returnTo: $returnToCard, openLogbook: { openLogbook($0) },
                             onLog: { logSheet = .new })
         default:
             if store.archive.isEmpty {
@@ -438,23 +439,23 @@ struct DashboardView: View {
     // MARK: Navigation
 
     private func select(_ s: DashboardSection) {
-        // Anywhere else in the sidebar ends the trip from the Lows card.
-        if s != .logbook { cameFromLows = false }
+        // Anywhere else in the sidebar ends the trip from an Insights card.
+        if s != .logbook { cameFromCard = nil }
         // The sidebar's highlight springs to the new row; the section cross-fades in with it.
         DS.animate(.emphasized, reduceMotion: reduceMotion) { section = s }
     }
 
-    /// The Insights Lows card was tapped: cross-fade to the Logbook on Lows over the card's days
-    /// (instant under Reduce Motion), with the way back to the card.
+    /// The Insights Lows or Highs card was tapped: cross-fade to the Logbook on its chip over the
+    /// card's days (instant under Reduce Motion), with the way back to the card.
     private func openLogbook(_ link: LogbookLink) {
         logbookLink = link
         select(.logbook)
-        cameFromLows = true
+        cameFromCard = link.filter
     }
 
-    /// Back from that Logbook: cross-fade to Insights, scrolled to the Lows card.
-    private func backToLows() {
-        returnToLows = true
+    /// Back from that Logbook: cross-fade to Insights, scrolled to the card it came from.
+    private func backToInsights(_ card: LogbookFilter) {
+        returnToCard = card
         select(.insights)
     }
 

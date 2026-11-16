@@ -10,19 +10,23 @@ struct LogbookSection: View {
     let data: DashboardData
     /// Set by ⌘F anywhere in the dashboard: put the cursor in the search field, then cleared.
     @Binding var focusSearch: Bool
-    /// Set by the Insights Lows card: open on its chip and period, then cleared.
+    /// Set by the Insights Lows or Highs card: open on its chip and period, then cleared.
     @Binding var link: LogbookLink?
-    /// While the Logbook was opened from the Lows card: back to that card.
+    /// While the Logbook was opened from an Insights card: back to that card.
     let backToInsights: (() -> Void)?
+    /// The card it was opened from ("Lows", "Highs"), for the back button's tooltip.
+    let backCardTitle: String
     let open: (LogSheetTarget) -> Void
 
     init(data: DashboardData, focusSearch: Binding<Bool> = .constant(false),
          link: Binding<LogbookLink?> = .constant(nil), backToInsights: (() -> Void)? = nil,
+         backCardTitle: String = LogbookFilter.lows.title,
          open: @escaping (LogSheetTarget) -> Void) {
         self.data = data
         self._focusSearch = focusSearch
         self._link = link
         self.backToInsights = backToInsights
+        self.backCardTitle = backCardTitle
         self.open = open
     }
 
@@ -70,14 +74,14 @@ struct LogbookSection: View {
                     .padding(padding)
                 DSDivider()
             }
-            // Opened from the Insights Lows card: the way back to it.
+            // Opened from an Insights card (Lows or Highs): the way back to it.
             if let backToInsights {
                 Button(action: backToInsights) {
                     Label("Insights", systemImage: "chevron.left")
                 }
                 .buttonStyle(.link)
                 .dsFont(.label)
-                .help("Back to the Lows card in Insights")
+                .help("Back to the \(backCardTitle) card in Insights")
                 .accessibilityLabel("Back to Insights")
                 .padding(.horizontal, padding)
                 .padding(.top, DS.Space.md)
@@ -582,9 +586,10 @@ struct InsightsSection: View {
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
-    /// Set when coming back from the Logbook the Lows card opened: scroll to the card, then cleared.
-    @Binding var returnToLows: Bool
-    /// The Lows card was tapped: open the Logbook on its chip and days.
+    /// Set when coming back from the Logbook a card opened (Lows or Highs, by its chip): scroll to
+    /// that card, then cleared.
+    @Binding var returnTo: LogbookFilter?
+    /// The Lows or Highs card was tapped: open the Logbook on its chip and days.
     let openLogbook: (LogbookLink) -> Void
     let onLog: () -> Void
 
@@ -600,7 +605,7 @@ struct InsightsSection: View {
                                   siteChanges: logbook.siteChanges, contexts: logbook.contexts,
                                   low: lowMgdl, high: highMgdl,
                                   siteOf: { logbook.site(of: $0) })
-        DashboardPage(maxContentWidth: DashboardMetrics.readableWidth) { _ in
+        DashboardPage(maxContentWidth: DashboardMetrics.readableWidth) { layout in
             if let insights {
                 SafetyNote().dsEntrance(0)
                 if logbook.isEmpty {
@@ -636,23 +641,30 @@ struct InsightsSection: View {
                 .dashboardCard()
                 .dsEntrance(5)
             ScrollViewReader { proxy in
-                LowsCardView(readings: readings, meals: logbook.meals, contexts: logbook.contexts,
-                             answers: logbook.lowAnswers, unit: unit, lowMgdl: lowMgdl,
-                             openLogbook: openLogbook)
-                    .dashboardCard()
-                    .id(Self.lowsCardID)
-                    .onAppear {
-                        guard returnToLows else { return }
-                        returnToLows = false
-                        // Once the page is laid out, so the card is where it'll be.
-                        DispatchQueue.main.async { proxy.scrollTo(Self.lowsCardID, anchor: .center) }
-                    }
+                VStack(alignment: .leading, spacing: layout.gutter) {
+                    LowsCardView(readings: readings, meals: logbook.meals, contexts: logbook.contexts,
+                                 answers: logbook.lowAnswers, unit: unit, lowMgdl: lowMgdl,
+                                 openLogbook: openLogbook)
+                        .dashboardCard()
+                        .id(Self.cardID(.lows))
+                        .dsEntrance(6)
+                    HighsCardView(readings: readings, unit: unit, highMgdl: highMgdl,
+                                  openLogbook: openLogbook)
+                        .dashboardCard()
+                        .id(Self.cardID(.highs))
+                        .dsEntrance(7)
+                }
+                .onAppear {
+                    guard let card = returnTo else { return }
+                    returnTo = nil
+                    // Once the page is laid out, so the card is where it'll be.
+                    DispatchQueue.main.async { proxy.scrollTo(Self.cardID(card), anchor: .center) }
+                }
             }
-            .dsEntrance(6)
             DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
-                .dsEntrance(7)
-            ForecastScorecardCard(outlook: outlookStore).dsEntrance(8)
+                .dsEntrance(8)
+            ForecastScorecardCard(outlook: outlookStore).dsEntrance(9)
             Disclaimer()
         }
         // As on iPhone Insights: each card's figures count up as it assembles, with its bars
@@ -661,7 +673,8 @@ struct InsightsSection: View {
         .environment(\.figuresCountUp, true)
     }
 
-    private static let lowsCardID = "insights.lows"
+    /// "insights.lows", "insights.highs": where Back from the Logbook scrolls to.
+    private static func cardID(_ card: LogbookFilter) -> String { "insights.\(card.rawValue)" }
 
     private var startLogging: some View {
         Label("Start by logging your insulin and food. Patterns appear here once GlucOS has a few clean examples.",

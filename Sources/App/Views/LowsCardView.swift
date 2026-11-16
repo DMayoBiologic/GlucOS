@@ -11,7 +11,7 @@ import SwiftUI
 ///
 /// With `openLogbook`, tapping the card (or its "See these lows in the Logbook" row) opens the
 /// Logbook on the Lows chip over the same days (`LogbookLink.lows`). The iPhone zooms the card
-/// into it; the Mac cross-fades to its Logbook section (docs/LogbookSearch.md, "From the Lows card").
+/// into it; the Mac cross-fades to its Logbook section (docs/LogbookSearch.md, "From the Lows and Highs cards").
 struct LowsCardView: View {
     let readings: [GlucoseReading]
     let meals: [MealEntry]

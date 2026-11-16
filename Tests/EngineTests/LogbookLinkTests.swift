@@ -1,7 +1,8 @@
 import XCTest
 @testable import GlucOSEngine
 
-/// Opening the Logbook from the Insights Lows card (docs/LogbookSearch.md, "From the Lows card").
+/// Opening the Logbook from the Insights Lows and Highs cards (docs/LogbookSearch.md, "From the Lows
+/// and Highs cards").
 final class LogbookLinkTests: XCTestCase {
     /// Wednesday 25 November 2026, 2 pm in Perth.
     private let now = Date(timeIntervalSince1970: 1_795_586_400)
@@ -81,5 +82,29 @@ extension LogbookLinkTests {
     func testTheCardRowSaysWhereItGoes() {
         XCTAssertEqual(LowsSummaryText.logbookLine(.fortnight), "See the last 14 days in the Logbook")
         XCTAssertEqual(LowsSummaryText.logbookHint, "Opens the Logbook on Lows over the same days")
+    }
+}
+
+// MARK: From the Highs card
+
+extension LogbookLinkTests {
+    func testTheHighsLinkCoversTheSameDaysOnTheHighsChip() {
+        let newest = now.addingTimeInterval(-10 * 60)
+        for period in HighsSummary.Period.allCases {
+            let link = LogbookLink.highs(period, newestReading: newest, now: now)
+            XCTAssertEqual(link.filter, .highs)
+            XCTAssertEqual(link.period.interval.start, newest.addingTimeInterval(-Double(period.days) * 86_400))
+            XCTAssertEqual(link.period.interval.end, now)
+            XCTAssertEqual(link.period.label, "Last \(period.days) days")
+            // The same days as the Lows card's link, only the chip differs.
+            XCTAssertEqual(link.period, LogbookLink.lows(period, newestReading: newest, now: now).period)
+        }
+    }
+
+    func testEachCardZoomsFromItsOwnSource() {
+        let lows = LogbookLink.lows(.week, newestReading: now, now: now)
+        let highs = LogbookLink.highs(.week, newestReading: now, now: now)
+        XCTAssertEqual(highs.sourceID, LogbookLink.sourceID(for: .highs))
+        XCTAssertNotEqual(lows.sourceID, highs.sourceID)
     }
 }

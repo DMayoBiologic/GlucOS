@@ -165,6 +165,7 @@ struct AlertLogRow: Identifiable, Hashable {
     }
 
     var isLow: Bool { kind.treatment == .low }
+    var isHigh: Bool { kind.treatment == .high }
 
     /// "Urgent low alert", "Predicted high alert".
     var title: String {
