@@ -3089,8 +3089,8 @@ unshrunk ones. Every one is worse at 15 and 30 minutes.)
 under 70 on 22 as shipped. At 15 and 30 minutes every version keeps all of those (one, by horizon
 and 3 trends over 24 hours unshrunk, gains a 30-minute one); at 60 minutes the 6-hour and 24-hour
 versions with little or no shrinking lose the one there. The line was under 80 on 20 as
-shipped against 19 for the trend-split versions at 15 minutes. So no version catches a low that
-shipped missed, and the trend-split ones lose one. Nothing shipped, so low warnings (§13, §30) and
+shipped against 19 for the trend-split versions at 15 minutes. So the one extra low caught comes
+from a version 7.4% worse at 30 minutes, and the trend-split ones put one line back over 80. Nothing shipped, so low warnings (§13, §30) and
 "a low is possible" are exactly as before.
 
 **Dosing.** Not touched: a shift would have been forecast-only, after the insulin and carb
