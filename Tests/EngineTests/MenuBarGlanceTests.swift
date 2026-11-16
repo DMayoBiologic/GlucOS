@@ -138,12 +138,41 @@ final class MenuBarGlanceTests: XCTestCase {
         XCTAssertEqual(MenuBarGlance.change(from: live, to: live), .none)
     }
 
+    func testTrendTurnWithTheSameValue() {
+        let flat = glance(snapshot(mgdl: 115, trend: .flat, ageSeconds: 60))
+        let rising = glance(snapshot(mgdl: 115, trend: .rising, ageSeconds: 60))
+        let risingHigher = glance(snapshot(mgdl: 140, trend: .rising, ageSeconds: 60))
+        let stale = glance(snapshot(mgdl: 115, trend: .rising, ageSeconds: GlucoseSnapshot.staleAfter + 60))
+        // Same number, new direction: only the arrow turns.
+        XCTAssertEqual(MenuBarGlance.change(from: flat, to: rising), .turn)
+        XCTAssertTrue(MenuBarGlance.turns(from: flat, to: rising))
+        // A new number rolls, and the arrow turns with it.
+        XCTAssertEqual(MenuBarGlance.change(from: flat, to: risingHigher), .roll)
+        XCTAssertTrue(MenuBarGlance.turns(from: flat, to: risingHigher))
+        XCTAssertFalse(MenuBarGlance.turns(from: rising, to: risingHigher))
+        // A stale reading has no arrow, so there is nothing to turn.
+        XCTAssertFalse(MenuBarGlance.turns(from: flat, to: stale))
+        XCTAssertFalse(MenuBarGlance.turns(from: stale, to: flat))
+        XCTAssertFalse(MenuBarGlance.turns(from: nil, to: flat))
+        XCTAssertFalse(MenuBarGlance.Change.turn.movesValue)
+        XCTAssertTrue(MenuBarGlance.Change.roll.movesValue)
+    }
+
+    func testTurningArrowStillCrossFadesUnderReduceMotion() {
+        XCTAssertTrue(MenuBarGlance.plays(.turn, turning: true, reduceMotion: true))
+        XCTAssertTrue(MenuBarGlance.plays(.roll, turning: true, reduceMotion: true))
+        XCTAssertFalse(MenuBarGlance.plays(.roll, turning: false, reduceMotion: true))
+        XCTAssertTrue(MenuBarGlance.plays(.roll, turning: false, reduceMotion: false))
+        XCTAssertFalse(MenuBarGlance.plays(.none, turning: false, reduceMotion: false))
+    }
+
     func testOnlyFadesPlayUnderReduceMotion() {
         XCTAssertFalse(MenuBarGlance.Change.roll.keepsUnderReduceMotion)
         XCTAssertFalse(MenuBarGlance.Change.none.keepsUnderReduceMotion)
         XCTAssertTrue(MenuBarGlance.Change.goingStale.keepsUnderReduceMotion)
         XCTAssertTrue(MenuBarGlance.Change.comingBack.keepsUnderReduceMotion)
         XCTAssertTrue(MenuBarGlance.Change.firstReading.keepsUnderReduceMotion)
+        XCTAssertTrue(MenuBarGlance.Change.turn.keepsUnderReduceMotion)
     }
 
     func testStrikeDrawsInGoingStaleAndRetractsComingBack() {

@@ -220,6 +220,12 @@ angle (−90° rising quickly … +90° falling quickly) inside a ring; rapid tr
 arrow behind it (a chevron "trail") and keep the existing `RapidHalo`. Unknown or stale: a question
 mark. Rotation animates with `.arrival`, which also works between Live Activity states.
 
+The turn is shared as `.trendTurn(_:)` (Signal.swift), used by `TrendDial` and `TrendArrow`: one
+short `.arrival` spring to the new angle, never repeated. Under Reduce Motion the arrow doesn't
+travel; the old direction cross-fades into the new one over 0.25 s. VoiceOver hears "Trend now
+rising" once per change (`TrendTurn.announcement`), from the iPhone Today hero and, on the Mac, from
+the menu bar item only, so an open popover doesn't repeat it. Round 39.
+
 ### 5.3 `RangeRail`
 
 A horizontal capsule split into five segments sized on a scale from 40 to 300 mg/dL (clamped):
@@ -463,15 +469,17 @@ helper.
 ### 8.1 Menu bar
 
 The menu bar item is the value in its range colour (on by default, urgent lows always) with an SF
-Symbol trend arrow, the change when that option is on, and optionally a 22 pt sparkline of the last
+trend arrow (one `arrow.right` turned to the trend's angle), the change when that option is on, and optionally a 22 pt sparkline of the last
 hour (five-minute averages, never scaled tighter than 2 mmol/L so a flat hour stays flat). Stale
 readings get the popover's treatment: grey value with the drawn strike line, an amber warning sign
 and the age to the minute, no arrow, no range colour.
 
 Motion is limited to one roll per new reading: the old value leaves and the new one arrives from
 the direction it moved, over `DSMotion.arrival` (and the strike draws in as a reading goes stale).
-Nothing else moves, and under Reduce Motion nothing moves at all. It's peripheral vision, so it
-must never loop.
+A new trend swings the arrow round on the same spring, drawn frame by frame from
+`TrendTurn.springProgress` (round 39). Nothing else moves, and under Reduce Motion only fades
+remain: the arrow's old direction cross-fades into the new one. It's peripheral vision, so it must
+never loop.
 
 It's on screen all day, so it costs nothing between readings. `MenuBarGlance` holds exactly what's
 shown; the item is drawn into an image only when that changes, and one timer is set for the next

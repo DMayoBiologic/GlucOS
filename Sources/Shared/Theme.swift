@@ -265,8 +265,6 @@ struct TrendDial: View {
     var tint: Color
     var size: CGFloat = 56
 
-    private var angle: Double { trend.needleAngle }
-
     var body: some View {
         ZStack {
             Circle()
@@ -284,6 +282,7 @@ struct TrendDial: View {
                 // The needle: an arrow swung to the direction of travel, springing to a new angle
                 // when the trend turns (also between two Live Activity states). A rapid trend draws
                 // a ghosted second arrow behind it, a trail that says "fast" without reading words.
+                // Under Reduce Motion the needle cross-fades to the new direction instead (`trendTurn`).
                 ZStack {
                     if trend.isRapid {
                         Image(systemName: "arrow.right")
@@ -296,8 +295,7 @@ struct TrendDial: View {
                         .foregroundStyle(tint)
                         .offset(x: trend.isRapid ? size * 0.05 : 0)
                 }
-                .rotationEffect(.degrees(angle))
-                .dsAnimation(.arrival, value: angle)
+                .trendTurn(trend)
             }
             if trend.isRapid {
                 Circle()
