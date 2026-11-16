@@ -1494,3 +1494,102 @@ way: forecasts that the checks do allow past 60 are already logged to 180 minute
         and f.issued_at between to_timestamp((l.payload->>'timestamp')::float)
                             and to_timestamp((l.payload->>'timestamp')::float) + interval '2 hours')
     order by f.issued_at;
+
+## 28. Do the Mac, iPhone and relay forecast differently at the same moments? (16 Nov 2026)
+
+Each sender's live figures look different: the iPhone loses to "no change" at 15 minutes and
+badly at 60, while the Mac and relay beat it. The question was whether one sender is worse
+because of what it's fed (history length, LinkUp graph points, §5, §17–§18) and should be
+aligned. **It isn't. At the same moments the three forecasts are nearly the same line, and the
+iPhone is no worse than the Mac at 15 and 30 minutes. The gaps in the per-sender figures come
+from when each one forecasts: the iPhone is opened during lows and fast drops, the relay covers
+the nights, the Mac sleeps overnight. The one input difference found (the iPhone's trend on
+sparse history) is the one #82 fixed, and only 5 iPhone checks since then have been scored.
+Nothing shipped; no app or relay code changed.**
+
+Nothing here touches dosing: the bolus calculator, insulin on board, sensitivity and carb
+ratios were not read or changed.
+
+**Per sender, all clean checks** (`glucos.forecast_checks`, nothing logged in between, 12–16 Nov;
+bias is actual − forecast, positive = ran low):
+
+| Sender | 15 min | no change | bias | 30 min | no change | 60 min | no change | bias |
+|---|---|---|---|---|---|---|---|---|
+| Mac (136 / 118 / 81) | 17.5 | 18.9 | −1 | 27.9 | 31.1 | 48.4 | 49.8 | 0 |
+| iPhone (90 / 76 / 29) | **15.8** | **15.4** | +5 | 26.5 | 28.8 | **47.0** | **38.9** | +14 |
+| relay (72 / – / –) | 18.8 | 20.4 | 0 | – | – | – | – | – |
+
+The relay only logs 15-minute points: its own replay (`allowedHorizon`) stops its drawn line at
+15, and the 30-minute look-ahead used for low warnings (§13) isn't logged.
+
+**At the same moments.** Pairs of checks from two senders issued within 5 minutes of each other,
+all re-scored against the same truth (`glucos.reading_at` at issue + horizon):
+
+| Pair | Ahead | Pairs | First sender | Second sender | No change (first / second) |
+|---|---|---|---|---|---|
+| iPhone vs Mac | 15 min | 38 | **14.6** | 17.5 | 16.0 / 17.8 |
+| iPhone vs Mac | 30 min | 28 | **23.0** | 24.3 | 23.9 / 24.8 |
+| iPhone vs Mac | 60 min | 20 | 52.4 | 50.2 | 46.6 / 47.0 |
+| Mac vs relay | 15 min | 27 | 26.1 | 25.1 | 26.7 / 26.4 |
+| iPhone vs relay | 15 min | 7 | 27.5 | 27.3 | 33.1 / 31.4 |
+
+Mac and relay 15-minute forecasts are typically within 5 mg/dL of each other (same trend to
+±0.3 mg/dL/min), because 15 minutes ahead both are mostly the trend. The iPhone runs on average
+3 mg/dL lower than the Mac at 15 and 30 and 8 lower at 60, and does slightly better at 15 and 30.
+At 60 minutes all three lose to no change at these moments; the live cut (§8) is what handles
+that.
+
+**Why the per-sender figures differ.** Where each sender's checks fall:
+
+| Sender | Checks | Starting below 100 mg/dL | Mean \|trend\| |
+|---|---|---|---|
+| Mac | 146 | 14% | 1.20 mg/dL/min |
+| iPhone | 106 | 17% | 1.20 |
+| relay | 76 | 41% | 1.31 |
+
+Below 100 mg/dL every sender runs low (bias +10 to +114): untreated-in-the-log lows, where
+rescue carbs come after the forecast (§11, §15's "Did you treat this low?" re-marks these once
+answered). The iPhone's 60-minute figure is 29 checks, and its worst misses are lows at
+14:10, 15:06, 17:18 and 21:55 on 15 Nov (start 59–96 mg/dL, forecast 39–64, actual 93–217 an
+hour later): moments the phone was opened because of the low. Its only clearly different
+forecasts at the same moment as the Mac or relay (15 Nov 17:18, trend −2.4 vs −1.5; 21:55,
+−0.7 vs −1.9) are from before #82, when its history was LinkUp's 15-minute graph plus a few
+live readings (§5). The iPhone was untuned (`tuned = false`) on 74 of its 90 15-minute checks.
+
+**Tried: cut the iPhone's horizons sooner.** The iPhone's 60-minute line lost to no change
+(1.2×) but was never cut, because §8 needs 30 clean checks per kind in 7 days and the iPhone
+doesn't reach that. Replaying §8's rule walk-forward on each device's own checks (only points
+already scored at each check's time), for the iPhone (gain = error saved by hiding a point,
+against no change):
+
+| Minimum checks | Hidden 15 / 30 / 45 / 60 | Error saved | Shown 60 min vs no change |
+|---|---|---|---|
+| 30 (now) | 12 / 10 / 9 / 8 | 539 mg/dL·points | 28.2 / 25.4 |
+| 20 | 22 / 18 / 16 / 14 | 731 | 23.5 / 25.9 |
+| 15 | 27 / 23 / 21 / 19 | 760 | 30.6 / 36.3 |
+| Mac + iPhone pooled, 30 | 0 | 0 | 47.0 / 38.9 |
+
+On the Mac no threshold changes anything (it is never cut). Lower minimums look better, but
+split in time the whole gain is in the second half (14–16 Nov; nothing in the first half), from
+untuned pre-#82 iPhone builds whose cause is already fixed, and 30 is also the count the
+Insights scorecard needs before it calls a horizon "further off than no change". Pooling the Mac's
+checks into the iPhone's gate is worse: the Mac's good figures keep the iPhone's bad horizons
+drawn. Not shipped.
+
+**Re-run** once the iPhone has 30 or more clean checks from a build with #82 (relay history fill)
+or later, by version via `glucos.forecast_scorecard_by_version`. If its 60-minute line still loses
+to no change then while the Mac's doesn't, the lower minimum is worth retrying. Logging the
+relay's 30-minute look-ahead as unshown points would let the relay be compared at 30 too. The
+matched-moment query:
+
+    with pts as (
+      select c.device, c.issued_at, (p->>'minutes')::int m, (p->>'mgdl')::float f
+      from glucos.forecast_checks c, jsonb_array_elements(c.points) p
+      where p->>'actual' is not null and not coalesce((p->>'after_log')::bool, false)),
+    s as (select *, glucos.reading_at(issued_at + make_interval(mins => m)) a,
+                    glucos.reading_at(issued_at) a0 from pts)
+    select x.device, y.device, x.m, count(*), avg(abs(x.f - x.a)), avg(abs(y.f - y.a)),
+           avg(abs(x.a0 - x.a)), avg(abs(y.a0 - y.a))
+    from s x join s y on x.m = y.m and x.device < y.device
+      and abs(extract(epoch from x.issued_at - y.issued_at)) <= 300
+    group by 1, 2, 3;
