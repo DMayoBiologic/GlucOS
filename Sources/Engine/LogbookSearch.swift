@@ -57,7 +57,7 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
 /// a stretch of time ("yesterday", "last week", "friday", "last 3 days").
 struct LogbookQuery: Equatable {
     /// A stretch of time the search named.
-    struct Period: Equatable {
+    struct Period: Hashable, Sendable {
         /// "Yesterday", "Since last week", "Friday": shown on the chip that says what was understood.
         let label: String
         /// How it reads in a sentence: "yesterday", "since last week", "on Friday".
@@ -72,6 +72,13 @@ struct LogbookQuery: Equatable {
     let withoutPeriod: String
 
     var isEmpty: Bool { terms.isEmpty && period == nil }
+
+    /// This search with a period the Logbook was opened with (`LogbookLink`) when the words typed
+    /// name none. A day typed into the field wins over it.
+    func linked(_ linked: Period?) -> LogbookQuery {
+        guard period == nil, let linked else { return self }
+        return LogbookQuery(terms: terms, period: linked, withoutPeriod: withoutPeriod)
+    }
 
     /// Small words that don't help find anything ("that pizza I had last week").
     static let fillers: Set<String> = [

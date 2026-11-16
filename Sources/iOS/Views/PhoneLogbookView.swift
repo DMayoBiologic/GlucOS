@@ -5,6 +5,35 @@ import SwiftUI
 enum PhoneRoute: Hashable {
     case logbook
     case insights
+    /// The Logbook opened from a card with a chip and period picked (the Insights Lows card).
+    case logbookLink(LogbookLink)
+
+    /// What the zoom grows from and shrinks back into. A linked Logbook keys on its card, not its
+    /// period, so it still finds the card on the way back after a new reading moved the period on.
+    var zoomSource: AnyHashable {
+        switch self {
+        case .logbook, .insights: return AnyHashable(self)
+        case .logbookLink(let link): return AnyHashable(link.sourceID)
+        }
+    }
+}
+
+/// Pushes a screen onto the home screen's stack from a card further in (Insights → Logbook), with
+/// the namespace its zoom source registers in.
+struct PhoneNavigator {
+    let push: (PhoneRoute) -> Void
+    let zoom: Namespace.ID
+}
+
+private struct PhoneNavigatorKey: EnvironmentKey {
+    static let defaultValue: PhoneNavigator? = nil
+}
+
+extension EnvironmentValues {
+    var phoneNavigator: PhoneNavigator? {
+        get { self[PhoneNavigatorKey.self] }
+        set { self[PhoneNavigatorKey.self] = newValue }
+    }
 }
 
 /// The whole logbook, not just the last day: grouped by day with each day's insulin and carbs in
@@ -19,6 +48,8 @@ struct PhoneLogbookView: View {
     @EnvironmentObject var sync: LogbookSyncService
     @EnvironmentObject var store: GlucoseStore
     @State private var query = ""
+    /// The period the Logbook was opened with (the Lows card's days), until ✕ or Clear Filters.
+    @State private var linked: LogbookQuery.Period?
     /// The clinic-visit export sheet (`PhoneExportView`).
     @State private var showsExport = false
     @State private var kind: LogbookFilter?
@@ -38,11 +69,17 @@ struct PhoneLogbookView: View {
     @State private var drawnBars = DrawnOnce()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Opened from a card (`LogbookLink`): its chip picked and its period above the list.
+    init(link: LogbookLink? = nil) {
+        _kind = State(initialValue: link?.filter)
+        _linked = State(initialValue: link?.period)
+    }
+
     var body: some View {
         let all = logbook.entries
         let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
         let kinds: [LogbookFilter] = LogbookFilter.available(entries: all, alerts: alerts)
-        let search: LogbookQuery = LogbookQuery.parse(query, now: Date())
+        let search: LogbookQuery = LogbookQuery.parse(query, now: Date()).linked(linked)
         let lowIDs: Set<UUID> = LogbookSearch.lowTreatmentIDs(all)
         let shown: [PhoneLogbookItem] = PhoneLogbookItem.merge(all, alerts)
             .filter { $0.matches(kind, search, lowIDs: lowIDs) }
@@ -234,7 +271,15 @@ struct PhoneLogbookView: View {
     private func clearFilters() {
         query = ""
         kind = nil
+        linked = nil
         Haptics.play(.choice)
+    }
+
+    /// ✕ on the period chip, or Search All Dates: drops a day typed into the field, keeping the
+    /// words, or else the period the Logbook was opened with.
+    private func dropPeriod() {
+        let typed = LogbookQuery.parse(query, now: Date())
+        if typed.period != nil { query = typed.withoutPeriod } else { linked = nil }
     }
 
     // MARK: Pieces
@@ -345,7 +390,7 @@ struct PhoneLogbookView: View {
         HStack(spacing: DS.Space.sm) {
             if let period = search.period {
                 Button {
-                    query = search.withoutPeriod
+                    dropPeriod()
                     Haptics.play(.choice)
                 } label: {
                     HStack(spacing: DS.Space.xs) {
@@ -385,7 +430,7 @@ struct PhoneLogbookView: View {
                                actionTitle: "Clear Filters", action: clearFilters)
                 // When the day was the problem, the same words across every date may still find it.
                 if search.period != nil && (!search.terms.isEmpty || kind != nil) {
-                    Button("Search All Dates") { query = search.withoutPeriod; Haptics.play(.choice) }
+                    Button("Search All Dates") { dropPeriod(); Haptics.play(.choice) }
                         .dsFont(.label)
                 }
             }

@@ -10,11 +10,19 @@ struct LogbookSection: View {
     let data: DashboardData
     /// Set by ⌘F anywhere in the dashboard: put the cursor in the search field, then cleared.
     @Binding var focusSearch: Bool
+    /// Set by the Insights Lows card: open on its chip and period, then cleared.
+    @Binding var link: LogbookLink?
+    /// While the Logbook was opened from the Lows card: back to that card.
+    let backToInsights: (() -> Void)?
     let open: (LogSheetTarget) -> Void
 
-    init(data: DashboardData, focusSearch: Binding<Bool> = .constant(false), open: @escaping (LogSheetTarget) -> Void) {
+    init(data: DashboardData, focusSearch: Binding<Bool> = .constant(false),
+         link: Binding<LogbookLink?> = .constant(nil), backToInsights: (() -> Void)? = nil,
+         open: @escaping (LogSheetTarget) -> Void) {
         self.data = data
         self._focusSearch = focusSearch
+        self._link = link
+        self.backToInsights = backToInsights
         self.open = open
     }
 
@@ -24,6 +32,8 @@ struct LogbookSection: View {
     /// The quick filter chip, if one is picked (All when nil).
     @State private var filter: LogbookFilter?
     @State private var search = ""
+    /// The period the Logbook was opened with (the Lows card's days), until ✕ or Clear Filters.
+    @State private var linked: LogbookQuery.Period?
     /// "Search All Dates" was pressed: look past the toolbar's period until the search is cleared.
     @State private var allDates = false
     @FocusState private var searchFocused: Bool
@@ -39,7 +49,7 @@ struct LogbookSection: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let query = LogbookQuery.parse(search, now: Date())
+        let query = LogbookQuery.parse(search, now: Date()).linked(linked)
         let pastPeriod = LogbookSearch.looksPastToolbarPeriod(query, allDates: allDates)
         let allAlerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
         let inRange = logbook.entries.filter { data.domain.contains($0.timestamp) }
@@ -57,6 +67,18 @@ struct LogbookSection: View {
                     .dsCard(.standard)
                     .padding(padding)
                 DSDivider()
+            }
+            // Opened from the Insights Lows card: the way back to it.
+            if let backToInsights {
+                Button(action: backToInsights) {
+                    Label("Insights", systemImage: "chevron.left")
+                }
+                .buttonStyle(.link)
+                .dsFont(.label)
+                .help("Back to the Lows card in Insights")
+                .accessibilityLabel("Back to Insights")
+                .padding(.horizontal, padding)
+                .padding(.top, DS.Space.md)
             }
             if logbook.isEmpty && allAlerts.isEmpty {
                 if !showsAlerts && !logbook.alerts.isEmpty {
@@ -90,8 +112,9 @@ struct LogbookSection: View {
             }
         }
         // ⌘F (a dashboard shortcut, so it also brings this section up) puts the cursor in the search.
-        .onAppear { takeFocusRequest() }
+        .onAppear { takeFocusRequest(); takeLink() }
         .onChange(of: focusSearch) { _, _ in takeFocusRequest() }
+        .onChange(of: link) { _, _ in takeLink() }
         // After a delete: what went and Undo, rising from the bottom edge (`LogbookUndoToast`).
         .overlay(alignment: .bottom) { LogbookUndoToast() }
         // Entries that arrive (logged, undone, synced from the iPhone) light up once.
@@ -154,7 +177,7 @@ struct LogbookSection: View {
             .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             .frame(maxWidth: 320)
             if let period = query.period {
-                scopeChip(period.label, help: "Search all dates") { search = query.withoutPeriod; allDates = true }
+                scopeChip(period.label, help: "Search all dates") { dropPeriod() }
                     .accessibilityLabel("\(period.label). Search all dates")
             } else if searching {
                 scopeChip("All dates", help: "Back to the toolbar's period") { allDates = false; search = "" }
@@ -236,10 +259,7 @@ struct LogbookSection: View {
                                    : "Nothing in \(filter?.title ?? "the Logbook") in this period.",
                                actionTitle: "Clear Filters", action: clearFilters)
                 if LogbookSearch.offersAllDates(query, filter: filter, allDates: allDates) {
-                    Button("Search All Dates") {
-                        search = query.withoutPeriod
-                        allDates = true
-                    }
+                    Button("Search All Dates") { dropPeriod() }
                     .dsFont(.label)
                 }
             }
@@ -249,7 +269,26 @@ struct LogbookSection: View {
     private func clearFilters() {
         search = ""
         filter = nil
+        linked = nil
         allDates = false
+    }
+
+    /// ✕ on the period chip, or Search All Dates: drops a day typed into the field, keeping the
+    /// words, or else the period the Logbook was opened with, and looks across every date.
+    private func dropPeriod() {
+        let typed = LogbookQuery.parse(search, now: Date())
+        if typed.period != nil { search = typed.withoutPeriod } else { linked = nil }
+        allDates = true
+    }
+
+    /// Opened from the Lows card: its chip and period, over whatever was typed before.
+    private func takeLink() {
+        guard let l = link else { return }
+        link = nil
+        search = ""
+        allDates = false
+        filter = l.filter
+        linked = l.period
     }
 
     /// The dashboard asked for the search field (⌘F): focus it, once it's on screen.
@@ -497,6 +536,10 @@ struct InsightsSection: View {
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
+    /// Set when coming back from the Logbook the Lows card opened: scroll to the card, then cleared.
+    @Binding var returnToLows: Bool
+    /// The Lows card was tapped: open the Logbook on its chip and days.
+    let openLogbook: (LogbookLink) -> Void
     let onLog: () -> Void
 
     @EnvironmentObject var logbook: LogbookStore
@@ -546,10 +589,20 @@ struct InsightsSection: View {
             WeekInReviewView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
                 .dsEntrance(5)
-            LowsCardView(readings: readings, meals: logbook.meals, contexts: logbook.contexts,
-                         answers: logbook.lowAnswers, unit: unit, lowMgdl: lowMgdl)
-                .dashboardCard()
-                .dsEntrance(6)
+            ScrollViewReader { proxy in
+                LowsCardView(readings: readings, meals: logbook.meals, contexts: logbook.contexts,
+                             answers: logbook.lowAnswers, unit: unit, lowMgdl: lowMgdl,
+                             openLogbook: openLogbook)
+                    .dashboardCard()
+                    .id(Self.lowsCardID)
+                    .onAppear {
+                        guard returnToLows else { return }
+                        returnToLows = false
+                        // Once the page is laid out, so the card is where it'll be.
+                        DispatchQueue.main.async { proxy.scrollTo(Self.lowsCardID, anchor: .center) }
+                    }
+            }
+            .dsEntrance(6)
             DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
                 .dsEntrance(7)
@@ -561,6 +614,8 @@ struct InsightsSection: View {
         // appearance, never a loop; still under Reduce Motion; VoiceOver hears the final value.
         .environment(\.figuresCountUp, true)
     }
+
+    private static let lowsCardID = "insights.lows"
 
     private var startLogging: some View {
         Label("Start by logging your insulin and food. Patterns appear here once GlucOS has a few clean examples.",

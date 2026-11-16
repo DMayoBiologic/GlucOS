@@ -152,6 +152,13 @@ struct LowsSummary: Hashable {
 enum LowsSummaryText {
     static let title = "Lows"
 
+    /// The row at the foot of the card that opens the Logbook (`LogbookLink.lows`).
+    static func logbookLine(_ period: LowsSummary.Period) -> String {
+        "See the last \(period.days) days in the Logbook"
+    }
+
+    static let logbookHint = "Opens the Logbook on Lows over the same days"
+
     static func emptyLine(_ period: LowsSummary.Period) -> String {
         "Lows over \(period.spoken) show here once GlucOS has a day of readings."
     }
