@@ -661,6 +661,14 @@ struct InsightsSection: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var outlookStore: OutlookStore
 
+    /// The person's order and hidden cards, kept on this Mac (docs/InsightsLayout.md). Held in state
+    /// so a change animates, and written back on every change.
+    @State private var cardLayout = InsightsLayout(stored: UserDefaults.standard.string(forKey: InsightsLayout.macKey) ?? "")
+    @State private var customising = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let defaults = InsightsCard.macDefault
+
     var body: some View {
         // Worked out here rather than inside the page, which re-runs its content when the window
         // changes size.
@@ -701,35 +709,19 @@ struct InsightsSection: View {
             } else {
                 TherapySetupView().dashboardCard().dsEntrance(0)
             }
+            customiseRow
             ScrollViewReader { proxy in
+                let visible = cardLayout.visible(Self.defaults)
                 VStack(alignment: .leading, spacing: layout.gutter) {
-                    WeekInReviewView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
-                                     openLogbook: openLogbook)
-                        .dashboardCard()
-                        .id(Self.cardID(.thisWeek))
-                        .dsEntrance(5)
-                    LowsCardView(readings: readings, meals: logbook.meals, contexts: logbook.contexts,
-                                 answers: logbook.lowAnswers, unit: unit, lowMgdl: lowMgdl,
-                                 openLogbook: openLogbook)
-                        .dashboardCard()
-                        .id(Self.cardID(.lows))
-                        .dsEntrance(6)
-                    HighsCardView(readings: readings, unit: unit, highMgdl: highMgdl,
-                                  openLogbook: openLogbook)
-                        .dashboardCard()
-                        .id(Self.cardID(.highs))
-                        .dsEntrance(7)
-                    OvernightCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
-                                      openLogbook: openLogbook)
-                        .dashboardCard()
-                        .id(Self.cardID(.overnight))
-                        .dsEntrance(8)
-                    WeekdayWeekendCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
-                                           openLogbook: openLogbook)
-                        .dashboardCard()
-                        .id(Self.cardID(.weekdays))
-                        .dsEntrance(9)
+                    ForEach(Array(visible.enumerated()), id: \.element) { i, card in
+                        view(for: card)
+                            .dsEntrance(5 + i)
+                            .contextMenu { menu(card, index: i, count: visible.count) }
+                    }
                 }
+                // Under Reduce Motion the cards cross-fade to the new order instead of springing.
+                .id(reduceMotion ? visible.map(\.rawValue).joined(separator: ",") : "")
+                .transition(.opacity)
                 .onAppear {
                     guard let card = returnTo else { return }
                     returnTo = nil
@@ -737,16 +729,91 @@ struct InsightsSection: View {
                     DispatchQueue.main.async { proxy.scrollTo(Self.cardID(card), anchor: .center) }
                 }
             }
-            DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
-                .dashboardCard()
-                .dsEntrance(10)
-            ForecastScorecardCard(outlook: outlookStore).dsEntrance(11)
             Disclaimer()
         }
         // As on iPhone Insights: each card's figures count up as it assembles, with its bars
         // drawing in, and roll from the old figure to the new one when the data changes. Once per
         // appearance, never a loop; still under Reduce Motion; VoiceOver hears the final value.
         .environment(\.figuresCountUp, true)
+        .sheet(isPresented: $customising) {
+            InsightsCustomiseSheet(layout: $cardLayout, defaults: Self.defaults, change: change)
+        }
+        .onChange(of: cardLayout) { _, new in
+            UserDefaults.standard.set(new.stored, forKey: InsightsLayout.macKey)
+        }
+    }
+
+    @ViewBuilder
+    private func view(for card: InsightsCard) -> some View {
+        switch card {
+        case .weekInReview:
+            WeekInReviewView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                             openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.thisWeek))
+        case .lows:
+            LowsCardView(readings: readings, meals: logbook.meals, contexts: logbook.contexts,
+                         answers: logbook.lowAnswers, unit: unit, lowMgdl: lowMgdl,
+                         openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.lows))
+        case .highs:
+            HighsCardView(readings: readings, unit: unit, highMgdl: highMgdl, openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.highs))
+        case .overnight:
+            OvernightCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                              openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.overnight))
+        case .weekdayWeekend:
+            WeekdayWeekendCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                                   openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.weekdays))
+        case .dayPattern:
+            DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
+                .dashboardCard()
+        case .forecastAccuracy:
+            ForecastScorecardCard(outlook: outlookStore)
+        case .glance, .days, .mornings:
+            // iPhone-only cards; never in the Mac's list.
+            EmptyView()
+        }
+    }
+
+    /// Above the movable cards: what's hidden, and the way into the customise sheet.
+    private var customiseRow: some View {
+        let hiddenCount = cardLayout.hiddenCards(Self.defaults).count
+        return HStack(spacing: DS.Space.md) {
+            Text(hiddenCount == 0 ? "Drag cards into your own order, or hide the ones you don't use."
+                 : hiddenCount == 1 ? "1 card hidden." : "\(hiddenCount) cards hidden.")
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: DS.Space.md)
+            Button { customising = true } label: {
+                Label("Customise Cards…", systemImage: "slider.horizontal.3")
+            }
+            .buttonStyle(.ds(.secondary, size: .small))
+            .help("Reorder or hide the Insights cards")
+        }
+    }
+
+    /// Right-click a card: move it a place, hide it, or open the customise sheet.
+    @ViewBuilder
+    private func menu(_ card: InsightsCard, index: Int, count: Int) -> some View {
+        Button("Move Up") { change { $0.move(card, by: -1, defaults: Self.defaults) } }
+            .disabled(index == 0)
+        Button("Move Down") { change { $0.move(card, by: 1, defaults: Self.defaults) } }
+            .disabled(index >= count - 1)
+        Button("Hide \(card.title)") { change { $0.hide(card, defaults: Self.defaults) } }
+        Divider()
+        Button("Customise Cards…") { customising = true }
+    }
+
+    /// Springs the cards into their new places; a cross-fade under Reduce Motion.
+    private func change(_ edit: (inout InsightsLayout) -> Void) {
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.25) : DSMotion.emphasized.animation) { edit(&cardLayout) }
     }
 
     /// "insights.lows", "insights.highs", "insights.overnight", "insights.weekdays",

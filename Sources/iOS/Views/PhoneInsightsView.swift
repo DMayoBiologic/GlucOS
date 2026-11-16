@@ -56,26 +56,67 @@ struct PhoneInsightsRow: View {
 /// days side by side, this week against last, lows and when they start, time above range and the longest high, how the nights go, weekdays against weekends, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
 struct PhoneInsightsView: View {
     @EnvironmentObject var store: GlucoseStore
+    /// The person's order and hidden cards, kept on this iPhone (docs/InsightsLayout.md). Held in
+    /// state so a change animates, and written back on every change.
+    @State private var layout = InsightsLayout(stored: UserDefaults.standard.string(forKey: InsightsLayout.phoneKey) ?? "")
+    @State private var editing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let defaults = InsightsCard.phoneDefault
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: DS.Space.lg) {
-                PhoneGlanceCard().dsEntrance(0)
-                PhoneDaysCard().dsEntrance(1)
-                PhoneWeekInReviewCard().dsEntrance(2)
-                PhoneLowsCard().dsEntrance(3)
-                PhoneHighsCard().dsEntrance(4)
-                PhoneOvernightCard().dsEntrance(5)
-                PhoneWeekdayWeekendCard().dsEntrance(6)
-                PhoneDayPatternCard().dsEntrance(7)
-                PhoneMorningCard(outlook: store.outlook).dsEntrance(8)
-                PhoneForecastAccuracyCard(outlook: store.outlook).dsEntrance(9)
-                Text("Mornings and forecast accuracy appear once GlucOS has enough wake-ups and forecasts to report on.")
-                    .dsFont(.caption)
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, DS.Space.xs)
+        ZStack {
+            if editing {
+                PhoneInsightsEditList(layout: $layout, defaults: defaults, change: change)
+                    .transition(.opacity)
+            } else {
+                cards.transition(.opacity)
             }
+        }
+        .background { PhoneBackdrop(tone: .neutral) }
+        .navigationTitle(editing ? "Edit Insights" : "Insights")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { setEditing(!editing) } label: {
+                    Text(editing ? "Done" : "Edit").fontWeight(editing ? .semibold : .regular)
+                }
+                .accessibilityHint(editing ? "Goes back to your cards" : "Reorder or hide the Insights cards")
+            }
+        }
+        .onChange(of: layout) { _, new in
+            UserDefaults.standard.set(new.stored, forKey: InsightsLayout.phoneKey)
+        }
+    }
+
+    private var cards: some View {
+        let visible = layout.visible(defaults)
+        return ScrollView {
+            VStack(spacing: DS.Space.lg) {
+                ForEach(Array(visible.enumerated()), id: \.element) { i, card in
+                    view(for: card)
+                        .dsEntrance(i)
+                        .contextMenu { menu(card, index: i, count: visible.count) }
+                }
+                if visible.contains(.mornings) || visible.contains(.forecastAccuracy) {
+                    Text("Mornings and forecast accuracy appear once GlucOS has enough wake-ups and forecasts to report on.")
+                        .dsFont(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, DS.Space.xs)
+                }
+                if visible.isEmpty {
+                    Text("Every card is hidden. Tap Edit to bring some back.")
+                        .dsFont(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, DS.Space.xl)
+                }
+            }
+            // Under Reduce Motion the stack cross-fades to the new order instead of the cards
+            // springing past each other.
+            .id(reduceMotion ? visible.map(\.rawValue).joined(separator: ",") : "")
+            .transition(.opacity)
             .padding(.horizontal, DS.Space.lg)
             .padding(.bottom, DS.Space.lg)
             .frame(maxWidth: 640)
@@ -85,9 +126,137 @@ struct PhoneInsightsView: View {
         // from the old figure to the new one when a period changes. Once per appearance, never a
         // loop; still under Reduce Motion.
         .environment(\.figuresCountUp, true)
-        .background { PhoneBackdrop(tone: .neutral) }
-        .navigationTitle("Insights")
-        .navigationBarTitleDisplayMode(.large)
+    }
+
+    @ViewBuilder
+    private func view(for card: InsightsCard) -> some View {
+        switch card {
+        case .glance: PhoneGlanceCard()
+        case .days: PhoneDaysCard()
+        case .weekInReview: PhoneWeekInReviewCard()
+        case .lows: PhoneLowsCard()
+        case .highs: PhoneHighsCard()
+        case .overnight: PhoneOvernightCard()
+        case .weekdayWeekend: PhoneWeekdayWeekendCard()
+        case .dayPattern: PhoneDayPatternCard()
+        case .mornings: PhoneMorningCard(outlook: store.outlook)
+        case .forecastAccuracy: PhoneForecastAccuracyCard(outlook: store.outlook)
+        }
+    }
+
+    /// Touch and hold a card: move it a place, hide it, or open the full edit list.
+    @ViewBuilder
+    private func menu(_ card: InsightsCard, index: Int, count: Int) -> some View {
+        Button { change { $0.move(card, by: -1, defaults: defaults) } } label: {
+            Label("Move Up", systemImage: "arrow.up")
+        }
+        .disabled(index == 0)
+        Button { change { $0.move(card, by: 1, defaults: defaults) } } label: {
+            Label("Move Down", systemImage: "arrow.down")
+        }
+        .disabled(index >= count - 1)
+        Button { change { $0.hide(card, defaults: defaults) } } label: {
+            Label("Hide \(card.title)", systemImage: "eye.slash")
+        }
+        Divider()
+        Button { setEditing(true) } label: {
+            Label("Edit Cards…", systemImage: "slider.horizontal.3")
+        }
+    }
+
+    /// Springs the cards into their new places; a cross-fade under Reduce Motion.
+    private func change(_ edit: (inout InsightsLayout) -> Void) {
+        withAnimation(InsightsMotion.reorder(reduceMotion: reduceMotion)) { edit(&layout) }
+    }
+
+    private func setEditing(_ on: Bool) {
+        withAnimation(InsightsMotion.swap(reduceMotion: reduceMotion)) { editing = on }
+    }
+}
+
+/// How Insights cards move when they're reordered, hidden or brought back.
+enum InsightsMotion {
+    /// A spring into the new place; a short cross-fade under Reduce Motion.
+    static func reorder(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeInOut(duration: 0.25) : DSMotion.emphasized.animation
+    }
+
+    /// The cards and the edit list swapping.
+    static func swap(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : DSMotion.standard.animation
+    }
+}
+
+/// Edit mode for iPhone Insights: drag handles to reorder the showing cards, a button to hide each,
+/// and a Hidden section to bring them back from.
+struct PhoneInsightsEditList: View {
+    @Binding var layout: InsightsLayout
+    let defaults: [InsightsCard]
+    let change: ((inout InsightsLayout) -> Void) -> Void
+
+    var body: some View {
+        let shown = layout.visible(defaults)
+        let hidden = layout.hiddenCards(defaults)
+        List {
+            Section {
+                ForEach(shown) { card in
+                    row(card, hidden: false)
+                }
+                .onMove { from, to in
+                    change { $0.moveVisible(fromOffsets: from, toOffset: to, defaults: defaults) }
+                }
+            } header: {
+                Text("Shown")
+            } footer: {
+                Text("Drag a card by its handle to move it. New cards show here when they arrive.")
+            }
+            Section {
+                if hidden.isEmpty {
+                    Text("Cards you hide wait here, ready to bring back.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(hidden) { card in
+                        row(card, hidden: true)
+                    }
+                }
+            } header: {
+                Text("Hidden")
+            }
+            Section {
+                Button("Restore Standard Order") { change { $0 = .standard } }
+                    .disabled(layout.isStandard)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .environment(\.editMode, .constant(.active))
+    }
+
+    private func row(_ card: InsightsCard, hidden: Bool) -> some View {
+        HStack(spacing: DS.Space.md) {
+            Button {
+                change { layout in
+                    if hidden {
+                        layout.restore(card, defaults: defaults)
+                    } else {
+                        layout.hide(card, defaults: defaults)
+                    }
+                }
+            } label: {
+                Image(systemName: hidden ? "plus.circle.fill" : "minus.circle.fill")
+                    .font(.title3)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, hidden ? Color.green : Color.secondary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(hidden ? "Show \(card.title)" : "Hide \(card.title)")
+            Image(systemName: card.systemImage)
+                .foregroundStyle(hidden ? Color.secondary : Palette.brand)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+            Text(card.title)
+                .foregroundStyle(hidden ? .secondary : .primary)
+        }
     }
 }
 
