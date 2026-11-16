@@ -22,6 +22,17 @@ enum LogbookRowExpand {
         init(reduceMotion: Bool) { self = reduceMotion ? .crossFade : .matched }
     }
 
+    /// A frame in points. Plain doubles rather than CGRect, which this Foundation-only target can't
+    /// do geometry on everywhere; the iPhone view converts at the edge.
+    struct Box: Equatable {
+        var x: Double
+        var y: Double
+        var width: Double
+        var height: Double
+
+        var maxY: Double { y + height }
+    }
+
     /// Space kept between the open card and the edges of the list.
     static let margin: Double = 12
     /// The open card's corner radius. The row has square corners, so it rounds as it opens.
@@ -35,26 +46,27 @@ enum LogbookRowExpand {
     /// Letting go after dragging (or flicking, by the predicted end) this far down closes the card.
     static let closeDistance: Double = 90
 
-    /// Where the open card sits in a container of `size`: the full width less the margins, its
+    /// Where the open card sits in a container of the given width and height: the full width less the margins, its
     /// natural height (capped so it fits), as near the row's own top as fits, so it opens in place
     /// rather than jumping to the top of the screen.
-    static func openFrame(row: CGRect, contentHeight: Double, in size: CGSize) -> CGRect {
-        let width = max(0, Double(size.width) - 2 * margin)
-        let room = max(0, Double(size.height) - 2 * margin)
-        let natural = contentHeight.isFinite && contentHeight > 0 ? contentHeight : Double(row.height)
-        let height = min(max(natural, Double(row.height)), room)
-        let wanted = Double(row.minY) - padding
-        let top = min(max(wanted, margin), max(margin, Double(size.height) - margin - height))
-        return CGRect(x: margin, y: top, width: width, height: height)
+    static func openFrame(row: Box, contentHeight: Double, width containerWidth: Double,
+                          height containerHeight: Double) -> Box {
+        let width = max(0, containerWidth - 2 * margin)
+        let room = max(0, containerHeight - 2 * margin)
+        let natural = contentHeight.isFinite && contentHeight > 0 ? contentHeight : row.height
+        let height = min(max(natural, row.height), room)
+        let wanted = row.y - padding
+        let top = min(max(wanted, margin), max(margin, containerHeight - margin - height))
+        return Box(x: margin, y: top, width: width, height: height)
     }
 
     /// The card's frame part way between the row (0) and open (1). Not clamped: a spring may carry
     /// it a little past open and back, and that should show.
-    static func frame(row: CGRect, open: CGRect, progress: Double) -> CGRect {
+    static func frame(row: Box, open: Box, progress: Double) -> Box {
         let p = progress.isFinite ? progress : 0
-        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * CGFloat(p) }
-        return CGRect(x: mix(row.minX, open.minX), y: mix(row.minY, open.minY),
-                      width: max(0, mix(row.width, open.width)), height: max(0, mix(row.height, open.height)))
+        func mix(_ a: Double, _ b: Double) -> Double { a + (b - a) * p }
+        return Box(x: mix(row.x, open.x), y: mix(row.y, open.y),
+                   width: max(0, mix(row.width, open.width)), height: max(0, mix(row.height, open.height)))
     }
 
     /// Progress clamped to 0…1, for things that mustn't overshoot (opacities, padding).

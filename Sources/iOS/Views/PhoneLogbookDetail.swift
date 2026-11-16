@@ -94,6 +94,12 @@ final class LogbookRowOpener {
     }
 }
 
+extension LogbookRowExpand.Box {
+    init(_ rect: CGRect) {
+        self.init(x: Double(rect.minX), y: Double(rect.minY), width: Double(rect.width), height: Double(rect.height))
+    }
+}
+
 extension View {
     /// Keeps the opener told where this row is, without redrawing anything.
     func logbookRowFrame(_ id: UUID, in opener: LogbookRowOpener) -> some View {
@@ -122,11 +128,13 @@ struct PhoneLogbookDetail: View {
             let size = proxy.size
             let matched = opener.style == .matched
             let rowGlobal = opener.frames[entry.id]
-            let row = rowGlobal.map { $0.offsetBy(dx: -global.minX, dy: -global.minY) }
+            let row = rowGlobal.map { LogbookRowExpand.Box($0.offsetBy(dx: -global.minX, dy: -global.minY)) }
             // Without a row to grow from, the card opens where the row would have been: centred.
-            let anchor = row ?? CGRect(x: LogbookRowExpand.margin, y: size.height / 3,
-                                       width: max(0, size.width - 2 * LogbookRowExpand.margin), height: 44)
-            let open = LogbookRowExpand.openFrame(row: anchor, contentHeight: contentHeight, in: size)
+            let anchor = row ?? LogbookRowExpand.Box(x: LogbookRowExpand.margin, y: Double(size.height) / 3,
+                                                     width: max(0, Double(size.width) - 2 * LogbookRowExpand.margin),
+                                                     height: 44)
+            let open = LogbookRowExpand.openFrame(row: anchor, contentHeight: contentHeight,
+                                                  width: Double(size.width), height: Double(size.height))
             let width = Double(open.width)
             let room = Double(size.height) - 2 * LogbookRowExpand.margin
             ZStack(alignment: .topLeading) {
@@ -283,8 +291,8 @@ private struct ExpandScrim: View, Animatable {
 /// same value; turning the spring round mid-flight carries all of them round together.
 private struct ExpandingCard<Content: View>: View, Animatable {
     var progress: Double
-    let row: CGRect
-    let open: CGRect
+    let row: LogbookRowExpand.Box
+    let open: LogbookRowExpand.Box
     /// Reduce Motion (or no row to grow from): sit at the open frame and fade.
     let fades: Bool
     @ViewBuilder let content: (Double) -> Content
@@ -309,6 +317,6 @@ private struct ExpandingCard<Content: View>: View, Animatable {
             .clipShape(shape)
             .shadow(color: .black.opacity(0.16 * clamped), radius: 22 * clamped, y: 8 * clamped)
             .opacity(fades ? LogbookRowExpand.clamped(progress) : 1)
-            .offset(x: f.minX, y: f.minY)
+            .offset(x: f.x, y: f.y)
     }
 }

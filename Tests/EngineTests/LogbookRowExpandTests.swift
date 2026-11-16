@@ -4,53 +4,53 @@ import XCTest
 /// An iPhone Logbook row opening into its detail (docs/Redesign.md §7.2): the card starts exactly
 /// on the row, opens in place, follows a drag down, and lists what the entry holds as logged.
 final class LogbookRowExpandTests: XCTestCase {
-    private let container = CGSize(width: 390, height: 700)
-    private let row = CGRect(x: 20, y: 300, width: 350, height: 44)
+    private let cw = 390.0, ch = 700.0
+    private let row = LogbookRowExpand.Box(x: 20, y: 300, width: 350, height: 44)
 
     // MARK: Geometry
 
     func testStartsOnTheRowAndEndsOpen() {
-        let open = LogbookRowExpand.openFrame(row: row, contentHeight: 260, in: container)
+        let open = LogbookRowExpand.openFrame(row: row, contentHeight: 260, width: cw, height: ch)
         XCTAssertEqual(LogbookRowExpand.frame(row: row, open: open, progress: 0), row)
         XCTAssertEqual(LogbookRowExpand.frame(row: row, open: open, progress: 1), open)
         let half = LogbookRowExpand.frame(row: row, open: open, progress: 0.5)
         XCTAssertEqual(half.height, (row.height + open.height) / 2, accuracy: 1e-9)
-        XCTAssertEqual(half.minX, (row.minX + open.minX) / 2, accuracy: 1e-9)
+        XCTAssertEqual(half.x, (row.x + open.x) / 2, accuracy: 1e-9)
     }
 
     func testOpensInPlaceAcrossTheWidthAtItsNaturalHeight() {
-        let open = LogbookRowExpand.openFrame(row: row, contentHeight: 260, in: container)
-        XCTAssertEqual(open.minX, LogbookRowExpand.margin, accuracy: 1e-9)
-        XCTAssertEqual(open.width, container.width - 2 * LogbookRowExpand.margin, accuracy: 1e-9)
+        let open = LogbookRowExpand.openFrame(row: row, contentHeight: 260, width: cw, height: ch)
+        XCTAssertEqual(open.x, LogbookRowExpand.margin, accuracy: 1e-9)
+        XCTAssertEqual(open.width, cw - 2 * LogbookRowExpand.margin, accuracy: 1e-9)
         XCTAssertEqual(open.height, 260, accuracy: 1e-9)
         // Just above the row's own top, so the row's line barely moves.
-        XCTAssertEqual(open.minY, row.minY - LogbookRowExpand.padding, accuracy: 1e-9)
+        XCTAssertEqual(open.y, row.y - LogbookRowExpand.padding, accuracy: 1e-9)
     }
 
     func testARowNearTheBottomOpensUpwardsToFit() {
-        let low = CGRect(x: 20, y: 640, width: 350, height: 44)
-        let open = LogbookRowExpand.openFrame(row: low, contentHeight: 300, in: container)
-        XCTAssertEqual(open.maxY, container.height - LogbookRowExpand.margin, accuracy: 1e-9)
-        let high = CGRect(x: 20, y: 2, width: 350, height: 44)
-        XCTAssertEqual(LogbookRowExpand.openFrame(row: high, contentHeight: 300, in: container).minY,
+        let low = LogbookRowExpand.Box(x: 20, y: 640, width: 350, height: 44)
+        let open = LogbookRowExpand.openFrame(row: low, contentHeight: 300, width: cw, height: ch)
+        XCTAssertEqual(open.maxY, ch - LogbookRowExpand.margin, accuracy: 1e-9)
+        let high = LogbookRowExpand.Box(x: 20, y: 2, width: 350, height: 44)
+        XCTAssertEqual(LogbookRowExpand.openFrame(row: high, contentHeight: 300, width: cw, height: ch).y,
                        LogbookRowExpand.margin, accuracy: 1e-9)
     }
 
     func testATallCardIsCappedToTheScreen() {
-        let open = LogbookRowExpand.openFrame(row: row, contentHeight: 5_000, in: container)
-        XCTAssertEqual(open.height, container.height - 2 * LogbookRowExpand.margin, accuracy: 1e-9)
-        XCTAssertEqual(open.minY, LogbookRowExpand.margin, accuracy: 1e-9)
+        let open = LogbookRowExpand.openFrame(row: row, contentHeight: 5_000, width: cw, height: ch)
+        XCTAssertEqual(open.height, ch - 2 * LogbookRowExpand.margin, accuracy: 1e-9)
+        XCTAssertEqual(open.y, LogbookRowExpand.margin, accuracy: 1e-9)
     }
 
     func testBeforeItIsMeasuredTheCardIsAtLeastTheRow() {
         for h in [0, -10, Double.nan] {
-            let open = LogbookRowExpand.openFrame(row: row, contentHeight: h, in: container)
+            let open = LogbookRowExpand.openFrame(row: row, contentHeight: h, width: cw, height: ch)
             XCTAssertEqual(open.height, row.height, accuracy: 1e-9)
         }
     }
 
     func testSpringOvershootIsKeptButFadesAreClamped() {
-        let open = LogbookRowExpand.openFrame(row: row, contentHeight: 260, in: container)
+        let open = LogbookRowExpand.openFrame(row: row, contentHeight: 260, width: cw, height: ch)
         XCTAssertGreaterThan(LogbookRowExpand.frame(row: row, open: open, progress: 1.04).height, open.height)
         XCTAssertEqual(LogbookRowExpand.detailOpacity(progress: 1.04), 1)
         XCTAssertEqual(LogbookRowExpand.scrim(progress: 1.2), LogbookRowExpand.scrimOpacity, accuracy: 1e-9)
