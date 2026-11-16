@@ -14,6 +14,7 @@ struct ForecastScorecardView: View {
     var showsHeader = true
 
     @State private var drawn: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
@@ -29,8 +30,8 @@ struct ForecastScorecardView: View {
                 versionView(sinceUpdate)
             }
             VStack(alignment: .leading, spacing: DS.Space.md) {
-                ForEach(card.rows, id: \.minutes) { row in
-                    rowView(row)
+                ForEach(Array(card.rows.enumerated()), id: \.element.minutes) { order, row in
+                    rowView(row, order: order)
                 }
             }
             legend
@@ -49,31 +50,37 @@ struct ForecastScorecardView: View {
         max(1, card.rows.map { max($0.error, $0.noChange) }.max() ?? 1)
     }
 
-    private func rowView(_ row: ForecastScorecard.Row) -> some View {
+    private func rowView(_ row: ForecastScorecard.Row, order: Int) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             DSAdaptiveRow(minMainWidth: 120, spacing: DS.Space.sm, verticalSpacing: DS.Space.xxs, alignment: .firstTextBaseline) {
                 Text("\(row.minutes) min ahead").dsFont(.callout)
                 HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
-                    RollingFigure(row.error, order: card.rows.firstIndex { $0.minutes == row.minutes } ?? 0) {
+                    RollingFigure(row.error, order: order) {
                         ForecastScorecardText.error($0, unit: unit)
                     }
                     .dsFont(.callout)
                     .fontWeight(.semibold)
-                    Text(ForecastScorecardText.noChange(row, unit: unit))
-                        .dsFont(.caption)
-                        .foregroundStyle(.secondary)
+                    RollingFigure(row.noChange, order: order) {
+                        ForecastScorecardText.noChange($0, unit: unit)
+                    }
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
                 }
                 .monospacedDigit()
             }
             VStack(alignment: .leading, spacing: 3) {
-                bar(row.error, color: Palette.brand)
-                bar(row.noChange, color: Palette.stale.opacity(0.55))
+                bar(row.error, color: Palette.brand, order: order)
+                bar(row.noChange, color: Palette.stale.opacity(0.55), order: order)
             }
             .accessibilityHidden(true)
-            Text("\(ForecastScorecardText.comparison(row)) · \(row.checks) checks")
-                .dsFont(.caption)
-                .foregroundStyle(row.comparison == .better ? AnyShapeStyle(Palette.brandText) : AnyShapeStyle(.secondary))
-                .monospacedDigit()
+            HStack(spacing: 0) {
+                Text("\(ForecastScorecardText.comparison(row)) · ")
+                RollingFigure(Double(row.checks), order: order) { "\(Int($0.rounded())) checks" }
+            }
+            .dsFont(.caption)
+            .foregroundStyle(row.comparison == .better ? AnyShapeStyle(Palette.brandText) : AnyShapeStyle(.secondary))
+            .monospacedDigit()
+            .dsAnimation(.ambient, value: row.comparison)
             if let sinceUpdate, let line = ForecastScorecardText.sinceUpdateRow(sinceUpdate, minutes: row.minutes, unit: unit) {
                 Label(line, systemImage: "arrow.up.circle")
                     .dsFont(.caption)
@@ -111,13 +118,18 @@ struct ForecastScorecardView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func bar(_ mgdl: Double, color: Color) -> some View {
+    /// A row's bar. It grows from the leading edge with the card, a beat after the row above, and
+    /// glides to a new length when the week's figures change (a new check, a new scale). Drawn at
+    /// full length at once under Reduce Motion.
+    private func bar(_ mgdl: Double, color: Color, order: Int) -> some View {
         GeometryReader { geo in
             Capsule()
                 .fill(color)
                 .frame(width: max(4, geo.size.width * min(1, mgdl / scale) * drawn))
         }
         .frame(height: 5)
+        .animation(reduceMotion ? nil : DSMotion.arrival.animation.delay(0.1 + Double(min(order, 8)) * 0.06), value: drawn)
+        .dsAnimation(.arrival, value: mgdl / scale)
     }
 
     private var legend: some View {
@@ -145,6 +157,7 @@ struct ForecastScorecardView: View {
                     Capsule().fill(Palette.stale.opacity(0.2))
                     Capsule().fill(Palette.brand)
                         .frame(width: geo.size.width * card.insideRange * drawn)
+                        .dsAnimation(.arrival, value: card.insideRange)
                     // What the range aims for.
                     Rectangle()
                         .fill(Color.primary.opacity(0.6))

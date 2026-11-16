@@ -117,7 +117,12 @@ enum ForecastScorecardText {
 
     /// "No change ±0.7"
     static func noChange(_ row: ForecastScorecard.Row, unit: GlucoseUnit) -> String {
-        "No change ±\(unit.format(mgdl: row.noChange))"
+        noChange(row.noChange, unit: unit)
+    }
+
+    /// The same for a figure on its way to the row's, while it rolls.
+    static func noChange(_ mgdl: Double, unit: GlucoseUnit) -> String {
+        "No change ±\(unit.format(mgdl: mgdl))"
     }
 
     /// "15 minutes ahead: typically ±0.6 mmol/L off. Assuming no change: ±0.7. Closer than no change. 96 checks."
