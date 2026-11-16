@@ -46,6 +46,56 @@ final class WidgetGlanceTests: XCTestCase {
         XCTAssertEqual(WidgetSpeech.age(2 * 3600 + 5 * 60), "2 hours 5 minutes ago")
     }
 
+    // MARK: Lock Screen accessories
+
+    func testAccessoryStateUsesTheWidgetEdges() {
+        XCTAssertEqual(AccessoryGlance.state(snapshot(minutesOld: 2), at: referenceNow), .fresh)
+        XCTAssertEqual(AccessoryGlance.state(snapshot(minutesOld: 6), at: referenceNow), .fresh)
+        XCTAssertEqual(AccessoryGlance.state(snapshot(minutesOld: 7), at: referenceNow), .stale)
+        XCTAssertEqual(AccessoryGlance.state(snapshot(minutesOld: 30), at: referenceNow), .stale)
+        XCTAssertEqual(AccessoryGlance.state(snapshot(minutesOld: 31), at: referenceNow), .expired)
+        XCTAssertEqual(AccessoryGlance.state(.empty, at: referenceNow), .none)
+    }
+
+    func testAccessoryAgeIsShort() {
+        XCTAssertEqual(AccessoryGlance.age(20), "now")
+        XCTAssertEqual(AccessoryGlance.age(4 * 60), "4m")
+        XCTAssertEqual(AccessoryGlance.age(65 * 60), "1h 5m")
+        XCTAssertEqual(AccessoryGlance.age(65 * 60, compact: true), "1h")
+        XCTAssertEqual(AccessoryGlance.age(3 * 3600), "3h")
+        XCTAssertEqual(AccessoryGlance.age(50 * 3600), "2d")
+    }
+
+    func testInlineShowsTrendAndAgeOnlyWhileFresh() {
+        XCTAssertEqual(AccessoryGlance.inline(snapshot(minutesOld: 2), at: referenceNow), "6.1 ↗ · 2m")
+        XCTAssertEqual(AccessoryGlance.inline(snapshot(minutesOld: 2, trend: .unknown), at: referenceNow), "6.1 · 2m")
+        let stale = AccessoryGlance.inline(snapshot(minutesOld: 12), at: referenceNow)
+        XCTAssertEqual(stale, "Stale 6.1 · 12m")
+        XCTAssertFalse(stale.contains("↗"))
+    }
+
+    func testInlineWithdrawsTheNumberOnceExpired() {
+        var s = snapshot(minutesOld: 45)
+        XCTAssertEqual(AccessoryGlance.inline(s, at: referenceNow), "No reading for 45m")
+        s.lastError = "offline"
+        XCTAssertEqual(AccessoryGlance.inline(s, at: referenceNow), "Can't connect · 45m")
+        XCTAssertEqual(AccessoryGlance.inline(.empty, at: referenceNow), "No reading yet")
+    }
+
+    func testCircularCaptionIsTheAgeOnceNotFresh() {
+        XCTAssertNil(AccessoryGlance.circularCaption(snapshot(minutesOld: 2), at: referenceNow))
+        XCTAssertEqual(AccessoryGlance.circularCaption(snapshot(minutesOld: 12), at: referenceNow), "12m")
+        XCTAssertEqual(AccessoryGlance.circularCaption(snapshot(minutesOld: 95), at: referenceNow), "1h")
+        XCTAssertNil(AccessoryGlance.circularCaption(.empty, at: referenceNow))
+    }
+
+    func testRectangularWithdrawnLine() {
+        XCTAssertNil(AccessoryGlance.withdrawnLine(snapshot(minutesOld: 2), at: referenceNow))
+        XCTAssertNil(AccessoryGlance.withdrawnLine(snapshot(minutesOld: 12), at: referenceNow))
+        XCTAssertEqual(AccessoryGlance.withdrawnLine(snapshot(minutesOld: 45), at: referenceNow), "No reading for 45m")
+        XCTAssertEqual(AccessoryGlance.withdrawnLine(.empty, at: referenceNow), "Waiting for GlucOS")
+    }
+
     // MARK: Reloads
 
     private func groups(_ old: GlucoseSnapshot, _ new: GlucoseSnapshot) -> Set<WidgetReload.Group> {

@@ -105,6 +105,9 @@ struct UsualGlance: Codable, Hashable, Identifiable {
 enum WidgetSpeech {
     enum State: Hashable { case fresh, stale, expired, none }
 
+    /// After this long the widgets withdraw the number (`ReadingFreshness.expired`).
+    static let expiredAfter: TimeInterval = 30 * 60
+
     static func reading(_ s: GlucoseSnapshot, state: State, at now: Date) -> String {
         let unit = s.unit
         guard let cur = s.current else {
@@ -147,6 +150,68 @@ enum WidgetSpeech {
         if m < 60 { return plural(m, "minute") + " ago" }
         let h = m / 60, rest = m % 60
         return (rest == 0 ? plural(h, "hour") : plural(h, "hour") + " " + plural(rest, "minute")) + " ago"
+    }
+}
+
+// MARK: - Lock Screen accessories
+
+/// The words the Lock Screen accessories draw, worked out here so they can be tested. The
+/// accessories are monochrome and tiny, so every freshness state says itself in text or a symbol,
+/// never only by tint: a stale figure is struck through and names its age, and a withdrawn one
+/// (`expired`) shows no number at all, only how long there's been none.
+enum AccessoryGlance {
+    /// The freshness state at `now`, with the same edges as the Home Screen widget
+    /// (`ReadingFreshness`): stale after `GlucoseSnapshot.staleAfter`, withdrawn after
+    /// `expiredAfter`.
+    static func state(_ s: GlucoseSnapshot, at now: Date) -> WidgetSpeech.State {
+        guard let cur = s.current else { return .none }
+        let age = cur.age(at: now)
+        if age > WidgetSpeech.expiredAfter { return .expired }
+        return age > GlucoseSnapshot.staleAfter ? .stale : .fresh
+    }
+
+    /// "now", "4m", "1h 5m", "3h", "2d". `compact` drops the minutes after the first hour, for the
+    /// circular accessory, which has room for about four characters.
+    static func age(_ interval: TimeInterval, compact: Bool = false) -> String {
+        let m = max(0, Int(interval / 60))
+        if m == 0 { return "now" }
+        if m < 60 { return "\(m)m" }
+        let h = m / 60
+        if h >= 24 { return "\(h / 24)d" }
+        return compact || m % 60 == 0 ? "\(h)h" : "\(h)h \(m % 60)m"
+    }
+
+    /// The inline accessory (one line above the clock): "6.1 ↗ · 2m", "Stale 6.1 · 12m",
+    /// "No reading for 45m". The trend is only drawn while the reading is fresh.
+    static func inline(_ s: GlucoseSnapshot, at now: Date) -> String {
+        guard let cur = s.current else { return s.lastError == nil ? "No reading yet" : "Can't connect" }
+        let value = s.unit.format(mgdl: cur.mgdl)
+        let age = age(cur.age(at: now))
+        switch state(s, at: now) {
+        case .fresh:
+            return cur.trend == .unknown ? "\(value) · \(age)" : "\(value) \(cur.trend.arrow) · \(age)"
+        case .stale:
+            return "Stale \(value) · \(age)"
+        case .expired, .none:
+            return s.lastError == nil ? "No reading for \(age)" : "Can't connect · \(age)"
+        }
+    }
+
+    /// What sits under the figure on the circular accessory instead of the trend arrow, once the
+    /// reading isn't fresh: its age, "12m". Nil while fresh (the arrow shows, and the ring around
+    /// it empties over the reading's life) and when there has never been a reading.
+    static func circularCaption(_ s: GlucoseSnapshot, at now: Date) -> String? {
+        guard let cur = s.current, state(s, at: now) != .fresh else { return nil }
+        return age(cur.age(at: now), compact: true)
+    }
+
+    /// The rectangular accessory's bottom line once the number is withdrawn or was never there.
+    /// Nil while there's a reading to show (fresh or stale), which draws a ticking age instead.
+    static func withdrawnLine(_ s: GlucoseSnapshot, at now: Date) -> String? {
+        guard let cur = s.current else { return s.lastError == nil ? "Waiting for GlucOS" : "Open GlucOS to reconnect" }
+        guard state(s, at: now) == .expired else { return nil }
+        let age = age(cur.age(at: now))
+        return s.lastError == nil ? "No reading for \(age)" : "Can't connect · \(age)"
     }
 }
 

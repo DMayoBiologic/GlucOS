@@ -17,7 +17,7 @@ enum ReadingFreshness {
     /// No reading at all.
     case none
 
-    static let expiredAfter: TimeInterval = 30 * 60
+    static let expiredAfter: TimeInterval = WidgetSpeech.expiredAfter
 
     init(_ snapshot: GlucoseSnapshot, at date: Date) {
         guard let current = snapshot.current else { self = .none; return }
