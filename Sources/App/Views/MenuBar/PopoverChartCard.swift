@@ -20,15 +20,21 @@ struct PopoverChartCard: View {
 
     private var s: GlucoseSnapshot { store.snapshot }
 
+    /// What the chart is handed whatever span is picked: the longest (24 hours) and its lead, from
+    /// the archive as well as the live snapshot (LibreLinkUp only sends 12 hours), so switching
+    /// span glides rather than waiting on data.
+    private var plotted: [GlucoseReading] { store.readings(lastHours: ChartHours.longestPlotted) }
+
     /// The readings the chart is showing, oldest → newest.
-    private var window: [GlucoseReading] {
-        guard let last = s.history.last else { return [] }
+    private func window(in plotted: [GlucoseReading]) -> [GlucoseReading] {
+        guard let last = plotted.last else { return [] }
         let cutoff = last.timestamp.addingTimeInterval(-Double(settings.chartHours) * 3600)
-        return s.history.filter { $0.timestamp >= cutoff }
+        return Array(plotted[ChartSpan.firstIndex(in: plotted, atOrAfter: cutoff)...])
     }
 
     var body: some View {
-        let window = self.window
+        let plotted = self.plotted
+        let window = self.window(in: plotted)
         VStack(alignment: .leading, spacing: 10) {
             // While a reading is pinned, it takes the header's place rather than pushing the
             // chart down, so the popover doesn't change height under the pointer.
@@ -48,7 +54,7 @@ struct PopoverChartCard: View {
             // bends into each new one.
             ForecastMotion(forecast: settings.showForecast ? (outlook?.forecast ?? []) : [],
                            drawInDelay: forecastDelay) { forecast, reveal in
-                GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
+                GlucoseChart(readings: plotted, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                              hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
                              forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true)
             }
@@ -76,6 +82,8 @@ struct PopoverChartCard: View {
                 .onChange(of: chartFocused) { _, focused in if !focused { pinned = nil } }
                 // The chart glides to the new span itself.
                 .onChange(of: settings.chartHours) { _, _ in pinned = nil }
+                // Pinch on the trackpad steps through the spans, as on iPhone.
+                .chartHoursPinch($settings.chartHours)
                 .help("Hover to see readings, or click and use ← →")
                 .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
                 .accessibilityValue(chartSummary(window))
@@ -99,11 +107,11 @@ struct PopoverChartCard: View {
         .dsCard(.standard)
     }
 
-    /// Doses, meals and wake-ups over the longest range (12 hours), whatever's on screen, so
+    /// Doses, meals and wake-ups over the longest range (24 hours), whatever's on screen, so
     /// switching range doesn't count as markers arriving. Something just logged pops in.
     private var markers: [ChartLogMarker] {
         ChartLogMarker.logbook(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts,
-                               since: Date().addingTimeInterval(-12 * 3600))
+                               since: Date().addingTimeInterval(-ChartHours.longestPlotted * 3600))
     }
 
     /// The dashboard, on the Logbook with this entry selected (`DashboardRequest`).
@@ -123,13 +131,13 @@ struct PopoverChartCard: View {
         HStack(spacing: 8) {
             Eyebrow(title: "Last \(settings.chartHours) hours", systemImage: "waveform.path.ecg")
                 .accessibilityAddTraits(.isHeader)
-            SlidingSegments(selection: $settings.chartHours, options: [3, 6, 12]) { "\($0)h" }
+            SlidingSegments(selection: $settings.chartHours, options: ChartHours.choices) { "\($0)h" }
                 .fixedSize()
                 .accessibilityLabel("Chart range")
-            .help("Chart range (⌘1, ⌘2, ⌘3)")
+            .help("Chart range (⌘1 to ⌘4, or ⌘+ and ⌘− for fewer or more hours; pinch the chart on a trackpad)")
             .overlay(alignment: .bottom) {
                 if showsShortcuts {
-                    ShortcutBadge(text: "⌘1 ⌘2 ⌘3").offset(y: 16)
+                    ShortcutBadge(text: "⌘1–⌘4").offset(y: 16)
                 }
             }
         }

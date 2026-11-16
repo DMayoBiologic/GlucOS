@@ -154,3 +154,48 @@ struct PeriodSpan {
         return lo
     }
 }
+
+/// The spans the Today chart (iPhone) and the popover chart (Mac) switch between, and how a pinch
+/// or a keyboard step moves from one to the next. The choice itself is stored in `AppSettings`
+/// (`chartHours`), so it's remembered across launches. Named apart from the widget's own
+/// `ChartWindow` intent type.
+enum ChartHours {
+    static let choices = [3, 6, 12, 24]
+    /// What a fresh install, or a stored value that's no longer offered, shows.
+    static let standard = 12
+    /// How much each chart is handed, whatever span is picked: the longest span plus a quarter
+    /// of an hour (more than `ChartSpan.lead`), so switching glides rather than waiting on data.
+    static let longestPlotted: Double = Double(choices.max() ?? 24) + 0.25
+
+    /// How far fingers have to spread (or pinch together) for each step. Spreading by 1.4× shows
+    /// the next shorter span; spreading by 1.4² two steps.
+    static let pinchStep = 1.4
+
+    static func sanitized(_ stored: Int?) -> Int {
+        guard let stored, choices.contains(stored) else { return standard }
+        return stored
+    }
+
+    /// The next shorter span (zooming in), staying at the shortest.
+    static func shorter(than hours: Int) -> Int { stepped(hours, by: -1) }
+
+    /// The next longer span (zooming out), staying at the longest.
+    static func longer(than hours: Int) -> Int { stepped(hours, by: 1) }
+
+    /// The span a pinch that started on `start` has reached at `scale` (the gesture's
+    /// magnification, 1 at rest). Spreading the fingers zooms in to fewer hours, pinching them
+    /// together shows more. Steps are whole, so the chart moves in the same jumps as the control.
+    static func pinched(from start: Int, scale: Double) -> Int {
+        guard scale.isFinite, scale > 0 else { return sanitized(start) }
+        let steps = log(scale) / log(pinchStep)
+        // A little short of a whole step still counts, so the step lands while the fingers are
+        // still moving rather than only at the very end.
+        let whole = Int((abs(steps) + 0.1).rounded(.down))
+        return stepped(start, by: steps > 0 ? -whole : whole)
+    }
+
+    private static func stepped(_ hours: Int, by delta: Int) -> Int {
+        let i = choices.firstIndex(of: hours) ?? choices.firstIndex(of: standard) ?? 0
+        return choices[min(choices.count - 1, max(0, i + delta))]
+    }
+}

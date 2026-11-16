@@ -64,6 +64,7 @@ private struct GeneralSettingsTab: View {
                     Text("Last 3 hours").tag(3)
                     Text("Last 6 hours").tag(6)
                     Text("Last 12 hours").tag(12)
+                    Text("Last 24 hours").tag(24)
                 }
                 Toggle("Show the forecast on the popover chart", isOn: $settings.showForecast)
             } header: {

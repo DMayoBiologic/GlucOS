@@ -504,9 +504,9 @@ struct PhoneChartCard: View {
     @EnvironmentObject var logbook: LogbookStore
     @Environment(\.phoneNavigator) private var navigator
 
-    private static let choices = [3, 6, 12, 24]
+    private static let choices = ChartHours.choices
     /// What the chart is handed whatever span is picked, plus its lead past the left edge.
-    private static let longest = Double(choices.max() ?? 24) + 0.25
+    private static let longest = ChartHours.longestPlotted
     /// When the forecast starts drawing in: this card's `dsEntrance(2)` waits 0.11 s and is most of
     /// the way in about 0.3 s later.
     private static let forecastDelay: TimeInterval = 0.4
@@ -524,7 +524,9 @@ struct PhoneChartCard: View {
                     .accessibilityLabel("Chart hours")
             }
             // The chart gets the longest span's readings and markers and shows `hours` of them,
-            // so switching 3h / 6h / 12h / 24h glides the axis (the chart animates it itself).
+            // so switching 3h / 6h / 12h / 24h springs the axes (the chart animates it itself;
+            // under Reduce Motion it cross-fades). Pinching the chart steps through the same spans,
+            // and the choice is remembered (`AppSettings.chartHours`).
             // The forecast draws in from "Now" once the card has come in, and bends into each new
             // one rather than jumping (as in the Mac popover). Under Reduce Motion it just changes.
             ForecastMotion(forecast: outlook?.forecast ?? [], drawInDelay: Self.forecastDelay) { forecast, reveal in
@@ -534,6 +536,13 @@ struct PhoneChartCard: View {
                              timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true)
             }
                 .frame(height: 260)
+                .chartHoursPinch($settings.chartHours)
+                .accessibilityAction(named: "Show fewer hours") {
+                    settings.chartHours = ChartHours.shorter(than: settings.chartHours)
+                }
+                .accessibilityAction(named: "Show more hours") {
+                    settings.chartHours = ChartHours.longer(than: settings.chartHours)
+                }
             legend(outlook)
             lastLogged
             ForecastCaveatLine(caveat: caveat(s, outlook: outlook))

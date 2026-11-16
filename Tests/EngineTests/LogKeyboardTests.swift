@@ -156,7 +156,8 @@ final class LogKeyboardTests: XCTestCase {
         let popover = ShortcutCatalog.popover(globalKey: nil).flatMap(\.rows).map(\.keys)
         XCTAssertTrue(popover.contains("⌥⌘1 – ⌥⌘3"))
         // ⌥⌘ digits never take ⌘1–⌘3, which stay the chart range there.
-        XCTAssertTrue(popover.contains("⌘1  ⌘2  ⌘3"))
+        XCTAssertTrue(popover.contains("⌘1  ⌘2  ⌘3  ⌘4"))
+        XCTAssertTrue(popover.contains("⌘+  ⌘−"))
         let keys = ShortcutCatalog.logSheet(momentCount: 6, usualCount: 3, globalKey: .suggested).flatMap(\.rows).map(\.keys)
         XCTAssertEqual(keys.count, Set(keys).count)
     }

@@ -98,8 +98,7 @@ final class AppSettings: ObservableObject {
         showDeltaInMenuBar = d.object(forKey: "showDelta") as? Bool ?? false
         colorMenuBarIcon = d.object(forKey: "colorMenuBarIcon") as? Bool ?? true
         showMenuBarSparkline = d.object(forKey: "menuBarSparkline") as? Bool ?? false
-        let hours = d.object(forKey: "chartHours") as? Int ?? 12
-        chartHours = [3, 6, 12, 24].contains(hours) ? hours : 12
+        chartHours = ChartHours.sanitized(d.object(forKey: "chartHours") as? Int)
         therapy = TherapyType(rawValue: d.string(forKey: "therapy") ?? "") ?? .notSet
         bolusInsulinKind = InsulinKind(rawValue: d.string(forKey: "bolusInsulinKind") ?? "") ?? .rapid
         bolusInsulinName = d.string(forKey: "bolusInsulinName") ?? ""

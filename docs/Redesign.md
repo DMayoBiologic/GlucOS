@@ -117,10 +117,14 @@ both axes itself (`ChartSpan`) and animates the axes, not the data. A new readin
 time axis along by one reading in one `.standard` movement, and the oldest reading slides off the
 left edge (a 10-minute lead stays plotted past it, masked) instead of vanishing inside the chart.
 Changing 3h / 6h / 12h / 24h is three steps (`ChartSpanTransition`): plot what both spans need
-(the extra readings are off the left edge, unseen), move the time and glucose axes together in one
-`.standard` movement, then drop what's off screen once it has finished. So the marks already on
-screen stretch or squeeze to the new scale instead of fading out and in. Under Reduce Motion the
-span switches at once. Nothing repeats: one movement per reading or per tap (§4.6).
+(the extra readings are off the left edge, unseen), spring the time and glucose axes together in
+one `.emphasized` movement (`GlucoseChart.spanSpring`), then drop what's off screen once it has
+settled. So the marks already on screen stretch or squeeze to the new scale instead of fading out
+and in. Under Reduce Motion nothing moves: the old span cross-fades into the new one in 0.25 s.
+iPhone Today and the Mac popover both offer 3h / 6h / 12h / 24h, by the control, by pinching the
+chart (a 1.4× spread or pinch per step, `ChartHours.pinched`), and on the Mac by ⌘1–⌘4 or
+⌘+ / ⌘−. The choice is stored (`AppSettings.chartHours`), so the chart opens on it next time.
+Nothing repeats: one movement per reading, tap or pinch step (§4.6).
 
 The Mac dashboard's Overview chart (`TrendChart`) does the same from 3 hours to 30 days, with the
 axis ending at the period's end (`PeriodSpan`) rather than at the newest reading. While the range

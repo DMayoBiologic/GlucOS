@@ -10,7 +10,7 @@ import AppKit
 ///    "Details" (`PopoverSummaryCard`).
 /// 5. **Actions** (`PopoverToolbar`) and a one-line footer.
 ///
-/// Keyboard: ⌘L log, ⌘R refresh, ⌘D dashboard, ⌘, settings, ⌘C copy reading, ⌘1–3 chart range,
+/// Keyboard: ⌘L log, ⌘R refresh, ⌘D dashboard, ⌘, settings, ⌘C copy reading, ⌘1–4 or ⌘+ / ⌘− chart range,
 /// ⌘I show or hide details, ⌥⌘1–3 one of "Your usual" (`PopoverUsualRow`), ⌘Q quit, ← → step through chart readings, Escape closes. Hold ⌘ to
 /// see the shortcuts on the buttons; ⌘? lists them all (`ShortcutCatalog.popover`).
 struct MenuBarView: View {
@@ -238,6 +238,11 @@ struct MenuBarView: View {
             HiddenShortcut(key: "1") { settings.chartHours = 3 }
             HiddenShortcut(key: "2") { settings.chartHours = 6 }
             HiddenShortcut(key: "3") { settings.chartHours = 12 }
+            HiddenShortcut(key: "4") { settings.chartHours = 24 }
+            // ⌘+ (and ⌘= without Shift) zooms in to fewer hours, ⌘− out to more.
+            HiddenShortcut(key: "=") { settings.chartHours = ChartHours.shorter(than: settings.chartHours) }
+            HiddenShortcut(key: "+") { settings.chartHours = ChartHours.shorter(than: settings.chartHours) }
+            HiddenShortcut(key: "-") { settings.chartHours = ChartHours.longer(than: settings.chartHours) }
             HiddenShortcut(key: "c", action: copyReading)
             HiddenShortcut(key: "i", action: toggleDetails)
             HiddenShortcut(key: "q") { NSApplication.shared.terminate(nil) }

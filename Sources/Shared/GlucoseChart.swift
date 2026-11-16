@@ -50,6 +50,9 @@ struct GlucoseChart: View {
     /// The span on screen while `hours` changes (app screens only; `nil` follows `hours`, which is
     /// all a widget ever does since it never runs `onAppear`). See `ChartSpanTransition`.
     @State private var range: ChartSpanTransition?
+    /// Bumped when the span switches under Reduce Motion, so the chart cross-fades from the old
+    /// span to the new one instead of moving its axes.
+    @State private var spanFade = 0
     /// The markers as the chart last saw them, so it can tell which are new or gone. `nil` until the
     /// chart appears: what's there when it opens is already there, and never pops.
     @State private var seenMarkers: [ChartLogMarker]?
@@ -99,13 +102,21 @@ struct GlucoseChart: View {
         return unit.value(fromMgdl: mg.lowerBound)...unit.value(fromMgdl: mg.upperBound)
     }
 
-    /// A new span: plot what both ends of the move need, move the axis, then drop what's off
-    /// screen. Under Reduce Motion it just switches.
+    /// A new span: plot what both ends of the move need, spring the axes to it, then drop what's
+    /// off screen. Under Reduce Motion nothing moves: the old span cross-fades into the new one.
     private func changeRange(from old: Double, to new: Double) {
         var r = range ?? ChartSpanTransition(hours: old)
-        guard interactive, !reduceMotion else {
+        guard interactive else {
             r.jump(to: new)
             withTransaction(Transaction(animation: nil)) { range = r }
+            return
+        }
+        guard !reduceMotion else {
+            r.jump(to: new)
+            withAnimation(Self.spanFadeAnimation) {
+                range = r
+                spanFade += 1
+            }
             return
         }
         r.prepare(for: new)
@@ -114,13 +125,20 @@ struct GlucoseChart: View {
         // On the next turn, so the extra readings are already in place (unseen, past the left
         // edge) when the axis starts moving, and slide in rather than fading in.
         DispatchQueue.main.async {
-            withAnimation(DSMotion.standard.animation, completionCriteria: .logicallyComplete) {
+            withAnimation(Self.spanSpring, completionCriteria: .logicallyComplete) {
                 range?.move(to: new)
             } completion: {
                 withTransaction(Transaction(animation: nil)) { range?.settle(generation: generation) }
             }
         }
     }
+
+    /// Switching 3h / 6h / 12h / 24h: a spring, so the trace stretches or squeezes to the new
+    /// scale and settles, rather than easing to a stop. `.logicallyComplete` lets the trim at the
+    /// end run before the last imperceptible settle.
+    static let spanSpring = DSMotion.emphasized.animation
+    /// The same switch under Reduce Motion: a short cross-fade with no movement.
+    static let spanFadeAnimation = Animation.easeInOut(duration: 0.25)
 
     /// What Charts' selection reads and writes. Lifting the finger glides the readout back to the
     /// newest reading and fades it there, rather than dropping it wherever the finger was.
@@ -460,6 +478,10 @@ struct GlucoseChart: View {
             }
             markerOverlays(proxy: proxy, yd: yd)
         }
+        // Under Reduce Motion a new span replaces the chart, cross-fading (`changeRange`). Only
+        // ever bumped there, so otherwise the chart keeps its identity and its axes move.
+        .id(spanFade)
+        .transition(.opacity)
         .onAppear { appeared(visibleFrom: window.first?.timestamp ?? .distantFuture) }
         .onDisappear { disappeared() }
         .onChange(of: events.map(\.id)) { _, _ in
