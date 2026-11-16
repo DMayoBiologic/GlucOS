@@ -65,6 +65,7 @@ Contrast is checked against the backgrounds the colours actually sit on: white, 
 | `StatusBanner` | Notices; buttons reflow under the text when narrow, and the message is never truncated |
 | `DSAdaptiveRow` | Main content with an accessory beside it, or below it when narrow |
 | `DSDivider` | Hairline separators |
+| `.targetRangeGlide(lowMgdl:highMgdl:enabled:)` | On every chart that draws the target band (iPhone Today, Insights' usual day, Mac popover, Dashboard trend, pattern and overlay charts, Outlook): a new target range, from Settings or by sync, glides the band, its lines and the glucose axis on `.emphasized`, once; instant under Reduce Motion; off on widgets. Time-in-range figures roll with `RollingFigure` and the Logbook day bars glide on their own |
 
 ## Accessibility
 

@@ -414,6 +414,8 @@ struct GlucoseChart: View {
         // A new reading slides the trace (and the time axis) along by one reading instead of
         // jumping it. One short movement per reading; nothing here repeats.
         .dsAnimation(.standard, value: interactive ? readings.last?.timestamp : nil)
+        // A new target range glides the band, its lines and the glucose axis into place.
+        .targetRangeGlide(lowMgdl: lowMgdl, highMgdl: highMgdl, enabled: interactive)
         // One VoiceOver element rather than hundreds of marks: a spoken summary, and the trace (with
         // the forecast as a second series) as an audio graph under "Chart Details" in the rotor.
         .accessibilityElement(children: .ignore)
