@@ -140,7 +140,7 @@ struct PhoneLogbookView: View {
             if opener.isOpen, LogbookRowExpand.stillOpen(opener.openID, among: now) == nil { opener.dismiss() }
         }
         .onChange(of: kinds) { _, now in
-            if let k = kind, !now.contains(k) { kind = nil }
+            if let k = kind, k.isListed, !now.contains(k) { kind = nil }
         }
         .task {
             try? await Task.sleep(for: .seconds(1))

@@ -73,3 +73,11 @@ horizon and likely range are unchanged.
 Wake-ups don't change the learnt insulin and carb effects or the logbook insights
 (`ContextTag.affectsResponses` is false). The morning pattern is a forecast input only: it is never
 shown as a setting and never used by the bolus calculator or any dose maths.
+
+## The night before
+
+The Insights **Overnight** card (`Sources/Engine/OvernightSummary.swift`) covers midnight to 6 am:
+time in range, lows that started overnight, and the average change from the first half hour to
+the last. It stops at 6 am, about where a wake-up and the post-wake rise above take over, and uses
+fixed hours rather than logged bedtimes and wake-ups. Like Mornings, it is observational only and
+never feeds the bolus calculator or any dose maths.

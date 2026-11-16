@@ -6,7 +6,7 @@ import Foundation
 
 /// The Logbook's quick filter chips. One at a time, on top of whatever the search says.
 enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
-    case meals, insulin, lows, highs, notes, sites, moments, alerts
+    case meals, insulin, lows, highs, overnight, notes, sites, moments, alerts
 
     var id: String { rawValue }
 
@@ -16,6 +16,7 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .insulin: return "Insulin"
         case .lows: return "Lows"
         case .highs: return "Highs"
+        case .overnight: return "Overnight"
         case .notes: return "Notes"
         case .sites: return "Sites"
         case .moments: return "Moments"
@@ -31,6 +32,8 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .lows: return lowIDs.contains(entry.id)
         // Insulin marked as a correction: what was logged about a high.
         case .highs: if case .dose(let d) = entry { return d.purpose == .correction } else { return false }
+        // Anything logged between midnight and 6 am (the Insights Overnight card's nights).
+        case .overnight: return OvernightSummary.isOvernight(entry.timestamp)
         case .notes: return !entry.searchNote.isEmpty
         case .sites: if case .siteChange = entry { return true } else { return false }
         case .moments: if case .context = entry { return true } else { return false }
@@ -39,21 +42,26 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
     }
 
     /// Whether an alert row belongs under this chip: every alert under Alerts, low ones under Lows,
-    /// high ones under Highs.
+    /// high ones under Highs, those between midnight and 6 am under Overnight.
     func matches(_ alert: AlertLogRow) -> Bool {
         switch self {
         case .alerts: return true
         case .lows: return alert.isLow
         case .highs: return alert.isHigh
+        case .overnight: return OvernightSummary.isOvernight(alert.timestamp)
         default: return false
         }
     }
+
+    /// Whether the chip bar lists this chip by itself. Overnight shows only when the Insights
+    /// Overnight card opens the Logbook on it: it's a time of day, not a kind of entry.
+    var isListed: Bool { self != .overnight }
 
     /// The chips worth showing, in order: only those that would show something.
     static func available(entries: [LogEntry], alerts: [AlertLogRow]) -> [LogbookFilter] {
         let lowIDs = LogbookSearch.lowTreatmentIDs(entries)
         return allCases.filter { f in
-            entries.contains { f.matches($0, lowIDs: lowIDs) } || alerts.contains { f.matches($0) }
+            f.isListed && (entries.contains { f.matches($0, lowIDs: lowIDs) } || alerts.contains { f.matches($0) })
         }
     }
 }

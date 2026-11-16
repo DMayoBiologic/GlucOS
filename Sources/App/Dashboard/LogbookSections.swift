@@ -10,13 +10,13 @@ struct LogbookSection: View {
     let data: DashboardData
     /// Set by ⌘F anywhere in the dashboard: put the cursor in the search field, then cleared.
     @Binding var focusSearch: Bool
-    /// Set by the Insights Lows or Highs card: open on its chip and period, then cleared.
+    /// Set by the Insights Lows, Highs or Overnight card: open on its chip and period, then cleared.
     @Binding var link: LogbookLink?
     /// Set by the popover's "last logged" line: select that entry and light it, then cleared.
     @Binding var reveal: UUID?
     /// While the Logbook was opened from an Insights card: back to that card.
     let backToInsights: (() -> Void)?
-    /// The card it was opened from ("Lows", "Highs"), for the back button's tooltip.
+    /// The card it was opened from ("Lows", "Highs", "Overnight"), for the back button's tooltip.
     let backCardTitle: String
     let open: (LogSheetTarget) -> Void
 
@@ -78,7 +78,7 @@ struct LogbookSection: View {
                     .padding(padding)
                 DSDivider()
             }
-            // Opened from an Insights card (Lows or Highs): the way back to it.
+            // Opened from an Insights card (Lows, Highs or Overnight): the way back to it.
             if let backToInsights {
                 Button(action: backToInsights) {
                     Label("Insights", systemImage: "chevron.left")
@@ -138,7 +138,7 @@ struct LogbookSection: View {
             selection.formIntersection(visible)
         }
         .onChange(of: kinds) { _, now in
-            if let f = filter, !now.contains(f) { filter = nil }
+            if let f = filter, f.isListed, !now.contains(f) { filter = nil }
         }
         .onChange(of: search) { _, now in
             // "Search All Dates" lasts as long as the search it was pressed for.
@@ -609,10 +609,10 @@ struct InsightsSection: View {
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
-    /// Set when coming back from the Logbook a card opened (Lows or Highs, by its chip): scroll to
+    /// Set when coming back from the Logbook a card opened (Lows, Highs or Overnight, by its chip): scroll to
     /// that card, then cleared.
     @Binding var returnTo: LogbookFilter?
-    /// The Lows or Highs card was tapped: open the Logbook on its chip and days.
+    /// The Lows, Highs or Overnight card was tapped: open the Logbook on its chip and days.
     let openLogbook: (LogbookLink) -> Void
     let onLog: () -> Void
 
@@ -676,6 +676,11 @@ struct InsightsSection: View {
                         .dashboardCard()
                         .id(Self.cardID(.highs))
                         .dsEntrance(7)
+                    OvernightCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                                      openLogbook: openLogbook)
+                        .dashboardCard()
+                        .id(Self.cardID(.overnight))
+                        .dsEntrance(8)
                 }
                 .onAppear {
                     guard let card = returnTo else { return }
@@ -686,8 +691,8 @@ struct InsightsSection: View {
             }
             DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
-                .dsEntrance(8)
-            ForecastScorecardCard(outlook: outlookStore).dsEntrance(9)
+                .dsEntrance(9)
+            ForecastScorecardCard(outlook: outlookStore).dsEntrance(10)
             Disclaimer()
         }
         // As on iPhone Insights: each card's figures count up as it assembles, with its bars
@@ -696,7 +701,7 @@ struct InsightsSection: View {
         .environment(\.figuresCountUp, true)
     }
 
-    /// "insights.lows", "insights.highs": where Back from the Logbook scrolls to.
+    /// "insights.lows", "insights.highs", "insights.overnight": where Back from the Logbook scrolls to.
     private static func cardID(_ card: LogbookFilter) -> String { "insights.\(card.rawValue)" }
 
     private var startLogging: some View {
