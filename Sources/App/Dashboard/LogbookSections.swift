@@ -16,7 +16,7 @@ struct LogbookSection: View {
     @Binding var reveal: UUID?
     /// While the Logbook was opened from an Insights card: back to that card.
     let backToInsights: (() -> Void)?
-    /// The card it was opened from ("Lows", "Highs", "Overnight", "Weekdays and weekends"), for the back button's tooltip.
+    /// The card it was opened from ("Lows", "Highs", "Overnight", "Weekdays and weekends", "Week in review"), for the back button's tooltip.
     let backCardTitle: String
     let open: (LogSheetTarget) -> Void
 
@@ -653,7 +653,7 @@ struct InsightsSection: View {
     /// Set when coming back from the Logbook a card opened (Lows, Highs, Overnight or a weekday side, by its chip): scroll to
     /// that card, then cleared.
     @Binding var returnTo: LogbookFilter?
-    /// The Lows, Highs, Overnight or Weekdays and weekends card was tapped: open the Logbook on its chip and days.
+    /// The Lows, Highs, Overnight, Weekdays and weekends or Week in review card was tapped: open the Logbook on its chip and days.
     let openLogbook: (LogbookLink) -> Void
     let onLog: () -> Void
 
@@ -701,11 +701,13 @@ struct InsightsSection: View {
             } else {
                 TherapySetupView().dashboardCard().dsEntrance(0)
             }
-            WeekInReviewView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
-                .dashboardCard()
-                .dsEntrance(5)
             ScrollViewReader { proxy in
                 VStack(alignment: .leading, spacing: layout.gutter) {
+                    WeekInReviewView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                                     openLogbook: openLogbook)
+                        .dashboardCard()
+                        .id(Self.cardID(.thisWeek))
+                        .dsEntrance(5)
                     LowsCardView(readings: readings, meals: logbook.meals, contexts: logbook.contexts,
                                  answers: logbook.lowAnswers, unit: unit, lowMgdl: lowMgdl,
                                  openLogbook: openLogbook)
@@ -747,8 +749,9 @@ struct InsightsSection: View {
         .environment(\.figuresCountUp, true)
     }
 
-    /// "insights.lows", "insights.highs", "insights.overnight", "insights.weekdays": where Back from
-    /// the Logbook scrolls to. Weekends comes back to the Weekdays and weekends card too.
+    /// "insights.lows", "insights.highs", "insights.overnight", "insights.weekdays",
+    /// "insights.thisWeek": where Back from the Logbook scrolls to. Weekends comes back to the
+    /// Weekdays and weekends card too, and Last week to Week in review.
     private static func cardID(_ card: LogbookFilter) -> String { "insights.\(card.insightsCard.rawValue)" }
 
     private var startLogging: some View {

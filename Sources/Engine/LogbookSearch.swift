@@ -6,7 +6,7 @@ import Foundation
 
 /// The Logbook's quick filter chips. One at a time, on top of whatever the search says.
 enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
-    case meals, insulin, lows, highs, overnight, weekdays, weekends, notes, sites, moments, alerts
+    case meals, insulin, lows, highs, overnight, weekdays, weekends, thisWeek, lastWeek, notes, sites, moments, alerts
 
     var id: String { rawValue }
 
@@ -19,6 +19,8 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .overnight: return "Overnight"
         case .weekdays: return "Weekdays"
         case .weekends: return "Weekends"
+        case .thisWeek: return "This week"
+        case .lastWeek: return "Last week"
         case .notes: return "Notes"
         case .sites: return "Sites"
         case .moments: return "Moments"
@@ -38,6 +40,8 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .overnight: return OvernightSummary.isOvernight(entry.timestamp)
         // The Insights Weekdays and weekends card's two sides, by the device's weekend days.
         case .weekdays, .weekends: return matchesWeekPart(entry.timestamp)
+        // The Insights Week in review card's two weeks: everything, over the week's own period.
+        case .thisWeek, .lastWeek: return true
         case .notes: return !entry.searchNote.isEmpty
         case .sites: if case .siteChange = entry { return true } else { return false }
         case .moments: if case .context = entry { return true } else { return false }
@@ -46,8 +50,9 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
     }
 
     /// Whether an alert row belongs under this chip: every alert under Alerts, low ones under Lows,
-    /// high ones under Highs, those between midnight and 6 am under Overnight, and by the day of the
-    /// week under Weekdays and Weekends.
+    /// high ones under Highs, those between midnight and 6 am under Overnight, by the day of the
+    /// week under Weekdays and Weekends, and all of them under This week and Last week (the period
+    /// does the narrowing).
     func matches(_ alert: AlertLogRow) -> Bool {
         switch self {
         case .alerts: return true
@@ -55,6 +60,7 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .highs: return alert.isHigh
         case .overnight: return OvernightSummary.isOvernight(alert.timestamp)
         case .weekdays, .weekends: return matchesWeekPart(alert.timestamp)
+        case .thisWeek, .lastWeek: return true
         default: return false
         }
     }
@@ -63,13 +69,20 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         WeekdayWeekend.side(of: date).filter == self
     }
 
-    /// Whether the chip bar lists this chip by itself. Overnight, Weekdays and Weekends show only
-    /// when an Insights card opens the Logbook on them: they're times, not kinds of entry.
-    var isListed: Bool { ![.overnight, .weekdays, .weekends].contains(self) }
+    /// Whether the chip bar lists this chip by itself. Overnight, Weekdays, Weekends, This week and
+    /// Last week show only when an Insights card opens the Logbook on them: they're times, not
+    /// kinds of entry.
+    var isListed: Bool { ![.overnight, .weekdays, .weekends, .thisWeek, .lastWeek].contains(self) }
 
     /// The Insights card that opens the Logbook on this chip, where Back on the Mac scrolls to:
-    /// both Weekdays and Weekends come from the one card.
-    var insightsCard: LogbookFilter { self == .weekends ? .weekdays : self }
+    /// both Weekdays and Weekends come from the one card, and so do This week and Last week.
+    var insightsCard: LogbookFilter {
+        switch self {
+        case .weekends: return .weekdays
+        case .lastWeek: return .thisWeek
+        default: return self
+        }
+    }
 
     /// The chips worth showing, in order: only those that would show something.
     static func available(entries: [LogEntry], alerts: [AlertLogRow]) -> [LogbookFilter] {

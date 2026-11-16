@@ -91,14 +91,24 @@ struct PhoneInsightsView: View {
     }
 }
 
-/// The last 7 days against the 7 before, with the best and hardest part of the day (`WeekInReviewView`).
+/// This week beside last week, with the best and hardest part of the day (`WeekInReviewView`).
+/// Tapping a week zooms the card into the Logbook on that week's 7 days; Back shrinks it home. Both
+/// weeks register the card as their zoom source, so whichever was tapped grows from the card.
 struct PhoneWeekInReviewCard: View {
     @EnvironmentObject var store: GlucoseStore
+    @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        WeekInReviewView(readings: store.archive, unit: store.snapshot.unit,
-                         lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl)
+        let card = WeekInReviewView(readings: store.archive, unit: store.snapshot.unit,
+                                    lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                    openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .thisWeek)), in: navigator.zoom)
+                .matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .lastWeek)), in: navigator.zoom)
+        } else {
+            card
+        }
     }
 }
 

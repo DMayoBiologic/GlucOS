@@ -145,3 +145,10 @@ tested in LogbookLinkTests).
   days follow the device's region (`Calendar.isDateInWeekend`), as the card does. Like Overnight,
   both chips are listed only while the card has opened on them. On iPhone both sides zoom from the
   card; on the Mac "‹ Insights" scrolls back to the one card from either (`LogbookFilter.insightsCard`).
+- **This week and Last week (round 41).** The Insights Week in review card now shows the two
+  weeks side by side, each its own button. This week opens the Logbook on a **This week** chip over
+  the last 7 days up to the newest reading (running on to now); Last week opens a **Last week** chip
+  over the 7 days before that (`LogbookLink.week`), the same days the card counted
+  (`WeekInReview.interval`). Both chips keep every entry and alert, so the period does the
+  narrowing. Like Overnight they're listed only while the card has opened on them. On iPhone both
+  weeks zoom from the card; on the Mac "‹ Insights" scrolls back to Week in review from either.
