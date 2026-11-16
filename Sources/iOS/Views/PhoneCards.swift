@@ -28,16 +28,18 @@ struct PhoneHeroCard: View {
             let tone = s.displayTone(at: now)
             let outlook = settings.showForecast && !stale ? s.currentOutlook(at: now) : nil
             let headline = outlook.flatMap(OutlookFormat.headlineSample)
+            // A new sensor's first hour: a countdown instead of the old sensor's last reading.
+            let warmUp = s.warmUp(at: now)
             VStack(alignment: .leading, spacing: DS.Space.md) {
                 HStack(spacing: DS.Space.sm) {
                     // The streak drops under the pill at the accessibility text sizes.
                     DSAccessibleStack(spacing: DS.Space.sm) {
-                        if let range = s.range {
+                        if let range = s.range, warmUp == nil {
                             RangeBadge(range: range, stale: stale)
                                 .id(stale ? "stale" : range.label)
                                 .transition(.push(from: (s.current?.trend.isFalling ?? false) ? .top : .bottom))
                         }
-                        if let streak = s.rangeStreak(at: now), streak.duration >= 5 * 60 {
+                        if warmUp == nil, let streak = s.rangeStreak(at: now), streak.duration >= 5 * 60 {
                             Text("for \(streak.isOpenEnded ? "over " : "")\(PopoverFormat.streak(streak.duration))")
                                 .dsFont(.label)
                                 .foregroundStyle(.secondary)
@@ -51,7 +53,10 @@ struct PhoneHeroCard: View {
                 .dsAnimation(.standard, value: s.range)
                 // The pill swaps to "No recent data" and back without a jump.
                 .dsAnimation(.standard, value: stale)
-                if let cur = s.current {
+                if let warmUp {
+                    PhoneWarmUpView(warmUp: warmUp, now: now)
+                        .transition(.opacity)
+                } else if let cur = s.current {
                     HStack(alignment: .center, spacing: DS.Space.md) {
                         VStack(alignment: .leading, spacing: DS.Space.xxs) {
                             valueRow(cur, stale: stale, tint: tone.color)
@@ -90,14 +95,24 @@ struct PhoneHeroCard: View {
             // remain under Reduce Motion, and nothing repeats.
             .dsAnimation(.sweep, value: stale)
             .dsAnimation(.standard, value: s.current == nil)
+            // The warm-up countdown cross-fades to the first reading: a fade, so it stays under
+            // Reduce Motion (`.sweep` keeps a short fade there).
+            .dsAnimation(.sweep, value: warmUp == nil)
             // An urgent low gets a rim as well as its colour, so it reads without colour vision.
-            .padding(s.range == .urgentLow && !stale ? DS.Space.md : 0)
-            .urgentRim(s.range == .urgentLow && !stale,
+            .padding(s.range == .urgentLow && !stale && warmUp == nil ? DS.Space.md : 0)
+            .urgentRim(s.range == .urgentLow && !stale && warmUp == nil,
                        in: RoundedRectangle(cornerRadius: DS.Radius.hero, style: .continuous))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(s.current == nil ? store.statusLine
-                                : s.accessibilitySummary(at: now) + forecastSentence(outlook, headline: headline))
+            .accessibilityLabel(warmUp.map { "Sensor warming up. \($0.headline(at: now))." }
+                                ?? (s.current == nil ? waitingSummary
+                                    : s.accessibilitySummary(at: now) + forecastSentence(outlook, headline: headline)))
             .accessibilityAddTraits(.updatesFrequently)
+            // The card is one VoiceOver element, so the empty state's button is an action on it.
+            .accessibilityActions {
+                if s.current == nil, emptyStep != nil {
+                    Button("Check Again") { Task { await store.refresh() } }
+                }
+            }
             .contextMenu {
                 Button("Copy Reading", systemImage: "doc.on.doc") { store.copyReadingToClipboard() }
                 Button("Refresh Now", systemImage: "arrow.clockwise") { Task { await store.refresh() } }
@@ -121,7 +136,8 @@ struct PhoneHeroCard: View {
 
     /// Before the first reading: the shape of the card with a placeholder number, so the screen
     /// doesn't jump when it arrives, and what's happening in words. A connection problem has its
-    /// own banner above with the fix.
+    /// own banner above with the fix. Signed in with nothing to show (a new account, a sensor that
+    /// has ended, LibreLink not uploading) says what to do next.
     private var waiting: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs + 2) {
@@ -130,14 +146,48 @@ struct PhoneHeroCard: View {
                     .foregroundStyle(.quaternary)
                 Text(s.unit.label).dsFont(.callout).fontWeight(.semibold).foregroundStyle(.tertiary)
             }
-            HStack(spacing: DS.Space.xs) {
-                if store.connectionProblem == nil { ProgressView().controlSize(.small) }
-                Text(store.connectionProblem == nil && store.isRefreshing ? "Getting your latest reading…" : store.statusLine)
+            if let empty = emptyStep {
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    Text(empty.title).dsFont(.headline)
+                    Text(empty.detail).dsFont(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button {
+                    Task { await store.refresh() }
+                } label: {
+                    Label(store.isRefreshing ? "Checking…" : "Check Again", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(store.isRefreshing)
+                .padding(.top, DS.Space.xxs)
+            } else {
+                HStack(spacing: DS.Space.xs) {
+                    if store.connectionProblem == nil { ProgressView().controlSize(.small) }
+                    Text(store.connectionProblem == nil && store.isRefreshing ? "Getting your latest reading…" : store.statusLine)
+                }
+                .dsFont(.callout)
+                .foregroundStyle(.secondary)
             }
-            .dsFont(.callout)
-            .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Signed in and connected, but LibreLinkUp has no reading: what to do about it. Nil while the
+    /// first fetch is still going or when a connection problem's banner already says.
+    private var emptyStep: (title: String, detail: String)? {
+        guard s.current == nil, store.connectionProblem == nil, s.fetchedAt != .distantPast else { return nil }
+        if let sensor = s.sensor, sensor.daysRemaining() <= 0 {
+            return ("Your sensor has ended",
+                    "Apply a new sensor and start it in the LibreLink app. GlucOS counts down its hour of warm-up here, then shows the first reading.")
+        }
+        return ("No readings yet",
+                "Starting a new sensor? Start it in the LibreLink app; readings arrive about an hour later and GlucOS counts down to them here. Already wearing one? Open LibreLink on the phone that reads the sensor so it can upload.")
+    }
+
+    /// What the empty card says, for VoiceOver.
+    private var waitingSummary: String {
+        if let empty = emptyStep { return "\(empty.title). \(empty.detail)" }
+        return store.statusLine
     }
 
     private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color) -> some View {
@@ -212,6 +262,82 @@ struct PhoneHeroCard: View {
         .dsFont(.caption)
         .foregroundStyle(stale ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(Color.secondary))
         .monospacedDigit()
+    }
+}
+
+// MARK: - Sensor warm-up
+
+/// The stage while a new sensor warms up: a ring filling over its first hour with the minutes
+/// left in the middle, and when the first reading is due. Moves only when the card's 15-second
+/// clock ticks (one short ease per tick, none under Reduce Motion), never on a loop.
+struct PhoneWarmUpView: View {
+    let warmUp: SensorWarmUp
+    let now: Date
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let minutes = warmUp.minutesLeft(at: now)
+        DSAccessibleStack(spacing: DS.Space.lg) {
+            WarmUpRing(fraction: warmUp.fraction(at: now), minutes: minutes,
+                       size: typeSize.dsLargeText ? 120 : 96)
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                Text("Sensor warming up")
+                    .dsFont(.label)
+                    .foregroundStyle(.secondary)
+                Text(warmUp.headline(at: now))
+                    .dsFont(.title)
+                    .contentTransition(.numericText(value: Double(minutes)))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(minutes > 0
+                     ? "First reading around \(ClockLabel.time(warmUp.endsAt)). Keep your phone near you; it fades in here when it arrives."
+                     : "LibreLinkUp can take a few minutes to pass on the first reading.")
+                    .dsFont(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .dsAnimation(.standard, value: minutes)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A ring that fills as the warm-up passes, with the minutes left inside.
+struct WarmUpRing: View {
+    /// 0...1 of the hour passed.
+    let fraction: Double
+    let minutes: Int
+    var size: CGFloat = 96
+
+    var body: some View {
+        let line = max(6, size / 12)
+        ZStack {
+            Circle()
+                .stroke(Tone.brand.color.opacity(0.18), lineWidth: line)
+            Circle()
+                .trim(from: 0, to: max(0.001, fraction))
+                .stroke(Tone.brand.color, style: StrokeStyle(lineWidth: line, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .dsAnimation(.standard, value: fraction)
+            VStack(spacing: 0) {
+                if minutes > 0 {
+                    Text("\(minutes)")
+                        .font(.system(size: size * 0.34, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText(value: Double(minutes)))
+                    Text("min")
+                        .font(.system(size: size * 0.13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: "sensor.fill")
+                        .font(.system(size: size * 0.3, weight: .semibold))
+                        .foregroundStyle(Tone.brand.color)
+                }
+            }
+            .dsAnimation(.standard, value: minutes)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

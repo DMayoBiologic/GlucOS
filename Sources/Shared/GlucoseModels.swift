@@ -140,6 +140,57 @@ struct SensorInfo: Codable, Hashable {
     }
 }
 
+/// A new sensor's first hour, before it gives any readings (Libre 2 Plus and Libre 3 both take 60
+/// minutes). LibreLinkUp reports the new sensor's start straight away, while its last reading is
+/// still the old sensor's, so "warming up" is a sensor that started under an hour ago with no
+/// reading of its own yet. Shown as a countdown on iPhone Today and the Live Activity.
+struct SensorWarmUp: Hashable {
+    static let duration: TimeInterval = 60 * 60
+    /// After the hour, how long "any minute now" is still said before the usual waiting screen:
+    /// LibreLinkUp often takes a few minutes to pass the first reading on.
+    static let grace: TimeInterval = 20 * 60
+
+    let startedAt: Date
+    var endsAt: Date { startedAt.addingTimeInterval(Self.duration) }
+
+    /// The warm-up going on now, or nil: no sensor, it's past the hour (plus the grace), or the
+    /// new sensor has already given a reading.
+    static func current(sensor: SensorInfo?, current: GlucoseReading?, at now: Date = Date()) -> SensorWarmUp? {
+        guard let sensor else { return nil }
+        let started = sensor.activated
+        // A start in the future is a clock problem, not a warm-up; allow a minute of skew.
+        guard started.timeIntervalSince(now) <= 60,
+              now.timeIntervalSince(started) < duration + grace else { return nil }
+        if let current, current.timestamp >= started { return nil }
+        return SensorWarmUp(startedAt: started)
+    }
+
+    func remaining(at now: Date = Date()) -> TimeInterval { max(0, endsAt.timeIntervalSince(now)) }
+
+    /// How much of the hour has passed, 0...1.
+    func fraction(at now: Date = Date()) -> Double {
+        min(1, max(0, now.timeIntervalSince(startedAt) / Self.duration))
+    }
+
+    /// Whole minutes left, rounded up, so it never says 0 while there's still time to go.
+    func minutesLeft(at now: Date = Date()) -> Int {
+        Int((remaining(at: now) / 60).rounded(.up))
+    }
+
+    /// "Readings start in about 42 min", then "any minute now" once the hour is up.
+    func headline(at now: Date = Date()) -> String {
+        let m = minutesLeft(at: now)
+        if m <= 0 { return "Readings start any minute now" }
+        return "Readings start in about \(m) min"
+    }
+}
+
+extension GlucoseSnapshot {
+    func warmUp(at now: Date = Date()) -> SensorWarmUp? {
+        SensorWarmUp.current(sensor: sensor, current: current, at: now)
+    }
+}
+
 // MARK: - Range classification
 
 enum GlucoseRange {

@@ -197,7 +197,7 @@ struct PhoneHomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    if stageHidden, store.snapshot.current != nil {
+                    if stageHidden, store.snapshot.current != nil, store.snapshot.warmUp() == nil {
                         PhoneTitleReading()
                             .transition(DS.Transition.swap(reduceMotion: reduceMotion))
                     } else {
