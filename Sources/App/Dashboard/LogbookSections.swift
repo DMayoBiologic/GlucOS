@@ -546,10 +546,14 @@ struct InsightsSection: View {
             WeekInReviewView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
                 .dsEntrance(5)
-            DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
+            LowsCardView(readings: readings, meals: logbook.meals, contexts: logbook.contexts,
+                         answers: logbook.lowAnswers, unit: unit, lowMgdl: lowMgdl)
                 .dashboardCard()
                 .dsEntrance(6)
-            ForecastScorecardCard(outlook: outlookStore).dsEntrance(7)
+            DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
+                .dashboardCard()
+                .dsEntrance(7)
+            ForecastScorecardCard(outlook: outlookStore).dsEntrance(8)
             Disclaimer()
         }
         // As on iPhone Insights: each card's figures count up as it assembles, with its bars

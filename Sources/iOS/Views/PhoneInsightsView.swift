@@ -30,7 +30,7 @@ struct PhoneInsightsRow: View {
                         .frame(width: 40, height: 40)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text("Insights").dsFont(.headline).foregroundStyle(.primary)
-                        Text("Time in range, week in review, your usual day, mornings and forecast accuracy")
+                        Text("Time in range, week in review, lows, your usual day, mornings and forecast accuracy")
                             .dsFont(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -44,12 +44,12 @@ struct PhoneInsightsRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressScaleStyle())
-        .accessibilityHint("Opens time in range by day, week in review, your usual day, mornings and forecast accuracy")
+        .accessibilityHint("Opens time in range by day, week in review, lows, your usual day, mornings and forecast accuracy")
     }
 }
 
 /// How things have been going: time in range over 24 hours to 14 days, each of the last seven
-/// days side by side, this week against last, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
+/// days side by side, this week against last, lows and when they start, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
 struct PhoneInsightsView: View {
     @EnvironmentObject var store: GlucoseStore
 
@@ -59,9 +59,10 @@ struct PhoneInsightsView: View {
                 PhoneGlanceCard().dsEntrance(0)
                 PhoneDaysCard().dsEntrance(1)
                 PhoneWeekInReviewCard().dsEntrance(2)
-                PhoneDayPatternCard().dsEntrance(3)
-                PhoneMorningCard(outlook: store.outlook).dsEntrance(4)
-                PhoneForecastAccuracyCard(outlook: store.outlook).dsEntrance(5)
+                PhoneLowsCard().dsEntrance(3)
+                PhoneDayPatternCard().dsEntrance(4)
+                PhoneMorningCard(outlook: store.outlook).dsEntrance(5)
+                PhoneForecastAccuracyCard(outlook: store.outlook).dsEntrance(6)
                 Text("Mornings and forecast accuracy appear once GlucOS has enough wake-ups and forecasts to report on.")
                     .dsFont(.caption)
                     .foregroundStyle(.tertiary)
@@ -90,6 +91,18 @@ struct PhoneWeekInReviewCard: View {
     var body: some View {
         WeekInReviewView(readings: store.archive, unit: store.snapshot.unit,
                          lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl)
+            .dsCard(.standard, padding: DS.Space.lg)
+    }
+}
+
+/// Lows over the last 7, 14 or 30 days: how many, how long, treated or not, and when (`LowsCardView`).
+struct PhoneLowsCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var logbook: LogbookStore
+
+    var body: some View {
+        LowsCardView(readings: store.archive, meals: logbook.meals, contexts: logbook.contexts,
+                     answers: logbook.lowAnswers, unit: store.snapshot.unit, lowMgdl: store.snapshot.lowMgdl)
             .dsCard(.standard, padding: DS.Space.lg)
     }
 }

@@ -159,6 +159,7 @@ targets:
       - path: Sources/App/Outlook/ForecastScorecardView.swift
       - path: Sources/App/Views/DayPatternView.swift
       - path: Sources/App/Views/WeekInReviewView.swift
+      - path: Sources/App/Views/LowsCardView.swift
       - path: Sources/App/Views/TodaySoFarView.swift
       - path: Sources/App/Views/FlowComponents.swift
       - path: Sources/App/Views/AlertSnoozeChipView.swift
