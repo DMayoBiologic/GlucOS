@@ -10,6 +10,7 @@ import Foundation
 //   POST /v1/test                          → RelayStatus   (sends a test alert push)
 //   POST /v1/checkins/answer CheckInAnswer → RelayStatus   (the owner answers followers' check-ins)
 //   POST /v1/alerts/snooze AlertSnoozeRequest → RelayStatus (quiet one alert's pushes; AlertSnooze.swift)
+//   POST /v1/alerts/resume {}                → RelayStatus (end every snooze now; relay 2.15.0)
 //   GET  /health                           → "ok"          (no secret, for the host's health check)
 
 /// What the phone tells the relay. Every field is optional: nil means "unchanged".
@@ -87,6 +88,10 @@ struct RelayStatus: Codable, Hashable {
     /// Followers waiting for the owner to answer a check-in. Missing when nobody is (and from
     /// relays older than 2.2.0).
     var checkIn: CheckInState?
+    /// Until when the owner's pushes of each alert level are snoozed (relay 2.15.0 on: always
+    /// sent, `{}` when nothing is). Missing from older relays. The iPhone takes this as the one
+    /// truth for its "snoozed" chip and its own alerts (`AlertSnoozeStore.adopt`).
+    var snoozes: AlertSnoozes?
 
     /// The relay is fetching and has a way to reach the phone, so the phone can leave alerts to it.
     func isDeliveringAlerts(at now: Date = Date()) -> Bool {

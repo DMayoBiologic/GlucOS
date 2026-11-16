@@ -151,6 +151,11 @@ struct RelayClient {
         return try await RelayRetry.run { try await call("v1/alerts/snooze", method: "POST", body: body) }
     }
 
+    /// Ends every snooze now (the "snoozed" chip; relay 2.15.0). Sending it twice is harmless.
+    func resumeAlerts() async throws -> RelayStatus {
+        try await RelayRetry.run { try await call("v1/alerts/resume", method: "POST", body: Data("{}".utf8)) }
+    }
+
     // MARK: Sharing (ShareProtocol.swift)
 
     func shares() async throws -> [ShareInfo] { try await call("v1/shares", method: "GET") }

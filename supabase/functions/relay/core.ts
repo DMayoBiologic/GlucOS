@@ -1096,6 +1096,16 @@ export function pruneSnoozes(s: AlertSnoozes, now: number) {
   for (const l of ["low", "high", "veryHigh"] as SnoozeLevel[]) if ((s[l] ?? 0) <= now) delete s[l];
 }
 
+/// A copy of the snoozes still running at `now`, for the owner's status (`{}` when none).
+export function runningSnoozes(s: AlertSnoozes | null | undefined, now: number): AlertSnoozes {
+  const out: AlertSnoozes = {};
+  for (const l of ["low", "high", "veryHigh"] as SnoozeLevel[]) {
+    const end = s?.[l];
+    if (typeof end === "number" && end > now) out[l] = end;
+  }
+  return out;
+}
+
 /// The owner's alerts this tick, from the owner's own planner, minus the snoozed ones. A snoozed
 /// alert's repeat timer is cleared, so it fires on the first tick after the snooze if still due.
 /// Followers keep the shared planner (`processTick`), so their alerts and check-ins never change.
