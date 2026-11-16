@@ -545,7 +545,7 @@ Widgets in accented or vibrant rendering modes drop the field and keep the rail 
 | 9 | Mac popover finished to §8.2: the shared `FreshnessMeter` under the age row in place of the live dot and hand-drawn hairline (fills live, amber once stale), and the cards assembling under the hero with `dsEntrance` on opening | #84 | merged |
 | 10 | Remaining screens (§7.2, §8.3, §8.4): the target range editor in Settings (iPhone and Mac), Mac onboarding and iPhone Setup redrawn as the range rail (same log scale and segment colours), with a marker at the latest fresh reading and a line saying what it would count as; iPhone Settings rows that a toggle reveals slide in, and section jumps scroll with `.standard` under Reduce Motion rules; Mac Outlook and Insights pages assemble with `dsEntrance`; Mac Logbook filter on `SlidingSegments`; follower check-in status pushes in with a haptic for "okay" and "needs help" | #88 | merged |
 | 11 | Mac menu bar item to §8.1: range colour, symbol trend arrow, optional last-hour sparkline, popover stale treatment, one roll per reading; drawn only when what it shows changes | #96 | merged |
-| 12 | iPhone haptics to §7.3: one shared `Haptics` helper and `HapticEvent` table, the same feel for the same moment (undo everywhere, question answers), a gate against double buzzes, System Haptics respected | round 29 | in review |
+| 12 | iPhone haptics to §7.3: one shared `Haptics` helper and `HapticEvent` table, the same feel for the same moment (undo everywhere, question answers), a gate against double buzzes, System Haptics respected | #181 | merged |
 
 Every part of this design is now built.
 
