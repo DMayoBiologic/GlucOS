@@ -31,6 +31,53 @@ struct TodayGlance: Codable, Hashable {
     }
 }
 
+// MARK: - Your usual, for the widget
+
+/// A "Your usual" entry (`UsualEntry`, Sources/Engine/UsualEntries.swift) as the Your usual widget
+/// draws it. The app works the entries out and writes them into `GlucoseSnapshot.usuals`, words and
+/// all, because the widget extension doesn't compile Sources/Engine. The widget's buttons only open
+/// the log sheet on that entry (`OpenUsualIntent`): nothing is ever logged from the widget.
+struct UsualGlance: Codable, Hashable, Identifiable {
+    enum Kind: String, Codable, Hashable { case meal, correction, low }
+
+    /// `UsualEntry.id`: "meal-breakfast", "correction", "low". What the log sheet looks up on open.
+    var id: String
+    var kind: Kind
+    /// "Usual breakfast", "Usual correction", "Treat a low".
+    var title: String
+    /// "Toast and banana · 45 g", "2 u NovoRapid", "Jelly beans · 15 g".
+    var detail: String
+    var systemImage: String
+    /// "Usual breakfast: toast and banana, 45 grams of carbs".
+    var spoken: String
+    /// A meal is only offered in its part of the day: the end of that part (11:00 for breakfast).
+    /// Nil for the others.
+    var until: Date? = nil
+
+    /// The most the widget shows, the same as the Mac popover's row.
+    static let limit = 3
+
+    /// The entries to draw at `now`. The widget runs no code between timeline entries, so it drops
+    /// what the app would no longer offer: a correction once the reading it was worked out from goes
+    /// stale (it's only offered on a fresh high), and a meal once its part of the day is over. The
+    /// sheet works them out again on open anyway.
+    static func visible(_ usuals: [UsualGlance], readingFresh: Bool, at now: Date) -> [UsualGlance] {
+        Array(usuals.filter { u in
+            if u.kind == .correction && !readingFresh { return false }
+            if let until = u.until, until <= now { return false }
+            return true
+        }.prefix(limit))
+    }
+
+    /// When what `visible` shows next changes on its own: a meal's part of the day ending, the
+    /// reading going stale while a correction shows. The widget's timeline has an entry at each.
+    static func changeDates(_ usuals: [UsualGlance], staleAt: Date?, after now: Date) -> [Date] {
+        var dates = usuals.compactMap(\.until)
+        if let staleAt, usuals.contains(where: { $0.kind == .correction }) { dates.append(staleAt) }
+        return Array(Set(dates.filter { $0 > now })).sorted()
+    }
+}
+
 // MARK: - Spoken reading
 
 /// The reading as VoiceOver says it on a widget, matched to what's drawn: a stale reading is never
@@ -95,11 +142,14 @@ enum WidgetReload {
         case glucose
         /// Time in Range and Sensor, which summarise hours or days and read the 90-day archive.
         case insights
+        /// Your usual (iPhone), which changes only with the logbook, the time of day and a high.
+        case usual
 
         var kinds: [String] {
             switch self {
             case .glucose: return ["au.com.declanmayo.glucos.glucose", "au.com.declanmayo.glucos.accessory"]
             case .insights: return ["au.com.declanmayo.glucos.time-in-range", "au.com.declanmayo.glucos.sensor"]
+            case .usual: return ["au.com.declanmayo.glucos.usual"]
             }
         }
     }
@@ -126,6 +176,10 @@ enum WidgetReload {
         var readingSlot: Int?
         var sensorSerial: String?
         var sensorActivated: Date?
+        // Your usual.
+        var usuals: [UsualGlance]?
+        /// The reading went stale, which hides a usual correction (`UsualGlance.visible`).
+        var readingStaleAt: Date?
     }
 
     /// The forecast as the widget shows it: the headline value to 1 mg/dL, the low warning to the
@@ -158,7 +212,9 @@ enum WidgetReload {
                          fetchedSlot: Int(s.fetchedAt.timeIntervalSince1970 / 600),
                          outlook: outlook, today: s.today,
                          readingSlot: s.current.map { Int($0.timestamp.timeIntervalSince1970 / 900) },
-                         sensorSerial: s.sensor?.serial, sensorActivated: s.sensor?.activated)
+                         sensorSerial: s.sensor?.serial, sensorActivated: s.sensor?.activated,
+                         usuals: s.usuals,
+                         readingStaleAt: s.current.map { $0.timestamp.addingTimeInterval(GlucoseSnapshot.staleAfter) })
     }
 
     /// The groups to reload going from `old` to `new`. Everything on the first publish.
@@ -175,6 +231,12 @@ enum WidgetReload {
         if settings || old.readingSlot != new.readingSlot
             || old.sensorSerial != new.sensorSerial || old.sensorActivated != new.sensorActivated {
             out.insert(.insights)
+        }
+        // A new reading only matters to Your usual when a correction is showing: it moves the time
+        // the widget hides it. Otherwise only the entries themselves reload it.
+        let showsCorrection = (new.usuals ?? []).contains { $0.kind == .correction }
+        if old.usuals != new.usuals || (showsCorrection && old.readingStaleAt != new.readingStaleAt) {
+            out.insert(.usual)
         }
         return out
     }

@@ -31,6 +31,8 @@ struct GlucOSPhoneApp: App {
         _services = StateObject(wrappedValue: services)
         // Before any check-in button can run: they may be what launched the app.
         CheckInCoordinator.install(services: services, follows: follows)
+        // And the Your usual widget's buttons, which open the log sheet on an entry.
+        UsualActions.open = { PhoneLogRouter.shared.openUsual($0) }
         // Likewise the Meal / Correction buttons after a dose with no food near it.
         DoseQuestion.shared.start(logbook: logbook)
         // Has to happen before launch finishes.
@@ -66,6 +68,8 @@ struct GlucOSPhoneApp: App {
             if phase == .active { Task { await Diagnostics.shared.flush() } }
             // The first use of the morning is offered as the wake-up time.
             if phase == .active { PhoneWakeLogger.shared.noteActive() }
+            // A Your usual widget tap whose intent ran in the widget's process.
+            if phase == .active, let id = UsualActions.takePending() { PhoneLogRouter.shared.openUsual(id) }
         }
     }
 }

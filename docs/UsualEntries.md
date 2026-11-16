@@ -24,6 +24,25 @@ Keyboard: **⌥⌘1 – ⌥⌘3** pick the first three entries, in the popover a
 in the popover shows the keys on the chips. ⌥⌘ keeps them clear of ⌘1–⌘9 (moments in the sheet,
 chart range in the popover).
 
+## On the iPhone Home Screen: the Your Usual widget
+
+Round 27. A medium Home Screen widget (`UsualWidget`, Sources/iOSWidget/UsualWidget.swift) shows
+the entries the sheet would offer now, up to three, as buttons, with a **+** for anything else.
+
+- The app works the entries out on every publish (`GlucoseStore.refreshUsualGlance`) and writes them
+  into `GlucoseSnapshot.usuals` as `UsualGlance`, words and all: the widget extension doesn't compile
+  Sources/Engine. `WidgetReload.Group.usual` reloads the widget only when they change.
+- A button runs `OpenUsualIntent` (iOS 17+ App Intents, `openAppWhenRun`), which opens GlucOS on the
+  log sheet with `PhoneLogTarget.usual(id:)`. **Nothing is logged from the widget:** the sheet works
+  the entries out again, fills that one in if it's still offered (`applyStartingUsual`, as on the
+  Mac) and otherwise just opens on food or the dose. Log then goes through `RepeatCheck`, the
+  calculator and its confirm step as usual. If the intent runs in the widget's own process it leaves
+  the id in the app group (`UsualActions.takePending`, kept for 60 s) and the app opens it on launch.
+- Between reloads the widget drops what the app would no longer offer (`UsualGlance.visible`): a
+  correction once its reading goes stale, a meal once its part of the day ends. Its timeline has an
+  entry at each of those moments and nothing else. No animation: widgets run no timers.
+- VoiceOver reads each button in words (`spoken`), with a hint that it opens GlucOS to check and log.
+
 ## What's offered
 
 | Tile | Read from | Shown when | Fills in |

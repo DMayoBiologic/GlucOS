@@ -10,6 +10,7 @@ struct GlucOSPhoneWidgetBundle: WidgetBundle {
         GlucoseAccessoryWidget()
         LogShortcutWidget()
         WakeShortcutWidget()
+        UsualWidget()
         GlucoseWidget()
         TimeInRangeWidget()
         SensorWidget()

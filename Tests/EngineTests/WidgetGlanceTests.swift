@@ -127,4 +127,70 @@ final class WidgetGlanceTests: XCTestCase {
         let data = try JSONEncoder().encode(s)
         XCTAssertEqual(try JSONDecoder().decode(GlucoseSnapshot.self, from: data).today, g)
     }
+
+    // MARK: Your usual
+
+    private func usual(_ id: String, _ kind: UsualGlance.Kind, detail: String = "") -> UsualGlance {
+        UsualGlance(id: id, kind: kind, title: id, detail: detail, systemImage: "fork.knife", spoken: id)
+    }
+
+    func testUsualEntriesReloadOnlyTheUsualWidget() {
+        var b = snapshot()
+        b.usuals = [usual("meal-lunch", .meal, detail: "Sandwich · 40 g")]
+        XCTAssertEqual(groups(snapshot(), b), [.usual])
+        var c = b
+        c.usuals = [usual("meal-lunch", .meal, detail: "Sandwich · 45 g")]
+        XCTAssertEqual(groups(b, c), [.usual])
+    }
+
+    func testANewReadingReloadsTheUsualWidgetOnlyWhileACorrectionShows() {
+        var a = snapshot(minutesOld: 4), b = snapshot(minutesOld: 3, mgdl: 112)
+        a.usuals = [usual("meal-lunch", .meal)]
+        b.usuals = a.usuals
+        XCTAssertEqual(groups(a, b), [.glucose])
+        a.usuals = [usual("correction", .correction)]
+        b.usuals = a.usuals
+        XCTAssertEqual(groups(a, b), [.glucose, .usual])
+    }
+
+    func testAStaleReadingHidesTheUsualCorrection() {
+        let all = [usual("low", .low), usual("correction", .correction), usual("meal-lunch", .meal), usual("x", .meal)]
+        XCTAssertEqual(UsualGlance.visible(all, readingFresh: true, at: referenceNow).map(\.id), ["low", "correction", "meal-lunch"])
+        XCTAssertEqual(UsualGlance.visible(all, readingFresh: false, at: referenceNow).map(\.id), ["low", "meal-lunch", "x"])
+    }
+
+    func testAMealGoesOnceItsPartOfTheDayIsOver() {
+        var meal = usual("meal-breakfast", .meal)
+        meal.until = referenceNow.addingTimeInterval(30 * 60)
+        let all = [meal, usual("correction", .correction)]
+        XCTAssertEqual(UsualGlance.visible(all, readingFresh: true, at: referenceNow).map(\.id), ["meal-breakfast", "correction"])
+        XCTAssertEqual(UsualGlance.visible(all, readingFresh: true, at: meal.until!).map(\.id), ["correction"])
+        let stale = referenceNow.addingTimeInterval(4 * 60)
+        XCTAssertEqual(UsualGlance.changeDates(all, staleAt: stale, after: referenceNow), [stale, meal.until!])
+        XCTAssertEqual(UsualGlance.changeDates([meal], staleAt: stale, after: referenceNow), [meal.until!])
+    }
+
+    func testMealSlotEnds() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        func t(_ h: Int, _ m: Int = 0, day: Int = 16) -> Date {
+            cal.date(from: DateComponents(year: 2026, month: 11, day: day, hour: h, minute: m))!
+        }
+        XCTAssertEqual(MealSlot.breakfast.end(after: t(7, 30), calendar: cal), t(11))
+        XCTAssertEqual(MealSlot.dinner.end(after: t(21, 59), calendar: cal), t(22))
+        XCTAssertEqual(MealSlot.snack.end(after: t(23), calendar: cal), t(5, day: 17))
+        XCTAssertNil(MealSlot.lunch.end(after: t(7), calendar: cal))
+    }
+
+    func testUsualGlanceCarriesTheEntrysWords() {
+        let u = UsualEntry(kind: .correction, food: "", carbs: 0, items: nil, units: 2, insulinKind: .rapid,
+                           insulinName: "NovoRapid", count: 4, lastLogged: referenceNow)
+        let g = UsualGlance(u, now: referenceNow)
+        XCTAssertNil(g.until)
+        XCTAssertEqual(g.id, "correction")
+        XCTAssertEqual(g.kind, .correction)
+        XCTAssertEqual(g.title, "Usual correction")
+        XCTAssertEqual(g.detail, u.detail)
+        XCTAssertEqual(g.spoken, u.spokenLabel)
+    }
 }
