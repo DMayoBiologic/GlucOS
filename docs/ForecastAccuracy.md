@@ -3079,7 +3079,7 @@ unshrunk ones. Every one is worse at 15 and 30 minutes.)
 - **The more it learns from, the less it does.** Shrinking harder and using longer windows only
   brings the correction closer to zero, and the result closer to what ships, never past it.
   Short windows chase the last few hours' meal or low, which is over by the next forecast.
-- **Coverage moves by under 2 points either way** (best 74.2 → 75.7% at 15 minutes, by horizon
+- **Coverage at 15 and 30 minutes moves by under 2 points either way** (best 74.2 → 75.7% at 15 minutes, by horizon
   and 3 trends from all history, while the miss there is 0.6% worse). At 60 minutes every rolling
   version loses coverage (68.1 → 58–68%).
 - **The one better cell** (60 minutes, 3 trends, 24 h, k 30: 55.0 → 54.6) is 0.7%, alone among 36,
@@ -3097,8 +3097,15 @@ from a version 7.4% worse at 30 minutes, and the trend-split ones put one line b
 effects, and nothing here changes insulin on board, the effect learner or the bolus figure.
 
 **Caveats.** Six days, 144 points at 60 minutes. The shown points already carry the trend gain
-the tuner fits and the range widening (§9), which between them take out the steady part of
-any bias; what's left is the meal-by-meal and low-by-low part no average can follow. Rerun at three
+the tuner fits, which scales the trend to what has carried on and so already takes some steady
+lean out of the line (the range widening, §9, moves only the range, not the line). What's left
+is the meal-by-meal and low-by-low part no average can follow.
+
+`glucos.forecast_checks` has no time for when each actual reading reached the device, so the
+rolling versions treat a point's reading as known from its target time. A live correction would
+learn a little later than that, which can only make it staler; the query below takes a `lag` for
+that check (5–10 minutes is about the sync delay). It also reads every user's rows; add a
+`c.user_id` filter once there's more than one. Rerun at three
 weeks with the query below; only take a correction if a shrunk, all-history version by horizon
 is 3% better at 15 and 30 minutes and on most held-out days, with the low check unchanged.
 
@@ -3111,7 +3118,7 @@ p as (select *, case when tr < -0.3 then 1 when tr <= 0.3 then 2 else 3 end tb, 
   from p0 where a is not null and not al and shown <> 'false' and m in (15, 30, 60)),
 r as (select p.*, case when q.n >= 5 then q.s / (q.n + 30) else 0 end d from p cross join lateral (
   select count(*) n, sum(x.a - x.f) s from p x where x.m = p.m and x.tb = p.tb   -- drop "and x.tb = p.tb" for horizon only
-    and x.t + make_interval(mins => x.m) <= p.t) q)                              -- add "and x.t > p.t - interval '24 h'" for a window
+    and x.t + make_interval(mins => x.m) + interval '0 min' <= p.t) q)           -- lag; add "and x.t > p.t - interval '24 h'" for a window
 select m, count(*), avg(abs(a - f)) miss, avg(abs(a - f - d)) corrected,
   avg((a between lo and up)::int) inside, avg((a between lo + d and up + d)::int) corrected_inside,
   sum((a < 70 and lo < 70)::int) low_bottom, sum((a < 70 and lo + d < 70)::int) low_bottom_corrected
