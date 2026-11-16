@@ -2658,3 +2658,61 @@ central-line fix (shifting highs down, §36) stays rejected for now: it would mo
 **Caveats.** Eight highs and 44 points at 60 minutes over five days; the factor is rough and
 falls back on four days of data. Retest at three weeks with `scripts/high-start-range.py`. If the
 insulin curve is ever re-fitted (with Declan's OK), drop this first and measure again.
+
+## 42. Should the range follow the last few hours' accuracy, narrower as well as wider? (16 Nov 2026)
+
+The question: the range widening (§9) learns from two weeks, with a 12-hour correction that can
+only widen. Would scaling every range by how the last few hours of forecasts actually landed do
+better: narrower after a run of good forecasts, wider after misses, within caps? **No. Every
+version either widened the range more than it won back in coverage, or narrowed it and lost
+coverage. None improved both, so nothing ships.**
+
+**The data.** 959 clean shown points (nothing logged after, drawn) with a reading at 15, 30 or
+60 minutes, Mac, iPhone and relay, 12–16 Nov Perth (`scripts/adaptive-range.py`, export query at
+its top). Points from before §40 and §41 shipped get those widenings first, so "shipped" below is
+what's drawn today. 28 of the points landed under 70 mg/dL.
+
+**The test.** Walk forward through the points. At each forecast, take the points already scored
+(reading due before it was issued) from the last W hours, apps and relay apart, and work out the
+factor that would have held 4 in 5 of them (80th percentile of the miss ratio, as §9 does). Once
+there are N of them, draw both sides of the range times that factor, clamped between a floor and a
+cap. Interval score as in §40 (width + 10 × how far outside; lower is better).
+
+| Inside / width (mg/dL) / score | 15 min | 30 min | 60 min | Days better (of 5) |
+|---|---|---|---|---|
+| Shipped | 76% / 50 / 87.4 | 73% / 78 / 146.1 | 77% / 152 / 228.0 | |
+| 6 h, 20 points, 0.7–2× (as suggested) | 78% / 58 / 91.9 | 75% / 93 / 151.7 | 77% / 161 / 231.9 | 2, 2, 2 |
+| 6 h, widen only to 2× | 80% / 61 / 92.2 | 78% / 98 / 151.4 | 80% / 170 / 231.0 | 2, 2, 2 |
+| 12 h, widen only to 2× | 82% / 65 / 92.2 | 79% / 105 / 155.7 | 81% / 181 / 239.4 | 2, 1, 0 |
+| 3 h, 10 points, 0.85–1.5× (best of the grid) | 78% / 55 / 86.9 | 78% / 90 / 144.0 | 80% / 167 / 218.0 | 4, 4, 3 |
+| 3 h, narrow only, to 0.7× | 71% / 46 / 86.8 | 70% / 72 / 145.2 | 75% / 143 / 228.5 | 3, 3, 2 |
+| 6 h, narrow only, to 0.7× | 74% / 47 / 87.2 | 70% / 74 / 146.4 | 75% / 143 / 229.0 | 2, 2, 1 |
+
+The grid was windows of 3, 6, 12 and 24 hours, 10–30 points, floors 0.5–1 and caps 1–2.5.
+
+- **The suggested 6-hour version is worse on every horizon.** It reaches coverage by widening
+  (+16–19% at 15 and 30 minutes) and its score goes up, not down. Errors six hours ago say little
+  about the next half hour here; by then the meal, the correction or the low is over.
+- **Narrowing almost never earns its place.** The last few hours' factor came out under 1 about a
+  third of the time, but the ranges are still short of 80% overall (76 / 73 / 77%), so a narrower
+  range after a good spell mostly turned near-misses into misses: 2–5 points less coverage for
+  1–6 mg/dL less width, and no better score.
+- **The best of the grid (3 hours, 0.85–1.5×)** has the lowest score, wins on 3–4 days of 5 and
+  holds 78 / 78 / 80%. But it's 10–15% wider at every horizon, it was picked from the grid on the
+  same five days, and its 15- and 30-minute gains are within a point of the shipped score. The
+  only clear win is at 60 minutes (228 → 218), mostly long highs that §41 now covers on the lower
+  side.
+
+**Low warnings.** A range that only narrowed would have left the bottom above 70 on more of the
+28 readings that went under it; none of the versions here lost one (26 of 28 had the bottom under
+70, as shipped). Widening both sides does the other thing: the bottom reached under 70 on 264–267
+of the 931 readings that stayed above 70, against 235 shipped, so "a low is possible" would show
+more often for nothing. Any version that ships would need §41's `warningLowers` to keep warnings
+where they are.
+
+**Dosing.** Not touched: ranges feed no dose, insulin on board, learner or bolus figure.
+
+**Caveats.** Five days, and the shown points of 12–15 Nov already carry the 12-hour correction,
+so this measures an extra correction on top of it, not a replacement. Retest at three weeks with
+`scripts/adaptive-range.py`, and only take a 3-hour window if it wins on held-out days with width
+no worse; if coverage reaches 80% on its own, try the narrow-only version again first.
