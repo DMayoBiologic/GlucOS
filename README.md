@@ -56,6 +56,8 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   turn on a shortcut that opens logging from any app (**Settings → Logging**, off by default; see docs/KeyboardLogging.md).
 - **Back in range ≈ X min**: when you're high, this shows under the popover forecast and in the menu bar item's tooltip.
   It only appears while this Mac's past estimates have usually been within 15 minutes, and never during lows.
+- **Motion**: when the popover opens, its sections fade in one after another, and charts glide rather than jump. Turn on
+  Reduce Motion (System Settings → Accessibility → Display) to switch all of this off.
 - **Dashboard** (⌘D in the popover, or the expand button on the chart): a resizable window with
   - an interactive chart from 3 hours to 30 days: hover for any reading (with its 15-minute change),
     drag across it to select a stretch and see its average, time in range and change, pinch or
