@@ -31,6 +31,10 @@ struct LogbookSection: View {
     @AppStorage(AlertLogRow.showsKey) private var showsAlerts = true
     /// Entries that just arrived, tinted with their colour for a moment so the eye finds them.
     @State private var fresh: Set<UUID> = []
+    /// Each day's time in range for the Day column's bars, worked out once per data change.
+    @State private var dayRanges = DayInRangeCache()
+    /// Day bars that have drawn in, so each plays once.
+    @State private var drawnBars = DrawnOnce()
     @Environment(\.dashboardPadding) private var padding
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -301,13 +305,28 @@ struct LogbookSection: View {
     }
 
     private func table(_ entries: [LogbookTableRow], terms: [String]) -> some View {
-        Table(entries, selection: $selection) {
+        let now = Date()
+        let firsts = LogbookDays.firstRows(entries.map { (id: $0.id, timestamp: $0.timestamp) })
+        let ranges = dayRanges.figures(readings: data.readings, days: Array(Set(firsts.values)).sorted(),
+                                       low: data.lowMgdl, high: data.highMgdl, now: now)
+        return Table(entries, selection: $selection) {
+            // The day's name and time in range on its first (newest) row, like the iPhone's day
+            // headers; the rows under it leave the column empty.
+            TableColumn("Day") { (r: LogbookTableRow) in
+                if let start = firsts[r.id] {
+                    dayCell(start, range: ranges[start], now: now)
+                } else {
+                    Text("").accessibilityHidden(true)
+                }
+            }
+            .width(min: 150, ideal: 190)
             TableColumn("Time") { (r: LogbookTableRow) in
-                Text(r.timestamp.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))
+                Text(ClockLabel.time(r.timestamp))
                     .monospacedDigit()
                     .foregroundStyle(r.isAlert ? Color.secondary : Color.primary)
+                    .accessibilityLabel(ClockLabel.dayTime(r.timestamp, now: now))
             }
-            .width(min: 140, ideal: 170)
+            .width(min: 60, ideal: 75)
             TableColumn("Entry") { (r: LogbookTableRow) in entryCell(r, terms: terms) }
                 .width(min: 110, ideal: 140)
             TableColumn("Amount") { (r: LogbookTableRow) in
@@ -341,6 +360,30 @@ struct LogbookSection: View {
         // New rows slide into place and deleted rows fold away, whether from here, an undo or a
         // sync. Instant under Reduce Motion.
         .dsAnimation(.standard, value: entries.map(\.id))
+    }
+
+    /// "Tue 12 Nov ▬▬▬ 78%": the day, its time in range as a thin bar (`DayRangeBar`, drawn in
+    /// once when the row first shows) and the figure. Days without enough readings show the name.
+    private func dayCell(_ start: Date, range: DayInRange?, now: Date) -> some View {
+        let day = ClockLabel.day(of: start, now: now)
+        return HStack(spacing: DS.Space.sm) {
+            Text(ClockLabel.dayTitle(day))
+                .fontWeight(.semibold)
+                .lineLimit(1)
+            if let range {
+                DayRangeBar(id: "\(Int(start.timeIntervalSince1970))", figures: range, drawn: drawnBars)
+                    .frame(width: 44)
+                Text(DayInRangeText.percent(range))
+                    .dsFont(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .dsAnimation(.standard, value: range.inRange)
+            }
+        }
+        .help(range.map { "\(DayInRangeText.percent($0)) of the day in range" } ?? "Not enough readings for this day's time in range")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(DayInRangeText.spoken(day, range))
     }
 
     @ViewBuilder

@@ -52,3 +52,31 @@ Mac-only maths; the two only differ in how they show it).
 - **Nothing found.** The empty list says what was searched ("Nothing in Meals matches “pizza” since
   last week.") with **Clear Filters**, and **Search All Dates** when the day or the toolbar's period
   was what narrowed it (`LogbookSearch.offersAllDates`).
+
+## Day bars
+
+Round 32 added each day's time in range to the Logbook, on iPhone and Mac (`DayInRange`, Engine,
+tested in DayInRangeTests).
+
+- **Where.** Under the day's name and totals in each iPhone day header, as a thin bar with
+  "78% in range" beside it. On the Mac, a Day column carries the day's name, a short bar and the
+  figure on that day's first (newest) row; the Time column under it shows just the time.
+- **What it counts.** The same rules as "Today so far": readings averaged into 5-minute buckets,
+  below the low threshold, in range (thresholds included), or above the high one. A past day runs
+  midnight to midnight; today runs to now and needs an hour gone. A day needs readings in half of
+  its 15-minute slots, or it gets no bar (a sensor gap shows nothing rather than a few hours
+  passed off as the day). The bar is the whole day, whatever the search or chip leaves showing.
+- **Colours.** Below, in and above use the range hues (coral, mint, amber), all 3:1 or more on
+  every Logbook background (docs/DesignSystem.md). The figure beside it is always in words, so
+  the colours never carry it alone.
+- **Motion.** A bar grows from the left once, the first time its day comes on screen, then simply
+  sits there when it scrolls back into view (`DrawnOnce`). Today's bar glides to its new shares as
+  readings arrive. Nothing loops (§4.6 Power). Instant under Reduce Motion.
+- **VoiceOver.** The iPhone header is one heading: "Tuesday 12 November, 78% in range, 4% below,
+  18% above", then the day's totals. The Mac Day cell says the same; each Time cell reads its day
+  and time.
+- **Cost.** The figures are worked out once per data change (`DayInRangeCache`, keyed by the
+  readings, thresholds, days shown and the 5-minute clock), never per frame or keystroke.
+
+Mac: the bar only fills for days inside the readings the dashboard has loaded for the toolbar's
+period, like the Glucose column.
