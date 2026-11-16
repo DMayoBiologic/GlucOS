@@ -23,6 +23,8 @@ import Combine
 final class MenuBarStatusModel: ObservableObject {
     @Published private(set) var image: NSImage
     @Published private(set) var accessibilityLabel = "GlucOS"
+    /// The item's tooltip (`MenuBarGlance.toolTip`), set on the status bar button directly.
+    private(set) var toolTip = "GlucOS"
 
     private let store: GlucoseStore
     private let settings: AppSettings
@@ -75,8 +77,12 @@ final class MenuBarStatusModel: ObservableObject {
                                       now: now)
         scheduleNextChange(snapshot: snapshot, now: now)
 
-        let label = Self.spokenLabel(for: next, snapshot: snapshot)
+        let back = settings.showForecast ? snapshot.backInRange(at: now)?.minutes : nil
+        let label = Self.spokenLabel(for: next, snapshot: snapshot, backInRangeMinutes: back)
         if label != accessibilityLabel { accessibilityLabel = label }
+        toolTip = MenuBarGlance.toolTip(snapshot: snapshot, hasCredentials: settings.hasCredentials,
+                                        showForecast: settings.showForecast, now: now)
+        StatusItemToolTip.apply(toolTip)
 
         guard force || next != glance else { return }
         let previous = glance
@@ -147,7 +153,7 @@ final class MenuBarStatusModel: ObservableObject {
     /// Names the app first, so VoiceOver users moving through the menu bar know whose item it is.
     /// A live reading leaves out its age, which would be out of date between readings; a stale one
     /// gives it to the minute.
-    static func spokenLabel(for g: MenuBarGlance, snapshot: GlucoseSnapshot) -> String {
+    static func spokenLabel(for g: MenuBarGlance, snapshot: GlucoseSnapshot, backInRangeMinutes: Int? = nil) -> String {
         let unit = snapshot.unit
         switch g.state {
         case .notConnected: return "GlucOS, not connected"
@@ -164,8 +170,34 @@ final class MenuBarStatusModel: ObservableObject {
                 let hour = last - first > 0.15 ? "up" : (first - last > 0.15 ? "down" : "level")
                 parts.append("\(hour) over the last hour")
             }
-            return parts.joined(separator: ", ")
+            var out = parts.joined(separator: ", ")
+            if let backInRangeMinutes { out += ". " + BackInRangeText.spoken(minutes: backInRangeMinutes) }
+            return out
         }
+    }
+}
+
+// MARK: - Tooltip
+
+/// MenuBarExtra doesn't hand a label's `.help` to its status bar button, so the tooltip is set on
+/// the button itself. The button lives in the status item's own window; the popover's window is a
+/// different one and is left alone.
+@MainActor
+enum StatusItemToolTip {
+    static func apply(_ text: String) {
+        for window in NSApp.windows where String(describing: type(of: window)).contains("NSStatusBarWindow") {
+            guard let button = statusButton(in: window.contentView) else { continue }
+            if button.toolTip != text { button.toolTip = text }
+        }
+    }
+
+    private static func statusButton(in view: NSView?) -> NSStatusBarButton? {
+        guard let view else { return nil }
+        if let button = view as? NSStatusBarButton { return button }
+        for sub in view.subviews {
+            if let button = statusButton(in: sub) { return button }
+        }
+        return nil
     }
 }
 

@@ -1216,6 +1216,15 @@ estimate, so a run of wrong "≈ 10 min" calls closes the gate quickly. The live
 forecast's 5-minute points rather than the log's 15-minute ones, so it's at least as fine as what
 was checked. The Lock Screen doesn't show it: the relay's forecast has had 1 check.
 
+**On the Mac (round 20).** The Mac shows the same estimate under the same rule, from its own checks
+(its device in the log is "Mac"): a line under the forecast in the menu bar popover, and a second
+line in the menu bar item's tooltip, "Back in range ≈ 25 min (around 10:40 am) if nothing else
+changes". The tooltip gives the clock time too, since it isn't redrawn between readings. VoiceOver
+hears it at the end of the item's label. All three places (iPhone Today, Mac popover, tooltip) go
+through one check, `GlucoseSnapshot.backInRange(at:)`: live reading above range, an outlook that
+belongs to it, no low expected, and the device's gate open. With the forecast turned off in
+Settings it isn't shown.
+
 To rerun (estimate from stored points, actual from live readings):
 
     with rd0 as (select r.at, r.mgdl from glucos.readings r where not (r.trend = 0 and exists (

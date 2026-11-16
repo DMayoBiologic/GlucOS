@@ -139,3 +139,43 @@ struct MorningAdjustmentSnapshot: Codable, Hashable {
     var addedMgdl: Double
     var confidence: MorningConfidence
 }
+
+// MARK: - Back in range
+
+/// "Back in range ≈ 25 min" (`BackInRange`, docs/ForecastAccuracy.md §24), worded once for the
+/// iPhone Today card, the Mac popover and the Mac menu bar tooltip, so every place shows the same
+/// estimate under the same rules.
+enum BackInRangeText {
+    /// Minutes from the reading, rounded to 5 like every forecast time (never under 5).
+    static func minutes(_ back: Date, from reading: Date) -> Int {
+        max(5, Int((back.timeIntervalSince(reading) / 300).rounded()) * 5)
+    }
+
+    /// "Back in range ≈ 25 min".
+    static func short(minutes: Int) -> String { "Back in range ≈ \(minutes) min" }
+
+    static func spoken(minutes: Int) -> String {
+        "Back in range in about \(minutes) minutes if nothing else changes"
+    }
+
+    /// "Back in range ≈ 25 min (around 10:40 am) if nothing else changes": the clock time keeps
+    /// the tooltip true while it sits unchanged between readings.
+    static func toolTip(minutes: Int, reading: Date, calendar: Calendar = .autoupdatingCurrent,
+                        locale: Locale = .autoupdatingCurrent) -> String {
+        let at = ClockLabel.time(reading.addingTimeInterval(Double(minutes) * 60), calendar: calendar, locale: locale)
+        return "Back in range ≈ \(minutes) min (around \(at)) if nothing else changes"
+    }
+}
+
+extension GlucoseSnapshot {
+    /// When the forecast says a high comes back into range, if that may be shown now: only while
+    /// the reading is live and above range, the outlook belongs to it, no low is expected, and
+    /// this device's own checks of the estimate keep it within 15 minutes (`backInRangeAt` is nil
+    /// otherwise). Never for a low.
+    func backInRange(at now: Date = Date()) -> (date: Date, minutes: Int)? {
+        guard let current, !isStale(at: now), let outlook, outlook.isCurrent(at: now),
+              outlook.lowExpectedAt == nil, let back = outlook.backInRangeAt,
+              current.mgdl > highMgdl, back > current.timestamp else { return nil }
+        return (back, BackInRangeText.minutes(back, from: current.timestamp))
+    }
+}

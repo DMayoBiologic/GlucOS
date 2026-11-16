@@ -216,6 +216,25 @@ struct ForecastNote: View {
     }
 }
 
+/// "Back in range ≈ 20 min" under the forecast note while above range (`BackInRange`): forecast
+/// grey, never a reading's colour, and still, like the note above it. iPhone Today card and the
+/// Mac popover; gate it with `GlucoseSnapshot.backInRange(at:)`.
+struct BackInRangeNote: View {
+    let minutes: Int
+
+    var body: some View {
+        Label {
+            Text(BackInRangeText.short(minutes: minutes))
+                .monospacedDigit()
+        } icon: {
+            Image(systemName: "arrow.down.to.line").foregroundStyle(Palette.stale)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(BackInRangeText.spoken(minutes: minutes))
+    }
+}
+
 // MARK: - Forecast caveat
 
 /// One plain line saying why the forecast is hidden, follows the trend alone, stops sooner or has

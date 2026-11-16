@@ -82,7 +82,7 @@ struct PhoneHeroCard: View {
                             .foregroundStyle(.secondary)
                     }
                     if let back = backInRange(outlook) {
-                        BackInRangeNote(minutes: ForecastNote.roundedMinutes(back.timeIntervalSince(cur.timestamp)))
+                        BackInRangeNote(minutes: BackInRangeText.minutes(back, from: cur.timestamp))
                             .dsFont(.callout)
                             .foregroundStyle(.secondary)
                             .transition(.opacity)
@@ -247,7 +247,7 @@ struct PhoneHeroCard: View {
             out = ". Forecast about \(s.unit.format(mgdl: headline.sample.mgdl)) in \(headline.minutes) minutes"
         }
         if let back = backInRange(outlook) {
-            out += ". " + BackInRangeNote.spoken(minutes: ForecastNote.roundedMinutes(back.timeIntervalSince(cur.timestamp)))
+            out += ". " + BackInRangeText.spoken(minutes: BackInRangeText.minutes(back, from: cur.timestamp))
         }
         return out
     }
@@ -255,9 +255,8 @@ struct PhoneHeroCard: View {
     /// When the forecast says a high comes back into range. Only above range, never with a low
     /// expected, and only while this device's checks of it stay within 15 minutes (`BackInRange`).
     private func backInRange(_ outlook: OutlookSnapshot?) -> Date? {
-        guard let outlook, outlook.lowExpectedAt == nil, let back = outlook.backInRangeAt,
-              let cur = s.current, cur.mgdl > s.highMgdl, back > cur.timestamp else { return nil }
-        return back
+        guard outlook != nil else { return nil }
+        return s.backInRange()?.date
     }
 
     private func tint(stale: Bool) -> Color { stale ? Tone.warning.color : Palette.neutral }
@@ -282,27 +281,6 @@ struct PhoneHeroCard: View {
         .dsFont(.caption)
         .foregroundStyle(stale ? AnyShapeStyle(Tone.warning.textColor) : AnyShapeStyle(Color.secondary))
         .monospacedDigit()
-    }
-}
-
-/// "Back in range ≈ 20 min" under the forecast note while above range: forecast grey, never a
-/// reading's colour, and still, like the note above it.
-struct BackInRangeNote: View {
-    let minutes: Int
-
-    static func spoken(minutes: Int) -> String {
-        "Back in range in about \(minutes) minutes if nothing else changes"
-    }
-
-    var body: some View {
-        Label {
-            Text("Back in range ≈ \(minutes) min")
-                .monospacedDigit()
-        } icon: {
-            Image(systemName: "arrow.down.to.line").foregroundStyle(Palette.stale)
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel(Self.spoken(minutes: minutes))
     }
 }
 

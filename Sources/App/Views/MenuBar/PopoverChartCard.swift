@@ -77,6 +77,15 @@ struct PopoverChartCard: View {
                 OutlookSummaryRow(outlook: settings.showForecast ? outlook : withoutForecast(outlook),
                                   unit: s.unit, lowMgdl: s.lowMgdl)
             }
+            // Above range only, never with a low expected, and only while this Mac's own checks
+            // of the estimate stay within 15 minutes (`GlucoseSnapshot.backInRange`).
+            if settings.showForecast, let back = s.backInRange() {
+                BackInRangeNote(minutes: back.minutes)
+                    .dsFont(.label)
+                    .foregroundStyle(.secondary)
+                    .help("Forecast, not a reading: when the forecast comes back down to \(s.unit.format(mgdl: s.highMgdl, withUnit: true)). Shown only while this Mac's past estimates were typically within 15 minutes.")
+                    .transition(.opacity)
+            }
         }
         .dsCard(.standard)
     }
