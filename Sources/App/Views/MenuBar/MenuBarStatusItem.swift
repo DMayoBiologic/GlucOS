@@ -9,7 +9,8 @@ import Combine
 // The item has to stay cheap, since it is on screen all day. It is drawn into an image only when
 // its `MenuBarGlance` changes: a new reading, the moment a reading goes stale, each minute of a
 // stale reading's age, or a setting. There is no tick and no animation loop. A new value rolls in
-// over `DSMotion.arrival` as a short run of frames, once per reading. Losing the signal fades the
+// over `DSMotion.arrival` as a short run of frames, once per reading, and a new trend swings the
+// arrow round on the same spring (`TrendTurn`; a cross-fade under Reduce Motion). Losing the signal fades the
 // value to grey as the strike draws in, and data returning reverses it, over `DSMotion.sweep`; the
 // first reading after waiting fades in. Under Reduce Motion rolls are dropped and the stale changes
 // are a quick cross-fade with the strike whole (`MenuBarGlance.Change`).
@@ -95,6 +96,11 @@ final class MenuBarStatusModel: ObservableObject {
         StatusItemToolTip.apply(toolTip)
 
         guard force || next != glance else { return }
+        // VoiceOver hears a new trend once. The menu bar item is the one place on the Mac that says
+        // it, since it is always running; the popover's needle only turns.
+        if !force, let text = TrendTurn.announcement(from: glance?.trend, to: next.trend) {
+            VoiceOver.announce(text)
+        }
         let previous = glance
         glance = next
         show(next, from: force ? nil : previous)
@@ -107,14 +113,17 @@ final class MenuBarStatusModel: ObservableObject {
         let label = accessibilityLabel
         let change = MenuBarGlance.change(from: old, to: new)
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        guard let old, change != .none, !reduceMotion || change.keepsUnderReduceMotion else {
+        let turning = MenuBarGlance.turns(from: old, to: new)
+        guard let old, MenuBarGlance.plays(change, turning: turning, reduceMotion: reduceMotion) else {
             image = MenuBarImage.render(new, previous: nil, change: .none, progress: 1, reduceMotion: reduceMotion,
                                         accessibilityLabel: label)
             return
         }
-        // A roll is quick; going stale or coming back is a colour fade, on the sweep's timing.
-        // Under Reduce Motion only the fades play, as a short cross-fade.
-        let duration = reduceMotion ? 0.25 : (change.fadesColour ? DSMotion.sweep.duration : DSMotion.arrival.duration)
+        // A roll or a turn is quick; going stale or coming back is a colour fade, on the sweep's
+        // timing. Under Reduce Motion only the fades play (a turning arrow is one), as a short
+        // cross-fade.
+        let duration = reduceMotion ? TrendTurn.crossFadeDuration
+            : (change.fadesColour ? DSMotion.sweep.duration : DSMotion.arrival.duration)
         let frames = max(2, Int((duration * Self.framesPerSecond).rounded()))
         let frameDelay = UInt64(duration / Double(frames) * 1_000_000_000)
         animation = Task { @MainActor [weak self] in
@@ -123,7 +132,8 @@ final class MenuBarStatusModel: ObservableObject {
                 let last = i == frames
                 let t = UnitCurve.easeInOut.value(at: Double(i) / Double(frames))
                 self.image = MenuBarImage.render(new, previous: last ? nil : old, change: last ? .none : change,
-                                                 progress: t, reduceMotion: reduceMotion, accessibilityLabel: label)
+                                                 progress: t, elapsed: Double(i) / Double(frames) * duration,
+                                                 reduceMotion: reduceMotion, accessibilityLabel: label)
                 if !last { try? await Task.sleep(nanoseconds: frameDelay) }
             }
         }
@@ -231,14 +241,16 @@ enum MenuBarImage {
     /// its light or dark rendering each time the menu bar draws it.
     @MainActor
     static func render(_ glance: MenuBarGlance, previous: MenuBarGlance?, change: MenuBarGlance.Change,
-                       progress: Double, reduceMotion: Bool, accessibilityLabel: String) -> NSImage {
+                       progress: Double, elapsed: TimeInterval = .infinity, reduceMotion: Bool,
+                       accessibilityLabel: String) -> NSImage {
         let highContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         let scale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
         func cg(dark: Bool) -> CGImage? {
             let colours = MenuBarColours(dark: dark, highContrast: highContrast)
             let renderer = ImageRenderer(content: MenuBarGlanceView(glance: glance, previous: previous,
                                                                     change: change, progress: progress,
-                                                                    reduceMotion: reduceMotion, colours: colours)
+                                                                    elapsed: elapsed, reduceMotion: reduceMotion,
+                                                                    colours: colours)
                 .environment(\.colorScheme, dark ? .dark : .light))
             renderer.scale = scale
             return renderer.cgImage
@@ -316,6 +328,9 @@ struct MenuBarGlanceView: View {
     let previous: MenuBarGlance?
     var change: MenuBarGlance.Change = .none
     let progress: Double
+    /// Seconds into the change, for the arrow's spring (`TrendTurn.springProgress`), which runs on
+    /// time rather than on the eased `progress`.
+    var elapsed: TimeInterval = .infinity
     var reduceMotion = false
     let colours: MenuBarColours
 
@@ -326,7 +341,7 @@ struct MenuBarGlanceView: View {
     /// What isn't the number (the trend arrow, the warning sign, the age, the change) fades in
     /// when the state changes, rather than popping in beside a value that is still fading.
     private var extrasOpacity: Double {
-        change == .none || change == .roll ? 1 : progress
+        change == .none || change == .roll || change == .turn ? 1 : progress
     }
 
     var body: some View {
@@ -334,11 +349,7 @@ struct MenuBarGlanceView: View {
             leadingGlyph.opacity(extrasOpacity)
             value
             Group {
-                if let trend = glance.trend, trend != .unknown {
-                    Image(systemName: trend.systemImage)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(colours.value(glance))
-                }
+                trendArrow
                 if let delta = glance.deltaText {
                     Text(delta)
                         .font(.system(size: 11, weight: .medium).monospacedDigit())
@@ -371,6 +382,35 @@ struct MenuBarGlanceView: View {
         .fixedSize()
     }
 
+    /// The trend: one arrow turned to the direction of travel. A new trend swings it round from
+    /// the previous direction on the `.arrival` spring; under Reduce Motion the old direction
+    /// fades out as the new one fades in. The frame is square so a turn never shifts the layout.
+    @ViewBuilder
+    private var trendArrow: some View {
+        if let trend = glance.trend, trend != .unknown {
+            let from = change == .none ? nil : previous?.trend
+            ZStack {
+                switch TrendTurn.between(from, trend, reduceMotion: reduceMotion) {
+                case .turn:
+                    arrow(angle: TrendTurn.angle(from: from ?? trend, to: trend, at: elapsed))
+                case .crossFade:
+                    arrow(angle: (from ?? trend).needleAngle).opacity(1 - progress)
+                    arrow(angle: trend.needleAngle).opacity(progress)
+                case .none:
+                    arrow(angle: trend.needleAngle)
+                }
+            }
+            .frame(width: 12, height: 12)
+        }
+    }
+
+    private func arrow(angle: Double) -> some View {
+        Image(systemName: "arrow.right")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(colours.value(glance))
+            .rotationEffect(.degrees(angle))
+    }
+
     @ViewBuilder
     private var leadingGlyph: some View {
         switch glance.state {
@@ -400,7 +440,9 @@ struct MenuBarGlanceView: View {
     /// rise comes up from below, a fall drops in from above). Going stale or coming back, the old
     /// colour cross-fades into the new one in place, and the strike draws in or retracts over both.
     private var value: some View {
-        let moving = previous != nil && change != .none
+        // A turn leaves the number still, and under Reduce Motion a roll is dropped (the frames only
+        // play then for a turning arrow's cross-fade).
+        let moving = previous != nil && change.movesValue && !(reduceMotion && change == .roll)
         let rolling = moving && !reduceMotion && previous?.valueText != glance.valueText
         let direction: CGFloat = (glance.mgdl ?? 0) >= (previous?.mgdl ?? 0) ? 1 : -1
         let shift = rolling ? (1 - progress) * Self.rollDistance * direction : 0

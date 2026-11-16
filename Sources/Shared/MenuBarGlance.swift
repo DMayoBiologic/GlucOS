@@ -74,12 +74,17 @@ extension MenuBarGlance {
         case comingBack
         /// The first reading after waiting (a sensor warming up, a new sign-in): it fades in.
         case firstReading
+        /// Only the trend arrow turns, the number stays: a short spring round to the new direction,
+        /// or a cross-fade under Reduce Motion (`TrendTurn`).
+        case turn
 
         /// Whether the value cross-fades between two colours rather than only rolling.
         var fadesColour: Bool { self == .goingStale || self == .comingBack }
         /// Whether the move is only a fade, so it still plays under Reduce Motion (as a quicker
         /// cross-fade with the strike whole) while rolls are dropped.
         var keepsUnderReduceMotion: Bool { self != .roll && self != .none }
+        /// Whether the number itself moves (rolls or fades). A turn leaves it still.
+        var movesValue: Bool { self != .none && self != .turn }
     }
 
     static func change(from old: MenuBarGlance?, to new: MenuBarGlance) -> Change {
@@ -88,7 +93,21 @@ extension MenuBarGlance {
         guard new.hasReading else { return .none }
         if old.state == .live && new.state == .stale { return .goingStale }
         if old.state == .stale && new.state == .live { return .comingBack }
-        return old.valueText != new.valueText ? .roll : .none
+        if old.valueText != new.valueText { return .roll }
+        return turns(from: old, to: new) ? .turn : .none
+    }
+
+    /// Whether the trend arrow turns between two glances: both point (live, with a known trend)
+    /// and the direction differs. A roll can turn the arrow too.
+    static func turns(from old: MenuBarGlance?, to new: MenuBarGlance) -> Bool {
+        TrendTurn.between(old?.trend, new.trend, reduceMotion: false) != .none
+    }
+
+    /// Whether a change is drawn as a run of frames. Under Reduce Motion rolls are dropped, but a
+    /// turning arrow still cross-fades.
+    static func plays(_ change: Change, turning: Bool, reduceMotion: Bool) -> Bool {
+        guard change != .none else { return false }
+        return !reduceMotion || change.keepsUnderReduceMotion || turning
     }
 
     /// How much of the strike is drawn at `progress` (0...1) through a change: it draws in over
@@ -101,7 +120,7 @@ extension MenuBarGlance {
         switch change {
         case .goingStale: return reduceMotion ? 1 : lead
         case .comingBack: return reduceMotion ? 1 : 1 - lead
-        case .none, .roll, .firstReading: return state == .stale ? 1 : 0
+        case .none, .roll, .firstReading, .turn: return state == .stale ? 1 : 0
         }
     }
 
@@ -111,7 +130,7 @@ extension MenuBarGlance {
         switch change {
         case .goingStale: return reduceMotion ? p : 1
         case .comingBack: return reduceMotion ? 1 - p : 1
-        case .none, .roll, .firstReading: return state == .stale ? 1 : 0
+        case .none, .roll, .firstReading, .turn: return state == .stale ? 1 : 0
         }
     }
 

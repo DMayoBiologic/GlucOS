@@ -824,9 +824,10 @@ private struct ReadingChange: ViewModifier {
 
 /// The trend as one arrow turned to the direction of travel, for places too small for the
 /// `TrendDial` (the Dynamic Island's compact view, the Watch and CarPlay card, Lock Screen
-/// accessories). A new trend swings the arrow round on the `.arrival` spring rather than swapping
-/// one glyph for another; under Reduce Motion it turns at once. Stale or unknown shows
-/// `fallback` instead, faded in.
+/// accessories, the iPhone Today trend row and title). A new trend swings the arrow round on one
+/// short `.arrival` spring rather than swapping one glyph for another; under Reduce Motion the old
+/// direction cross-fades into the new one (`TrendTurn`). Stale or unknown shows `fallback`
+/// instead, faded in.
 struct TrendArrow: View {
     let trend: Trend
     var stale: Bool = false
@@ -840,8 +841,7 @@ struct TrendArrow: View {
         Group {
             if pointing {
                 Image(systemName: "arrow.right")
-                    .rotationEffect(.degrees(trend.needleAngle))
-                    .animation(DSMotion.arrival.animation(reduceMotion: reduceMotion), value: trend.needleAngle)
+                    .trendTurn(trend)
                     .transition(.opacity)
             } else {
                 Image(systemName: stale ? staleSymbol : "questionmark")
@@ -851,5 +851,33 @@ struct TrendArrow: View {
         .animation(DSMotion.sweep.animation(reduceMotion: reduceMotion), value: pointing)
         .accessibilityElement()
         .accessibilityLabel(stale ? "Reading out of date" : trend.description)
+    }
+}
+
+extension View {
+    /// Turns this (a right-pointing arrow) to `trend`'s direction. A new trend swings it round on
+    /// the `.arrival` spring, once. Under Reduce Motion the arrow doesn't travel: the old direction
+    /// fades out as the new one fades in over `TrendTurn.crossFadeDuration`. Works in widgets and
+    /// the Live Activity too, since it needs no onAppear or timer.
+    func trendTurn(_ trend: Trend) -> some View {
+        modifier(TrendTurnModifier(trend: trend))
+    }
+}
+
+private struct TrendTurnModifier: ViewModifier {
+    let trend: Trend
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        ZStack {
+            content
+                .rotationEffect(.degrees(trend.needleAngle))
+                // Under Reduce Motion each direction is its own view, so a new trend is a
+                // cross-fade; otherwise the identity holds and the rotation animates.
+                .id(reduceMotion ? trend.rawValue : -1)
+                .transition(.opacity)
+        }
+        .animation(reduceMotion ? .easeInOut(duration: TrendTurn.crossFadeDuration) : DSMotion.arrival.animation,
+                   value: trend.needleAngle)
     }
 }

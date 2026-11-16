@@ -136,6 +136,13 @@ struct PhoneHeroCard: View {
                                             reduceMotion: reduceMotion) else { return }
             ripple += 1
         }
+        // VoiceOver hears a new trend once, here only (the trend row and title arrows say nothing
+        // of their own). The same trend again, or a reading going stale, stays quiet.
+        .onChange(of: s.current?.trend) { old, new in
+            if let text = TrendTurn.announcement(from: old, to: new) {
+                AccessibilityNotification.Announcement(text).post()
+            }
+        }
         // A tap you can feel when a new reading, with the app open, crosses into a low (warning)
         // or comes back into range (success). Nothing on first load or for other changes.
         .haptic(trigger: s.range) { old, new in
