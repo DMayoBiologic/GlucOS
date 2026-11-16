@@ -288,17 +288,19 @@ private struct PhoneTitleReading: View {
                 if !stale, s.range == .urgentLow {
                     Image(systemName: "exclamationmark.octagon.fill").font(.subheadline.weight(.bold))
                 }
+                // Rolls and cross-fades like the stage's figure; just changes under Reduce Motion.
                 Text(s.unit.format(mgdl: cur.mgdl))
                     .font(.system(.headline, design: .rounded).weight(.bold))
                     .monospacedDigit()
-                    .contentTransition(.numericText(value: cur.mgdl))
+                    .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
+                    .readingChange(mgdl: cur.mgdl, tone: tone, instantUnderReduceMotion: true)
                     .staleStrike(stale, thickness: 2)
-                Image(systemName: stale ? "clock.badge.exclamationmark" : cur.trend.systemImage)
+                TrendArrow(trend: cur.trend, stale: stale)
                     .font(.subheadline.weight(.bold))
-                    .contentTransition(.symbolEffect(.replace))
             }
         }
         .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
+        .dsAnimation(.sweep, value: tone)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(s.accessibilitySummary())
     }

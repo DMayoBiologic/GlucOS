@@ -758,16 +758,19 @@ extension View {
     /// A reading's figure changing to a new reading (docs/Redesign.md §6.5): the number counts over
     /// to its new value, up or down with the change, and its range colour cross-fades. Works between
     /// two Live Activity states and two widget timeline entries, since both are an animation on a
-    /// value rather than a timer. Under Reduce Motion the old figure fades into the new one in place.
+    /// value rather than a timer. Under Reduce Motion the old figure fades into the new one in place,
+    /// or, with `instantUnderReduceMotion` (the app's own screens, where nothing has to bridge two
+    /// system-rendered states), the new figure and colour simply replace the old.
     /// Apply it to the `Text` itself, after its `foregroundStyle`.
-    func readingChange(mgdl: Double, tone: Tone) -> some View {
-        modifier(ReadingChange(mgdl: mgdl, tone: tone))
+    func readingChange(mgdl: Double, tone: Tone, instantUnderReduceMotion: Bool = false) -> some View {
+        modifier(ReadingChange(mgdl: mgdl, tone: tone, instantUnderReduceMotion: instantUnderReduceMotion))
     }
 }
 
 private struct ReadingChange: ViewModifier {
     let mgdl: Double
     let tone: Tone
+    var instantUnderReduceMotion = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Key: Equatable {
@@ -776,7 +779,11 @@ private struct ReadingChange: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        if reduceMotion {
+        if reduceMotion, instantUnderReduceMotion {
+            // The figure just changes: no roll and no fade, even inside a surrounding animation.
+            content
+                .contentTransition(.identity)
+        } else if reduceMotion {
             // Nothing rolls; one short cross-fade carries both the figure and its colour.
             content
                 .contentTransition(.opacity)

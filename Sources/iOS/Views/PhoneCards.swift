@@ -59,7 +59,7 @@ struct PhoneHeroCard: View {
                 } else if let cur = s.current {
                     HStack(alignment: .center, spacing: DS.Space.md) {
                         VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                            valueRow(cur, stale: stale, tint: tone.color)
+                            valueRow(cur, stale: stale, tint: tone.color, now: now)
                             trendRow(cur, stale: stale)
                         }
                         Spacer(minLength: DS.Space.sm)
@@ -196,7 +196,7 @@ struct PhoneHeroCard: View {
         return store.statusLine
     }
 
-    private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color) -> some View {
+    private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color, now: Date) -> some View {
         // The unit moves under the number at the accessibility sizes, so the number keeps the width.
         DSAccessibleStack(verticalAlignment: .firstTextBaseline, spacing: DS.Space.xs + 2) {
             Text(s.unit.format(mgdl: cur.mgdl))
@@ -205,9 +205,13 @@ struct PhoneHeroCard: View {
                 .font(.system(size: (96 * (1 + (min(textScale.scale, 1.5) - 1) * 0.4)).rounded(), weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tint))
+                // A new reading rolls the digits over to it (up or down with the change) and a range
+                // change cross-fades the colour, like the Live Activity. Once per change; under Reduce
+                // Motion the number just changes. VoiceOver reads the card's label, which is always
+                // the new reading, never a figure part-way through the roll.
+                .readingChange(mgdl: cur.mgdl, tone: s.displayTone(at: now), instantUnderReduceMotion: true)
                 // The line draws across as the data goes stale (docs/Redesign.md §4.3).
                 .staleStrike(stale)
-                .contentTransition(.numericText(value: cur.mgdl))
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
             Text(s.unit.label)
@@ -223,12 +227,19 @@ struct PhoneHeroCard: View {
                 Text("Trend unavailable").foregroundStyle(.secondary)
             } else {
                 HStack(spacing: DS.Space.sm) {
-                    TrendSymbol(trend: cur.trend)
+                    // One arrow that turns to the new direction (at once under Reduce Motion),
+                    // rather than one glyph swapped for another.
+                    TrendArrow(trend: cur.trend)
+                        .fontWeight(.bold)
+                        .accessibilityHidden(true)
                     Text(cur.trend.description)
+                        .contentTransition(.opacity)
+                        .dsAnimation(.sweep, value: cur.trend)
                 }
                 if let d = s.deltaMgdl {
                     Text(s.unit.formatDelta(mgdl: d)).monospacedDigit().foregroundStyle(.secondary)
-                        .contentTransition(.numericText(value: d))
+                        .contentTransition(reduceMotion ? .identity : .numericText(value: d))
+                        .dsAnimation(.arrival, value: d)
                 }
             }
         }
