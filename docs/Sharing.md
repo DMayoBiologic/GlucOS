@@ -161,7 +161,9 @@ Rules and wording are in `supabase/functions/relay/checkins.ts`; tests in `check
 ## Setup
 
 The functions and migration deploy on merge, like the rest of `supabase/`. The web view deploys on merge
-through Vercel's GitHub integration (pushes that don't touch `web/` or `vercel.json` skip the build).
+through Vercel's GitHub integration. A deploy is skipped only when nothing in `web/` or `vercel.json` changed
+since the last successful deploy (`VERCEL_GIT_PREVIOUS_SHA`), so a web change whose own deploy failed
+still goes out with the next commit on main. Comparing with just the previous commit stranded #121.
 Branches named `claude/…` don't deploy at all (`git.deploymentEnabled` in `vercel.json`): every push
 used to create a deployment, even one the skip then cancelled, and the improvement loop's pushes ran the
 Hobby plan's 100 deployments a day out on 2026-11-15, which blocks production deploys too.
