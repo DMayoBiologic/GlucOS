@@ -152,6 +152,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **"Back in range ≈ 20 min".** When you're high, Today shows roughly when you'll be back in range. It only appears while your own past estimates have usually been within 15 minutes, and it is never shown for lows. The Live Activity and the Lock Screen and Home Screen widgets show it too, under the same rule. While the app is closed the Lock Screen card comes from the relay, which only shows it once its own estimates have passed the same check.
 - **The reading rolls, it doesn't jump.** On Today the number rolls to each new value, its colour fades when you cross a range edge, and the trend arrow turns. Under Reduce Motion the number just changes.
 - **Taking your Logbook to the clinic.** Export it from the Logbook: pick the days, then share a PDF summary or a CSV. It's made on the phone, works offline and never includes follower data (docs/LogbookExport.md).
+- **The forecast draws in.** On Today, the forecast line draws out from Now when you open the app and bends smoothly into each new forecast, as on the Mac. With Reduce Motion on, it just changes.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
