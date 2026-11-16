@@ -2447,7 +2447,7 @@ false alarm. Nothing shipped; no app code changed.**
 
 **What ships today.** The trend is the least-squares slope of the last 20 minutes of readings,
 counted at the tuned gain (about 60%) and faded to nothing over 30 minutes. Trend-only low warnings
-read that line carried to 30 minutes (§7, §30).
+read that line carried to 30 minutes (§13, §30).
 
 **The test.** `scripts/acceleration-trend.py`, on every live reading from 11–16 Nov (6,967, one a
 minute, LinkUp graph points left out). A trend forecast every 5 minutes, scored at 15 and 30 minutes
