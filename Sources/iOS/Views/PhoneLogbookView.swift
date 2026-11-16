@@ -7,6 +7,11 @@ enum PhoneRoute: Hashable {
     case insights
     /// The Logbook opened from a card with a chip and period picked (the Insights Lows card).
     case logbookLink(LogbookLink)
+    /// The Logbook opened on one entry, from the "last logged" line under Today's chart.
+    case logbookEntry(UUID)
+
+    /// The "last logged" line's zoom source, whichever entry it names.
+    static let lastLoggedSource = "logbook-last-logged"
 
     /// What the zoom grows from and shrinks back into. A linked Logbook keys on its card, not its
     /// period, so it still finds the card on the way back after a new reading moved the period on.
@@ -14,6 +19,7 @@ enum PhoneRoute: Hashable {
         switch self {
         case .logbook, .insights: return AnyHashable(self)
         case .logbookLink(let link): return AnyHashable(link.sourceID)
+        case .logbookEntry: return AnyHashable(Self.lastLoggedSource)
         }
     }
 }
@@ -75,10 +81,15 @@ struct PhoneLogbookView: View {
     @Namespace private var dayChartSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Opened from a card (`LogbookLink`): its chip picked and its period above the list.
-    init(link: LogbookLink? = nil) {
+    /// The entry to open once the screen is up (the "last logged" line under Today's chart).
+    @State private var opening: UUID?
+
+    /// Opened from a card (`LogbookLink`): its chip picked and its period above the list. Opened on
+    /// an entry (`opening`): that entry's row opens into its detail once the push has landed.
+    init(link: LogbookLink? = nil, opening: UUID? = nil) {
         _kind = State(initialValue: link?.filter)
         _linked = State(initialValue: link?.period)
+        _opening = State(initialValue: opening)
     }
 
     var body: some View {
@@ -135,6 +146,7 @@ struct PhoneLogbookView: View {
             try? await Task.sleep(for: .seconds(1))
             assembled = true
         }
+        .task { await openRequestedEntry() }
     }
 
     /// The export takes a copy of what's on the phone now: the owner's own readings and entries.
@@ -262,6 +274,17 @@ struct PhoneLogbookView: View {
                 onDelete: { opener.close { logbook.delete(ids: [entry.id]) } }
             )
         }
+    }
+
+    /// Opened on an entry: once the zoom in has landed and the row has been laid out, the row grows
+    /// into its detail the same as a tap on it. Once only; Back closes the Logbook as usual. If the
+    /// entry has gone meanwhile (deleted on the Mac), the Logbook just shows.
+    private func openRequestedEntry() async {
+        guard let id = opening else { return }
+        opening = nil
+        try? await Task.sleep(for: .seconds(reduceMotion ? 0.1 : 0.45))
+        guard logbook.entry(id: id) != nil else { return }
+        opener.open(id, reduceMotion: reduceMotion)
     }
 
     /// Lights the rows that just arrived, then lets the colour fade out once.

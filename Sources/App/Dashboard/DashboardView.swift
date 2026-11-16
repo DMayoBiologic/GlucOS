@@ -2,6 +2,14 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+/// Something outside the dashboard window wants it to show: today, an entry in the Logbook from the
+/// popover's "last logged" line. The popover sets it and opens the window; the dashboard takes it
+/// (on appearing, or straight away if already open) and clears it.
+final class DashboardRequest: ObservableObject {
+    static let shared = DashboardRequest()
+    @Published var logbookEntry: UUID?
+}
+
 /// The pop-out dashboard: a regular, resizable window with the full picture. Opened from the
 /// menu bar popover. Reads only what `GlucoseStore` already has.
 struct DashboardView: View {
@@ -28,6 +36,10 @@ struct DashboardView: View {
     @State private var cameFromCard: LogbookFilter?
     /// Back from that Logbook: Insights scrolls to this card.
     @State private var returnToCard: LogbookFilter?
+    /// The entry the Logbook should select and bring into view (the popover's "last logged" line).
+    @State private var revealEntry: UUID?
+    /// Asks from outside this window (the menu bar popover) for an entry in the Logbook.
+    @ObservedObject private var request = DashboardRequest.shared
     /// Notices closed this session. Keyed by content, so a new problem shows again.
     @State private var dismissedNotices: Set<String> = []
     @State private var toast: DashboardToast?
@@ -92,6 +104,7 @@ struct DashboardView: View {
         .onChange(of: logbook.logSheetRequested) { _, requested in
             if requested { openRequestedLogSheet() }
         }
+        .onChange(of: request.logbookEntry) { _, _ in takeEntryRequest() }
         .background(WindowConfigurator(floating: keepOnTop && !windowState.isFullScreen, state: windowState))
         // Small enough for half a laptop screen; below this the sidebar, toolbar and cards collide.
         .frame(minWidth: 760, idealWidth: 1180, minHeight: 540, idealHeight: 800)
@@ -101,6 +114,7 @@ struct DashboardView: View {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate()
             if logbook.logSheetRequested { openRequestedLogSheet() }
+            takeEntryRequest()
         }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
     }
@@ -152,7 +166,7 @@ struct DashboardView: View {
     private func sectionContent(_ data: DashboardData) -> some View {
         switch section {
         case .logbook:
-            LogbookSection(data: data, focusSearch: $focusLogbookSearch, link: $logbookLink,
+            LogbookSection(data: data, focusSearch: $focusLogbookSearch, link: $logbookLink, reveal: $revealEntry,
                            backToInsights: cameFromCard.map { card -> () -> Void in { backToInsights(card) } },
                            backCardTitle: cameFromCard?.title ?? LogbookFilter.lows.title) { logSheet = $0 }
         case .outlook:
@@ -451,6 +465,24 @@ struct DashboardView: View {
         logbookLink = link
         select(.logbook)
         cameFromCard = link.filter
+    }
+
+    /// The popover's "last logged" line was clicked: cross-fade to the Logbook with that entry
+    /// selected. The period goes back to now, and widens (12 or 24 hours) only if the one picked is
+    /// too short to hold the entry, so the row is there to select.
+    private func takeEntryRequest() {
+        guard let id = request.logbookEntry else { return }
+        request.logbookEntry = nil
+        guard let entry = logbook.entry(id: id) else { return }
+        let age = DashboardData.liveEnd(archive: store.archive).timeIntervalSince(entry.timestamp)
+        if range.duration < age + 5 * 60,
+           let wider = DashboardRange.allCases.first(where: { $0.duration >= age + 5 * 60 }) {
+            rangeBinding.wrappedValue = wider
+        }
+        if periodEnd != nil { setPeriodEnd(nil) }
+        cameFromCard = nil
+        revealEntry = id
+        select(.logbook)
     }
 
     /// Back from that Logbook: cross-fade to Insights, scrolled to the card it came from.
