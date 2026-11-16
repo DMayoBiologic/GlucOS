@@ -2819,3 +2819,107 @@ where gap_min < 90 order by perth;
 Then score forecasts across all of them with each meal held out in turn, starting with "both over
 4 h" and "merged", and keep the delaying versions out unless the forecast after stacked meals turns
 out to run high.
+
+## 44. Should forecasts drift back toward your usual level further out? (16 Nov 2026)
+
+The question: of everything the forecast log holds, where is the biggest error that hasn't been
+tried, and does one targeted fix beat what ships on error and on the range at once, without making
+a low warning later? **The biggest untried pattern is level at 45–60 minutes: forecasts that start
+in range run low and ones that start high run high, so glucose drifts back toward its usual level
+faster than the line does. Pulling the line toward the last 7 days' mean fixes most of it, but
+almost all of the gain comes from lifting forecasts that are heading low, which would hide lows
+from the drawn line. The version that leaves those alone is under 2% better at 15, 30 and 60
+minutes and worse on some days, so nothing ships.**
+
+Nothing here touches dosing, the insulin or carb effects, the low alerts or the relay.
+
+**Finding the bucket.** Clean shown points (nothing logged after, drawn) in
+`glucos.forecast_checks`, Mac, iPhone and relay, 12–16 Nov Perth, split by horizon and then by
+start level, trend, time of day and basis. Ranked by total miss, the model forecasts
+(`trendInsulinCarbs`) at 45 and 60 minutes are the largest (8,429 and 7,916 mg/dL summed), and
+at 60 minutes they no longer beat "no change" (55.0 against 54.5). Inside that, the split that
+shows a steady, growing bias is the start level:
+
+| Start | 15 min | 30 min | 45 min | 60 min |
+|---|---|---|---|---|
+| Under 81 (bias, points) | +23.6 (28) | +74.7 (8) | +79.2 (6) | +93.7 (5) |
+| 81–180 | +4.0 (227) | +11.0 (148) | +19.1 (106) | **+31.6 (89)** |
+| Over 180 | −8.8 (157) | −15.2 (107) | −31.7 (68) | **−31.0 (50)** |
+
+(Bias is actual minus forecast, mg/dL, so positive means the forecast ran low.) §36 looked at
+this by band at 15 and 30 minutes only, and §40 and §41 widened one side of the range at each end;
+none of them moved the line, and none looked at the in-range band past 30 minutes, which has the
+most points. The other splits were weaker or already tried: rising trends of 1–2 mg/dL a minute
+with no meal in 3 hours run high (the trend replay fits them a gain of 0.13 against about 0.45
+for falls), but a separate rise gain was within 1–2% of what ships by day, with days 11 and 14 Nov
+wanting the full trend; and the afternoon 60-minute in-range bucket is a handful of unlogged
+rises of 115–155 mg/dL that nothing can see coming.
+
+**The test.** Each point's line (and its range with it) moved toward μ, the mean of every reading
+in the 7 days before it was issued: f + α(h)·(μ − f). μ averaged 171 mg/dL. Leaving one day out
+and picking α per horizon on the rest chose 0.1 (15 min), 0.2 (30), 0.4 (45) and 0.5 (60) on
+every fold but one, so the versions below use α = 0.5·(h − 10)/50, capped at 0.5 from 60 minutes.
+Scored on clean model-forecast points; interval score as in §40 (width + 10 × how far outside).
+
+| Model forecasts, clean | 15 min (241) | 30 min (215) | 45 min (180) | 60 min (144) |
+|---|---|---|---|---|
+| What ships: miss / inside / score | 18.2 / 73.4% / 92.0 | 32.5 / 69.8% / 163.0 | 46.8 / 67.2% / 217.1 | 55.0 / 68.1% / 252.7 |
+| Pull both ways | 17.6 / 75.5% / 87.0 | 30.5 / 73.0% / 136.9 | **41.5 / 71.7% / 173.2** | **48.4 / 73.6% / 192.3** |
+| Pull down only (line above μ) | 17.9 / 74.3% / 90.5 | 32.1 / 72.1% / 152.9 | 44.6 / 68.9% / 203.5 | 55.2 / 70.1% / 233.2 |
+| No lift under 90 | 17.8 / 74.3% / 88.9 | 32.0 / 72.6% / 147.7 | 44.1 / 71.1% / 192.2 | 53.6 / 70.1% / 222.9 |
+| Lift tapered in from 90 to 140 | 17.9 / 74.3% / 89.7 | 32.1 / 72.1% / 150.8 | 44.6 / 70.0% / 199.6 | 54.6 / 69.4% / 229.8 |
+
+On all clean points (apps and relay, every basis) the two-way pull is 17.8 → 17.2, 31.0 → 29.4,
+46.8 → 41.5 and 55.0 → 48.4 mg/dL, with coverage up at every horizon and the miss lower in both halves
+of the week (coverage in the first half dips at 30 minutes, 71.2% → 70.5%). The relay's trend-only points barely move (18.1 → 17.9 at 15 minutes) and trend-only
+forecasts at 30 minutes get slightly worse (24.2 → 24.4, coverage 70.8% → 68.8%).
+
+**Why it doesn't ship.** The two-way pull earns its gain by lifting forecasts that are heading
+low: forecasts under 81 run low by 75–94 mg/dL from 30 minutes on (lows come back up, §17, §36,
+§40), and pulling toward 171 corrects that. But of the four 45-minute points where glucose really
+went under 70, all four had the range bottom under 70 and two had the line under 90 as shipped;
+after the pull, neither line was under 90 and only one range bottom still reached under 70. The alerts could be
+kept on the old line (they already read `Outlook.alertForecast`, and §41's `warningLowers` keeps
+"a low is possible" where it was), but the chart would stop showing a fall that ends in a low, and
+that's the forecast's most important job.
+
+Every version that leaves falling forecasts alone gives most of it back. The safest one (no lift
+under 90, tapering in to full at 140) keeps both of those lines under 90 and all four range bottoms
+under 70, and does improve error and coverage overall, but by 1.6%, 1.2%, 4.7% and 0.7%, short of
+the tuner's bar (§2: 3%, and better in both halves), and by day it's mixed: on 16 Nov the
+60-minute miss goes from 77.4 to 87.4, and 12 Nov's 15 and 30-minute coverage drops (67% → 64%,
+56% → 50%). What's left of it is mostly pulling highs down, which is §36's rejected shift by
+another route, and it would move "Back in range ≈ X min" (§24) sooner too. §41's wider range
+bottom on highs already covers the hour where they come down fastest.
+
+**Low warnings.** Nothing shipped, so low warnings (§13, §30) and "a low is possible" are exactly
+as before on the apps and the relay.
+
+**Dosing.** Not touched: the pull would have been forecast-only, after the insulin and carb
+effects, and no version here changed insulin on board, the effect learner or the bolus figure.
+
+**Caveats.** Five days, 7-day means from at most six days of readings, and only four model points
+that ended under 70 at 45 minutes, so the low check is thin in both directions. Rerun at three
+weeks. If it's tried again, try it with the lift for falling forecasts kept off and see whether the
+gain on highs and in-range forecasts alone reaches 3% on held-out days; don't ship the two-way
+pull without a way to keep a forecast low drawn as low. To rerun the table:
+
+```sql
+with c0 as (select c.*, (select avg(mgdl) from glucos.readings r
+    where r.at between c.issued_at - interval '7 days' and c.issued_at) mu,
+  (select count(*) from glucos.readings r
+    where r.at between c.issued_at - interval '7 days' and c.issued_at) nmu
+  from glucos.forecast_checks c where c.basis = 'trendInsulinCarbs'),
+p as (select c0.mu, (e->>'minutes')::int m, (e->>'actual')::float a, (e->>'mgdl')::float f,
+    (e->>'lower')::float lo, (e->>'upper')::float up,
+    coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al, coalesce(e->>'shown', 'true') shown
+  from c0, jsonb_array_elements(c0.points) e where nmu > 1000),
+q as (select *, least(0.5, greatest(0, 0.5 * (m - 10) / 50.0)) * (mu - f) dl from p
+  where a is not null and shown <> 'false' and not al and m in (15, 30, 45, 60))
+select m, count(*), avg(abs(a - f)) miss, avg(abs(a - f - dl)) pulled,
+  avg((a between lo and up)::int) inside, avg((a between lo + dl and up + dl)::int) pulled_inside
+from q group by 1 order by 1;
+```
+
+For the "no lift under 90, tapered to 140" version, multiply `dl` by
+`case when mu > f then least(1, greatest(0, (f - 90) / 50)) else 1 end`.
