@@ -1842,3 +1842,92 @@ afternoon out of "clean".
       where (p->>'minutes')::int in (15, 30, 60) and jsonb_typeof(p->'actual') = 'number'),
       app_version) order by issued_at)
     from glucos.forecast_checks;
+
+## 32. Does the trend arrow match what happened next? (16 Nov 2026)
+
+The question: the arrow beside the reading (falling quickly, falling, steady, rising, rising
+quickly) is the first thing anyone reads. Does it describe the next 15–30 minutes, and if its
+thresholds mislead, would different ones do better on days they weren't learnt on? **It overstates
+moves, but no threshold set beat it held out without hiding falls before lows, so nothing shipped.**
+No app or relay code changed: the Mac, iPhone, widgets, Live Activity and relay all still show the
+same arrow.
+
+Nothing here touches dosing: the bolus calculator's trend adjustment, insulin on board,
+sensitivity and carb ratios were not read or changed.
+
+**Where the arrow comes from.** Every screen shows LibreLinkUp's `TrendArrow`, passed through
+unchanged (`LibreLinkUpClient`, relay `libre.ts`, then `GlucoseActivityState.trend` to the Live
+Activity and widgets). Abbott documents it as the rate now: beyond ±2 mg/dL a minute is "quickly",
+beyond ±1 is rising or falling. GlucOS only works out its own arrow for readings decoded straight
+from a sensor (`LibreReadings.trend`, the same ±1/±2 over the last 15 minutes), which Declan's
+Gen2 sensor doesn't allow. So the realistic change is replacing LinkUp's arrow with one GlucOS
+works out from the readings.
+
+**What there is.** 6,770 live readings (one per minute, LinkUp graph points dropped as in §23),
+11 to 16 Nov Perth; 6,654 have a live reading within 2 minutes of both 15 and 30 minutes later.
+"What happened" uses the same bands as the arrow: the change over the next 15 minutes divided by
+15 (±15 and ±30 mg/dL; ±30 and ±60 over 30 minutes).
+
+| LinkUp arrow | Readings | Median change, 15 / 30 min | Right band, 15 / 30 | Right way, 15 / 30 | Wrong way by 15+ |
+|---|---|---|---|---|---|
+| Falling quickly | 195 | −12 / −29 | 23% / 11% | 74% / 76% | 12% |
+| Falling | 522 | −12 / −16 | 26% / 33% | 72% / 62% | 15% |
+| Steady | 5,235 | −1 / −2 | 66% / 75% | 66% / 75% (within ±15 / ±30) | 12% (moved 30+) |
+| Rising | 456 | +9 / +5 | 25% / 22% | 63% / 53% | 18% |
+| Rising quickly | 246 | +11 / +9 | 23% / 15% | 67% / 61% | 19% |
+
+So the direction is right about two times in three, but the size is overstated: after "rising
+quickly" glucose rose a median 11 mg/dL over the next 15 minutes, which is the steady band. That's
+expected from an arrow that reports the rate now, since rises and falls turn; the forecast, which
+carries only part of the trend forward (§3, `ForecastTuning.trendGain`), already allows for it. Rising arrows are
+the weakest: after "rising", glucose was higher 30 minutes later only 53% of the time. When glucose
+really did move 15 mg/dL in 15 minutes, LinkUp's arrow pointed that way beforehand only 23% of the
+time.
+
+**Candidates.** An arrow GlucOS works out from the rate over the last 5, 10 or 15 minutes of live
+readings, with the steady/rising threshold from 0.5 to 2 mg/dL a minute and the quickly threshold
+from 1.5 to 4. Each Perth day left out in turn (6 days), thresholds fitted on the other five.
+
+- **Band distance** (how many bands the arrow was off; lower is better) picks ±2/±4 on every
+  fold and "wins" 0.548 against 0.604 at 15 minutes. But showing no arrow at all, always steady,
+  scores 0.534: this score rewards a quiet arrow, because most of the time nothing much happens.
+  ±2/±4 shows a falling arrow before only 32% of pre-low readings, against 59% for LinkUp.
+- **Balanced score** (share of real moves the arrow pointed at, plus share of steady stretches
+  it left steady; always steady scores 1.0): the fitted rule beat LinkUp on 2 of 6 days at 15
+  minutes (mean 1.050 against 1.063) and 3 of 6 at 30 minutes (1.062 against 1.086). A loss.
+- **Trade-off, all days pooled, 15 minutes:**
+
+| Arrow | Moves pointed at | Arrow shown, then steady | Falling arrow before a low |
+|---|---|---|---|
+| LinkUp (shown now) | 23% | 42% | 59% |
+| Own, 15 min, ±1/±2 | 36% | 47% | 64% |
+| Own, 15 min, ±0.75/±1.5 | 43% | 51% | 72% |
+| Own, 15 min, ±2/±4 | 16% | 39% | 32% |
+| LinkUp with "quickly" shown as plain rising/falling | 23% | 42% | 59% |
+
+"Before a low" is the 141 readings at 80 mg/dL or more that were under 70 thirty minutes later
+(8 separate lows). Every own arrow that catches more moves also cries wolf more often, and every
+one that cries wolf less hides falls before lows. None is better on both, and §30's low alerts
+already warn on all 8 of these lows with the forecast, not the arrow.
+
+Why nothing shipped:
+
+- **No candidate won held out.** On the balanced score LinkUp's arrow won 4 of 6 days at 15
+  minutes and 3 of 6 at 30. The only score a new threshold wins outright is one a blank arrow
+  wins too.
+- **Quieter arrows cost safety.** The wider thresholds that look better on band distance halve
+  the share of falls flagged before a low. A low-going reading shown as steady is the worst
+  mistake an arrow can make.
+- **Demoting "quickly" changes nothing that matters.** Showing falling quickly as falling (and
+  rising quickly as rising) improves band distance a little (0.604 → 0.569) only because the
+  quickly bands are rarely reached; it points the same way and flags the same lows. And it would
+  drop "falling quickly" from Abbott's own arrow, which people learn from the Libre app.
+- **A GlucOS arrow would disagree with LibreLinkUp.** LinkUp's arrow matches a 15-minute rate
+  through the live readings 71% of the time (96% within one band), so an own arrow would
+  differ from the Libre app on Declan's phone about one reading in three, for no measured gain.
+
+**When to look again.** With 3+ weeks of readings (early December), if rising arrows are still
+right only about half the time at 30 minutes: test showing "rising" only once the rise has lasted
+10 minutes, scored on the balanced score and the falls-before-lows check together.
+`python3 scripts/trend-arrow.py DIR` with readings.json ([[unix, mgdl, trend], ...] from
+`glucos.readings`) prints every table here.
