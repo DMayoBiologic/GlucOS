@@ -32,24 +32,33 @@ struct Metric: View {
     let sub: String?
     let tint: Color?
     let helpText: String?
+    /// The number behind `value`, so the figure rolls to a new period's value (`RollingFigure`).
+    let rolling: StatRolling?
 
-    init(_ title: String, _ value: String, sub: String? = nil, tint: Color? = nil, help: String? = nil) {
+    init(_ title: String, _ value: String, sub: String? = nil, tint: Color? = nil, help: String? = nil,
+         rolling: StatRolling? = nil) {
         self.title = title
         self.value = value
         self.sub = sub
         self.tint = tint
         self.helpText = help
+        self.rolling = rolling
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.xxs) {
             Text(title).dsFont(.label).foregroundStyle(.secondary).lineLimit(1)
-            Text(value)
-                .dsFont(.metricValue)
-                .foregroundStyle(tint ?? .primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .contentTransition(.numericText())
+            Group {
+                if let rolling {
+                    RollingFigure(rolling.value, order: rolling.order, text: rolling.text)
+                } else {
+                    Text(value).contentTransition(.numericText())
+                }
+            }
+            .dsFont(.metricValue)
+            .foregroundStyle(tint ?? .primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             if let sub {
                 Text(sub).dsFont(.caption).foregroundStyle(tint ?? Color.secondary).lineLimit(2)
             }
@@ -492,20 +501,27 @@ struct GlucoseSparkline: View {
 
 // MARK: - Range breakdown bar
 
+/// Every range is always drawn, in the same order, so a share that appears or grows glides into
+/// place on a new period instead of the colours jumping along. Instant under Reduce Motion.
 struct MiniRangeBar: View {
     let breakdown: RangeBreakdown
 
     var body: some View {
+        let rows = Array(breakdown.rows.reversed())
         GeometryReader { geo in
-            HStack(spacing: 1) {
-                ForEach(breakdown.rows.reversed().filter { $0.fraction > 0.001 }) { row in
+            let shown = rows.map { $0.fraction > 0.001 }
+            let lastShown = shown.lastIndex(of: true)
+            HStack(spacing: 0) {
+                ForEach(rows.indices, id: \.self) { i in
                     Rectangle()
-                        .fill(row.range.reportColor)
-                        .frame(width: max(1, geo.size.width * row.fraction))
+                        .fill(rows[i].range.reportColor)
+                        .frame(width: shown[i] ? max(1, geo.size.width * rows[i].fraction) : 0)
+                        .padding(.trailing, shown[i] && i != lastShown ? 1 : 0)
                 }
             }
         }
         .clipShape(Capsule())
+        .dsAnimation(.emphasized, value: breakdown)
         .accessibilityHidden(true)
     }
 }

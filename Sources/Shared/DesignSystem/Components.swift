@@ -183,6 +183,20 @@ struct TonePill: View {
 
 // MARK: - Stat tile
 
+/// The number behind a statistic's written value and how to write it, so the figure rolls
+/// (`RollingFigure`). Used by `StatTile` and the Mac Dashboard's `Metric`.
+struct StatRolling {
+    let value: Double
+    let text: (Double) -> String
+    /// The figure's place in a row, so a row's count-up settles left to right (`RollingFigure.order`).
+    var order: Int = 0
+    init(_ value: Double, order: Int = 0, text: @escaping (Double) -> String) {
+        self.value = value
+        self.order = order
+        self.text = text
+    }
+}
+
 /// One headline number with its label: "Average 11.1 mmol/L". The value takes the tone's
 /// colour (neutral values stay primary), shrinks slightly before truncating, and never wraps.
 struct StatTile<Footer: View>: View {
@@ -201,17 +215,7 @@ struct StatTile<Footer: View>: View {
     var rolling: Rolling?
     @ViewBuilder var footer: () -> Footer
 
-    struct Rolling {
-        let value: Double
-        let text: (Double) -> String
-        /// The tile's place in a row, so a row's count-up settles left to right (`RollingFigure.order`).
-        var order: Int = 0
-        init(_ value: Double, order: Int = 0, text: @escaping (Double) -> String) {
-            self.value = value
-            self.order = order
-            self.text = text
-        }
-    }
+    typealias Rolling = StatRolling
 
     init(_ title: String, value: String, unit: String? = nil, caption: String? = nil, tone: Tone = .neutral,
          large: Bool = false, boxed: Bool = false, help: String? = nil, rolling: Rolling? = nil,
@@ -298,6 +302,9 @@ struct LegendItem: View {
     let color: Color
     let label: String
     var value: String?
+    /// The share behind `value`: when given, the value is written as a rolling percentage
+    /// (`RollingFigure`), so it rolls to a new period's figure instead of jumping.
+    var fraction: Double? = nil
     var detail: String?
     var emphasised = false
 
@@ -319,8 +326,15 @@ struct LegendItem: View {
                         .dsFont(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .contentTransition(.numericText())
                 }
-                if let value {
+                if let fraction {
+                    RollingFigure(fraction) { Format.percent($0) }
+                        .fontWeight(.semibold)
+                        .dsFont(.callout)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                } else if let value {
                     Text(value)
                         .fontWeight(.semibold)
                         .dsFont(.callout)

@@ -151,12 +151,14 @@ private struct BreakdownTable: View {
                             MiniRangeBar(breakdown: b)
                                 .frame(minWidth: 80, maxWidth: .infinity)
                                 .frame(height: 8)
-                            Text(Format.percent(b.inRange)).monospacedDigit().fontWeight(.semibold).dsFont(.callout)
-                            Text(Format.percent(b.below)).monospacedDigit()
+                            RollingFigure(b.inRange) { Format.percent($0) }
+                                .monospacedDigit().fontWeight(.semibold).dsFont(.callout)
+                            RollingFigure(b.below) { Format.percent($0) }.monospacedDigit()
                                 .fontWeight(worst?.0 == row.id && b.below > 0.04 ? .bold : .regular)
                                 .dsFont(.callout)
                                 .foregroundStyle(b.below > 0.04 ? GlucoseRange.low.textTint : Color.primary)
-                            Text(unit.format(mgdl: mean)).monospacedDigit().dsFont(.callout).foregroundStyle(.secondary)
+                            RollingFigure(mean) { unit.format(mgdl: $0) }
+                                .monospacedDigit().dsFont(.callout).foregroundStyle(.secondary)
                         } else {
                             Text("Not enough data").dsFont(.caption).foregroundStyle(.tertiary)
                                 .gridCellColumns(4)
@@ -268,26 +270,27 @@ struct DaysSection: View {
                 .width(min: 100, ideal: 160)
                 TableColumn("In range") { (d: DaySummary) in
                     HStack(spacing: DS.Space.sm - 2) {
-                        Text(Format.percent(d.breakdown.inRange)).monospacedDigit().frame(width: 38, alignment: .trailing)
+                        RollingFigure(d.breakdown.inRange) { Format.percent($0) }
+                            .monospacedDigit().frame(width: 38, alignment: .trailing)
                         MiniRangeBar(breakdown: d.breakdown).frame(height: 6)
                     }
                 }
                 .width(min: 120, ideal: 160)
                 TableColumn("Below") { (d: DaySummary) in
-                    Text(Format.percent(d.breakdown.below)).monospacedDigit()
+                    RollingFigure(d.breakdown.below) { Format.percent($0) }.monospacedDigit()
                         .foregroundStyle(d.breakdown.below > 0.04 ? GlucoseRange.low.textTint : Color.primary)
                 }
                 TableColumn("Above") { (d: DaySummary) in
-                    Text(Format.percent(d.breakdown.above)).monospacedDigit()
+                    RollingFigure(d.breakdown.above) { Format.percent($0) }.monospacedDigit()
                 }
                 TableColumn("Average") { (d: DaySummary) in
-                    Text(u.format(mgdl: d.stats.meanMgdl)).monospacedDigit()
+                    RollingFigure(d.stats.meanMgdl) { u.format(mgdl: $0) }.monospacedDigit()
                 }
                 TableColumn("Low – High") { (d: DaySummary) in
                     Text("\(u.format(mgdl: d.stats.minMgdl)) – \(u.format(mgdl: d.stats.maxMgdl))").monospacedDigit()
                 }
                 TableColumn("CV") { (d: DaySummary) in
-                    Text(Format.percent(d.stats.coefficientOfVariation)).monospacedDigit()
+                    RollingFigure(d.stats.coefficientOfVariation) { Format.percent($0) }.monospacedDigit()
                         .foregroundStyle(d.stats.coefficientOfVariation > 0.36 ? Tone.warning.textColor : Color.primary)
                 }
                 TableColumn("Lows") { (d: DaySummary) in
