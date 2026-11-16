@@ -197,6 +197,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Each Logbook day shows its time in range.** A thin bar with the percentage sits on every day header and draws in once; VoiceOver reads it, for example "Tuesday, 78% in range".
 - **A snooze shows on the Lock Screen.** While alerts are snoozed, the Lock Screen card and the Dynamic Island show a bell-slash with the time the snooze ends, even with the app closed, and VoiceOver reads it.
 - **Log treatment from Today.** During a low, or when one is predicted, Today shows a Log treatment button that opens the log sheet filled in with your usual low treatment. It never logs by itself.
+- **Highs have their own Insights card.** It shows your time above range, how many highs you had and the longest one, and tapping it opens the Logbook on Highs over the same days.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
