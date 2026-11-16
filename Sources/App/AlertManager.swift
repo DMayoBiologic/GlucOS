@@ -74,7 +74,7 @@ final class AlertManager {
         content.sound = notice.critical ? .defaultCritical : .default
         content.interruptionLevel = notice.critical ? .timeSensitive : .active
         content.threadIdentifier = "glucos.alerts"
-        // "Snooze 30 min" and "I'm treating it" (urgent lows: only the second). See AlertSnooze.swift.
+        // "Log treatment" and "Snooze 30 min" (urgent lows: only the first). See AlertSnooze.swift.
         if let category = notice.kind.actionCategory { content.categoryIdentifier = category }
         content.userInfo = ["kind": notice.kind.rawValue]
         let req = UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil)
@@ -138,7 +138,7 @@ final class AlertLogRecorder {
     }
 }
 
-// MARK: - Snooze and "I'm treating it"
+// MARK: - Snooze and "Log treatment"
 
 /// This device's alert snoozes, kept across launches. Read at delivery by `AlertManager`; the
 /// iPhone also sends each one to the relay for its push alerts.
@@ -196,9 +196,9 @@ enum AlertNotifications {
         // Snoozing needs no unlocking (it only quiets this device's own alerts); treating opens the
         // log sheet, so it brings the app forward.
         let snooze = UNNotificationAction(identifier: AlertSnoozes.snoozeAction,
-                                          title: "Snooze \(AlertSnoozes.snoozeMinutes) min", options: [],
+                                          title: AlertSnoozes.snoozeTitle, options: [],
                                           icon: UNNotificationActionIcon(systemImageName: "zzz"))
-        let treat = UNNotificationAction(identifier: AlertSnoozes.treatAction, title: "I'm treating it",
+        let treat = UNNotificationAction(identifier: AlertSnoozes.treatAction, title: AlertSnoozes.treatTitle,
                                          options: [.foreground],
                                          icon: UNNotificationActionIcon(systemImageName: "cross.case.fill"))
         return [

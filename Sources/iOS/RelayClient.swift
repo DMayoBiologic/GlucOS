@@ -144,7 +144,7 @@ struct RelayClient {
         try await call("v1/checkins/answer", method: "POST", body: try JSONEncoder().encode(CheckInAnswer(answer: answer)))
     }
 
-    /// Quiets the relay's pushes of one alert for a while ("Snooze 30 min", "I'm treating it").
+    /// Quiets the relay's pushes of one alert for a while ("Snooze 30 min", "Log treatment").
     /// Sending it twice is harmless: the relay keeps the later end.
     func snoozeAlerts(_ request: AlertSnoozeRequest) async throws -> RelayStatus {
         let body = try JSONEncoder().encode(request)

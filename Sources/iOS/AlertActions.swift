@@ -1,7 +1,7 @@
 import Foundation
 import UserNotifications
 
-/// "Snooze 30 min" and "I'm treating it" on the iPhone's low and high alerts (docs/AlertActions.md),
+/// "Snooze 30 min" and "Log treatment" on the iPhone's low and high alerts (docs/AlertActions.md),
 /// whether the alert came from the relay or from the phone itself.
 @MainActor
 enum PhoneAlertActions {

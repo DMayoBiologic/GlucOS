@@ -123,7 +123,7 @@ final class AlertLogTests: XCTestCase {
         ])
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows[0].kind, .urgentLow)
-        XCTAssertEqual(rows[0].responseText, "I'm treating it")
+        XCTAssertEqual(rows[0].responseText, "Tapped Log treatment")
         XCTAssertEqual(rows[0].respondedAt, at(1))
     }
 
@@ -151,7 +151,7 @@ final class AlertLogTests: XCTestCase {
         let remote = pushed.enumerated().map { i, r in var r = r; r.rev = Int64(i + 1); return r }
         XCTAssertTrue(LogbookMerge.apply(remote, to: &phone, state: &phoneState))
         XCTAssertEqual(phone.alerts, [r])
-        // "I'm treating it" is not a treatment: no food, dose or hypo treatment tag appears.
+        // "Log treatment" is not a treatment: no food, dose or hypo treatment tag appears.
         XCTAssertTrue(phone.doses.isEmpty)
         XCTAssertTrue(phone.meals.isEmpty)
         XCTAssertTrue(phone.contexts.isEmpty)

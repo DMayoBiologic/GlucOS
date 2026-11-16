@@ -2,7 +2,7 @@ import Foundation
 
 // Low and high alerts in the logbook (docs/AlertLog.md). Each time one goes off, the device that
 // showed it keeps a small record: when, which alert, and what was tapped on it ("Snooze 30 min",
-// "I'm treating it", or nothing). The records sync between the Mac and the iPhone with the rest of
+// "Log treatment", or nothing). The records sync between the Mac and the iPhone with the rest of
 // the logbook, and the Logbook shows them as quiet rows between the entries.
 //
 // They are a record of what the phone or Mac said, never something the user did, so they live
@@ -16,7 +16,7 @@ struct AlertRecord: Codable, Identifiable, Hashable {
     enum Response: String, Codable, Hashable {
         /// "Snooze 30 min".
         case snoozed
-        /// "I'm treating it". Opens the log sheet; only what the user then logs is a treatment.
+        /// "Log treatment". Opens the log sheet; only what the user then logs is a treatment.
         case treating
         /// Written by a newer version in a way this one doesn't know: shown as no response.
         case other
@@ -126,7 +126,7 @@ struct AlertLogRow: Identifiable, Hashable {
     let last: Date
     /// How many times it went off (across devices, the same alert counts once per device).
     let count: Int
-    /// What was tapped: "I'm treating it" if it ever was, else a snooze, else nothing.
+    /// What was tapped: Log treatment if it ever was, else a snooze, else nothing.
     let response: AlertRecord.Response?
     let respondedAt: Date?
     let snoozeMinutes: Int?
@@ -181,11 +181,11 @@ struct AlertLogRow: Identifiable, Hashable {
         }
     }
 
-    /// "Snoozed 30 min", "I'm treating it", "No response".
+    /// "Snoozed 30 min", "Tapped Log treatment", "No response".
     var responseText: String {
         switch response {
         case .snoozed: return snoozeMinutes.map { "Snoozed \($0) min" } ?? "Snoozed"
-        case .treating: return "I'm treating it"
+        case .treating: return "Tapped \(AlertSnoozes.treatTitle)"
         case .other, nil: return "No response"
         }
     }

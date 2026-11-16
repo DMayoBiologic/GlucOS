@@ -19,7 +19,7 @@ Rules: `Sources/Engine/LowTreatmentCheck.swift` (tests: `LowTreatmentCheckTests`
   there, and it isn't low or heading low now (just above the line and falling 1 mg/dL a minute or
   faster). It never asks during a low.
 - Nothing logged for it: no food, and no hypo treatment tag, from 20 minutes before the low to
-  10 minutes after it ended. "I'm treating it" on a low alert logs one, so those lows aren't asked about.
+  10 minutes after it ended. "Log treatment" on a low alert, once logged, counts as one, so those lows aren't asked about.
 - Not answered yet, on any device.
 - Until 2 hours after the low ended. Only the latest low is asked about.
 
