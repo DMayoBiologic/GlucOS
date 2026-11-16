@@ -2923,3 +2923,97 @@ from q group by 1 order by 1;
 
 For the "no lift under 90, tapered to 140" version, multiply `dl` by
 `case when mu > f then least(1, greatest(0, (f - 90) / 50)) else 1 end`.
+
+## 45. Easing the trend when the last few minutes already disagree (16 Nov 2026)
+
+The question: near a peak or a trough, the 15–30 minute forecast keeps going the old way, because
+the trend is a straight line through the last 20 minutes and the turn hasn't reached it yet. If the
+trend were eased whenever the last 5–10 minutes are weaker than it, or already going the other way,
+would forecasts be closer and the range hold more of what happened, on days the test hadn't seen,
+without making any low warning later? **Yes, but not by enough, and it costs high warnings. Easing
+rises only (peaks) is better on every held-out day and leaves low warnings exactly as they are,
+but it's 1.4–3.1% closer overall depending on the device's gain, short of the tuner's 3% at 30
+minutes on every device, and it makes some predicted highs a few minutes later. Easing falls as
+well helps troughs but makes one low warning later. Nothing shipped; no app or relay code
+changed, so the relay stays 2.17.0.**
+
+Not a repeat of §39: that carried on the curve of the last 15 minutes (the second derivative) and
+was mostly noise. This compares two slopes, which is far steadier, and only ever weakens the trend.
+
+**The test.** `scripts/turning-point-damping.py`, on every live reading from 11–16 Nov (7,374, one a
+minute), the same replay as §39: the engine's trend (20-minute least-squares slope, 30-minute fade)
+issued every 5 minutes and scored at 15 and 30 minutes, 1,457 points over six Perth days, 330 of
+them at turning points (trend at least 0.5 mg/dL a minute and the other way 15 minutes later; 175
+peaks, 155 troughs). It's run at the gains the tuner has fitted: about 0.45 (Mac and relay), 0.6
+and 0.7 (iPhone). The candidate takes s, the slope of only the last S minutes (5, 8 or 10), and
+ρ = s / trend. When ρ < 1 (weaker the same way, or already the other way) the trend is scaled by
+1 − k·(1 − max(ρ, floor)); a trend that's speeding up is left alone. k (0.25–1), floor (0, or −0.5
+to let it tip slightly the other way) and side (both, rises only, falls only, or falls only while
+the un-eased line stays above 85 at 30 minutes) were picked on five days and scored on the sixth.
+Coverage uses one band for every version: the 10th–90th percentile of what ships' misses on the
+training days, laid around each line.
+
+Every fold picked the shortest window, S = 5, at full strength (k = 0.75–1): when the last five
+minutes are weaker than the trend, the forecast does best following the last five minutes.
+
+| Held out, gain 0.6 (mg/dL; inside the band) | Points | No change, 15 / 30 | What ships | Eased, any side | Eased, rises only |
+|---|---|---|---|---|---|
+| All | 1,457 | 16.1 / 25.8 | 15.7 / 25.1; 79.3% / 79.5% | 15.2 / 24.8; 79.8% / 80.3% | **15.2 / 24.6; 79.8% / 80.3%** |
+| Turning points | 330 | **17.4 / 25.8** | 25.6 / 33.9; 57.3% / 67.0% | 21.5 / 29.8; 66.1% / 72.4% | 22.3 / 30.2; 64.5% / 72.1% |
+| Peaks | 175 | 18.5 / 26.5 | 26.9 / 35.4; 55.4% / 64.6% | 21.7 / 29.5 | 20.7 / 28.5; 69.1% / 74.3% |
+| Troughs | 155 | 16.1 / 25.0 | 24.2 / 32.2; 59.4% / 69.7% | 21.4 / 30.2 | 24.2 / 32.2 (untouched) |
+| Rising faster than 1 a minute | 281 | 21.6 / 32.7 | 20.8 / 33.1 | 19.1 / 31.0 | 18.9 / 30.7 |
+| Within 3 h of a meal | 360 | 17.0 / 27.7 | 16.2 / 27.4 | 15.6 / 26.6 | 15.7 / 26.5 |
+
+This is the biggest change at turning points any section has found: at a peak the 15-minute miss
+drops by almost a quarter and the band holds 69% instead of 55%. It still doesn't get to "no
+change" there (17.4), because the five minutes before a turn usually still go the old way.
+
+**By device.** Rises only, floor 0 (the version that can't move a low warning, below), against
+what ships, on all six days:
+
+| Gain | 15 min | 30 min | Held-out days better (15 / 30) |
+|---|---|---|---|
+| 0.45 (Mac, relay) | 15.57 → 15.32 (−1.6%) | 25.05 → 24.69 (−1.4%) | 6 / 5 (13 Nov +0.1%) |
+| 0.6 | 15.65 → 15.27 (−2.5%) | 25.14 → 24.62 (−2.1%) | 6 / 6 |
+| 0.7 (iPhone) | 15.81 → 15.33 (−3.1%) | 25.31 → 24.64 (−2.7%) | 6 / 6 |
+
+Letting a reversing rise tip slightly downward (floor −0.5, which every fold chose) adds 0.2–0.3
+points, and easing falls too adds more at 15 minutes (−3.5% at gain 0.6) but almost nothing at 30
+(−1.9%), and at gain 0.45 it's worse than what ships on three of the six days there. It's better in both halves of the week either way. None
+of them reach the tuner's rule (§2: 3% better, at each horizon, in both halves) at 30 minutes on any
+device, and the relay and Mac, at the lower gain, get the least.
+
+**Low warnings.** As in §39, every reading in the 90 minutes before each of the eight lows under
+70, a warning being the trend carried 30 minutes going under 70. Rises only with floor 0 can't
+change a low warning: an eased rise still never goes below where it started. It's identical on all
+eight lows, with the same warnings and false alarms at every gain. Floor −0.5 adds a false alarm at
+gains 0.6 and 0.7 (7 → 8, 9 → 10). Easing falls too cuts false alarms (9 → 5 at gain 0.7) but warns
+2 minutes later for the 16 Nov 00:52 low (7 → 5 minutes) at gain 0.7, which rules it out. The
+guarded version (falls eased only while the line stays above 85) leaves lows alone but almost
+never fires at a trough, because troughs are mostly low.
+
+**High warnings.** Easing a rise lowers the line, so predicted highs can only come later or drop.
+Of 20 highs over 180, rises only (floor 0) warns later for 2 at gains 0.45 and 0.6 (the worst
+11 → 3 minutes, 15 Nov 15:50, at 0.45) and for 6 at gain 0.7 (the worst 14 → 7, 15 Nov 02:28), while
+cutting false alarms by 2 at each gain (9 → 7, 9 → 7, 14 → 12). The alerts could stay on the
+un-eased line, as §41 did with `warningLowers`, so this alone needn't stop it, but it's another
+part to carry for a change under the bar.
+
+**Why it doesn't ship.** Error and coverage both improve, every day, and low warnings don't move,
+which is the first version of a turning-point fix that holds up on all three. But overall it's
+1.4–2.7% at 30 minutes, under the 3% every forecast change has had to clear (§39, §42, §44), with
+the least gain on the Mac and relay, and it would need its own path to keep predicted highs on
+time. Six days and 175 peaks is enough to see the effect at peaks but not to trust that the
+overall margin sits above 3%.
+
+**Dosing.** Not touched: the trend feeds only the drawn forecast and predicted alerts, never insulin
+on board, the effect learner or the bolus figure.
+
+**Next time.** This is the nearest miss so far and the one to retest first at three weeks, rises
+only, S = 5, k = 1, floor 0, with predicted highs kept on the un-eased line, ideally on the stored
+model forecasts (`trendInsulinCarbs`) too, where the trend is only part of the line. Ship it if
+it clears 3% at 15 and 30 minutes at the Mac's and relay's gain. Don't ease falls without the
+low-warning check passing on every low. To rerun: `python3 scripts/turning-point-damping.py DIR`,
+with readings.json and logs.json as for `scripts/acceleration-trend.py` (§39), exported from
+`glucos.readings where trend > 0` and the meals in `glucos.logbook` (`payload->>'timestamp'`).
