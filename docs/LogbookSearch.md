@@ -1,4 +1,4 @@
-# Logbook search (iPhone)
+# Logbook search (iPhone and Mac)
 
 Round 17 of the improvement loop. The iPhone Logbook's search field and chips are there to find
 "that pizza last week" in a couple of taps. Everything runs on what's already on the phone (the
@@ -33,4 +33,22 @@ The words found are bold, on a faint wash of the row's own colour, in the row's 
 second line. When nothing matches, the list says what was searched ("Nothing in Meals matches
 “pizza” since last week.") with **Clear Filters**, and **Search All Dates** when a day was part of it.
 
-The Mac Logbook keeps its own plain search for now.
+## On the Mac
+
+Round 22 brought the same search to the dashboard's Logbook, with the same rules (nothing here is
+Mac-only maths; the two only differ in how they show it).
+
+- **⌘F** from anywhere in the dashboard opens the Logbook with the cursor in the search field. Esc in
+  the field clears the search and the chip. Both are in the ⌘? list.
+- **Chips** sit in the sliding picker: All, then whichever of Meals, Insulin, Lows, Notes, Sites,
+  Moments and Alerts would show something.
+- **Which dates.** With nothing typed, the list keeps to the toolbar's period, as before, and so does
+  a chip on its own. Any search looks across every stored entry: the words decide, and the day when
+  one is named ("pizza last week", "fri"). What it understood shows beside the field
+  ("Since last week ✕", or "All dates ✕") with how many rows it found. ✕ on a day drops the day
+  and keeps the words. The Glucose column only fills in for rows inside the toolbar's period.
+- **Highlights.** The words found are bold on a faint wash of the row's colour in the Entry, Details
+  and Site columns, and in an alert row's title and detail.
+- **Nothing found.** The empty list says what was searched ("Nothing in Meals matches “pizza” since
+  last week.") with **Clear Filters**, and **Search All Dates** when the day or the toolbar's period
+  was what narrowed it (`LogbookSearch.offersAllDates`).

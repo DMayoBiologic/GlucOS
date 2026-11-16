@@ -85,3 +85,30 @@ enum SearchHighlight {
         return out
     }
 }
+
+/// How the Logbook's quick filter chips look, on the iPhone and the Mac.
+extension LogbookFilter {
+    var symbol: String {
+        switch self {
+        case .meals: return "fork.knife"
+        case .insulin: return "syringe"
+        case .lows: return "arrow.down.circle"
+        case .notes: return "text.alignleft"
+        case .sites: return "bandage"
+        case .moments: return "tag"
+        case .alerts: return "bell"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .meals: return Palette.food
+        case .insulin: return Palette.insulin
+        case .lows: return Tone.critical.color
+        case .notes: return Palette.brand
+        case .sites: return Palette.site
+        case .moments: return Palette.context
+        case .alerts: return .secondary
+        }
+    }
+}

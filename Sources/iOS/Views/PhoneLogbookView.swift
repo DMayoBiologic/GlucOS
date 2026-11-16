@@ -353,33 +353,6 @@ struct PhoneLogbookView: View {
     }
 }
 
-/// How the Logbook's quick filter chips look.
-extension LogbookFilter {
-    var symbol: String {
-        switch self {
-        case .meals: return LogPart.food.logbookSymbol
-        case .insulin: return LogPart.insulin.logbookSymbol
-        case .lows: return "arrow.down.circle"
-        case .notes: return "text.alignleft"
-        case .sites: return LogPart.site.logbookSymbol
-        case .moments: return LogPart.event.logbookSymbol
-        case .alerts: return "bell"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .meals: return Palette.food
-        case .insulin: return Palette.insulin
-        case .lows: return Tone.critical.color
-        case .notes: return Palette.brand
-        case .sites: return Palette.site
-        case .moments: return Palette.context
-        case .alerts: return .secondary
-        }
-    }
-}
-
 /// One row of the Logbook: something logged, or an alert that went off.
 enum PhoneLogbookItem: Identifiable {
     case entry(LogEntry)

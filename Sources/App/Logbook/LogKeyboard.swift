@@ -169,6 +169,8 @@ enum ShortcutCatalog {
                 ShortcutRow(keys: "Drag on chart", action: "Select a stretch to see its numbers"),
                 ShortcutRow(keys: "Esc", action: "Clear the chart selection"),
                 ShortcutRow(keys: "⌘L", action: "Log insulin, food or a moment"),
+                ShortcutRow(keys: "⌘F", action: "Search the Logbook (\u{201C}pizza last week\u{201D})"),
+                ShortcutRow(keys: "Esc in the search", action: "Clear the search and filters"),
                 ShortcutRow(keys: "⌘R", action: "Refresh"),
                 ShortcutRow(keys: "⌃⌘F", action: "Enter or exit full screen"),
                 ShortcutRow(keys: "⇧⌘P", action: "Export report as PDF"),
