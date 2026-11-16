@@ -32,6 +32,9 @@ struct ForecastRecord: Codable, Hashable, Identifiable {
         /// How much further the upper side alone was widened, for a forecast that started low
         /// (`ForecastRangeScale.lowStartUpper`). Nil: not at all.
         var upperScale: Double? = nil
+        /// How much further the lower side alone was widened, for a forecast that started high
+        /// (`ForecastRangeScale.highStartLower`). Nil: not at all.
+        var lowerScale: Double? = nil
         /// False when this point was past the horizon the forecast was drawn to: live checks had
         /// cut it off (`ForecastLiveHorizon`), and it's kept only to go on scoring that horizon.
         /// Nil (older records) or true: drawn.
@@ -126,11 +129,12 @@ struct ForecastLedger: Codable, Equatable {
             if let s = forecast.unshown.first(where: near), !forecast.samples.contains(where: near) {
                 return ForecastRecord.Point(minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl,
                                             scale: forecast.rangeScale(atMinutes: m),
-                                            upperScale: forecast.upperScales[m], shown: false)
+                                            upperScale: forecast.upperScales[m], lowerScale: forecast.lowerScales[m], shown: false)
             }
             guard let s = forecast.samples.first(where: near) else { return nil }
             return ForecastRecord.Point(minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl,
-                                        scale: forecast.rangeScale(atMinutes: m), upperScale: forecast.upperScales[m])
+                                        scale: forecast.rangeScale(atMinutes: m), upperScale: forecast.upperScales[m],
+                                        lowerScale: forecast.lowerScales[m])
         }
         guard !points.isEmpty else { return false }
         records.append(ForecastRecord(id: UUID(), issuedAt: forecast.issuedAt, device: device, basis: forecast.basis,
@@ -333,8 +337,10 @@ struct ForecastLedger: Codable, Equatable {
         return r.points.compactMap { p in
             guard !p.afterLog, let actual = p.actual else { return nil }
             let shown = max(1, p.scale ?? r.rangeScale ?? 1)
-            // The low-start widening is its own correction: taken out, so it isn't learnt twice.
-            var above = (p.upper - p.mgdl) / (shown * max(1, p.upperScale ?? 1)), below = (p.mgdl - p.lower) / shown
+            // The low- and high-start widenings are their own corrections: taken out, so they aren't
+            // learnt twice.
+            var above = (p.upper - p.mgdl) / (shown * max(1, p.upperScale ?? 1))
+            var below = (p.mgdl - p.lower) / (shown * max(1, p.lowerScale ?? 1))
             let cutHigh = p.upper >= high, cutLow = p.lower <= low
             if cutHigh && cutLow { return nil }
             if cutHigh { above = below }
