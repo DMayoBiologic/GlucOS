@@ -9,6 +9,12 @@ import Accessibility
 struct TrendChart: View {
     /// Oldest → newest, already limited to `domain`.
     let readings: [GlucoseReading]
+    /// What's drawn: `readings` plus a few just past the left edge (and, while the range changes,
+    /// whatever the other end of the move needs), so they slide out of or into view instead of
+    /// popping. Masked to the plot area. See `PeriodSpan`.
+    let plotted: [GlucoseReading]
+    /// While the range changes: readings from here on keep the detail they had when the move began.
+    let detailStart: Date?
     /// The period on screen. The chart's own axis (`domain`) runs on past it when a forecast is drawn.
     let periodDomain: ClosedRange<Date>
     let unit: GlucoseUnit
@@ -51,10 +57,13 @@ struct TrendChart: View {
     static let howTo = "Hover to read a reading. Drag across the chart to select a stretch and see its numbers. Pinch or use the zoom buttons to zoom, and scroll sideways to pan."
 
     init(readings: [GlucoseReading], domain: ClosedRange<Date>, unit: GlucoseUnit, lowMgdl: Double, highMgdl: Double,
+         plotted: [GlucoseReading]? = nil, detailStart: Date? = nil,
          events: [ChartEvent] = [], comparison: [GlucoseReading] = [], comparisonShift: TimeInterval = 0,
          latestIsStale: Bool = false, now: Date? = nil,
          forecast: [ForecastSample] = [], forecastBasis: ForecastBasis? = nil) {
         self.readings = readings
+        self.plotted = plotted ?? readings
+        self.detailStart = detailStart
         self.events = events
         self.periodDomain = domain
         self.unit = unit
@@ -106,7 +115,9 @@ struct TrendChart: View {
         return s
     }
 
-    private var visibleEvents: [ChartEvent] {
+    /// Logged events the overlays menu has switched on, including any just past the left edge
+    /// (drawn, so they slide with the trace).
+    private var shownEvents: [ChartEvent] {
         events.filter { e in
             switch e.kind {
             case .bolus, .basal: return showInsulin
@@ -115,6 +126,11 @@ struct TrendChart: View {
             case .siteChange: return showSites
             }
         }
+    }
+
+    /// The shown events inside the axis: what the legend and a selection describe.
+    private var visibleEvents: [ChartEvent] {
+        shownEvents.filter { domain.contains($0.date) }
     }
 
     var body: some View {
@@ -149,6 +165,22 @@ struct TrendChart: View {
         }
         .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: activeSelection != nil)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: isZoomed)
+        // A new range starts unzoomed with nothing selected (the period glides to its new length).
+        .onChange(of: periodDomain.upperBound.timeIntervalSince(periodDomain.lowerBound)) {
+            visibleLength = Self.wholePeriod
+            selection = nil
+        }
+    }
+
+    /// Changes on a new reading, or when a live period's end moves on to the next 5 minutes.
+    private var slideKey: [Date?] {
+        now == nil ? [] : [readings.last?.timestamp, periodDomain.upperBound]
+    }
+
+    /// Thinning steps in whole minutes, so a forecast nudging the axis's end doesn't re-thin (and
+    /// so redraw) the whole trace.
+    private static func bucket(_ raw: TimeInterval) -> TimeInterval {
+        (raw / 60).rounded(.up) * 60
     }
 
     // MARK: Controls
@@ -328,9 +360,24 @@ struct TrendChart: View {
     private var chart: some View {
         let visible = self.visible
         // Roughly a point per pixel on screen, and never more than a few thousand overall.
-        let bucket = max(visible / 700, fullLength / 3000)
+        let bucket = Self.bucket(max(visible / 700, fullLength / 3000))
         let maxGap = max(30 * 60, bucket * 3)
-        let points = GlucoseAnalytics.plotPoints(readings, bucket: bucket, maxGap: maxGap)
+        let drawn: [PlotPoint] = {
+            // While the range changes the trace keeps the detail it had when the move began, and
+            // only what's off screen until the axis widens is thinned for the wider span. It's
+            // redrawn at the new span's detail once, when the move has finished.
+            guard let detailStart else {
+                return GlucoseAnalytics.plotPoints(plotted, bucket: bucket, maxGap: maxGap)
+            }
+            let detail = Self.bucket(domain.upperBound.timeIntervalSince(detailStart) / 700)
+            let span = plotted.first.map { domain.upperBound.timeIntervalSince($0.timestamp) } ?? fullLength
+            let wide = max(detail, Self.bucket(span / 700))
+            return GlucoseAnalytics.plotPoints(plotted, bucket: wide, maxGap: max(30 * 60, wide * 3),
+                                               detailFrom: detailStart, detailBucket: detail,
+                                               detailMaxGap: max(30 * 60, detail * 3))
+        }()
+        // What's on the axis, for outliers, the descriptor and the period's numbers.
+        let points = drawn.filter { domain.contains($0.date) }
         let ghost = comparePrevious ? GlucoseAnalytics.plotPoints(comparison, bucket: bucket, maxGap: maxGap) : []
         let projection = self.projection
         // Past the newest reading the pointer reads the forecast instead, never a reading.
@@ -350,10 +397,10 @@ struct TrendChart: View {
         // Insulin sits along the bottom of the chart, food along the top.
         let yd = yDomain
         let inset = (yd.upperBound - yd.lowerBound) * 0.045
-        let shown = visibleEvents
+        let shown = shownEvents
         let inView = shown.filter { $0.date >= viewStart && $0.date <= viewEnd }
         // One threshold gradient per continuous run, since each run is its own series.
-        let segmentStyles: [Int: LinearGradient] = Dictionary(grouping: points, by: \.segment).mapValues { run in
+        let segmentStyles: [Int: LinearGradient] = Dictionary(grouping: drawn, by: \.segment).mapValues { run in
             ThresholdGradient.style(minMgdl: run.map(\.mgdl).min() ?? lowMgdl, maxMgdl: run.map(\.mgdl).max() ?? highMgdl,
                                     low: lowMgdl, high: highMgdl)
         }
@@ -366,7 +413,7 @@ struct TrendChart: View {
             GlucoseAnalytics.nearest(to: h.timestamp.addingTimeInterval(-15 * 60), in: readings, tolerance: 5 * 60)
                 .map { h.mgdl - $0.mgdl }
         }
-        let gaps = showGaps ? GlucoseAnalytics.gaps(readings, longerThan: 30 * 60) : []
+        let gaps = showGaps ? GlucoseAnalytics.gaps(plotted, longerThan: 30 * 60) : []
         let trailingGap: GapSpan? = {
             guard latestIsStale, let now, let last = readings.last, now > last.timestamp else { return nil }
             return GapSpan(start: last.timestamp, end: min(now, domain.upperBound))
@@ -377,7 +424,7 @@ struct TrendChart: View {
             GapMarks(gaps: gaps, trailing: trailingGap)
             if let sel = activeSelection { SelectionMarks(range: sel) }
             ComparisonMarks(points: ghost, unit: unit, shift: comparisonShift)
-            TraceMarks(points: points, unit: unit, styles: segmentStyles, fallback: fallbackStyle,
+            TraceMarks(points: drawn, unit: unit, styles: segmentStyles, fallback: fallbackStyle,
                        outliers: showOutliers ? points.filter { $0.mgdl < lowMgdl || $0.mgdl > highMgdl } : [],
                        lowMgdl: lowMgdl, highMgdl: highMgdl)
             EventMarks(events: shown, insulinY: yd.lowerBound + inset, foodY: yd.upperBound - inset,
@@ -396,9 +443,22 @@ struct TrendChart: View {
                 ForecastHoverMarks(sample: f, unit: unit, lowMgdl: lowMgdl)
             }
         }
+        // Both axes are set rather than worked out by Charts, so a new range or a new reading moves
+        // them (and the marks with them) instead of redrawing the chart.
         .chartXScale(domain: domain)
         .chartYScale(domain: yd)
-        .chartScrollableAxes(.horizontal)
+        // Readings past the left edge (sliding in or out) are hidden. The other edges keep room
+        // to overhang, as before: the newest reading's ring and the hover callout.
+        .chartPlotStyle { plot in
+            plot.mask {
+                Rectangle()
+                    .padding(.top, -48)
+                    .padding(.bottom, -12)
+                    .padding(.trailing, -48)
+            }
+        }
+        // Scrolls only while zoomed, so an unzoomed chart's axis animates like any other scale.
+        .chartScrollableAxes(isZoomed ? .horizontal : [])
         .chartXVisibleDomain(length: visible)
         .chartScrollPosition(x: $scrollStart)
         .chartXSelection(value: $hoverDate)
@@ -436,6 +496,9 @@ struct TrendChart: View {
         .accessibilityHint(Self.howTo)
         .accessibilityChartDescriptor(GlucoseChartDescriptor(points: points, domain: domain, yDomain: yd, unit: unit,
                                                              lowMgdl: lowMgdl, highMgdl: highMgdl))
+        // A new reading slides the trace and the time axis along instead of jumping them. One
+        // short movement per reading; nothing here repeats, and it just changes under Reduce Motion.
+        .dsAnimation(.standard, value: slideKey)
     }
 }
 

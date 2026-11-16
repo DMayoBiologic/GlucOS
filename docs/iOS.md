@@ -148,6 +148,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Your alerts are in the Logbook.** Each low or high alert gets a quiet row showing when it went off and what you did about it. Use the filter to hide these rows. They never count as treatments.
 - **Search the Logbook by day.** Try "pizza last week" or "fri" in the search box. The Meals, Insulin, Lows and Notes chips narrow the list, and what matched is highlighted.
 - **Open an entry in the Logbook.** Tap an entry in the full Logbook to see everything about it where it sits, with Edit, Log Again and Delete. Tap it again, tap outside or drag down to close.
+- **A new sensor counts down its warm-up.** For the sensor's first hour, Today and the Live Activity show a ring that fills and "Readings start in about N min" in place of the old sensor's last reading. The first reading cross-fades in when it arrives. Signed in with no readings at all, Today says what to do next and offers Check Again.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.

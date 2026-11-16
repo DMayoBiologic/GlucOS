@@ -31,74 +31,112 @@ struct GlucoseLiveActivity: Widget {
             let tint = tone.color
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    IslandValue(state: state, stale: stale)
-                        .padding(.leading, 4)
+                    if state.isWarmingUp {
+                        WarmUpActivityRing(state: state, size: 44)
+                            .padding(.leading, 4)
+                    } else {
+                        IslandValue(state: state, stale: stale)
+                            .padding(.leading, 4)
+                    }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        TrendDial(trend: stale ? .unknown : state.glucoseTrend, tint: tint, size: 44)
-                        if let delta = state.deltaText, !stale {
-                            Text(delta)
-                                .font(.caption.weight(.semibold))
-                                .monospacedDigit()
-                                .contentTransition(.numericText(value: state.deltaMgdl ?? 0))
-                                .dsAnimation(.arrival, value: state.deltaMgdl)
-                                .foregroundStyle(.secondary)
+                    if state.isWarmingUp {
+                        WarmUpCountdown(state: state, width: 64)
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .padding(.trailing, 4)
+                    } else {
+                        VStack(alignment: .trailing, spacing: 4) {
+                            TrendDial(trend: stale ? .unknown : state.glucoseTrend, tint: tint, size: 44)
+                            if let delta = state.deltaText, !stale {
+                                Text(delta)
+                                    .font(.caption.weight(.semibold))
+                                    .monospacedDigit()
+                                    .contentTransition(.numericText(value: state.deltaMgdl ?? 0))
+                                    .dsAnimation(.arrival, value: state.deltaMgdl)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .padding(.trailing, 4)
                     }
-                    .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    ActivityStatusLabel(state: state, stale: stale, person: context.person)
-                        .font(.caption.weight(.semibold))
+                    if state.isWarmingUp {
+                        Text("Sensor warming up").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    } else {
+                        ActivityStatusLabel(state: state, stale: stale, person: context.person)
+                            .font(.caption.weight(.semibold))
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(spacing: 6) {
-                        ActivitySparkline(state: state, stale: stale)
-                            .frame(height: 52)
-                        RangeRail(mgdl: state.mgdl, lowMgdl: state.lowMgdl, highMgdl: state.highMgdl, stale: stale,
-                                  forecastMgdl: stale ? nil : state.forecastHeadline?.mgdl, thickness: 3,
-                                  unit: state.glucoseUnit)
-                        ActivityActionRow(state: state, stale: stale, followID: context.attributes.followID,
-                                          person: context.person, compact: true)
+                    if state.isWarmingUp {
+                        Text(state.warmUpLine)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel(state.warmUpAccessibility)
+                    } else {
+                        VStack(spacing: 6) {
+                            ActivitySparkline(state: state, stale: stale)
+                                .frame(height: 52)
+                            RangeRail(mgdl: state.mgdl, lowMgdl: state.lowMgdl, highMgdl: state.highMgdl, stale: stale,
+                                      forecastMgdl: stale ? nil : state.forecastHeadline?.mgdl, thickness: 3,
+                                      unit: state.glucoseUnit)
+                            ActivityActionRow(state: state, stale: stale, followID: context.attributes.followID,
+                                              person: context.person, compact: true)
+                        }
                     }
                 }
             } compactLeading: {
-                Text(state.valueText)
-                    .font(.system(.body, design: .rounded).weight(.heavy))
-                    .monospacedDigit()
-                    .foregroundStyle(tint)
-                    .readingChange(mgdl: state.mgdl, tone: tone)
-                    .staleStrike(stale, color: .secondary, thickness: 2)
-                    .accessibilityLabel(state.accessibilitySummary(stale: stale, person: context.person))
-            } compactTrailing: {
-                HStack(spacing: 2) {
-                    TrendArrow(trend: state.glucoseTrend, stale: stale)
-                        .font(.body.weight(.bold))
-                    if !stale, let delta = state.deltaText {
-                        Text(delta)
-                            .font(.caption2.weight(.bold))
-                            .monospacedDigit()
-                            .contentTransition(.numericText(value: state.deltaMgdl ?? 0))
-                            .dsAnimation(.arrival, value: state.deltaMgdl)
-                            .minimumScaleFactor(0.7)
-                            .lineLimit(1)
-                    }
+                if state.isWarmingUp {
+                    WarmUpActivityRing(state: state, size: 22)
+                } else {
+                    Text(state.valueText)
+                        .font(.system(.body, design: .rounded).weight(.heavy))
+                        .monospacedDigit()
+                        .foregroundStyle(tint)
+                        .readingChange(mgdl: state.mgdl, tone: tone)
+                        .staleStrike(stale, color: .secondary, thickness: 2)
+                        .accessibilityLabel(state.accessibilitySummary(stale: stale, person: context.person))
                 }
-                .foregroundStyle(tint)
-                .dsAnimation(.sweep, value: tone)
-                .accessibilityHidden(true)
-            } minimal: {
-                Text(state.valueText)
-                    .font(.system(.caption, design: .rounded).weight(.heavy))
-                    .monospacedDigit()
+            } compactTrailing: {
+                if state.isWarmingUp {
+                    WarmUpCountdown(state: state, width: 40)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Tone.brand.color)
+                        .accessibilityLabel(state.warmUpAccessibility)
+                } else {
+                    HStack(spacing: 2) {
+                        TrendArrow(trend: state.glucoseTrend, stale: stale)
+                            .font(.body.weight(.bold))
+                        if !stale, let delta = state.deltaText {
+                            Text(delta)
+                                .font(.caption2.weight(.bold))
+                                .monospacedDigit()
+                                .contentTransition(.numericText(value: state.deltaMgdl ?? 0))
+                                .dsAnimation(.arrival, value: state.deltaMgdl)
+                                .minimumScaleFactor(0.7)
+                                .lineLimit(1)
+                        }
+                    }
                     .foregroundStyle(tint)
-                    .readingChange(mgdl: state.mgdl, tone: tone)
-                    .staleStrike(stale, color: .secondary, thickness: 1.5)
-                    .minimumScaleFactor(0.6)
-                    .accessibilityLabel(state.accessibilitySummary(stale: stale, person: context.person))
+                    .dsAnimation(.sweep, value: tone)
+                    .accessibilityHidden(true)
+                }
+            } minimal: {
+                if state.isWarmingUp {
+                    WarmUpActivityRing(state: state, size: 20)
+                        .accessibilityLabel(state.warmUpAccessibility)
+                } else {
+                    Text(state.valueText)
+                        .font(.system(.caption, design: .rounded).weight(.heavy))
+                        .monospacedDigit()
+                        .foregroundStyle(tint)
+                        .readingChange(mgdl: state.mgdl, tone: tone)
+                        .staleStrike(stale, color: .secondary, thickness: 1.5)
+                        .minimumScaleFactor(0.6)
+                        .accessibilityLabel(state.accessibilitySummary(stale: stale, person: context.person))
+                }
             }
-            .keylineTint(tint)
+            .keylineTint(state.isWarmingUp ? Tone.brand.color : tint)
             .widgetURL(URL(string: "glucos://open"))
         }
         // The Apple Watch Smart Stack and CarPlay get their own small layout rather than the
@@ -145,6 +183,7 @@ extension GlucoseActivityState {
 /// backdrop), so it reads the same on a light or dark wallpaper and in StandBy.
 enum ActivityLook {
     static func backgroundTint(_ state: GlucoseActivityState, stale: Bool) -> Color {
+        if state.isWarmingUp { return Color(red: 0.05, green: 0.07, blue: 0.10).opacity(0.88) }
         if stale { return Color(white: 0.16).opacity(0.9) }
         switch state.range {
         case .inRange: return Color(red: 0.05, green: 0.08, blue: 0.08).opacity(0.88)
@@ -162,14 +201,27 @@ private struct ActivityPresentation: View {
     @Environment(\.activityFamily) private var family
 
     var body: some View {
-        switch family {
-        case .small:
-            SmallGlucoseCard(state: context.state, stale: context.isStaleCard, person: context.person,
-                             followID: context.attributes.followID)
-        default:
-            LockScreenGlucoseCard(state: context.state, stale: context.isStaleCard, person: context.person,
-                                  followID: context.attributes.followID)
+        // A warm-up countdown and the first reading are different layouts: the swap is a
+        // cross-fade (no movement, so nothing changes under Reduce Motion).
+        Group {
+            if context.state.isWarmingUp {
+                switch family {
+                case .small: WarmUpSmallCard(state: context.state)
+                default: WarmUpLockScreenCard(state: context.state)
+                }
+            } else {
+                switch family {
+                case .small:
+                    SmallGlucoseCard(state: context.state, stale: context.isStaleCard, person: context.person,
+                                     followID: context.attributes.followID)
+                default:
+                    LockScreenGlucoseCard(state: context.state, stale: context.isStaleCard, person: context.person,
+                                          followID: context.attributes.followID)
+                }
+            }
         }
+        .id(context.state.isWarmingUp)
+        .transition(.opacity)
     }
 }
 

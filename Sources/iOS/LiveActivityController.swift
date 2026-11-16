@@ -152,7 +152,7 @@ final class LiveActivityController: ObservableObject {
     func show(_ state: GlucoseActivityState, wantsPushUpdates: Bool, canStart: Bool) async {
         guard systemEnabled else { return }
         let content = ActivityContent(state: state, staleDate: state.staleDate,
-                                      relevanceScore: state.range == .inRange ? 50 : 100)
+                                      relevanceScore: state.isWarmingUp || state.range == .inRange ? 50 : 100)
         await endDuplicates()
         if let activity = current {
             guard state != lastSent || activity.activityState == .stale else { return }
