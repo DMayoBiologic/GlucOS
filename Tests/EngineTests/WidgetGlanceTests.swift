@@ -284,4 +284,36 @@ final class WidgetGlanceTests: XCTestCase {
             XCTAssertNil(UsualGlance.usualID(from: URL(string: s)!), s)
         }
     }
+
+    // MARK: StandBy
+
+    func testStandByNightIsTheVibrantModeAndDimmer() {
+        XCTAssertEqual(StandByGlance.style(vibrant: true), .night)
+        XCTAssertEqual(StandByGlance.style(vibrant: false), .day)
+        XCTAssertLessThan(StandByGlance.primaryOpacity(.night), 1)
+        XCTAssertLessThan(StandByGlance.secondaryOpacity(.night), StandByGlance.primaryOpacity(.night))
+        XCTAssertEqual(StandByGlance.primaryOpacity(.day), 1)
+    }
+
+    func testStandByCaptionPerFreshness() {
+        XCTAssertEqual(StandByGlance.caption(snapshot(minutesOld: 2), at: referenceNow), "Rising · 2m")
+        XCTAssertEqual(StandByGlance.caption(snapshot(minutesOld: 2, trend: .unknown), at: referenceNow), "2m")
+        XCTAssertEqual(StandByGlance.caption(snapshot(minutesOld: 12), at: referenceNow), "Stale · 12m")
+        var s = snapshot(minutesOld: 45)
+        XCTAssertEqual(StandByGlance.caption(s, at: referenceNow), "No reading for 45m")
+        s.lastError = "offline"
+        XCTAssertEqual(StandByGlance.caption(s, at: referenceNow), "Can't connect · 45m")
+        XCTAssertEqual(StandByGlance.caption(.empty, at: referenceNow), "Waiting for GlucOS")
+    }
+
+    func testStandByWithdrawsTheTrendFirstThenTheValue() {
+        XCTAssertTrue(StandByGlance.showsTrend(snapshot(minutesOld: 2), at: referenceNow))
+        XCTAssertFalse(StandByGlance.showsTrend(snapshot(minutesOld: 2, trend: .unknown), at: referenceNow))
+        XCTAssertFalse(StandByGlance.showsTrend(snapshot(minutesOld: 12), at: referenceNow))
+        XCTAssertEqual(StandByGlance.value(snapshot(minutesOld: 12), at: referenceNow), "6.1")
+        XCTAssertTrue(StandByGlance.showsBand(snapshot(minutesOld: 12), at: referenceNow))
+        XCTAssertEqual(StandByGlance.value(snapshot(minutesOld: 45), at: referenceNow), "––")
+        XCTAssertFalse(StandByGlance.showsBand(snapshot(minutesOld: 45), at: referenceNow))
+        XCTAssertEqual(StandByGlance.value(.empty, at: referenceNow), "––")
+    }
 }

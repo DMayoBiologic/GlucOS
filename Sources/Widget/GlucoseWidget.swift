@@ -39,6 +39,11 @@ struct GlucoseWidget: Widget {
 struct GlucoseWidgetView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.widgetRenderingMode) private var renderingMode
+    #if os(iOS)
+    /// False in StandBy (and on the iPad Lock Screen), where the system drops the background and
+    /// draws the small widget large: the bedside layout is `StandByGlucoseView`.
+    @Environment(\.showsWidgetContainerBackground) private var showsBackground
+    #endif
     let entry: GlucoseEntry
 
     private var s: GlucoseSnapshot { entry.snapshot }
@@ -47,7 +52,7 @@ struct GlucoseWidgetView: View {
 
     var body: some View {
         switch family {
-        case .systemSmall: small
+        case .systemSmall: smallOrStandBy
         case .systemMedium: medium
         case .systemExtraLarge: extraLarge
         default: large
@@ -118,6 +123,14 @@ struct GlucoseWidgetView: View {
     private var showsRefresh: Bool { config.showsRefresh || entry.freshness != .fresh }
 
     // MARK: Small
+
+    @ViewBuilder private var smallOrStandBy: some View {
+        #if os(iOS)
+        if showsBackground { small } else { StandByGlucoseView(entry: entry, spoken: spokenReading) }
+        #else
+        small
+        #endif
+    }
 
     private var small: some View {
         VStack(alignment: .leading, spacing: 0) {
