@@ -30,6 +30,21 @@ final class SensorWarmUpTests: XCTestCase {
         XCTAssertEqual(w.fraction(at: start.addingTimeInterval(2 * 3600)), 1)
     }
 
+    func testSpokenCountdownSaysMinutesInWordsAndTheClockTime() {
+        let w = SensorWarmUp(startedAt: start)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let locale = Locale(identifier: "en_US_POSIX")
+        let at = ClockLabel.time(w.endsAt, calendar: utc, locale: locale)
+        XCTAssertEqual(w.spoken(at: start.addingTimeInterval(18 * 60), calendar: utc, locale: locale),
+                       "Sensor warming up. Readings start in about 42 minutes, around \(at).")
+        XCTAssertEqual(w.spoken(at: start.addingTimeInterval(3600 - 20), calendar: utc, locale: locale),
+                       "Sensor warming up. Readings start in about 1 minute, around \(at).")
+        XCTAssertEqual(w.spoken(at: start.addingTimeInterval(3600 + 60)),
+                       "Sensor warming up. Readings start any minute now.")
+        XCTAssertFalse(w.spoken(at: start).contains(" min,"), "no abbreviation for VoiceOver to misread")
+    }
+
     func testTheFirstReadingOfTheNewSensorEndsTheWarmUp() {
         let first = GlucoseReading(timestamp: start.addingTimeInterval(3600), mgdl: 120, trend: .flat)
         XCTAssertNil(SensorWarmUp.current(sensor: sensor(start), current: first, at: start.addingTimeInterval(3610)))

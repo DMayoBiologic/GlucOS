@@ -62,6 +62,8 @@ struct GlucoseLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.center) {
                     if state.isWarmingUp {
                         Text("Sensor warming up").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            // The bottom line says it with the time; read once, not twice.
+                            .accessibilityHidden(true)
                     } else {
                         ActivityStatusLabel(state: state, stale: stale, person: context.person)
                             .font(.caption.weight(.semibold))

@@ -125,6 +125,14 @@ struct UsualWidgetButton: View {
         return tint.opacity(usual.kind == .low ? 0.22 : 0.12)
     }
 
+    /// The detail line ("Toast and banana · 45 g") on the tile. `.secondary` measured 2.95:1 on the
+    /// filled low tile in light mode and about 3.5:1 on the Mac desktop, under the 4.5:1 that text
+    /// this small needs; the primary colour at 72 % keeps at least 5.6:1 on every tile, light and
+    /// dark (docs/DesignSystem.md). The tinted and vibrant modes keep the system's own style.
+    private var detailStyle: AnyShapeStyle {
+        mode.isFullColor ? AnyShapeStyle(Color.primary.opacity(0.72)) : AnyShapeStyle(HierarchicalShapeStyle.secondary)
+    }
+
     var body: some View {
         action {
             VStack(alignment: .leading, spacing: 3) {
@@ -140,7 +148,7 @@ struct UsualWidgetButton: View {
                 if !usual.detail.isEmpty {
                     Text(usual.detail)
                         .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(detailStyle)
                         .lineLimit(2)
                         .minimumScaleFactor(0.85)
                 }

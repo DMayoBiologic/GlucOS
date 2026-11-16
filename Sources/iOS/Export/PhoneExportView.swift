@@ -52,6 +52,7 @@ struct PhoneExportView: View {
                     }
                 }
                 .disabled(working)
+                .accessibilityValue(working ? "Making the file" : "")
                 .accessibilityHint("Makes the file on this iPhone, then opens the share sheet")
             } footer: {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
@@ -155,7 +156,10 @@ struct PhoneExportView: View {
                 Haptics.play(.done)
                 file = ExportFile(url: result)
             } else {
-                problem = "Couldn't make the file. Check this iPhone has some free space, then try again."
+                let text = "Couldn't make the file. Check this iPhone has some free space, then try again."
+                problem = text
+                // The line appears in the footer, away from VoiceOver's focus on the button.
+                AccessibilityNotification.Announcement(text).post()
             }
         }
     }

@@ -53,7 +53,7 @@ struct PopoverWarmUpCard: View {
         .background { DSSurface(style: .hero(.brand), radius: PopoverLayout.heroRadius) }
         .contentShape(shape)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Sensor warming up. \(warmUp.headline(at: now)).")
+        .accessibilityLabel(warmUp.spoken(at: now))
         .accessibilityAddTraits([.isHeader, .updatesFrequently])
         .accessibilityAction(named: "Refresh", onRefresh)
         .contextMenu {

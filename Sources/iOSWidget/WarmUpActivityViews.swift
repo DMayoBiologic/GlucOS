@@ -56,11 +56,12 @@ extension GlucoseActivityState {
         return "Readings start around \(ClockLabel.time(end))"
     }
 
+    /// The clock time only. A Live Activity's views are drawn when an update arrives, not as the
+    /// timer runs, so a "42 minutes left" worked out here would still be read out long after it
+    /// stopped being true; the time it ends stays right. The countdown is the drawn timer.
     var warmUpAccessibility: String {
         guard let end = warmUpEnd else { return "Sensor warming up. Readings start soon." }
-        let minutes = Int((max(0, end.timeIntervalSinceNow) / 60).rounded(.up))
-        let left = minutes > 0 ? " In about \(minutes) minute\(minutes == 1 ? "" : "s")." : ""
-        return "Sensor warming up. Readings start around \(ClockLabel.time(end)).\(left)"
+        return "Sensor warming up. Readings start around \(ClockLabel.time(end))."
     }
 }
 
