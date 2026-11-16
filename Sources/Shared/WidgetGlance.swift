@@ -377,3 +377,66 @@ enum WidgetReload {
         return out
     }
 }
+
+// MARK: - StandBy
+
+/// What the Glucose widget draws in StandBy (iPhone charging on its side), where the system shows
+/// the small widget large across half the screen with its container background removed. A bedside
+/// view: the reading as big as it will go, the trend, a thin range band and one line of words.
+/// At night StandBy renders widgets in the vibrant mode and tints them red; `Style.night` keeps
+/// every element in one ink and turns its brightness down, so nothing glares in a dark room.
+///
+/// Every timeline entry draws the same views in the same places, whatever the freshness, and only
+/// their contents change, so the per-minute entries roll the figure and words instead of
+/// replacing the layout (which is what flickers).
+enum StandByGlance {
+    enum Style: Equatable {
+        /// Full colour, or the tinted rendering if someone has StandBy set that way.
+        case day
+        /// Night Mode: the system's red, dimmed by us.
+        case night
+    }
+
+    /// StandBy signals Night Mode only through the rendering mode: vibrant there means night.
+    static func style(vibrant: Bool) -> Style { vibrant ? .night : .day }
+
+    /// How bright the main ink is: the figure and the trend.
+    static func primaryOpacity(_ style: Style) -> Double { style == .night ? 0.78 : 1 }
+
+    /// How bright the words and the band are, under the figure.
+    static func secondaryOpacity(_ style: Style) -> Double { style == .night ? 0.5 : 1 }
+
+    /// The figure: the reading while it can be trusted (fresh or stale), dashes once withdrawn.
+    static func value(_ s: GlucoseSnapshot, at now: Date) -> String {
+        guard let cur = s.current, showsBand(s, at: now) else { return "––" }
+        return s.unit.format(mgdl: cur.mgdl)
+    }
+
+    /// The arrow only for a fresh reading with a known trend: an old arrow describes the past.
+    static func showsTrend(_ s: GlucoseSnapshot, at now: Date) -> Bool {
+        guard let cur = s.current else { return false }
+        return AccessoryGlance.state(s, at: now) == .fresh && cur.trend != .unknown
+    }
+
+    /// The band under the figure, drawn while there's a value. Grey (stale) unless fresh.
+    static func showsBand(_ s: GlucoseSnapshot, at now: Date) -> Bool {
+        let state = AccessoryGlance.state(s, at: now)
+        return state == .fresh || state == .stale
+    }
+
+    /// The one line under the figure: "Rising · 2m", "Stale · 12m", "No reading for 45m". Ages are
+    /// in whole minutes at the entry's date, never a ticking seconds timer, which would be the only
+    /// thing moving on a bedside screen.
+    static func caption(_ s: GlucoseSnapshot, at now: Date) -> String {
+        guard let cur = s.current else { return s.lastError == nil ? "Waiting for GlucOS" : "Open GlucOS to reconnect" }
+        let age = AccessoryGlance.age(cur.age(at: now))
+        switch AccessoryGlance.state(s, at: now) {
+        case .fresh:
+            return cur.trend == .unknown ? age : "\(cur.trend.description) · \(age)"
+        case .stale:
+            return "Stale · \(age)"
+        case .expired, .none:
+            return s.lastError == nil ? "No reading for \(age)" : "Can't connect · \(age)"
+        }
+    }
+}

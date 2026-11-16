@@ -2,9 +2,9 @@ import SwiftUI
 import WidgetKit
 
 /// Lock Screen widgets (circular, rectangular, inline): the reading, trend and age, from the app's
-/// shared snapshot. StandBy shows the small Glucose widget (GlucoseWidget.swift), not these. They
-/// only change when the app has run (or the timeline's own age steps), so the Live Activity is the
-/// one to rely on while locked.
+/// shared snapshot. StandBy shows the small Glucose widget in its own layout
+/// (StandByGlucoseView.swift), not these. They only change when the app has run (or the timeline's
+/// own age steps), so the Live Activity is the one to rely on while locked.
 struct GlucoseAccessoryWidget: Widget {
     let kind = "au.com.declanmayo.glucos.accessory"
 
