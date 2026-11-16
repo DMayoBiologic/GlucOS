@@ -106,6 +106,8 @@ struct MenuBarLabel: View {
     var body: some View {
         Image(nsImage: status.image)
             .accessibilityLabel(status.accessibilityLabel)
+            // The status bar button exists only once the label is in the menu bar.
+            .onAppear { StatusItemToolTip.apply(status.toolTip) }
             .task {
                 store.start()   // ensure polling starts even if the popover is never opened
                 if AppSettings.shared.needsOnboarding {

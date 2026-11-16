@@ -187,3 +187,30 @@ extension MenuBarGlance {
         }
     }
 }
+
+// MARK: - Tooltip
+
+extension MenuBarGlance {
+    /// The menu bar item's tooltip: the reading in words, and while above range with a trusted
+    /// forecast, when it says glucose is back in range (`GlucoseSnapshot.backInRange(at:)`). The
+    /// back-in-range line gives a clock time as well as minutes, since the tooltip isn't redrawn
+    /// between readings. Nothing in it ticks: a stale reading says since when, not how long.
+    static func toolTip(snapshot: GlucoseSnapshot, hasCredentials: Bool, showForecast: Bool,
+                        now: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
+                        locale: Locale = .autoupdatingCurrent) -> String {
+        guard let current = snapshot.current else {
+            return hasCredentials ? "GlucOS: waiting for a reading" : "GlucOS: not connected"
+        }
+        let value = snapshot.unit.format(mgdl: current.mgdl, withUnit: true)
+        if snapshot.isStale(at: now) {
+            let since = ClockLabel.time(current.timestamp, calendar: calendar, locale: locale)
+            return "GlucOS: no new reading since \(since). Last reading \(value)"
+        }
+        var line = "GlucOS: \(value)"
+        if let range = snapshot.range { line += ", \(range.spokenLabel)" }
+        if current.trend != .unknown { line += ", \(current.trend.description.lowercased())" }
+        guard showForecast, let back = snapshot.backInRange(at: now) else { return line }
+        return line + "\n" + BackInRangeText.toolTip(minutes: back.minutes, reading: current.timestamp,
+                                                      calendar: calendar, locale: locale)
+    }
+}
