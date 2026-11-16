@@ -165,6 +165,9 @@ struct DayColumnsCard: View {
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control))
+                // New readings (today's column) or a new day: the shares glide to their new
+                // heights instead of jumping. Once per change; instant under Reduce Motion.
+                .dsAnimation(.emphasized, value: day.stats.map { [$0.timeBelowRange, $0.timeInRange, $0.timeAboveRange] })
                 .scaleEffect(y: grown ? 1 : 0.001, anchor: .bottom)
                 .animation(reduceMotion ? nil : .spring(response: 0.6, dampingFraction: 0.82)
                     .delay(0.15 + Double(order) * 0.045), value: grown)

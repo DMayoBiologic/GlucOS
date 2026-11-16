@@ -97,22 +97,27 @@ struct TimeInRangeBar: View {
         _progress = State(initialValue: drawsIn ? 0 : 1)
     }
 
+    /// Below, in and above range, always all three in the same order, so a share that grows from
+    /// nothing (a first low) widens into place rather than shifting the other colours along.
     private var segments: [(fraction: Double, color: Color)] {
-        let all: [(fraction: Double, color: Color)] = [
-            (stats.timeBelowRange, GlucoseRange.low.tint), (stats.timeInRange, GlucoseRange.inRange.tint),
-            (stats.timeAboveRange, GlucoseRange.high.tint),
-        ]
-        return all.filter { $0.fraction > 0.001 }
+        [(stats.timeBelowRange, GlucoseRange.low.tint), (stats.timeInRange, GlucoseRange.inRange.tint),
+         (stats.timeAboveRange, GlucoseRange.high.tint)]
     }
+
+    private static func shows(_ fraction: Double) -> Bool { fraction > 0.001 }
 
     var body: some View {
         GeometryReader { geo in
-            let gaps = CGFloat(max(0, segments.count - 1)) * 2
-            HStack(spacing: 2) {
+            let shown = segments.map { Self.shows($0.fraction) }
+            let lastShown = shown.lastIndex(of: true)
+            let gaps = CGFloat(max(0, shown.filter { $0 }.count - 1)) * 2
+            HStack(spacing: 0) {
                 ForEach(segments.indices, id: \.self) { i in
                     Rectangle()
                         .fill(segments[i].color.gradient)
-                        .frame(width: max(2, (geo.size.width - gaps) * segments[i].fraction))
+                        .frame(width: shown[i] ? max(2, (geo.size.width - gaps) * segments[i].fraction) : 0)
+                        // The 2-point gap after every shown share but the last.
+                        .padding(.trailing, shown[i] && i != lastShown ? 2 : 0)
                 }
             }
             .frame(width: geo.size.width * progress, alignment: .leading)
@@ -121,7 +126,8 @@ struct TimeInRangeBar: View {
         .frame(height: height)
         .background(.quaternary, in: Capsule())
         .clipShape(Capsule())
-        .dsAnimation(.emphasized, value: stats.timeInRange)
+        // Each share glides to its new width on a new period or new readings; instant under Reduce Motion.
+        .dsAnimation(.emphasized, value: [stats.timeBelowRange, stats.timeInRange, stats.timeAboveRange])
         .modifier(DrawIn(enabled: drawsIn, progress: $progress))
         .accessibilityElement()
         .accessibilityLabel("Time in range")

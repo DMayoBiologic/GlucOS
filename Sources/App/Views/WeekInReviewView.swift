@@ -4,7 +4,8 @@ import SwiftUI
 /// over the last 7 days beside the 7 before, and the best and hardest part of the day this week.
 /// Worked out off the main thread once per data change (`WeekInReviewCache`). Nothing here runs a
 /// timer or loops (docs/Redesign.md power rules): the in-range and average figures roll once to a
-/// new value, and count up when the card appears where `figuresCountUp` is on (iPhone and Mac Insights).
+/// new value, and count up when the card appears where `figuresCountUp` is on (iPhone and Mac Insights);
+/// the sentences and tile colours cross-fade alongside.
 /// Callers give it their own card surface.
 struct WeekInReviewView: View {
     let readings: [GlucoseReading]
@@ -14,6 +15,7 @@ struct WeekInReviewView: View {
 
     @State private var value: WeekInReview?
     @State private var shownKey: WeekInReviewCache.Key?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let key = WeekInReviewCache.key(readings: readings, low: lowMgdl, high: highMgdl)
@@ -33,10 +35,19 @@ struct WeekInReviewView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: key) {
+            let new: WeekInReview?
             if let hit = WeekInReviewCache.shared.cached(key) {
-                value = hit
+                new = hit
             } else {
-                value = await WeekInReviewCache.shared.value(for: key, readings: readings)
+                new = await WeekInReviewCache.shared.value(for: key, readings: readings)
+            }
+            // A week that moves on (new readings, a new day) cross-fades its sentences and colours
+            // while the figures roll, instead of the card jumping. The first fill-in comes in with
+            // the card's own entrance. Once per change; instant under Reduce Motion.
+            if value == nil || new == nil {
+                value = new
+            } else {
+                DS.animate(.standard, reduceMotion: reduceMotion) { value = new }
             }
             shownKey = key
         }

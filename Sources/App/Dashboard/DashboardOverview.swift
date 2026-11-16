@@ -188,17 +188,20 @@ private struct OverviewHeader: View {
             let noun = data.range.periodNoun
             CardGrid(minColumnWidth: 150, maxColumns: 4, spacing: layout.gutter, evenRows: true, fillsHeight: true) {
                 HeadlineTile(title: "Time in range", value: Format.percent(st.timeInRange), tone: .glucose(.inRange),
+                             rolling: .init(st.timeInRange, order: 0) { Format.percent($0) },
                              change: previous.map { StatChange(value: st.timeInRange - $0.timeInRange,
                                                                text: DeltaFormat.points(st.timeInRange - $0.timeInRange),
                                                                goodWhenUp: true) },
                              goal: "goal over 70%", periodNoun: noun,
                              help: "Share of readings between \(data.unit.format(mgdl: data.lowMgdl)) and \(data.unit.format(mgdl: data.highMgdl)) \(data.unit.label).")
                 HeadlineTile(title: "Average", value: data.unit.format(mgdl: st.meanMgdl), unit: data.unit.label, tone: .brand,
+                             rolling: .init(st.meanMgdl, order: 1) { data.unit.format(mgdl: $0) },
                              change: previous.map { StatChange(value: st.meanMgdl - $0.meanMgdl,
                                                                text: DeltaFormat.glucose(st.meanMgdl - $0.meanMgdl, unit: data.unit),
                                                                goodWhenUp: nil) },
                              goal: "\(st.count) readings", periodNoun: noun)
                 HeadlineTile(title: "Variability", value: Format.percent(cv), tone: cv <= 0.36 ? .brand : .warning,
+                             rolling: .init(cv, order: 2) { Format.percent($0) },
                              change: previous.map { StatChange(value: cv - $0.coefficientOfVariation,
                                                                text: DeltaFormat.points(cv - $0.coefficientOfVariation),
                                                                goodWhenUp: false) },
@@ -206,13 +209,15 @@ private struct OverviewHeader: View {
                              help: "Coefficient of variation: standard deviation ÷ average. 36% or less is considered stable.")
                 HeadlineTile(title: "Time below", value: Format.percent(st.timeBelowRange),
                              tone: st.timeBelowRange > 0.04 ? .glucose(.low) : .neutral,
+                             rolling: .init(st.timeBelowRange, order: 3) { Format.percent($0) },
                              change: previous.map { StatChange(value: st.timeBelowRange - $0.timeBelowRange,
                                                                text: DeltaFormat.points(st.timeBelowRange - $0.timeBelowRange),
                                                                goodWhenUp: false) },
                              goal: "goal under 4%", periodNoun: noun,
                              help: "Share of readings below \(data.unit.format(mgdl: data.lowMgdl, withUnit: true)).")
             }
-            // The numbers roll to the new period's values (docs/Redesign.md §8.3).
+            // The numbers roll to the new period's values (docs/Redesign.md §8.3), and the change
+            // labels and goals cross-fade with them.
             .dsAnimation(.emphasized, value: data.periodKey)
         }
     }
@@ -225,13 +230,15 @@ private struct HeadlineTile: View {
     let value: String
     var unit: String?
     var tone: Tone = .neutral
+    var rolling: StatRolling?
     var change: StatChange?
     var goal: String?
     let periodNoun: String
     var help: String?
 
     var body: some View {
-        StatTile(title, value: value, unit: unit, tone: tone, large: true, help: help) {
+        StatTile(title, value: value, unit: unit, tone: tone, large: true, help: help,
+                 rolling: rolling) {
             HStack(spacing: DS.Space.sm - 2) {
                 if let change {
                     DeltaLabel(text: change.text, delta: change.value, goodWhenUp: change.goodWhenUp)
@@ -380,13 +387,15 @@ private struct TimeInRangeCard: View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             ForEach(breakdown.rows) { row in
                 LegendItem(color: row.range.reportColor, label: row.range.label,
-                           value: Format.percent(row.fraction),
+                           value: Format.percent(row.fraction), fraction: row.fraction,
                            detail: GlucoseAnalytics.perDay(row.fraction),
                            emphasised: row.range == .inRange)
                     .help("\(row.range.label): \(Format.percent(row.fraction)) of readings, about \(GlucoseAnalytics.perDay(row.fraction)) a day")
             }
         }
         .frame(maxWidth: .infinity)
+        // The per-day times roll with the percentages on a new period; instant under Reduce Motion.
+        .dsAnimation(.emphasized, value: breakdown)
     }
 }
 
@@ -403,21 +412,25 @@ private struct StatisticsCard: View {
             SectionHeader("Statistics", subtitle: "\(stats.count) readings over \(spanText(stats.spanHours))")
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 14) {
                 GridRow {
-                    Metric("Std deviation", u.format(mgdl: stats.sdMgdl), sub: u.label)
+                    Metric("Std deviation", u.format(mgdl: stats.sdMgdl), sub: u.label,
+                           rolling: .init(stats.sdMgdl, order: 0) { u.format(mgdl: $0) })
                     Metric("GMI", String(format: "%.1f%%", stats.gmiPercent),
                            sub: fullGMI ? "estimated A1c" : "needs 14 days",
                            tint: fullGMI ? nil : Color.secondary,
-                           help: "Glucose Management Indicator: an A1c estimate from average glucose. Only reliable over 14+ days of data.")
+                           help: "Glucose Management Indicator: an A1c estimate from average glucose. Only reliable over 14+ days of data.",
+                           rolling: .init(stats.gmiPercent, order: 1) { String(format: "%.1f%%", $0) })
                 }
                 GridRow {
                     Metric("Time above", Format.percent(stats.timeAboveRange),
                            sub: "goal under 25%",
                            tint: stats.timeAboveRange > 0.25 ? GlucoseRange.high.textTint : nil,
-                           help: "Share of readings above \(u.format(mgdl: data.highMgdl, withUnit: true)).")
+                           help: "Share of readings above \(u.format(mgdl: data.highMgdl, withUnit: true)).",
+                           rolling: .init(stats.timeAboveRange, order: 2) { Format.percent($0) })
                     Metric("Data captured", Format.percent(data.coverage),
                            sub: data.coverage < 0.7 ? "under 70%: less reliable" : "of 15-min periods",
                            tint: data.coverage < 0.7 ? Tone.warning.textColor : nil,
-                           help: "Share of 15-minute periods in this range that have a reading. Under 70% makes the numbers less reliable.")
+                           help: "Share of 15-minute periods in this range that have a reading. Under 70% makes the numbers less reliable.",
+                           rolling: .init(data.coverage, order: 3) { Format.percent($0) })
                 }
             }
         }
@@ -460,6 +473,8 @@ private struct HighlightsCard: View {
             }
         }
         .dashboardCard()
+        // Lowest, highest and the counts roll to the new period's; instant under Reduce Motion.
+        .dsAnimation(.emphasized, value: data.periodKey)
     }
 
     private func when(_ date: Date, _ multiDay: Bool) -> String {
@@ -474,7 +489,9 @@ private struct HighlightsCard: View {
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).fontWeight(.semibold).dsFont(.body).monospacedDigit()
+                    .contentTransition(.numericText())
                 Text(detail).dsFont(.caption).foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
             }
         }
         .accessibilityElement(children: .combine)

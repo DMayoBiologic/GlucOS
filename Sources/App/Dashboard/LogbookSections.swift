@@ -286,13 +286,17 @@ struct LogbookSection: View {
         }
         return HStack(alignment: .top, spacing: DS.Space.xl) {
             if settings.therapy.logsInsulin || bolus + basal > 0 {
-                Metric(settings.therapy == .pump ? "Boluses logged" : "Mealtime insulin logged", LogFormat.number(bolus), sub: "units")
+                Metric(settings.therapy == .pump ? "Boluses logged" : "Mealtime insulin logged", LogFormat.number(bolus), sub: "units",
+                       rolling: .init(bolus, order: 0) { LogFormat.number($0) })
                 if settings.therapy == .injections || basal > 0 {
-                    Metric("Long-acting logged", LogFormat.number(basal), sub: "units")
+                    Metric("Long-acting logged", LogFormat.number(basal), sub: "units",
+                           rolling: .init(basal, order: 1) { LogFormat.number($0) })
                 }
             }
-            Metric("Carbs logged", LogFormat.number(carbs), sub: "grams")
-            Metric("Entries", "\(entries.count)", sub: data.isLive ? data.range.title.lowercased() : "in this period")
+            Metric("Carbs logged", LogFormat.number(carbs), sub: "grams",
+                   rolling: .init(carbs, order: 2) { LogFormat.number($0) })
+            Metric("Entries", "\(entries.count)", sub: data.isLive ? data.range.title.lowercased() : "in this period",
+                   rolling: .init(Double(entries.count), order: 3) { "\(Int($0.rounded()))" })
         }
     }
 
