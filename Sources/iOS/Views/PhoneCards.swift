@@ -522,7 +522,7 @@ struct PhoneChartCard: View {
                 GlucoseChart(readings: store.readings(lastHours: Self.longest), unit: s.unit, lowMgdl: s.lowMgdl,
                              highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
                              forecast: forecast, forecastReveal: reveal, events: events(hours: Self.longest),
-                             timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true)
+                             timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true)
             }
                 .frame(height: 260)
             legend(outlook)
@@ -583,30 +583,6 @@ struct PhoneChartCard: View {
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-extension ChartLogMarker {
-    /// Doses, wake-ups and food after `cutoff`, as chart markers.
-    static func logbook(doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
-                        since cutoff: Date) -> [ChartLogMarker] {
-        var out: [ChartLogMarker] = []
-        for d in doses where d.timestamp >= cutoff {
-            out.append(ChartLogMarker(id: d.id, date: d.timestamp, systemImage: d.viaPump ? "cross.vial.fill" : "syringe.fill",
-                                      tint: Palette.insulin,
-                                      label: "\(LogFormat.units(d.units)) \(d.displayName) at \(ClockLabel.time(d.timestamp))"))
-        }
-        for c in contexts where c.isWake && c.timestamp >= cutoff {
-            out.append(ChartLogMarker(id: c.id, date: c.timestamp, systemImage: ContextTag.wokeUp.systemImage,
-                                      tint: Palette.context, lane: 2,
-                                      label: "Woke up at \(ClockLabel.time(c.timestamp))"))
-        }
-        for m in meals where m.timestamp >= cutoff {
-            out.append(ChartLogMarker(id: m.id, date: m.timestamp, systemImage: "fork.knife", tint: Palette.food, lane: 1,
-                                      label: m.carbs > 0 ? "\(LogFormat.grams(m.carbs)) carbs at \(ClockLabel.time(m.timestamp))"
-                                                         : "Food at \(ClockLabel.time(m.timestamp))"))
-        }
-        return out
     }
 }
 
