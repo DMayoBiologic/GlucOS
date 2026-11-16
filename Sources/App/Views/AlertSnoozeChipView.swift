@@ -82,10 +82,10 @@ private struct AlertSnoozeChipContent: View {
 /// `DSChipButtonStyle`, which would read the chip to VoiceOver as a selected filter.
 private struct SnoozeChipStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        Body(configuration: configuration)
+        ChipBody(configuration: configuration)
     }
 
-    private struct Body: View {
+    private struct ChipBody: View {
         let configuration: Configuration
         @Environment(\.colorSchemeContrast) private var contrast
         @State private var hovering = false
