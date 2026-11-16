@@ -9,9 +9,10 @@ enum PhoneRoute: Hashable {
 
 /// The whole logbook, not just the last day: grouped by day with each day's insulin and carbs in
 /// its header, searchable ("pizza last week", docs/LogbookSearch.md) with the words it found picked
-/// out, quick filter chips (Meals, Insulin, Lows, Notes…), and swipe to delete or log again. Opened
-/// from the home screen's Logbook card ("See All", or "and N more"). Search only reads what's on the
-/// phone, so it works offline.
+/// out, quick filter chips (Meals, Insulin, Lows, Notes…), and swipe to delete or log again. Tapping
+/// an entry opens it in place into everything it holds (`PhoneLogbookDetail`), growing out of the
+/// row and shrinking back into it. Opened from the home screen's Logbook card ("See All", or "and N
+/// more"). Search only reads what's on the phone, so it works offline.
 struct PhoneLogbookView: View {
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var router: PhoneLogRouter
@@ -26,6 +27,8 @@ struct PhoneLogbookView: View {
     /// Entries that just arrived (logged, undone, or synced from the Mac), lit with their colour
     /// for a moment so the eye finds them. Fades once; nothing loops.
     @State private var fresh: Set<UUID> = []
+    /// The entry opened into its detail, if any, and how far open it is.
+    @State private var opener = LogbookRowOpener()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -53,6 +56,8 @@ struct PhoneLogbookView: View {
                     .accessibilityLabel("Log something")
             }
         }
+        // An opened row, drawn over the list it grew out of.
+        .overlay { detail(all: all, terms: search.terms) }
         // Undo, just above the bottom edge. The countdown that sends it away runs on the home
         // screen's stack, so it keeps time across both screens.
         .overlay(alignment: .bottom) { PhoneUndoToast() }
@@ -62,6 +67,11 @@ struct PhoneLogbookView: View {
         .dsAnimation(.standard, value: shownIDs)
         .onChange(of: allIDs) { old, new in
             markFresh(Set(new).subtracting(old))
+        }
+        // The open entry went (deleted on the Mac, undone) or the search or a chip left its row
+        // out: nothing to shrink back into, so the card just goes.
+        .onChange(of: shownIDs) { _, now in
+            if opener.isOpen, LogbookRowExpand.stillOpen(opener.openID, among: now) == nil { opener.dismiss() }
         }
         .onChange(of: kinds) { _, now in
             if let k = kind, !now.contains(k) { kind = nil }
@@ -170,6 +180,23 @@ struct PhoneLogbookView: View {
             .listRowBackground(Color(uiColor: .systemBackground).overlay(tint.opacity(lit)))
     }
 
+    @ViewBuilder
+    private func detail(all: [LogEntry], terms: [String]) -> some View {
+        if let id = opener.openID, let entry = all.first(where: { $0.id == id }) {
+            PhoneLogbookDetail(
+                entry: entry,
+                site: entry.dose.flatMap { logbook.site(of: $0) },
+                terms: terms,
+                opener: opener,
+                onEdit: { router.edit(entry) },
+                // Both wait for the card to land back in its row, so the list moves after it does:
+                // the copy slides in lit, or the row folds away with Undo, as from a swipe.
+                onLogAgain: { opener.close { logbook.duplicate(entry); Haptics.success() } },
+                onDelete: { opener.close { logbook.delete(ids: [entry.id]) } }
+            )
+        }
+    }
+
     /// Lights the rows that just arrived, then lets the colour fade out once.
     private func markFresh(_ added: Set<UUID>) {
         guard !added.isEmpty, assembled else { return }
@@ -239,12 +266,17 @@ struct PhoneLogbookView: View {
     }
 
     private func row(_ entry: LogEntry, terms: [String]) -> some View {
-        Button { router.edit(entry) } label: {
+        // While its card is open (and growing out of it) the row itself steps aside, so there is
+        // one of it on screen. Under Reduce Motion the card fades in over it, so it stays.
+        let lifted = opener.openID == entry.id && opener.style == .matched
+        return Button { opener.open(entry.id, reduceMotion: reduceMotion) } label: {
             PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) }, highlight: terms)
                 .contentShape(Rectangle())
+                .logbookRowFrame(entry.id, in: opener)
+                .opacity(lifted ? 0 : 1)
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Edit")
+        .accessibilityHint("Show details")
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button(role: .destructive) { logbook.delete(ids: [entry.id]) } label: {
                 Label("Delete", systemImage: "trash")

@@ -249,6 +249,8 @@ struct PhoneLogRow: View {
     var showsChevron = true
     /// The Logbook search's words, picked out where they appear in the row.
     var highlight: [String] = []
+    /// How far the chevron has turned to point down, 0…1, as the row opens into its detail.
+    var chevronTurn: Double = 0
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -271,6 +273,7 @@ struct PhoneLogRow: View {
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(90 * LogbookRowExpand.clamped(chevronTurn)))
             }
         }
         .accessibilityElement(children: .combine)
