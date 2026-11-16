@@ -33,6 +33,8 @@ struct GlucOSPhoneApp: App {
         CheckInCoordinator.install(services: services, follows: follows)
         // And the Your usual widget's buttons, which open the log sheet on an entry.
         UsualActions.open = { PhoneLogRouter.shared.openUsual($0) }
+        // And the Control Center controls: Glucose opens Today, Log treatment the low sheet.
+        ControlActions.open = { PhoneLogRouter.shared.openControl($0) }
         // Likewise the Meal / Correction buttons after a dose with no food near it.
         DoseQuestion.shared.start(logbook: logbook)
         // Has to happen before launch finishes.
@@ -70,6 +72,8 @@ struct GlucOSPhoneApp: App {
             if phase == .active { PhoneWakeLogger.shared.noteActive() }
             // A Your usual widget tap whose intent ran in the widget's process.
             if phase == .active, let id = UsualActions.takePending() { PhoneLogRouter.shared.openUsual(id) }
+            // Likewise a Control Center control tap.
+            if phase == .active, let target = ControlActions.takePending() { PhoneLogRouter.shared.openControl(target) }
         }
     }
 }

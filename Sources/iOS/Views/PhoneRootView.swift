@@ -272,6 +272,14 @@ struct PhoneHomeView: View {
         .sheet(isPresented: $showsSharing) {
             NavigationStack { PhoneSharingView() }
         }
+        // The Glucose control in Control Center (iOS 18) opens Today: back to the top of the stack,
+        // out of Settings or Sharing. An open log sheet stays, so nothing being typed is lost.
+        .onChange(of: router.todayRequest) { _, request in
+            guard request != nil else { return }
+            path = NavigationPath()
+            showsSettings = false
+            showsSharing = false
+        }
         .onChange(of: router.request?.id) { _, id in
             // A log link arriving while Settings or Sharing is open: show the log sheet instead.
             if id != nil { showsSettings = false; showsSharing = false }

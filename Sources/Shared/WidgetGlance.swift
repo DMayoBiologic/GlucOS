@@ -215,6 +215,40 @@ enum AccessoryGlance {
     }
 }
 
+// MARK: - Control Center controls
+
+/// The words the iPhone's Glucose control draws in Control Center and on the Lock Screen
+/// (`GlucoseControl`, iOS 18). A control is one short line beside a symbol, drawn by the system,
+/// so freshness has to be in the words: a stale reading says "Stale" and its age and drops the
+/// trend, a withdrawn one shows no number at all. A control only redraws when the app reloads it
+/// (`WidgetReload.Group.controlKinds`), so the age is as of that reload.
+enum ControlGlance {
+    /// "6.1 ↗ · 2m", "Stale 6.1 · 12m", "No reading for 45m": the same line as the inline
+    /// Lock Screen accessory.
+    static func title(_ s: GlucoseSnapshot, at now: Date) -> String {
+        AccessoryGlance.inline(s, at: now)
+    }
+
+    /// The control's symbol: a drop while fresh, a clock once stale, a slashed drop once the number
+    /// is withdrawn or there's never been one. Never a colour alone.
+    static func symbol(_ s: GlucoseSnapshot, at now: Date) -> String {
+        switch AccessoryGlance.state(s, at: now) {
+        case .fresh: return "drop.fill"
+        case .stale: return "clock.badge.exclamationmark"
+        case .expired, .none: return "drop.degreesign.slash"
+        }
+    }
+
+    /// What VoiceOver reads for the control: the widgets' words (`WidgetSpeech.reading`), then what
+    /// a tap does.
+    static func spoken(_ s: GlucoseSnapshot, at now: Date) -> String {
+        WidgetSpeech.reading(s, state: AccessoryGlance.state(s, at: now), at: now) + " Opens Today in GlucOS."
+    }
+
+    /// VoiceOver for the Log treatment control, which never logs by itself.
+    static let treatmentSpoken = "Log treatment. Opens the GlucOS log sheet for treating a low. Nothing is logged until you tap Log."
+}
+
 // MARK: - Reload planning
 
 /// Which widget timelines a new snapshot changes, so the app reloads only those (power audit, #94).
@@ -237,6 +271,23 @@ enum WidgetReload {
             case .usual: return ["au.com.declanmayo.glucos.usual"]
             }
         }
+
+        /// The iPhone's Control Center and Lock Screen controls this group redraws
+        /// (`ControlCenter.reloadControls(ofKind:)`). Only the Glucose control reads the snapshot;
+        /// the Log treatment control is a fixed button and never needs a reload.
+        var controlKinds: [String] {
+            switch self {
+            case .glucose: return [ControlKind.glucose]
+            case .insights, .usual: return []
+            }
+        }
+    }
+
+    /// The control kinds, shared by the widget extension that draws them and the app that reloads
+    /// them.
+    enum ControlKind {
+        static let glucose = "au.com.declanmayo.glucos.control.glucose"
+        static let lowTreatment = "au.com.declanmayo.glucos.control.low-treatment"
     }
 
     /// Everything a widget draws from the snapshot, rounded to what's visible.
