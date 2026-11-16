@@ -404,6 +404,13 @@ old, last 6.2." Follower: prefixed with the person's name.
   plays once per change; under Reduce Motion the number just changes; VoiceOver reads only the new
   reading. The collapsed title's value and arrow do the same. Since round 23 a reading crossing a
   range edge moves figure and colour together on `.sweep` (`ReadingRoll`), on the Mac popover too.
+  Since round 43, crossing into or out of the target range gives one soft cue (`RangeCrossing`,
+  `.rangeCrossingCue` in Signal.swift): a light tap (going low keeps its warning) and a wash of the
+  new range colour behind the figure that comes up and fades in under a second. It fires on the
+  reading that crosses, then re-arms only once a reading sits 5 mg/dL (about 0.3 mmol/L) inside the
+  new side, so a reading hovering at the edge never repeats it. Nothing cues on the first reading,
+  a stale or saved one, the same reading redrawn, or a moved target range. Under Reduce Motion the
+  tap stays and the wash doesn't draw. Alerts are separate and unchanged.
 - **Collapsing header.** Scrolling up shrinks the stage; once its value scrolls under the navigation
   bar, the bar's title becomes the value and trend arrow in the range colour (iOS 18
   `onScrollGeometryChange`), so the reading is never off screen.
@@ -452,8 +459,9 @@ refreshes, dismissing a card and plain navigation stay silent.
 | Pull to refresh brought new readings (nothing on no change or failure) | `newData` | light impact 0.8 | `phonePullToRefresh` (#124) |
 | Scrubbing the chart crosses the low or high line | `scrubRangeEdge` | light impact 0.9 | `GlucoseChart` (#107) |
 | Scrubbing the chart passes something logged | `scrubLogged` | light impact 0.6 | `GlucoseChart` (#107) |
-| A new reading crosses into a low | `enteredLow` | warning | Today hero, follower card |
-| A new reading comes back into range | `backInRange` | success | Today hero, follower card |
+| A new reading crosses into a low (on Today, once per crossing, `RangeCrossing`) | `enteredLow` | warning | Today hero, follower card |
+| The live reading crosses the high line, or comes back into range (once per crossing, never while hovering at the edge) | `rangeCrossed` | light impact 0.7 | Today hero (`.rangeCrossingCue`) |
+| A follower's reading comes back into range | `backInRange` | success | Follower card |
 | A low or high alert fires with the app open (its in-app banner slides in) | `alertBanner` | warning | `AlertBannerHost` |
 | A follower's check-in comes back "okay" | `followerOkay` | success | Check-in card |
 | A check-in comes back "needs help" or unanswered | `followerNeedsHelp` | warning | Check-in card |
@@ -509,6 +517,9 @@ appearance without redrawing.
   on the slower `.sweep` fade (`ReadingRoll`), so the colour isn't hurried along by the roll. Each
   plays once per change, never on opening (the stagger only moves the card's opacity and offset);
   under Reduce Motion the number just changes; VoiceOver reads only the new reading.
+- Crossing into or out of the target range washes the new range colour behind the hero value once
+  (`RangeCrossing`, the same rule and hysteresis as the iPhone, round 43). No haptic on the Mac,
+  nothing while the popover just sits open or reopens, and no wash under Reduce Motion.
 - Changing the summary card's period cross-slides its figures: the old ones slide 18 pt out as the
   new ones come in from the other side, a longer period from the trailing edge. Reduce Motion
   swaps them.

@@ -820,6 +820,68 @@ private struct ReadingChange: ViewModifier {
     }
 }
 
+// MARK: - Range crossing cue
+
+extension View {
+    /// One soft cue when the live reading crosses into or out of the target range (`RangeCrossing`,
+    /// docs/Redesign.md §6.5): a brief wash of the new range colour behind the reading that comes
+    /// up and fades away in under a second, once per crossing, with hysteresis so a reading
+    /// hovering at the edge never repeats it. `onCross` hears each crossing (the iPhone plays its
+    /// tap there). Under Reduce Motion there's no wash; `onCross` still runs.
+    ///
+    /// `live` is false while the reading is stale or still the one saved before launch, which
+    /// never cue. Apply it to the row that holds the reading's figure.
+    func rangeCrossingCue(mgdl: Double, at timestamp: Date, lowMgdl: Double, highMgdl: Double,
+                          live: Bool, tint: Color,
+                          onCross: ((RangeCrossing.Cue) -> Void)? = nil) -> some View {
+        modifier(RangeCrossingCue(key: .init(mgdl: mgdl, at: timestamp, low: lowMgdl, high: highMgdl, live: live),
+                                  tint: tint, onCross: onCross))
+    }
+}
+
+private struct RangeCrossingCue: ViewModifier {
+    struct Key: Equatable {
+        var mgdl: Double
+        var at: Date
+        var low: Double
+        var high: Double
+        var live: Bool
+    }
+
+    let key: Key
+    let tint: Color
+    let onCross: ((RangeCrossing.Cue) -> Void)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var tracker = RangeCrossing()
+    /// Counts the washes played; each new value plays the keyframes once.
+    @State private var washes = 0
+
+    func body(content: Content) -> some View {
+        content
+            .keyframeAnimator(initialValue: 0.0, trigger: washes) { view, strength in
+                view.background {
+                    RoundedRectangle(cornerRadius: DS.Radius.tile, style: .continuous)
+                        .fill(tint.opacity(RangeCrossing.washPeakOpacity * strength))
+                        .padding(.horizontal, -DS.Space.sm)
+                        .padding(.vertical, -DS.Space.xxs)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            } keyframes: { _ in
+                CubicKeyframe(1, duration: RangeCrossing.washRise)
+                CubicKeyframe(0, duration: RangeCrossing.washFade)
+            }
+            .onAppear { observe(key) }
+            .onChange(of: key) { _, new in observe(new) }
+    }
+
+    private func observe(_ k: Key) {
+        guard let cue = tracker.observe(mgdl: k.mgdl, at: k.at, low: k.low, high: k.high, live: k.live) else { return }
+        if RangeCrossing.washes(reduceMotion: reduceMotion) { washes += 1 }
+        onCross?(cue)
+    }
+}
+
 // MARK: - Trend arrow
 
 /// The trend as one arrow turned to the direction of travel, for places too small for the

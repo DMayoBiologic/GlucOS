@@ -62,6 +62,14 @@ struct PhoneHeroCard: View {
                     HStack(alignment: .center, spacing: DS.Space.md) {
                         VStack(alignment: .leading, spacing: DS.Space.xxs) {
                             valueRow(cur, stale: stale, tint: tone.color, now: now, launch: launch)
+                                // Crossing into or out of the target range: one light tap (a low
+                                // keeps its warning) and a brief wash of the new colour, once per
+                                // crossing and never while hovering at the edge. No wash under
+                                // Reduce Motion. Alerts are separate.
+                                .rangeCrossingCue(mgdl: cur.mgdl, at: cur.timestamp,
+                                                  lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
+                                                  live: !stale && launch == .live && warmUp == nil,
+                                                  tint: tone.color) { Haptics.play($0.haptic) }
                             trendRow(cur, stale: stale)
                         }
                         .launchDim(launch, stale: stale)
@@ -142,16 +150,6 @@ struct PhoneHeroCard: View {
         .onChange(of: s.current?.trend) { old, new in
             if !s.isStale(at: .now), let text = TrendTurn.announcement(from: old, to: new) {
                 AccessibilityNotification.Announcement(text).post()
-            }
-        }
-        // A tap you can feel when a new reading, with the app open, crosses into a low (warning)
-        // or comes back into range (success). Nothing on first load or for other changes.
-        .haptic(trigger: s.range) { old, new in
-            guard let old, let new, old != new else { return nil }
-            switch new {
-            case .low, .urgentLow: return .enteredLow
-            case .inRange: return .backInRange
-            case .high, .veryHigh: return nil
             }
         }
     }
