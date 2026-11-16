@@ -1289,24 +1289,30 @@ typical miss comes under 1 mmol/L and 15 minutes on held-out meals, build it the
 estimate was built: highest point of the drawn central line, only when it turns over inside
 the drawn points, each device gated on its own settled checks.
 
-To rerun:
+To rerun (one row per forecast; `kind` gives the table's rows, "turns over" are the real
+estimates, and `meal_at` groups them for the held-out folds):
 
     with rd as (select r.at, r.mgdl from glucos.readings r where not (r.trend = 0 and exists (
         select 1 from glucos.readings o where o.at <> r.at and abs(extract(epoch from o.at - r.at)) < 30))),
-    m0 as (select to_timestamp((payload->>'timestamp')::float) t, payload->>'food' food
-      from glucos.logbook where not deleted and kind = 'meal'),
-    m as (select * from m0 where not exists (select 1 from m0 p where p.t < m0.t and p.t > m0.t - interval '20 minutes')),
-    f as (select f.*, m.t mt, (select min(n.t) from m n where n.t > m.t) nt from glucos.forecast_checks f
+    m0 as (select to_timestamp((payload->>'timestamp')::float) t, (payload->>'carbs')::float carbs,
+      payload->>'food' food from glucos.logbook where not deleted and kind = 'meal'),
+    -- the same meal logged on both devices: same carbs within 20 minutes
+    m as (select * from m0 where not exists (select 1 from m0 p where p.t < m0.t
+      and p.t > m0.t - interval '20 minutes' and p.carbs = m0.carbs)),
+    f as (select f.*, m.t mt, m.food, (select min(n.t) from m n where n.t > m.t) nt from glucos.forecast_checks f
       join m on f.issued_at between m.t and m.t + interval '2 hours'
       where not exists (select 1 from m n where n.t > m.t and n.t <= f.issued_at)),
-    pts as (select f.id, 0 mm, f.start_mgdl v from f union all
-      select f.id, (e->>'minutes')::int, (e->>'mgdl')::float from f, jsonb_array_elements(f.points) e
+    w as (select f.*, least(f.mt + interval '3 hours', coalesce(f.nt, 'infinity')) wend from f),
+    pts as (select w.id, 0 mm, w.start_mgdl v from w union all
+      select w.id, (e->>'minutes')::int, (e->>'mgdl')::float from w, jsonb_array_elements(w.points) e
       where coalesce((e->>'shown')::bool, true)),
     est as (select distinct on (id) id, mm est_min, v est_peak,
       (select max(mm) from pts p2 where p2.id = pts.id) horizon from pts order by id, v desc, mm),
-    act as (select f.id, a.at pat, a.mgdl peak from f cross join lateral (select at, mgdl from rd
-      where rd.at between f.issued_at and least(f.mt + interval '3 hours', coalesce(f.nt, 'infinity'))
-      order by mgdl desc, at limit 1) a)
-    select f.device, f.issued_at, est.*, act.peak, extract(epoch from act.pat - f.issued_at) / 60 act_min
-    from f join est using (id) join act using (id)
-    where est.est_min > 0 and est.est_min < est.horizon order by f.issued_at;
+    act as (select w.id, a.at pat, a.mgdl peak from w cross join lateral (select at, mgdl from rd
+      where rd.at between w.issued_at and w.wend order by mgdl desc, at limit 1) a
+      where w.wend < now())  -- only windows that have closed
+    select w.mt meal_at, w.food, w.device, w.issued_at, est.*, act.peak,
+      extract(epoch from act.pat - w.issued_at) / 60 act_min,
+      case when est.horizon = 0 then 'nothing drawn' when est.est_min = 0 then 'falling or flat'
+        when est.est_min = est.horizon then 'still rising' else 'turns over' end kind
+    from w join est using (id) join act using (id) order by w.issued_at;
