@@ -158,11 +158,11 @@ struct PopoverSummaryCard: View {
     private func legendItem(_ title: String, _ value: Double, _ color: Color, emphasised: Bool = false) -> some View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 7, height: 7)
-            Text(Format.percent(value))
+            // Rolls to a new share, such as after the target range changes (`RollingFigure`).
+            RollingFigure(value) { Format.percent($0) }
                 .fontWeight(.bold)
                 .dsFont(emphasised ? .headline : .callout)
                 .monospacedDigit()
-                .contentTransition(.numericText(value: value))
             Text(title)
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)

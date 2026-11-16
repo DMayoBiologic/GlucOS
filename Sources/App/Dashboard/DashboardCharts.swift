@@ -499,6 +499,8 @@ struct TrendChart: View {
         // A new reading slides the trace and the time axis along instead of jumping them. One
         // short movement per reading; nothing here repeats, and it just changes under Reduce Motion.
         .dsAnimation(.standard, value: slideKey)
+        // A new target range glides the band, its lines and the glucose axis into place.
+        .targetRangeGlide(lowMgdl: lowMgdl, highMgdl: highMgdl)
     }
 }
 
@@ -1281,6 +1283,7 @@ struct PatternChart: View {
         .chartLegend(position: .top, alignment: .leading)
         .accessibilityLabel("Glucose by time of day")
         .accessibilityValue(spokenSummary)
+        .targetRangeGlide(lowMgdl: lowMgdl, highMgdl: highMgdl)
     }
 
     /// When the typical (median) day runs lowest and highest, for VoiceOver.
@@ -1344,6 +1347,7 @@ struct OverlayChart: View {
         }
         .chartLegend(position: .top, alignment: .leading)
         .accessibilityLabel("Each day overlaid by time of day")
+        .targetRangeGlide(lowMgdl: lowMgdl, highMgdl: highMgdl)
     }
 }
 

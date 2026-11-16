@@ -15,12 +15,16 @@ struct PhoneInsightsRow: View {
                         .frame(width: 40, height: 40)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text("Insights").dsFont(.label).foregroundStyle(.secondary)
-                        Text("\(Format.percent(stats.timeInRange)) in range · avg \(unit.format(mgdl: stats.meanMgdl)) \(unit.label)")
-                            .dsFont(.headline)
-                            .foregroundStyle(.primary)
-                            .monospacedDigit()
-                            .dsLineLimit(1)
-                            .minimumScaleFactor(0.8)
+                        // The share rolls to a new figure, such as after the target range changes.
+                        HStack(alignment: .firstTextBaseline, spacing: 0) {
+                            RollingFigure(stats.timeInRange) { Format.percent($0) }
+                            Text(" in range · avg \(unit.format(mgdl: stats.meanMgdl)) \(unit.label)")
+                        }
+                        .dsFont(.headline)
+                        .foregroundStyle(.primary)
+                        .monospacedDigit()
+                        .dsLineLimit(1)
+                        .minimumScaleFactor(0.8)
                         Text("Last 24 hours").dsFont(.caption).foregroundStyle(.tertiary)
                     }
                 } else {

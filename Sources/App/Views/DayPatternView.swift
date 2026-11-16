@@ -307,6 +307,7 @@ private struct DayPatternChart: View {
         .accessibilityChartDescriptor(DayPatternAudioGraph(pattern: pattern, unit: unit, lowMgdl: lowMgdl,
                                                            highMgdl: highMgdl,
                                                            yDomain: v(settled.lowerBound)...v(settled.upperBound)))
+        .targetRangeGlide(lowMgdl: lowMgdl, highMgdl: highMgdl)
     }
 
     /// "12 am", "6 am", "12 pm": the axis keeps its labels short.

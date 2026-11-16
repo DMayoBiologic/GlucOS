@@ -357,3 +357,23 @@ private struct ForecastFrame<Content: View>: View, Animatable {
         content(ForecastMorph.blend(from: from, to: to, t: phase), reveal)
     }
 }
+
+// MARK: - Target range glide
+
+/// The target range as a chart last drew it, so a new one (changed in Settings or arrived by sync)
+/// is a change worth animating.
+private struct TargetRangeKey: Equatable {
+    let low: Double
+    let high: Double
+}
+
+extension View {
+    /// When the target range changes, the chart's band, its low and high lines and the glucose
+    /// axis glide to their new place (Charts animates the marks and the explicit domains), on the
+    /// same `.emphasized` curve as the Logbook's day bars. Readings recoloured by the new range
+    /// change with it. One movement per change, never repeating; instant under Reduce Motion.
+    /// Pass `enabled: false` where nothing should move, such as a widget's copy of the chart.
+    func targetRangeGlide(lowMgdl: Double, highMgdl: Double, enabled: Bool = true) -> some View {
+        dsAnimation(.emphasized, value: enabled ? TargetRangeKey(low: lowMgdl, high: highMgdl) : nil)
+    }
+}
