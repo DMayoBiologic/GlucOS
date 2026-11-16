@@ -1738,3 +1738,107 @@ graph points make spikes look sharper than they are).
     select json_agg((payload->>'timestamp')::float::bigint order by (payload->>'timestamp')::float)
       from glucos.logbook where not deleted and kind in ('dose', 'meal', 'context')
         and payload->>'timestamp' is not null and not coalesce(payload->'tags' ? 'wokeUp', false);
+
+## 31. Forecasts made just after a gap in readings (16 Nov 2026)
+
+The question: do forecasts made just after a gap in readings (a LibreLinkUp or Bluetooth dropout,
+the Mac asleep, the iPhone app closed) miss more than ones made on unbroken readings, and if so,
+would a shorter horizon or a wider range for the first few minutes after a gap do better on days
+it wasn't learnt on? **Partly, but neither fix held up held out, so nothing shipped.** No app or
+relay code changed, so the Mac, iPhone and relay still forecast and widen the same way they did.
+
+Nothing here touches dosing: the bolus calculator, insulin on board, sensitivity and carb ratios
+were not read or changed.
+
+**What there is.** 605 clean points at 15, 30 and 60 minutes in `glucos.forecast_checks`
+(12 Nov 15:23 to 16 Nov 11:49 Perth) and 7,294 readings to 16 Nov 12:06. Two kinds of gap:
+
+- **A gap in the data.** Live readings only (LinkUp graph points within 30 seconds of another
+  reading dropped, as in §23), any step over 5 minutes. Since forecasts started being logged there
+  have been only 13 of these, 5–15 minutes long. The other 52 of the 65 are 10–11 Nov, before
+  the relay ran, when only LinkUp's 15-minute graph was stored.
+- **The app waking up.** The first forecast an app logs after more than 25 minutes without one:
+  the Mac waking from sleep or the iPhone app opened again. The ledger keeps one forecast per 15
+  minutes, so 25 minutes means at least one was skipped. Of the 56 such forecasts with a clean
+  15-minute point, 49 are the iPhone and 7 the Mac, and only 3 (all iPhone) come after the iPhone
+  started filling its history from the relay (PR #82, 15 Nov). The relay never sleeps, so it only has the first kind.
+
+**Do they miss more?** Clean points, error in mg/dL:
+
+| Horizon | Unbroken: forecast / no change / inside | First after a wake | Data gap in the last 30 min |
+|---|---|---|---|
+| 15 min | 17.4 / 19.2 / 72% (227) | 16.6 / 14.9 / 64% (50) | 16.4 / 13.6 / 83% (24) |
+| 30 min | 27.1 / 31.2 / 71% (142) | 26.7 / 28.5 / 67% (43) | 34.0 / 21.8 / 78% (9) |
+| 60 min | 47.0 / 47.6 / 67% (91) | 44.2 / 35.3 / 58% (12) | 68.1 / 58.8 / 43% (7) |
+
+The forecast's own error after a gap is no bigger than usual. What changes is that it loses its
+edge over "no change": the moments after a wake or a dropout are calmer on average, so no change
+does better there, and the forecast doesn't. The first forecast after a wake also falls inside its
+range less often (64% against 72% at 15 minutes).
+
+It isn't the trend being read from stale data. At the iPhone's first forecast after opening, its
+starting reading matched the server's live reading to the mg/dL, and its trend was 0.74 mg/dL a
+minute off a 10-minute line through the server's live readings, against 0.62 for its other
+forecasts. Forecasting those moments with the server's trend instead would still have lost to no
+change (16.4 against 15.2).
+
+**Held out.** Each Perth day left out in turn, learnt on the other days (at least 10 points),
+for the first forecast after a wake and for every forecast up to 15, 30 or 45 minutes after it:
+
+- **Shorter horizon:** stop drawing a horizon after a gap when, on the other days, it lost to no
+  change there (scored as no change on the day left out).
+- **Wider range:** widen the range after a gap by the 80th-percentile miss ratio on the other
+  days (never narrower), as §19 and §21 did. Scored on the 80% interval score (width plus ten times
+  any miss outside it; lower is better).
+
+| After a wake | 15 min: error now → cut, score now → wider | 30 min | 60 min |
+|---|---|---|---|
+| First forecast only | 17.9 → 15.0, 101.1 → 98.9 (56) | 28.4 → 31.0, 154.2 → 152.4 (47) | 33.5 → 31.2, 160.0 → 135.3 (9) |
+| Up to 15 min after | 17.4 → 15.3, 95.9 → 94.4 (61) | 27.6 → 30.1, 145.2 → 145.8 (52) | 45.6 → 35.9, 249.6 → 219.8 (17) |
+| Up to 30 min after | 16.7 → 15.4, 94.6 → 94.7 (81) | 28.5 → 29.8, 156.1 → 153.2 (66) | 42.4 → 34.6, 243.5 → 224.2 (25) |
+| Up to 45 min after | 16.4 → 16.7, 90.0 → 88.0 (95) | 26.0 → 26.0, 144.5 → 148.2 (77) | 40.9 → 42.2, 219.6 → 217.7 (32) |
+
+Why none of it shipped:
+
+- **Cutting 15 minutes is the wrong shape.** It wins at 15 minutes, but a horizon is cut from the
+  far end. Hiding the first 15 minutes while drawing 30 makes no sense, and at 30 minutes cutting
+  loses (28.4 → 31.0). Cutting the whole forecast after a wake would cost more at 30 minutes than
+  it saves at 15.
+- **The 60-minute win is one afternoon.** 17 points over 4 days, and 15 Nov carries it: model
+  forecasts heading for 39 mg/dL at 14:10, 15:06 and 17:18 that ended at 93–217, because the lows
+  were treated and the treatment wasn't logged, so the points count as clean. On 13 Nov cutting
+  loses (25.3 against 24.6 for no change); on 12 Nov the forecast beat no change.
+- **The wider range wins on two days and loses on two.** At the first forecast after a wake:
+  13–15 Nov better at 15 minutes, 12 and 16 Nov worse (16 Nov, the only day with the relay
+  history fill in place, goes 101 → 178, on 3 points). The pooled gain is 2% at 15 and 30 minutes and is mostly
+  15 Nov again. §9 already widens each device's range from its own shown forecasts, which covers
+  part of this.
+- **Data gaps are too rare to learn from.** 8–30 points over three days; on most held-out days
+  there weren't 10 training points, and where there were, nothing changed. The relay's points after
+  a dropout were better than usual (10.1 against 19.6 mg/dL), and those are the only after-gap
+  points that all three senders would share, so a rule there couldn't be made to agree.
+- **Most of the wake points predate the fix for them.** PR #82 fills the iPhone's history from the
+  relay before it forecasts. Only 3 first-after-opening iPhone points at 15 minutes come after it.
+
+**Side notes.** The Mac's last logged forecast is 16 Nov 00:01 Perth; nothing from it since. Live readings had two 15-minute gaps at 11:31 and 11:46 Perth today, with only
+LinkUp's graph points in between.
+
+**When to look again.** Around 3 December, with the iPhone's opens after PR #82 counted on their
+own (`since_wake` in the script): if the first forecast after opening still loses to no change at
+15 and 30 minutes on most days, the thing to test is drawing nothing until the second reading
+after opening, rather than a horizon or a range. Logging low treatments would also take 15 Nov's
+afternoon out of "clean".
+
+    python3 scripts/gap-forecasts.py dir
+
+`dir` holds readings.json, with the trend column (as for §30), and checks.json:
+
+    select json_agg(json_build_array(extract(epoch from issued_at)::bigint, device, basis, start_mgdl,
+      trend_per_minute, (select json_agg(json_build_array((p->>'minutes')::int, (p->>'mgdl')::numeric,
+        (p->>'lower')::numeric, (p->>'upper')::numeric, (p->>'actual')::numeric,
+        coalesce((p->>'after_log')::boolean, false), coalesce((p->>'shown')::boolean, true),
+        (p->>'scale')::numeric))
+      from jsonb_array_elements(points) p
+      where (p->>'minutes')::int in (15, 30, 60) and jsonb_typeof(p->'actual') = 'number'),
+      app_version) order by issued_at)
+    from glucos.forecast_checks;
