@@ -2358,3 +2358,80 @@ from glucos.forecast_checks c, jsonb_array_elements(c.points) e
 where 'lowTreatment' = any(c.limitations) and e->>'actual' is not null
 group by 1 order by 1;
 ```
+
+## 38. Moving a late-logged meal back to when the rise started (16 Nov 2026)
+
+The question: meals are sometimes logged after glucose has started climbing. If the forecast
+moved such a meal's carbs back to where the rise began, would forecasts after it be closer at 30
+and 60 minutes, on meals the test hadn't seen? **No. Every amount of back-dating made the 60-minute
+forecast worse on both late-logged meals, and the held-out fit always chose the smallest shift on
+offer. Nothing shipped; no app code changed.**
+
+**What ships today.** A meal's carbs go on the meal curve from the time it's logged at (ten-minute
+delay, absorbed over three hours). If the user sets an earlier time in the log sheet, that time is
+used. The rise already under way when it's logged is in the 20-minute trend.
+
+**The data.** Every meal logged since one-minute readings began (11–16 Nov), not counting the four
+low treatments (§37) and the 13 Nov eggs logged twice: nine meals. A meal counts as logged late
+when, walking back from the log in 5-minute steps (only readings up to the log, so it works live),
+glucose kept getting lower and the log came at least 15 mg/dL and 10 minutes above that low point.
+Two meals passed, and the result didn't move across rise thresholds of 15–40 mg/dL, noise
+allowances of 3–6 and look-backs of 45–60 minutes:
+
+| Meal | Reading at the rise start | At the log | Rise started |
+|---|---|---|---|
+| 11 Nov 09:29 pancakes, 40 g | 54 | 116 | 25 min before |
+| 14 Nov 17:04 hamburger, 38.5 g | 106 | 182 | 30 min before |
+
+The other seven were logged at or before the rise. The pancakes rise began at a 54 low, so it may
+be an untreated-low rebound (§36) as much as a late log: really one clearly late meal in nine.
+
+**The test.** Forecasts every 5 minutes from each meal's log to 2 hours after, replayed with the
+engine's maths (20-minute trend, 30-minute fade, 60% gain, the logged rapid doses at 19.2 mg/dL
+per unit, carbs at 2.8 mg/dL per gram on the meal curve, treatments on the §37 curve) and scored at
+15–60 minutes against the readings, skipping points with another log in between (174 points at
+15 minutes, 159 at 60). The candidate moved a late meal's carbs to the rise start, then a further
+0–30 minutes earlier; detection settings and shift were picked on four days and scored on the
+fifth (leave one day out).
+
+| All nine meals, mean miss (mg/dL) | 15 min | 30 min | 45 min | 60 min |
+|---|---|---|---|---|
+| No change | 16.6 | 26.8 | 31.9 | 35.7 |
+| What ships | 15.6 | 25.9 | 31.2 | **34.7** |
+| Back-dated, held out | 15.6 | 26.0 | 32.0 | 36.5 |
+
+| Late meals (30 / 60 min), miss and bias | What ships | Moved back 10 min | 20 min | 30 min |
+|---|---|---|---|---|
+| 11 Nov pancakes | 33.3 / 35.1 (−35 at 60) | 32.8 / 37.9 | 32.6 / 41.2 | 32.7 / 44.7 (−45) |
+| 14 Nov hamburger | 21.0 / 33.0 (+0.4 at 60) | 21.5 / 35.4 | 21.9 / 38.0 | 22.4 / 40.5 (−7) |
+
+Every fold picked the smallest shift, and held out it lost to what ships at 45 and 60 minutes, so
+it fails the tuner's rule (§2: 3% better, and better in both halves).
+
+**Why it doesn't help.** By the time a late meal is logged the trend already carries the rise. Moving
+the carbs earlier counts some of them as already absorbed, so less is left to come and the line
+drawn after the log is lower. After the pancakes the forecast was already 35 mg/dL low at an hour
+(the rise went on to 288); after the hamburger it was unbiased. Lowering it hurt both. The
+forecast's after-meal problem is the size and length of real rises (§25–§27), not their timing.
+
+**Low warnings.** Back-dating only lowers the forecast after a late meal, so it could only make a
+predicted low sooner, never later. In the replay, across 298 forecasts in the 4 hours after these
+meals, no low warning (under 70 within 30 minutes) appeared or went away at any shift. Had it
+shipped, predicted alerts would have read the forecast without it, as in §37.
+
+**Dosing.** Not touched: nothing here changes dose timing, carbs on board, the effect learner or the
+bolus calculator, none of which read the forecast (§26).
+
+Rerun once five or more meals are logged 15+ minutes into their rise. The quickest way to find
+them is the reading 30 minutes before each meal against the one at the log:
+
+```sql
+with m as (select to_timestamp((payload->>'timestamp')::float) t, payload->>'food' food, (payload->>'carbs')::float carbs
+           from glucos.logbook where kind = 'meal' and not deleted and (payload->>'carbs')::float > 0)
+select m.t at time zone 'Australia/Perth', m.food, m.carbs,
+  (select mgdl from glucos.readings r where r.at between m.t - interval '35 min' and m.t - interval '25 min' order by r.at limit 1) before30,
+  (select mgdl from glucos.readings r where r.at <= m.t order by r.at desc limit 1) at_log
+from m order by 1;
+```
+
+Low treatments (§37) show up in that list too; leave out any logged under 70.
