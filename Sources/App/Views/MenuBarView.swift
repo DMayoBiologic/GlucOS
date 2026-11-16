@@ -30,6 +30,9 @@ struct MenuBarView: View {
     @State private var contentHeight: CGFloat = 0
     /// The ⌘? list, shown over the popover.
     @State private var showsShortcutList = false
+    /// False only for the moment between the popover opening and its sections starting to come
+    /// in (`PopoverStagger`). Anything that goes wrong leaves it true, so content is never hidden.
+    @State private var sectionsIn = true
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -67,48 +70,55 @@ struct MenuBarView: View {
         .animation(PopoverMotion.quick(reduceMotion), value: toast)
         .animation(PopoverMotion.quick(reduceMotion), value: showsShortcutList)
         .task { await store.checkNotificationPermission() }
-        .onAppear { commandKey.start() }
-        .onDisappear { commandKey.stop(); showsShortcutList = false }
+        .onAppear { commandKey.start(); staggerSectionsIn() }
+        .onDisappear {
+            commandKey.stop(); showsShortcutList = false
+            sectionsIn = true
+        }
         .environment(\.dsDensity, .compact)
     }
 
     private var content: some View {
         let notices = PopoverNotice.current(store: store, onRefresh: refresh)
+        let showsDose = PopoverDosePrompt.isRelevant(logbook: logbook)
+        let showsLow = PopoverLowPrompt.isRelevant(logbook: logbook, store: store, settings: settings)
+        let showsWake = PopoverWakePrompt.isRelevant(logbook: logbook)
+        let showing = staggerSections(hasNotices: !notices.isEmpty, hasPrompts: showsDose || showsLow || showsWake)
         return VStack(alignment: .leading, spacing: PopoverLayout.stackSpacing) {
-            if s.current != nil {
-                PopoverHero(onCopy: copyReading, onRefresh: refresh, onOpenDashboard: showDashboard)
-                    .accessibilitySortPriority(4)
-                    .dsEntrance(0)
-            } else {
-                emptyState
+            Group {
+                if s.current != nil {
+                    PopoverHero(onCopy: copyReading, onRefresh: refresh, onOpenDashboard: showDashboard)
+                        .accessibilitySortPriority(4)
+                } else {
+                    emptyState
+                }
             }
+            .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
             PopoverNotices(notices: notices)
                 .accessibilitySortPriority(3)
-                .dsEntrance(1)
-            if PopoverDosePrompt.isRelevant(logbook: logbook) {
-                PopoverDosePrompt()
+                .popoverEntrance(.notices, showing: showing, shown: sectionsIn)
+            Group {
+                if showsDose { PopoverDosePrompt() }
+                if showsLow { PopoverLowPrompt() }
+                if showsWake { PopoverWakePrompt() }
             }
-            if PopoverLowPrompt.isRelevant(logbook: logbook, store: store, settings: settings) {
-                PopoverLowPrompt()
-            }
-            if PopoverWakePrompt.isRelevant(logbook: logbook) {
-                PopoverWakePrompt()
-            }
+            .popoverEntrance(.prompts, showing: showing, shown: sectionsIn)
             if s.current != nil {
-                PopoverChartCard(showsShortcuts: commandKey.isHeld)
-                    .dsEntrance(2)
+                PopoverChartCard(showsShortcuts: commandKey.isHeld,
+                                 forecastDelay: PopoverStagger.forecastDelay(showing: showing))
+                    .popoverEntrance(.chart, showing: showing, shown: sectionsIn)
                 PopoverSummaryCard(expanded: detailsExpanded, showsShortcuts: commandKey.isHeld,
                                    onToggleDetails: toggleDetails, onOpenDashboard: showDashboard)
-                    .dsEntrance(3)
+                    .popoverEntrance(.summary, showing: showing, shown: sectionsIn)
             }
             PopoverToolbar(showsShortcuts: commandKey.isHeld,
                            onLog: showLogSheet, onRefresh: refresh, onDashboard: showDashboard,
                            onSettings: showSettings, onCopy: copyReading,
                            onShortcuts: toggleShortcutList)
                 .padding(.top, 2)
-                .dsEntrance(4)
+                .popoverEntrance(.toolbar, showing: showing, shown: sectionsIn)
             PopoverFooter()
-                .dsEntrance(5)
+                .popoverEntrance(.footer, showing: showing, shown: sectionsIn)
         }
         .padding(PopoverLayout.outerPadding)
         // Observed here, on a view that's always present, so the first notice to appear while
@@ -118,6 +128,27 @@ struct MenuBarView: View {
                 VoiceOver.announce(n.severity.accessibilityPrefix + n.title)
             }
         }
+    }
+
+    /// The sections taking a turn in this opening's stagger.
+    private func staggerSections(hasNotices: Bool, hasPrompts: Bool) -> Set<PopoverStagger.Section> {
+        var showing: Set<PopoverStagger.Section> = [.hero, .toolbar, .footer]
+        if hasNotices { showing.insert(.notices) }
+        if hasPrompts { showing.insert(.prompts) }
+        if s.current != nil { showing.formUnion([.chart, .summary]) }
+        return showing
+    }
+
+    /// Hides the sections for the popover's first frame, then lets each come in on its turn, once.
+    /// Under Reduce Motion they're simply there.
+    private func staggerSectionsIn() {
+        guard !reduceMotion else { sectionsIn = true; return }
+        var hide = Transaction(animation: nil)
+        hide.disablesAnimations = true
+        withTransaction(hide) { sectionsIn = false }
+        // On the next turn, so the hidden first frame is drawn before they start moving. Each
+        // section's own delayed animation (`popoverEntrance`) does the staggering.
+        DispatchQueue.main.async { sectionsIn = true }
     }
 
     /// Leaves room for the menu bar and a margin above the Dock, on the display the popover is
@@ -308,5 +339,39 @@ enum PopoverMotion {
     /// Small floating things such as the toast.
     static func pop(_ reduce: Bool) -> AnyTransition {
         reduce ? .opacity : .opacity.combined(with: .scale(scale: 0.92))
+    }
+
+    /// Content replaced by the same kind of content, such as the summary for another period:
+    /// the old one slides out one way as the new one slides in from the other (`direction` from
+    /// `PopoverStagger.slideDirection`). Under Reduce Motion, or with no direction, it just swaps.
+    static func crossSlide(_ direction: Int, reduce: Bool) -> AnyTransition {
+        guard !reduce, direction != 0 else { return .identity }
+        let distance = CGFloat(direction) * PopoverStagger.slideDistance
+        return .asymmetric(insertion: .opacity.combined(with: .offset(x: distance)),
+                           removal: .opacity.combined(with: .offset(x: -distance)))
+    }
+}
+
+extension View {
+    /// One section of the popover's opening stagger (`PopoverStagger`): faded and lowered while
+    /// `shown` is false, rising into place on the section's turn when it turns true. Only the
+    /// opacity and offset are animated, so nothing else inside picks up the delay.
+    func popoverEntrance(_ section: PopoverStagger.Section, showing: Set<PopoverStagger.Section>,
+                         shown: Bool) -> some View {
+        modifier(PopoverEntrance(delay: PopoverStagger.delay(of: section, showing: showing), shown: shown))
+    }
+}
+
+private struct PopoverEntrance: ViewModifier {
+    let delay: TimeInterval
+    let shown: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let visible = shown || reduceMotion
+        content.animation(reduceMotion ? nil : .smooth(duration: PopoverStagger.duration).delay(delay)) {
+            $0.opacity(visible ? 1 : 0)
+                .offset(y: visible ? 0 : PopoverStagger.rise)
+        }
     }
 }

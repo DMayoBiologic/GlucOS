@@ -423,9 +423,17 @@ appearance without redrawing.
   still and only sweeps on range change), with the needle, a range rail under the value, and the
   freshness meter replacing the text age row's dot.
 - Notices, chart, summary card: unchanged structure. The chart's hour picker gets the sliding chip.
-- Opening the popover: hero first, then the cards with `dsEntrance` (as today).
+- Opening the popover: each time it opens, the sections showing (hero, notices, prompts, chart,
+  summary, toolbar, footer) fade and rise 8 pt into place top to bottom, 45 ms apart, 0.32 s each,
+  so the whole opening settles in about half a second (`PopoverStagger`, `.popoverEntrance`). Only
+  the sections on screen take a turn, so a popover without notices doesn't pause where they would
+  be. It plays once per opening and never again while the popover stays open (§4.6); a notice
+  that turns up later uses its own transition. Under Reduce Motion everything is simply there.
+- Changing the summary card's period cross-slides its figures: the old ones slide 18 pt out as the
+  new ones come in from the other side, a longer period from the trailing edge. Reduce Motion
+  swaps them.
 - The chart's forecast (`ForecastMotion`, Motion.swift) draws in from the newest reading each time
-  the popover opens, and when a forecast turns up where there was none (`.sweep`): the axes already
+  the popover opens (waiting until its card is 60 % of the way in, `PopoverStagger.forecastDelay`), and when a forecast turns up where there was none (`.sweep`): the axes already
   make room for all of it (`GlucoseChart(forecastReveal:)`), so only the dashed line and its range
   grow. A new forecast bends and slides from the old shape into the new one (`.ambient`), points
   paired by how far ahead they are (`ForecastMorph`), a longer horizon reaching out from the old end

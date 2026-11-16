@@ -9,6 +9,11 @@ struct PopoverSummaryCard: View {
     @EnvironmentObject var store: GlucoseStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("popoverGlanceWindow") private var windowRaw = GlanceWindow.day.rawValue
+    /// The period whose figures are drawn. It trails `windowRaw` by one run-loop turn when the
+    /// period changes, so the slide direction is set before the old figures leave.
+    @State private var shownRaw: Int?
+    /// +1 to a longer period, -1 to a shorter one (`PopoverStagger.slideDirection`).
+    @State private var slide = 0
 
     /// The remembered preference. What's drawn is `expanded && there are stats to show`.
     var expanded: Bool
@@ -17,7 +22,10 @@ struct PopoverSummaryCard: View {
     var onOpenDashboard: () -> Void
 
     private var s: GlucoseSnapshot { store.snapshot }
-    private var window: GlanceWindow { GlanceWindow(rawValue: windowRaw) ?? .day }
+    /// The period chosen in the menu, which the menu's label follows straight away.
+    private var chosen: GlanceWindow { GlanceWindow(rawValue: windowRaw) ?? .day }
+    /// The period the figures are for.
+    private var window: GlanceWindow { shownRaw.flatMap(GlanceWindow.init(rawValue:)) ?? chosen }
 
     var body: some View {
         let st = store.glanceStats(window)
@@ -25,6 +33,33 @@ struct PopoverSummaryCard: View {
         VStack(alignment: .leading, spacing: 10) {
             header(canExpand: st != nil, isExpanded: isExpanded)
 
+            // Changing the period slides the old figures out and the new ones in, the way the
+            // period moved (longer comes in from the trailing edge).
+            ZStack(alignment: .topLeading) {
+                figures(st, isExpanded: isExpanded)
+                    .id(window)
+                    .transition(PopoverMotion.crossSlide(slide, reduce: reduceMotion))
+            }
+
+            PopoverRecentActivity(onOpen: onOpenDashboard)
+        }
+        .dsCard(.standard)
+        .animation(PopoverMotion.standard(reduceMotion), value: expanded)
+        .onChange(of: windowRaw) { old, new in switchPeriod(from: old, to: new) }
+    }
+
+    private func switchPeriod(from old: Int, to new: Int) {
+        guard !reduceMotion else { shownRaw = new; return }
+        slide = PopoverStagger.slideDirection(fromHours: old, toHours: new)
+        // On the next turn, so the outgoing figures already carry this direction when they leave.
+        DispatchQueue.main.async {
+            withAnimation(PopoverMotion.standard(reduceMotion)) { shownRaw = new }
+        }
+    }
+
+    @ViewBuilder
+    private func figures(_ st: GlucoseStats?, isExpanded: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             if let st {
                 VStack(alignment: .leading, spacing: 8) {
                     TimeInRangeBar(stats: st, height: 8)
@@ -46,12 +81,7 @@ struct PopoverSummaryCard: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            PopoverRecentActivity(onOpen: onOpenDashboard)
         }
-        .dsCard(.standard)
-        .animation(PopoverMotion.standard(reduceMotion), value: expanded)
-        .animation(PopoverMotion.standard(reduceMotion), value: windowRaw)
     }
 
     // MARK: Header
@@ -98,7 +128,7 @@ struct PopoverSummaryCard: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "target").imageScale(.small)
-                Text(window.spokenLabel)
+                Text(chosen.spokenLabel)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 7, weight: .bold))
             }
@@ -112,7 +142,7 @@ struct PopoverSummaryCard: View {
         .fixedSize()
         .help("Summary period")
         .accessibilityLabel("Summary period")
-        .accessibilityValue(window.spokenLabel)
+        .accessibilityValue(chosen.spokenLabel)
     }
 
     // MARK: Collapsed
