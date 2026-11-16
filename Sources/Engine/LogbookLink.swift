@@ -2,7 +2,7 @@ import Foundation
 
 // Opening the Logbook from somewhere else with a chip and a stretch of time already picked
 // (docs/LogbookSearch.md, "From the Insights cards"). Today that's the Insights Lows, Highs,
-// Overnight, Weekdays and weekends and Week in review cards: tapping one shows its chip over the
+// Overnight, Weekdays and weekends, Week in review and In-range streaks cards: tapping one shows its chip over the
 // same days the card counted.
 
 /// The chip and period the Logbook opens with. Nothing is typed into the search field: the period
@@ -53,6 +53,16 @@ struct LogbookLink: Hashable, Sendable {
                                period: .init(label: "7 days before", phrase: "in the 7 days before the last 7",
                                              interval: span))
         }
+    }
+
+    /// The In-range streaks card's longest run, on the Longest streak chip: everything logged on
+    /// the run's days, local midnight to midnight ("3 Nov – 14 Nov"). A run that takes in today
+    /// ends at tonight's midnight, so something logged after the last reading still shows.
+    static func bestStreak(_ run: InRangeStreaks.Run, now: Date, calendar: Calendar = .autoupdatingCurrent) -> LogbookLink {
+        let span = InRangeStreaksText.span(run, now: now, calendar: calendar)
+        return LogbookLink(filter: .bestStreak,
+                           period: .init(label: span, phrase: InRangeStreaksText.phrase(run, now: now, calendar: calendar),
+                                         interval: run.interval))
     }
 
     private static func card(_ filter: LogbookFilter, days: Int, newestReading: Date?, now: Date) -> LogbookLink {

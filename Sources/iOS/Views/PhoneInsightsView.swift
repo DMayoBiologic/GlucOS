@@ -138,6 +138,7 @@ struct PhoneInsightsView: View {
         case .highs: PhoneHighsCard()
         case .overnight: PhoneOvernightCard()
         case .weekdayWeekend: PhoneWeekdayWeekendCard()
+        case .streaks: PhoneInRangeStreaksCard()
         case .dayPattern: PhoneDayPatternCard()
         case .mornings: PhoneMorningCard(outlook: store.outlook)
         case .forecastAccuracy: PhoneForecastAccuracyCard(outlook: store.outlook)
@@ -357,6 +358,26 @@ struct PhoneWeekdayWeekendCard: View {
         if let navigator {
             card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .weekdays)), in: navigator.zoom)
                 .matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .weekends)), in: navigator.zoom)
+        } else {
+            card
+        }
+    }
+}
+
+/// Days in a row at 70% or more in range: the run going now, the longest kept, and the last 14 days
+/// as dots (`InRangeStreaksCardView`). Tapping it zooms the card into the Logbook on what was logged
+/// over the longest run's days; Back shrinks it home.
+struct PhoneInRangeStreaksCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @Environment(\.phoneNavigator) private var navigator
+
+    var body: some View {
+        let card = InRangeStreaksCardView(readings: store.archive, unit: store.snapshot.unit,
+                                          lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                          openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
+            .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .bestStreak)), in: navigator.zoom)
         } else {
             card
         }

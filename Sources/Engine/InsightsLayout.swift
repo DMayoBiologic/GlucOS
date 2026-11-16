@@ -16,6 +16,8 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
     case highs
     case overnight
     case weekdayWeekend
+    /// Days in a row at 70% or more in range: the current run and the longest.
+    case streaks
     case dayPattern
     /// iPhone: what GlucOS has learnt about mornings.
     case mornings
@@ -33,6 +35,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         case .highs: return "Highs"
         case .overnight: return "Overnight"
         case .weekdayWeekend: return "Weekdays and weekends"
+        case .streaks: return "In-range streaks"
         case .dayPattern: return "Your usual day"
         case .mornings: return "Mornings"
         case .forecastAccuracy: return "Forecast accuracy"
@@ -49,6 +52,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         case .highs: return "arrow.up.to.line"
         case .overnight: return "moon.stars"
         case .weekdayWeekend: return "calendar.day.timeline.left"
+        case .streaks: return "flame"
         case .dayPattern: return "clock"
         case .mornings: return "sunrise"
         case .forecastAccuracy: return "scope"
@@ -57,15 +61,15 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
 
     /// The iPhone Insights screen's cards, in the order they ship.
     static let phoneDefault: [InsightsCard] = [
-        .glance, .days, .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .dayPattern,
-        .mornings, .forecastAccuracy,
+        .glance, .days, .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks,
+        .dayPattern, .mornings, .forecastAccuracy,
     ]
 
     /// The Mac Dashboard Insights page's movable cards, in the order they ship. The logging cards
     /// (insulin action, meals, sites) stay fixed above them: they depend on the therapy setting and
     /// read as one block.
     static let macDefault: [InsightsCard] = [
-        .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .dayPattern, .forecastAccuracy,
+        .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks, .dayPattern, .forecastAccuracy,
     ]
 }
 
