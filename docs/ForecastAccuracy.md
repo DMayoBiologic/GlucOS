@@ -1499,7 +1499,7 @@ way: forecasts that the checks do allow past 60 are already logged to 180 minute
 
 Each sender's live figures look different: the iPhone loses to "no change" at 15 minutes and
 badly at 60, while the Mac and relay beat it. The question was whether one sender is worse
-because of what it's fed (history length, LinkUp graph points, §5, §17–§18) and should be
+because of what it's fed (history length, LinkUp graph points, §10, §17–§18) and should be
 aligned. **It isn't. At the same moments the three forecasts are nearly the same line, and the
 iPhone is no worse than the Mac at 15 and 30 minutes. The gaps in the per-sender figures come
 from when each one forecasts: the iPhone is opened during lows and fast drops, the relay covers
@@ -1548,13 +1548,13 @@ that.
 | relay | 76 | 41% | 1.31 |
 
 Below 100 mg/dL every sender runs low (bias +10 to +114): untreated-in-the-log lows, where
-rescue carbs come after the forecast (§11, §15's "Did you treat this low?" re-marks these once
-answered). The iPhone's 60-minute figure is 29 checks, and its worst misses are lows at
+rescue carbs come after the forecast ("Did you treat this low?" re-marks these as after a log once
+answered, §2). The iPhone's 60-minute figure is 29 checks, and its worst misses are lows at
 14:10, 15:06, 17:18 and 21:55 on 15 Nov (start 59–96 mg/dL, forecast 39–64, actual 93–217 an
 hour later): moments the phone was opened because of the low. Its only clearly different
 forecasts at the same moment as the Mac or relay (15 Nov 17:18, trend −2.4 vs −1.5; 21:55,
 −0.7 vs −1.9) are from before #82, when its history was LinkUp's 15-minute graph plus a few
-live readings (§5). The iPhone was untuned (`tuned = false`) on 74 of its 90 15-minute checks.
+live readings (§10). The iPhone was untuned (`tuned = false`) on 74 of its 90 15-minute checks.
 
 **Tried: cut the iPhone's horizons sooner.** The iPhone's 60-minute line lost to no change
 (1.2×) but was never cut, because §8 needs 30 clean checks per kind in 7 days and the iPhone
@@ -1577,7 +1577,7 @@ checks into the iPhone's gate is worse: the Mac's good figures keep the iPhone's
 drawn. Not shipped.
 
 **Re-run** once the iPhone has 30 or more clean checks from a build with #82 (relay history fill)
-or later, by version via `glucos.forecast_scorecard_by_version`. If its 60-minute line still loses
+or later, by version via `glucos.forecast_scorecard_by_version` (§14). If its 60-minute line still loses
 to no change then while the Mac's doesn't, the lower minimum is worth retrying. Logging the
 relay's 30-minute look-ahead as unshown points would let the relay be compared at 30 too. The
 matched-moment query:
