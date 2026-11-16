@@ -307,7 +307,7 @@ final class GlucoseStore: ObservableObject {
             return
         }
         let o = outlook.update(archive: archive, snapshot: snapshot, logbook: logbook, now: now)
-        snapshot.outlook = o?.snapshot(lowMgdl: settings.lowMgdl)
+        snapshot.outlook = o?.snapshot(lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl)
         outlook.relearnIfNeeded(archive: archive, logbook: logbook, low: settings.lowMgdl,
                                 high: settings.highMgdl, now: now) { [weak self] in
             guard let self else { return }

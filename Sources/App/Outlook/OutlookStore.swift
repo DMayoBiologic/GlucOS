@@ -34,11 +34,13 @@ final class OutlookStore: ObservableObject {
         var current = model
         current.rangeScale = ledger.rangeScale
         current.liveHorizon = ledger.liveHorizon
+        current.backInRange = ledger.backInRange
         let o = OutlookEngine.outlook(readings: recent, doses: logbook?.doses ?? [], meals: logbook?.meals ?? [],
                                       contexts: logbook?.contexts ?? [], model: current, now: now)
         outlook = o
         ledger.update(forecast: o.forecastToLog, tuned: model.tuning.isTuned, archive: archive,
-                      current: snapshot.current, logTimes: Self.logTimes(logbook), now: now)
+                      current: snapshot.current, logTimes: Self.logTimes(logbook),
+                      low: snapshot.lowMgdl, high: snapshot.highMgdl, now: now)
         return o
     }
 

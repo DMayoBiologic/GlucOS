@@ -17,6 +17,9 @@ struct OutlookModel: Hashable {
     /// How far ahead the forecast may be drawn, from how this device's own forecasts did against
     /// no change (`ForecastLedger.liveHorizon`). Set by the app from its forecast log.
     var liveHorizon: ForecastLiveHorizon = .unlimited
+    /// How this device's "back in range in about X min" estimates have done (`BackInRange.check`),
+    /// which decides whether one is shown. Set by the app from its forecast log.
+    var backInRange: BackInRangeCheck = .none
 
     static let empty = OutlookModel(profile: .empty, calibration: nil, patterns: [], learnedAt: .distantPast)
 }
@@ -52,8 +55,9 @@ struct Outlook {
         }
     }
 
-    /// The compact form written into the shared snapshot for the widget and popover.
-    func snapshot(lowMgdl: Double) -> OutlookSnapshot {
+    /// The compact form written into the shared snapshot for the widget and popover. With
+    /// `highMgdl`, a forecast that comes back down into range says when (`BackInRange`).
+    func snapshot(lowMgdl: Double, highMgdl: Double? = nil) -> OutlookSnapshot {
         let f = glucoseForecast
         var s = OutlookSnapshot(issuedAt: f?.issuedAt ?? at, basis: f?.basis ?? .trend)
         s.forecast = f?.samples ?? []
@@ -62,6 +66,7 @@ struct Outlook {
         s.carbsOnBoard = carbs.mealCount > 0 ? carbs.onBoard : nil
         s.lowExpectedAt = f?.firstBelow(lowMgdl)
         s.lowPossibleAt = f?.firstRangeBelow(lowMgdl)
+        if let f, let highMgdl { s.backInRangeAt = BackInRange.estimate(f, high: highMgdl, check: model.backInRange) }
         if case .failure(let e) = forecast { s.unavailableReason = e.reason.message }
         s.caveat = ForecastCaveat.pick(forecast)
         s.morning = f?.morning.map {

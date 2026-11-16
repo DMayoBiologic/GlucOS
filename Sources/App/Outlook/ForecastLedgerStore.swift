@@ -18,9 +18,13 @@ final class ForecastLedgerStore: ObservableObject {
     @Published private(set) var rangeScale: ForecastRangeScale = .unchanged
     /// How far ahead the forecast may be drawn, from how this device's forecasts did against no change.
     @Published private(set) var liveHorizon: ForecastLiveHorizon = .unlimited
+    /// How this device's "back in range" estimates have done, which decides whether one is shown.
+    @Published private(set) var backInRange: BackInRangeCheck = .none
 
     private(set) var ledger: ForecastLedger
     private var lastScored = Date.distantPast
+    /// What the back-in-range check was last worked out from, so it's redone only when that changes.
+    private var backInRangeKey: (settled: Int, low: Double, high: Double)?
 
     /// The installed version ("1.2.0"), kept on each recorded forecast.
     static let appVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -43,7 +47,7 @@ final class ForecastLedgerStore: ObservableObject {
 
     /// Records the forecast being shown now (at most one per 15 minutes) and scores earlier ones.
     func update(forecast: GlucoseForecast?, tuned: Bool, archive: [GlucoseReading], current: GlucoseReading?,
-                logTimes: @autoclosure () -> [Date], now: Date = Date()) {
+                logTimes: @autoclosure () -> [Date], low: Double = 70, high: Double = 180, now: Date = Date()) {
         var changed = false
         if let forecast { changed = ledger.note(forecast, device: Self.device, tuned: tuned, appVersion: Self.appVersion, now: now) }
         // Scoring needs only a minute's resolution.
@@ -60,6 +64,19 @@ final class ForecastLedgerStore: ObservableObject {
             save()
             summarise()
         }
+        updateBackInRange(archive: archive, low: low, high: high, now: now)
+    }
+
+    /// Re-scores the back-in-range estimates when a forecast settles or the range changes.
+    private func updateBackInRange(archive: [GlucoseReading], low: Double, high: Double, now: Date) {
+        let settled = ledger.records.lazy.filter(\.settled).count
+        if let k = backInRangeKey, k.settled == settled, k.low == low, k.high == high { return }
+        backInRangeKey = (settled, low, high)
+        let from = now.addingTimeInterval(-BackInRange.window)
+        let readings = GlucoseSeries(archive.filter { $0.timestamp >= from })
+        let check = BackInRange.check(records: ledger.records, readings: readings, device: Self.device,
+                                      low: low, high: high, now: now)
+        if check != backInRange { backInRange = check }
     }
 
     /// Settled forecasts not yet uploaded.
