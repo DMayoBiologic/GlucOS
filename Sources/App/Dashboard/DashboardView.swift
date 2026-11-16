@@ -55,7 +55,11 @@ struct DashboardView: View {
                 if width > 0 && padding != detailPadding { detailPadding = padding }
             }
             .overlay(alignment: .bottom) { toastView }
-            .sheet(isPresented: $showShortcuts) { ShortcutsHelp() }
+            .sheet(isPresented: $showShortcuts) {
+                ShortcutListView(groups: ShortcutCatalog.dashboard(globalKey: settings.activeGlobalLogShortcut)) {
+                    showShortcuts = false
+                }
+            }
             .background(alignment: .top) {
                 AmbientGlow(tint: store.snapshot.displayTint(), intensity: 0.35)
                     .frame(height: 320)
@@ -365,7 +369,7 @@ struct DashboardView: View {
             } label: {
                 Label("More", systemImage: keepOnTop ? "pin.circle.fill" : "ellipsis.circle")
             }
-            .help(keepOnTop ? "Window options. Keep on Top is on." : "Window options and keyboard shortcuts (⌘/)")
+            .help(keepOnTop ? "Window options. Keep on Top is on." : "Window options and keyboard shortcuts (⌘?)")
         }
     }
 
@@ -380,7 +384,7 @@ struct DashboardView: View {
         })
     }
 
-    /// ⌘1–⌘8 pick a section, ⌃1–⌃8 a range, ⌘/ lists the shortcuts. Invisible buttons, so the
+    /// ⌘1–⌘8 pick a section, ⌃1–⌃8 a range, ⌘/ or ⌘? lists the shortcuts. Invisible buttons, so the
     /// shortcuts work from anywhere in the window.
     private var shortcutButtons: some View {
         ZStack {
@@ -394,6 +398,8 @@ struct DashboardView: View {
             }
             Button("Keyboard Shortcuts", action: showShortcutsHelp)
                 .keyboardShortcut("/", modifiers: .command)
+            Button("Keyboard Shortcuts", action: showShortcutsHelp)
+                .keyboardShortcut("?", modifiers: .command)
         }
         .buttonStyle(.plain)
         .opacity(0)
@@ -575,52 +581,6 @@ private struct RangePicker: View {
         }
         .labelsHidden()
         .help("Time range (⌃1–⌃8)")
-    }
-}
-
-private struct ShortcutsHelp: View {
-    private let rows: [(String, String)] = [
-        ("⌘1 – ⌘8", "Switch section"),
-        ("⌃1 – ⌃8", "Pick a time range"),
-        ("⌘[  ⌘]", "Previous or next period"),
-        ("⌘J", "Back to now"),
-        ("⌘=  ⌘−  ⌘0", "Zoom chart in, out, reset"),
-        ("⌥←  ⌥→", "Pan the zoomed chart"),
-        ("Drag on chart", "Select a stretch to see its numbers"),
-        ("Esc", "Clear the chart selection"),
-        ("⌘L", "Log insulin or food"),
-        ("⌘R", "Refresh"),
-        ("⌃⌘F", "Enter or exit full screen"),
-        ("⇧⌘P", "Export report as PDF"),
-        ("⌘/", "Show this list"),
-    ]
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.lg) {
-            Text("Keyboard Shortcuts")
-                .dsFont(.title)
-            Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
-                ForEach(rows.indices, id: \.self) { i in
-                    GridRow {
-                        Text(rows[i].0)
-                            .font(.callout.monospaced())
-                            .foregroundStyle(.secondary)
-                            .gridColumnAlignment(.trailing)
-                        Text(rows[i].1).dsFont(.body)
-                    }
-                }
-            }
-            HStack {
-                Spacer()
-                Button("Done") { dismiss() }
-                    .buttonStyle(.ds(.primary))
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(DS.Space.xxl)
-        .frame(minWidth: 380)
     }
 }
 

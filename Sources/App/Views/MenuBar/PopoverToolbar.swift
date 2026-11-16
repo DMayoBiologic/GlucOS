@@ -13,6 +13,7 @@ struct PopoverToolbar: View {
     var onDashboard: () -> Void
     var onSettings: () -> Void
     var onCopy: () -> Void
+    var onShortcuts: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -60,6 +61,8 @@ struct PopoverToolbar: View {
             Button("Copy Reading", systemImage: "doc.on.doc", action: onCopy)
                 .keyboardShortcut("c")
                 .disabled(store.snapshot.current == nil)
+            Button("Keyboard Shortcuts…", systemImage: "keyboard", action: onShortcuts)
+                .keyboardShortcut("?")
             Button("Check for Updates…", systemImage: "arrow.down.circle") { updater.checkForUpdates() }
                 .disabled(!updater.canCheck)
             Divider()
@@ -77,7 +80,7 @@ struct PopoverToolbar: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .background(Capsule().fill(Color.primary.opacity(0.06)))
-        .help("More: copy reading, updates, quit")
+        .help("More: copy reading, keyboard shortcuts (⌘?), updates, quit")
         .accessibilityLabel("More")
     }
 

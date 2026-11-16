@@ -636,6 +636,8 @@ private struct LoggingSettingsTab: View {
                 InsulinListSection()
             }
 
+            KeyboardLoggingSection()
+
             if settings.therapy.logsInsulin {
                 Section {
                     HStack {
@@ -796,5 +798,102 @@ private struct AdvancedSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+// MARK: - Keyboard
+
+/// Settings → Logging → Keyboard: the optional shortcut that opens the log window from any app
+/// (off by default; docs/KeyboardLogging.md).
+private struct KeyboardLoggingSection: View {
+    @EnvironmentObject var settings: AppSettings
+    @ObservedObject private var hotKey = GlobalLogShortcut.shared
+
+    var body: some View {
+        Section {
+            Toggle("Open the log window from any app", isOn: $settings.globalLogShortcutEnabled)
+            LabeledContent("Shortcut") {
+                ShortcutRecorder(key: $settings.globalLogShortcut)
+            }
+            .disabled(!settings.globalLogShortcutEnabled)
+            if settings.globalLogShortcutEnabled, let failure = hotKey.failure {
+                Label(failure, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.callout)
+            }
+        } header: {
+            Text("Keyboard")
+        } footer: {
+            Text("In GlucOS, ⌘L logs and ⌘? lists every shortcut. In the log window, the arrow keys move between moments, Return picks one and moves on, and Space picks several.")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Click, then press the new combination. Escape cancels. A combination that would take keys
+/// other apps need is refused with the reason (`LogHotKey.problem`).
+private struct ShortcutRecorder: View {
+    @Binding var key: LogHotKey
+    @State private var recording = false
+    @State private var monitor: Any?
+    @State private var refusal: String?
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 6) {
+                Button { recording ? stop() : start() } label: {
+                    Text(recording ? "Type a shortcut…" : key.display)
+                        .font(recording ? .callout : .callout.monospaced())
+                        .frame(minWidth: 110)
+                }
+                .accessibilityLabel(recording ? "Recording. Type a shortcut, or Escape to cancel." : "Shortcut \(key.spoken)")
+                .accessibilityHint("Click to record a new shortcut")
+                if key != .suggested && !recording {
+                    Button("Reset") { key = .suggested; refusal = nil }
+                        .buttonStyle(.borderless)
+                        .help("Back to \(LogHotKey.suggested.display)")
+                }
+            }
+            if let refusal {
+                Text(refusal)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .onDisappear { stop() }
+    }
+
+    private func start() {
+        refusal = nil
+        recording = true
+        // Pressing the current shortcut here should record it, not open the log window.
+        GlobalLogShortcut.shared.setPaused(true)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Local monitors are called on the main thread. Every key goes to the recorder.
+            MainActor.assumeIsolated { record(event) }
+            return nil
+        }
+    }
+
+    private func record(_ event: NSEvent) {
+        if event.keyCode == 53 { stop(); return }   // Escape
+        guard let new = LogHotKey(event: event) else {
+            refusal = "Hold ⌘ or ⌃ (plus another modifier) while you press the key."
+            return
+        }
+        if let problem = new.problem {
+            refusal = problem
+        } else {
+            key = new
+            stop()
+        }
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        recording = false
+        GlobalLogShortcut.shared.setPaused(false)
     }
 }
