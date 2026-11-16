@@ -2506,3 +2506,78 @@ on board, the effect learner or the bolus calculator.
 
 Retest once there are three or more weeks of one-minute readings, and only with a less noisy curve
 (for example fitted over 5-minute means). Don't retry it on raw one-minute readings.
+
+## 40. Are the ranges still right, and after lows? (16 Nov 2026)
+
+The question: §37 started counting logged low treatments as fast carbs. Has it done what it should
+on the readings since, are the likely ranges at 15, 30 and 60 minutes still holding 4 readings in
+5, and do they hold up right after a low? **§37 hasn't had a low to act on yet. The ranges hold
+74 / 70 / 65% overall, and only 58 / 27 / 20% on forecasts that start under 80 mg/dL (4.4 mmol/L),
+where every miss is glucose coming back up past the top of the range. Widening the upper side
+alone for those forecasts held 79 / 87 / 80% on lows the fit hadn't seen, so it ships. The central
+line and the lower side don't move, so no warning changes.**
+
+**§37 since it shipped.** Nothing to score: since #193 merged (07:26 UTC 16 Nov) glucose stayed
+between 114 and 247 mg/dL, nothing was logged under 70, and no forecast in `glucos.forecast_checks`
+carries `lowTreatment`. The treated lows are still the four in §37. Rerun with the §37 query once
+ten are logged.
+
+**Coverage, every moment.** All shown points with a reading at that distance (apps and relay,
+12–16 Nov Perth; `scripts/low-start-range.py`, export query at its top):
+
+| Inside the range (aim 80%) | 15 min | 30 min | 60 min |
+|---|---|---|---|
+| All | 74% (382) | 70% (256) | 65% (159) |
+| 12 Nov | 60% | 50% | 49% |
+| 13 Nov | 75% | 75% | 82% |
+| 14 Nov | 73% | 74% | 73% |
+| 15 Nov | 67% | 70% | 52% |
+| 16 Nov | 86% | 74% | 77% |
+| Starting under 80 mg/dL | **58% (33)** | **27% (15)** | **20% (10)** |
+| 0–60 min after a treated low | 50% (14) | 12% (8) | 62% (8) |
+
+By day it swings both ways: too narrow on 12 and 15 Nov, then on 16 Nov the 15-minute range holds
+86% because the recent correction (§9) widened it after 15 Nov's misses. That's the correction
+lagging a day, as designed, not a drift to fix. §19 and §21 already showed a single re-fitted
+figure doesn't beat it (here one held-out factor per horizon reaches 80% but at 26–49% wider,
+for an interval score no better: 93.5 → 94.5 at 15 minutes). The one place it's clearly wrong is
+the start of a low: 21 of the 33 points under 80 missed at 15 minutes, all of them above the range.
+That's the rebound of §17 and §36, treated or not, which neither the trend nor the meal curve draws.
+
+**The test.** For forecasts starting under 80, the upper half of the shown range times a factor
+per horizon, the factor being what would have held 4 in 5 of the other lows (leave one low out,
+seven lows, points over 2 hours apart counting as different lows). The lower side stays as shown.
+Interval score = width + 10 × how far outside (the standard score for an 80% range; lower is better).
+
+| Held out, starting under 80 | Shipped | Upper side widened | Better on |
+|---|---|---|---|
+| 15 min (33 points) | 58% inside, 40 wide, score 167 | **79%, 83 wide, 94** | 6 of 7 lows |
+| 30 min (15) | 27%, 47 wide, 422 | **87%, 133 wide, 167** | 5 of 6 |
+| 60 min (10) | 20%, 75 wide, 721 | **80%, 226 wide, 324** | 3 of 4 |
+
+The factor came out at 2.6–2.9 (15 min), 3.1–3.8 (30) and 2.5–3.7 (60) whichever low was left
+out, and better in both halves of the week. Widening both sides instead is no better (score 96 at
+15 minutes): nothing missed below. Over every moment the change takes the interval score from 93.5
+to about 87 (15 min), 158 to 143 (30) and 256 to 231 (60), and coverage to about 76 / 74 / 69%.
+
+**What ships** (`ForecastRangeScale.lowStartUpper`, relay 2.17.0 `lowStartUpper`):
+
+- A forecast that starts under 80 mg/dL draws the upper side of its range 2.8× at 15 minutes,
+  3.3× at 30 and 3.6× from 60 on (fitted on all seven lows; interpolated, from none at the start),
+  on top of the usual widening, up to the sensor's top.
+- Not when the forecast already counts carbs logged for the low (`lowTreatment`, §37): that draws
+  the rebound itself, and wasn't part of this test. The relay never sees treatments, so always.
+- Each point keeps the factor (`upperScale`), and the range widening (§9, §11) takes it out before
+  learning from that point, so the steady widening doesn't shrink to make up for it.
+
+**Low warnings.** Predicted lows read the central line (and the trend's 30-minute lookahead), and
+the lower side is unchanged, so `firstRangeBelow` and every warning are exactly as before
+(`LowStartRangeTests.testPredictedLowsAreUnchanged`). The relay and the apps still agree (parity
+fixture regenerated).
+
+**Dosing.** Not touched: ranges feed no dose, insulin on board, learner or bolus figure.
+
+**Caveats.** Seven lows over five days, so the factors are rough; at 60 minutes only ten points.
+A drawn range from 65 can now reach 140 at 30 minutes, which is honest (four rebounds in five went
+higher than the old top) but looks wide. Retest at three weeks or 15 lows, and once §37 has scored
+ten treated lows, check whether `lowTreatment` forecasts need this too.

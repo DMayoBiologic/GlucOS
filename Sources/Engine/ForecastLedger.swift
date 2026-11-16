@@ -29,6 +29,9 @@ struct ForecastRecord: Codable, Hashable, Identifiable {
         /// How much this point's range was widened when shown. Nil in records from before ranges
         /// were widened per horizon: the record's `rangeScale` applies.
         var scale: Double? = nil
+        /// How much further the upper side alone was widened, for a forecast that started low
+        /// (`ForecastRangeScale.lowStartUpper`). Nil: not at all.
+        var upperScale: Double? = nil
         /// False when this point was past the horizon the forecast was drawn to: live checks had
         /// cut it off (`ForecastLiveHorizon`), and it's kept only to go on scoring that horizon.
         /// Nil (older records) or true: drawn.
@@ -122,11 +125,12 @@ struct ForecastLedger: Codable, Equatable {
             let near = { (x: ForecastSample) in abs(x.date.timeIntervalSince(target)) < 30 }
             if let s = forecast.unshown.first(where: near), !forecast.samples.contains(where: near) {
                 return ForecastRecord.Point(minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl,
-                                            scale: forecast.rangeScale(atMinutes: m), shown: false)
+                                            scale: forecast.rangeScale(atMinutes: m),
+                                            upperScale: forecast.upperScales[m], shown: false)
             }
             guard let s = forecast.samples.first(where: near) else { return nil }
             return ForecastRecord.Point(minutes: m, mgdl: s.mgdl, lower: s.lowerMgdl, upper: s.upperMgdl,
-                                        scale: forecast.rangeScale(atMinutes: m))
+                                        scale: forecast.rangeScale(atMinutes: m), upperScale: forecast.upperScales[m])
         }
         guard !points.isEmpty else { return false }
         records.append(ForecastRecord(id: UUID(), issuedAt: forecast.issuedAt, device: device, basis: forecast.basis,
@@ -329,7 +333,8 @@ struct ForecastLedger: Codable, Equatable {
         return r.points.compactMap { p in
             guard !p.afterLog, let actual = p.actual else { return nil }
             let shown = max(1, p.scale ?? r.rangeScale ?? 1)
-            var above = (p.upper - p.mgdl) / shown, below = (p.mgdl - p.lower) / shown
+            // The low-start widening is its own correction: taken out, so it isn't learnt twice.
+            var above = (p.upper - p.mgdl) / (shown * max(1, p.upperScale ?? 1)), below = (p.mgdl - p.lower) / shown
             let cutHigh = p.upper >= high, cutLow = p.lower <= low
             if cutHigh && cutLow { return nil }
             if cutHigh { above = below }

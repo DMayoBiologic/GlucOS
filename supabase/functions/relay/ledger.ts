@@ -10,7 +10,7 @@
 
 import {
   type BackInRangeCheck, type BackInRangeRecord, backInRangeWindow, calibrationHorizons, type Reading, type Calibration, type Forecast, isStandardTuning, type LiveCut, type LivePoint, liveHorizonWindow,
-  rangeFactor, type RangeScale, type ShownForecast,
+  lowStartUpper, rangeFactor, type RangeScale, type ShownForecast,
 } from "./core.ts";
 import { syntheticEmail } from "./libre.ts";
 import type postgres from "npm:postgres@3.4.5";
@@ -32,6 +32,8 @@ export interface LedgerPoint {
   upper: number;
   /// How much the range was widened when shown (rangeFactor). Missing: not widened.
   scale?: number;
+  /// How much further the upper side alone was widened (lowStartUpper). Missing: not at all.
+  upperScale?: number;
   /// Only ever false: a point past the drawn horizon, kept to go on scoring it.
   shown?: false;
 }
@@ -104,6 +106,8 @@ export function ledgerRecord(f: Forecast, calibration: Calibration | null, lastI
     if (!s) point.shown = false;
     // Kept so the next widening is measured against the range before this one (no compounding).
     if (rangeScale) point.scale = rangeFactor(rangeScale, m, f.trendPerMinute);
+    const up = lowStartUpper(f.startMgdl, m);
+    if (up > 1) point.upperScale = up;
     points.push(point);
   }
   if (!points.length) return null;
@@ -161,6 +165,7 @@ export class PostgresForecastLedger implements ForecastLedger {
         actual: typeof p.actual === "number" ? p.actual : null,
         afterLog: p.after_log === true,
         scale: typeof p.scale === "number" ? p.scale : null,
+        upperScale: typeof p.upperScale === "number" ? p.upperScale : null,
       })),
     }));
   }

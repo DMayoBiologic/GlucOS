@@ -190,6 +190,9 @@ struct GlucoseForecast: Hashable {
     var rangeScale: Double = 1
     /// The widening at each 5-minute sample, by minutes ahead.
     var rangeScales: [Int: Double] = [:]
+    /// Extra widening of the upper side alone at each 5-minute sample, by minutes ahead, for a
+    /// forecast that starts low (`ForecastRangeScale.lowStartUpper`). Empty when there was none.
+    var upperScales: [Int: Double] = [:]
     /// Insulin and carbs were modelled within the first hour after a log.
     var fresh = false
     /// Insulin was modelled with no logged carbs being absorbed (`ForecastLimitation.insulinOnly`).
@@ -205,6 +208,8 @@ struct GlucoseForecast: Hashable {
 
     /// The widening `minutes` ahead.
     func rangeScale(atMinutes minutes: Int) -> Double { rangeScales[minutes] ?? rangeScale }
+    /// The extra widening of the upper side `minutes` ahead (1 when there was none).
+    func upperScale(atMinutes minutes: Int) -> Double { upperScales[minutes] ?? 1 }
 
     var horizon: TimeInterval { samples.last.map { $0.date.timeIntervalSince(issuedAt) } ?? 0 }
 
@@ -264,6 +269,27 @@ struct ForecastRangeScale: Hashable, Codable {
     func factor(for basis: ForecastBasis, minutes: Double, trendPerMinute: Double) -> Double {
         let fast = abs(trendPerMinute) >= Self.fastTrendPerMinute ? fastTrend : 1
         return min(Self.totalMaximum, factor(for: basis, minutes: minutes) * Self.clamp(fast) * Self.clamp(recent))
+    }
+
+    /// Below this (4.4 mmol/L) a forecast's range runs too low: glucose usually comes back up,
+    /// treated or not, faster than the trend or the model draws (docs/ForecastAccuracy.md §40).
+    static let lowStartMgdl = 80.0
+    /// How much further the upper side alone is widened for a forecast starting under
+    /// `lowStartMgdl`, by minutes ahead: what would have held 4 rebounds in 5 on the forecasts
+    /// shown on lows 12–16 Nov (§40). Interpolated, from none at the start, flat after 60 minutes.
+    static let lowStartUpperByMinutes: [(minutes: Double, factor: Double)] = [(0, 1), (15, 2.8), (30, 3.3), (60, 3.6)]
+
+    /// The upper side's extra widening `minutes` ahead for a forecast starting at `startMgdl`.
+    /// 1 at or above `lowStartMgdl`, and when the forecast already counts carbs logged for the low
+    /// (`ForecastLimitation.lowTreatment`, §37), which draws the rebound itself. The lower side and
+    /// the central line are never touched, so predicted lows read exactly what they did.
+    static func lowStartUpper(startMgdl: Double, minutes: Double, countsTreatment: Bool) -> Double {
+        guard startMgdl < lowStartMgdl, !countsTreatment, minutes > 0 else { return 1 }
+        let points = lowStartUpperByMinutes
+        for (a, b) in zip(points, points.dropFirst()) where minutes <= b.minutes {
+            return a.factor + (b.factor - a.factor) * (minutes - a.minutes) / (b.minutes - a.minutes)
+        }
+        return points.last!.factor
     }
 
     var isWidened: Bool { largest > 1.005 }
@@ -508,6 +534,8 @@ enum GlucoseForecaster {
         let rangeScale = scaled ? min(ForecastRangeScale.totalMaximum, input.rangeScale.factor(for: basis) * max(1, input.rangeScale.recent)) : 1
         let contextWiden = activeTags.isEmpty ? 1.0 : 1.5
         var rangeScales: [Int: Double] = [:]
+        var upperScales: [Int: Double] = [:]
+        let countsTreatment = limitations.contains(.lowTreatment)
         let fade = max(60, input.tuning.trendFade)
         let gain = min(1, max(0, input.tuning.trendGain))
         var samples: [ForecastSample] = []
@@ -536,7 +564,10 @@ enum GlucoseForecaster {
             let scale = scaled ? input.rangeScale.factor(for: basis, minutes: minutes, trendPerMinute: trend) : 1
             rangeScales[Int(minutes.rounded())] = scale
             let widen = contextWiden * scale
-            return (q.lower * widen, q.upper * widen)
+            let up = scaled ? ForecastRangeScale.lowStartUpper(startMgdl: latest.mgdl, minutes: minutes,
+                                                               countsTreatment: countsTreatment) : 1
+            if up > 1 { upperScales[Int(minutes.rounded())] = up }
+            return (q.lower * widen, q.upper * widen * up)
         }
         samples.append(ForecastSample(date: t0, mgdl: g, lowerMgdl: g, upperMgdl: g))
         while minute < lookMinutes {
@@ -570,7 +601,7 @@ enum GlucoseForecaster {
         var forecast = GlucoseForecast(issuedAt: t0, startMgdl: latest.mgdl, basis: basis, trendPerMinute: trend,
                                        samples: drawn, limitations: limitations, calibrated: calibrated,
                                        morning: morning, rangeScale: max(rangeScale, rangeScales.values.max() ?? 1),
-                                       rangeScales: rangeScales, fresh: freshModel, insulinOnly: insulinOnly,
+                                       rangeScales: rangeScales, upperScales: upperScales, fresh: freshModel, insulinOnly: insulinOnly,
                                        unshown: samples.filter { $0.date > cutAt })
         forecast.lowLookahead = lookahead
         if shownHorizon <= 0 {

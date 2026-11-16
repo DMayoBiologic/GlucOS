@@ -359,6 +359,8 @@ export interface ShownForecast {
     actual?: number | null; afterLog?: boolean;
     /// How much the point's range was widened when shown.
     scale?: number | null;
+    /// How much further its upper side alone was widened (lowStartUpper).
+    upperScale?: number | null;
   }[];
 }
 
@@ -404,6 +406,23 @@ export function rangeFactor(s: RangeScale | null | undefined, minutes: number, t
   return Math.min(rangeTotalMaximum, steadyFactor(s, minutes) * clampScale(fast) * clampScale(s.recent));
 }
 
+/// Below this (4.4 mmol/L) the range's upper side is widened further, because glucose usually
+/// comes back up from there faster than the trend draws (docs/ForecastAccuracy.md §40). Port of
+/// `ForecastRangeScale.lowStartUpper`; the relay never sees logged treatments.
+export const lowStartMgdl = 80;
+const lowStartUpperByMinutes: [number, number][] = [[0, 1], [15, 2.8], [30, 3.3], [60, 3.6]];
+
+/// The upper side's extra widening `minutes` ahead for a forecast starting at `startMgdl`.
+export function lowStartUpper(startMgdl: number, minutes: number): number {
+  if (!(startMgdl < lowStartMgdl) || minutes <= 0) return 1;
+  const pts = lowStartUpperByMinutes;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [am, av] = pts[i], [bm, bv] = pts[i + 1];
+    if (minutes <= bm) return av + (bv - av) * ((minutes - am) / (bm - am));
+  }
+  return pts[pts.length - 1][1];
+}
+
 interface RangeMiss { minutes: number; ratio: number; fast: boolean; recent: boolean }
 
 export function rangeScaleFrom(shown: ShownForecast[], now: number): RangeScale | null {
@@ -415,7 +434,8 @@ export function rangeScaleFrom(shown: ShownForecast[], now: number): RangeScale 
     for (const p of r.points) {
       if (p.afterLog || typeof p.actual !== "number") continue;
       const k = Math.max(1, p.scale ?? 1);
-      let above = (p.upper - p.mgdl) / k, below = (p.mgdl - p.lower) / k;
+      // The low-start widening is its own correction: taken out, so it isn't learnt twice.
+      let above = (p.upper - p.mgdl) / (k * Math.max(1, p.upperScale ?? 1)), below = (p.mgdl - p.lower) / k;
       const cutHigh = p.upper >= sensorHigh + 0.5, cutLow = p.lower <= sensorLow - 0.5;
       if (cutHigh && cutLow) continue;
       if (cutHigh) above = below;
@@ -538,7 +558,8 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
   const band = (minutes: number) => {
     const b = (stats ? interpolateBand(stats, minutes) : null) ?? defaultBand(minutes);
     const k = widen(minutes);
-    return { lower: b.lower * k, upper: b.upper * k };
+    const up = maxHorizon === undefined ? lowStartUpper(latest.mgdl, minutes) : 1;
+    return { lower: b.lower * k, upper: b.upper * k * up };
   };
   const samples: ForecastSample[] = [{ t: t0, mgdl: latest.mgdl, lowerMgdl: latest.mgdl, upperMgdl: latest.mgdl }];
   // Predicted lows look the trend's full 30 minutes ahead even when the calibrated horizon is
