@@ -45,7 +45,7 @@ final class ForecastLedgerStore: ObservableObject {
         summarise()
     }
 
-    /// Records the forecast being shown now (at most one per 15 minutes) and scores earlier ones.
+    /// Records the forecast being shown now (at most one per 5 minutes) and scores earlier ones.
     func update(forecast: GlucoseForecast?, tuned: Bool, archive: [GlucoseReading], current: GlucoseReading?,
                 logTimes: @autoclosure () -> [Date], low: Double = 70, high: Double = 180, now: Date = Date()) {
         var changed = false
@@ -69,12 +69,13 @@ final class ForecastLedgerStore: ObservableObject {
 
     /// Re-scores the back-in-range estimates when a forecast settles or the range changes.
     private func updateBackInRange(archive: [GlucoseReading], low: Double, high: Double, now: Date) {
-        let settled = ledger.records.lazy.filter(\.settled).count
+        let settled = ledger.records.lazy.filter { $0.settled && !$0.isExtra }.count
         if let k = backInRangeKey, k.settled == settled, k.low == low, k.high == high { return }
         backInRangeKey = (settled, low, high)
         let from = now.addingTimeInterval(-BackInRange.window)
         let readings = GlucoseSeries(archive.filter { $0.timestamp >= from })
-        let check = BackInRange.check(records: ledger.records, readings: readings, device: Self.device,
+        // Quarter-hour checks only, as before extras were kept: this gate decides what's shown.
+        let check = BackInRange.check(records: ledger.quarterHourly.records, readings: readings, device: Self.device,
                                       low: low, high: high, now: now)
         if check != backInRange { backInRange = check }
     }
@@ -103,9 +104,12 @@ final class ForecastLedgerStore: ObservableObject {
                                         coversWeek: first.map { $0 <= weekAgo } ?? false)
         }
         if since != sinceUpdate { sinceUpdate = since }
-        let scale = ledger.rangeScale(now: now)
+        // What's drawn is decided by the quarter-hour checks alone, exactly as before extras were
+        // kept (`ForecastRecord.extra`): the extras only add to the figures above.
+        let quarter = ledger.quarterHourly
+        let scale = quarter.rangeScale(now: now)
         if scale != rangeScale { rangeScale = scale }
-        let horizon = ledger.liveHorizon(device: Self.device, now: now)
+        let horizon = quarter.liveHorizon(device: Self.device, now: now)
         if horizon != liveHorizon { liveHorizon = horizon }
     }
 

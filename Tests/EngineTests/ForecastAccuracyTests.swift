@@ -12,18 +12,77 @@ final class ForecastLedgerTests: XCTestCase {
         return try GlucoseForecaster.forecast(input).get()
     }
 
-    func testKeepsOneForecastPerQuarterHourWithItsCheckedHorizons() throws {
+    func testKeepsOneForecastPerFiveMinutesAndMarksTheQuarterHourOnes() throws {
         var ledger = ForecastLedger()
-        XCTAssertTrue(ledger.note(try rising(at: now), device: "Mac", tuned: false, now: now))
-        XCTAssertFalse(ledger.note(try rising(at: now.addingTimeInterval(5 * 60)), device: "Mac", tuned: false,
-                                   now: now.addingTimeInterval(5 * 60)))
-        XCTAssertTrue(ledger.note(try rising(at: now.addingTimeInterval(15 * 60)), device: "Mac", tuned: false,
-                                  now: now.addingTimeInterval(15 * 60)))
-        XCTAssertEqual(ledger.records.count, 2)
+        func note(_ minutes: Double) throws -> Bool {
+            let t = now.addingTimeInterval(minutes * 60)
+            return ledger.note(try rising(at: t), device: "Mac", tuned: false, now: t)
+        }
+        XCTAssertTrue(try note(0))
+        XCTAssertFalse(try note(3), "At most one per 5 minutes")
+        XCTAssertTrue(try note(5))
+        XCTAssertTrue(try note(11))
+        XCTAssertTrue(try note(15), "Due as a quarter-hour check: kept though the last extra was 4 minutes ago")
+        XCTAssertTrue(try note(21))
+        XCTAssertFalse(try note(25))
+        XCTAssertTrue(try note(31), "16 minutes after the last quarter-hour check")
+        XCTAssertEqual(ledger.records.map(\.isExtra), [false, true, true, false, true, false])
+        XCTAssertEqual(ledger.records.map(\.extra), [nil, true, true, nil, true, nil])
+        // The quarter-hour checks are exactly the ones a 15-minute log would have kept.
+        XCTAssertEqual(ledger.quarterHourly.records.map(\.issuedAt),
+                       [0, 15, 31].map { now.addingTimeInterval($0 * 60) })
         // An uncalibrated trend forecast looks 30 minutes ahead: 15 and 30 are checked.
         XCTAssertEqual(ledger.records[0].points.map(\.minutes), [15, 30])
         XCTAssertEqual(ledger.records[0].startMgdl, 120)
         XCTAssertTrue(ledger.records[0].limitations.contains("uncalibrated"))
+    }
+
+    func testQuarterHourChecksFollowTheOldSpacingWhateverTheExtras() throws {
+        // Forecasts every minute for two hours: the quarter-hour checks land where a log kept
+        // every 15 minutes would have put them, so what they decide is unchanged.
+        var ledger = ForecastLedger()
+        var old: [Date] = []
+        // Readings a minute or so apart, sometimes two or three, as LibreLinkUp delivers them.
+        var minutes: [Double] = [], m = 0.0
+        var k = 0
+        while m < 120 { minutes.append(m); m += [1, 1, 2, 1, 3, 1, 1.5][k % 7]; k += 1 }
+        for m in minutes {
+            let t = now.addingTimeInterval(m * 60)
+            ledger.note(try rising(at: t), device: "Mac", tuned: false, now: t)
+            if old.last.map({ t.timeIntervalSince($0) >= ForecastLedger.spacing }) ?? true { old.append(t) }
+        }
+        XCTAssertEqual(ledger.quarterHourly.records.map(\.issuedAt), old)
+        XCTAssertGreaterThan(ledger.records.count, 2 * old.count, "About one per 5 minutes")
+        for (a, b) in zip(ledger.records, ledger.records.dropFirst()) where b.isExtra {
+            XCTAssertGreaterThanOrEqual(b.issuedAt.timeIntervalSince(a.issuedAt), ForecastLedger.checkSpacing)
+        }
+    }
+
+    func testSendsOnceTheFirstHourIsScoredAndAgainWhenSettled() throws {
+        var ledger = ForecastLedger()
+        ledger.note(try rising(at: now), device: "Mac", tuned: false, now: now)
+        // Pretend it reaches 3 hours, as a calibrated forecast would.
+        ledger.records[0].points.append(.init(minutes: 180, mgdl: 120, lower: 100, upper: 140))
+        let series = GlucoseSeries(readings(endingAt: now.addingTimeInterval(40 * 60), minutes: 40) { _ in 140 })
+        ledger.score(readings: series, logTimes: [], now: now.addingTimeInterval(40 * 60))
+        XCTAssertFalse(ledger.records[0].settled)
+        XCTAssertEqual(ledger.pendingUpload().count, 1, "15 and 30 are in: sent before it settles")
+        ledger.markUploaded([ledger.records[0].id])
+        XCTAssertTrue(ledger.pendingUpload().isEmpty)
+        ledger.score(readings: series, logTimes: [], now: now.addingTimeInterval(201 * 60))
+        XCTAssertTrue(ledger.records[0].settled)
+        XCTAssertEqual(ledger.pendingUpload().count, 1, "Sent again with every point once settled")
+    }
+
+    func testExtrasArePrunedSoonerThanQuarterHourChecks() throws {
+        var ledger = ForecastLedger()
+        for m in [0.0, 5, 15] {
+            let t = now.addingTimeInterval(m * 60)
+            ledger.note(try rising(at: t), device: "Mac", tuned: false, now: t)
+        }
+        XCTAssertFalse(ledger.prune(now: now.addingTimeInterval(7 * 86_400)))
+        XCTAssertTrue(ledger.prune(now: now.addingTimeInterval(9 * 86_400)))
+        XCTAssertEqual(ledger.records.map(\.isExtra), [false, false])
     }
 
     func testSkipsAForecastFromAnOldReading() throws {
@@ -379,5 +438,15 @@ final class ForecastScorecardTests: XCTestCase {
         obj.removeValue(forKey: "appVersion")
         let back = try JSONDecoder().decode(ForecastRecord.self, from: JSONSerialization.data(withJSONObject: obj))
         XCTAssertNil(back.appVersion)
+        XCTAssertFalse(back.isExtra, "Records from before extras were kept are quarter-hour checks")
+    }
+
+    func testUploadMarksExtrasOnly() throws {
+        var r = records(count: 1, error: 5, moved: 10)[0]
+        let plain = String(data: try JSONEncoder().encode(ForecastUpload(r)), encoding: .utf8)!
+        XCTAssertFalse(plain.contains("extra"), plain)
+        r.extra = true
+        let json = String(data: try JSONEncoder().encode(ForecastUpload(r)), encoding: .utf8)!
+        XCTAssertTrue(json.contains("\"extra\":true"), json)
     }
 }

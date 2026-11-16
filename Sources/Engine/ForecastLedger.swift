@@ -5,7 +5,12 @@ import Foundation
 // the other half: what it *did* say, at the time, with whatever had been learnt by then. Together
 // they answer "how accurate has it been?" and show whether it's getting better as history grows.
 //
-// One forecast is kept every 15 minutes. Each is scored at the horizons the backtest checks, once
+// One forecast is kept every 5 minutes while fresh readings come in (it was every 15 until round 30,
+// which left too few checks to judge one release against the last). Every third or so, the first
+// at least 15 minutes after the last such one, is a quarter-hour check: those alone decide what's
+// drawn (the range's widening, the live horizon cut, the back-in-range gate), exactly as when only
+// they were kept, so recording more never changes a forecast. The others are `extra`: they count
+// on the Insights card and on the server. Each is scored at the horizons the backtest checks, once
 // the readings for them are in, and settled a little after its last horizon (readings can arrive
 // late, and food or insulin can be logged afterwards with an earlier time). A point is marked
 // `afterLog` when anything was logged between the forecast and that point, because the forecast
@@ -58,12 +63,16 @@ struct ForecastRecord: Codable, Hashable, Identifiable {
     /// The app version that showed the forecast ("1.2.0"), so accuracy can be followed per
     /// release. Nil in records from before versions were kept, and in the relay's.
     var appVersion: String? = nil
+    /// Kept between the quarter-hour checks (`ForecastLedger.checkSpacing`). Only ever true or nil:
+    /// nil is a quarter-hour check, which is every record from before extras were kept.
+    var extra: Bool? = nil
     /// Every point has been scored (or its time has passed without a reading).
     var settled = false
     /// Sent to the sync server.
     var uploaded = false
 
     var lastMinutes: Int { points.map(\.minutes).max() ?? 0 }
+    var isExtra: Bool { extra ?? false }
 
     /// The device name the push relay records the Live Activity's own forecasts under, in the
     /// server's ledger. The apps never record under it.
@@ -78,20 +87,36 @@ struct ForecastRecord: Codable, Hashable, Identifiable {
 struct ForecastLedger: Codable, Equatable {
     var records: [ForecastRecord] = []
 
-    /// At most one forecast is kept per this long.
+    /// Quarter-hour checks are at least this far apart. They alone decide what's drawn.
     static let spacing: TimeInterval = 15 * 60
+    /// At most one forecast of any kind is kept per this long.
+    static let checkSpacing: TimeInterval = 5 * 60
     static let retention: TimeInterval = 90 * 86_400
+    /// Extras are kept only this long on the device (the server keeps them): long enough for the
+    /// Insights card's week and the since-update figures, without tripling the file. The 3 weeks
+    /// before, which the trend line compares with, are quarter-hour checks only.
+    static let extraRetention: TimeInterval = 8 * 86_400
+    /// An unsettled forecast is sent once its points up to here are scored, so the server's
+    /// figures (and the per-version table) don't wait out the 3-hour horizon. It's sent again
+    /// when it settles.
+    static let earlyUploadMinutes = 60
     /// How long after its last point a forecast waits for late readings and logs.
     static let settleAfter: TimeInterval = 20 * 60
     static var checkedMinutes: [Int] { ForecastCalibration.horizons }
 
-    /// Keeps `forecast` if it's the first in its 15 minutes. Returns whether it was added.
+    /// Keeps `forecast` as a quarter-hour check if it's the first 15 minutes after the last one,
+    /// otherwise as an extra if it's 5 minutes after the last forecast kept. Returns whether it was added.
     /// The part live checks cut off (`GlucoseForecast.unshown`) is kept too, marked as not shown.
     @discardableResult
     mutating func note(_ forecast: GlucoseForecast, device: String, tuned: Bool, appVersion: String? = nil,
                        now: Date = Date()) -> Bool {
         guard now.timeIntervalSince(forecast.issuedAt) <= GlucoseSnapshot.staleAfter else { return false }
-        if let last = records.last, forecast.issuedAt.timeIntervalSince(last.issuedAt) < Self.spacing { return false }
+        let lastQuarter = records.last { !$0.isExtra }
+        let extra = lastQuarter.map { forecast.issuedAt.timeIntervalSince($0.issuedAt) < Self.spacing } ?? false
+        // A quarter-hour check is always kept, however close the last extra was, so the
+        // quarter-hour checks land exactly where they did when nothing else was kept.
+        if extra, let last = records.last, forecast.issuedAt.timeIntervalSince(last.issuedAt) < Self.checkSpacing { return false }
+        if let last = records.last, forecast.issuedAt <= last.issuedAt { return false }
         let points: [ForecastRecord.Point] = Self.checkedMinutes.compactMap { m in
             let target = forecast.issuedAt.addingTimeInterval(TimeInterval(m * 60))
             let near = { (x: ForecastSample) in abs(x.date.timeIntervalSince(target)) < 30 }
@@ -108,7 +133,8 @@ struct ForecastLedger: Codable, Equatable {
                                       startMgdl: forecast.startMgdl, trendPerMinute: forecast.trendPerMinute,
                                       points: points, limitations: forecast.limitations.map(\.code),
                                       calibrated: forecast.calibrated, tuned: tuned, morning: forecast.morning != nil,
-                                      rangeScale: forecast.rangeScale, appVersion: appVersion))
+                                      rangeScale: forecast.rangeScale, appVersion: appVersion,
+                                      extra: extra ? true : nil))
         return true
     }
 
@@ -136,6 +162,8 @@ struct ForecastLedger: Codable, Equatable {
             }
             if now >= r.issuedAt.addingTimeInterval(TimeInterval(r.lastMinutes * 60) + Self.settleAfter) {
                 records[i].settled = true
+                // Sent early (`earlyUploadMinutes`): send it again with every point.
+                records[i].uploaded = false
                 changed = true
             }
         }
@@ -180,14 +208,26 @@ struct ForecastLedger: Codable, Equatable {
     @discardableResult
     mutating func prune(now: Date = Date()) -> Bool {
         let cutoff = now.addingTimeInterval(-Self.retention)
+        let extraCutoff = now.addingTimeInterval(-Self.extraRetention)
         let before = records.count
-        records.removeAll { $0.issuedAt < cutoff }
+        records.removeAll { $0.issuedAt < cutoff || ($0.isExtra && $0.issuedAt < extraCutoff) }
         return records.count != before
     }
 
-    /// Settled forecasts not yet sent, oldest first.
+    /// Forecasts not yet sent (or changed since), oldest first: settled ones, and unsettled ones
+    /// whose points up to `earlyUploadMinutes` all have their reading.
     func pendingUpload(limit: Int = 200) -> [ForecastRecord] {
-        Array(records.filter { $0.settled && !$0.uploaded }.prefix(limit))
+        Array(records.filter { !$0.uploaded && ($0.settled || Self.earlyReady($0)) }.prefix(limit))
+    }
+
+    static func earlyReady(_ r: ForecastRecord) -> Bool {
+        let early = r.points.filter { $0.minutes <= earlyUploadMinutes }
+        return !early.isEmpty && early.allSatisfy { $0.actual != nil }
+    }
+
+    /// The quarter-hour checks alone: what decides the drawn forecast, as before extras were kept.
+    var quarterHourly: ForecastLedger {
+        ForecastLedger(records: records.filter { !$0.isExtra })
     }
 
     mutating func markUploaded(_ ids: Set<UUID>) {
