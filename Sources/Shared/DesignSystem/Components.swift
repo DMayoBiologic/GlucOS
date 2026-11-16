@@ -204,8 +204,11 @@ struct StatTile<Footer: View>: View {
     struct Rolling {
         let value: Double
         let text: (Double) -> String
-        init(_ value: Double, text: @escaping (Double) -> String) {
+        /// The tile's place in a row, so a row's count-up settles left to right (`RollingFigure.order`).
+        var order: Int = 0
+        init(_ value: Double, order: Int = 0, text: @escaping (Double) -> String) {
             self.value = value
+            self.order = order
             self.text = text
         }
     }
@@ -239,7 +242,7 @@ struct StatTile<Footer: View>: View {
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
                 Group {
                     if let rolling {
-                        RollingFigure(rolling.value, text: rolling.text)
+                        RollingFigure(rolling.value, order: rolling.order, text: rolling.text)
                     } else {
                         Text(value).contentTransition(.numericText())
                     }
