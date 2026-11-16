@@ -185,6 +185,22 @@ anything that must move on its own uses the system's live views: `ProgressView(t
 the freshness meter and `Text(timerInterval:)` for the reading's age. The ambient drift and ripples
 never appear there.
 
+### 4.7 Cold launch (the saved reading)
+
+The apps never open on a blank card or a spinner when they have a reading saved. On a cold launch
+the store starts from the snapshot saved before (`SharedStore`), so iPhone Today, its collapsed
+title and the Mac popover (opened before the first fetch lands) show that reading at once: the
+figure, trend, needle and rail at half opacity, the age line reading "Last reading 3 min ago"
+with a still clock in place of the live dot, and no refresh spinner (`LaunchReading`,
+`LaunchHandover.swift`). VoiceOver adds "Saved reading, checking for a newer one". When this
+launch's first fetch lands (`GlucoseStore.fetchedThisLaunch`), the figure cross-fades to the live
+value once on `.sweep` (`LaunchFigure`) instead of rolling its digits, the rest brightens in the
+same fade, and the new-reading ripple is skipped. Nothing repeats (§4.6); under Reduce Motion it
+just changes. A saved reading that is already stale keeps the stale look (§4.3) and isn't dimmed on
+top; a sensor warming up shows its countdown instead. A failed first fetch leaves the saved reading
+dimmed under the connection notice until a fetch succeeds or it goes stale. Coming back from the
+background is not a launch: the reading there is the live one, or stale.
+
 ## 5. Signature components
 
 All in `Sources/Shared/DesignSystem/Signal.swift` (the needle is `TrendDial` in `Theme.swift`), compiled

@@ -30,6 +30,8 @@ struct PhoneHeroCard: View {
             let headline = outlook.flatMap(OutlookFormat.headlineSample)
             // A new sensor's first hour: a countdown instead of the old sensor's last reading.
             let warmUp = s.warmUp(at: now)
+            // Right after launch: the saved reading, dimmed with its age, until the first fetch.
+            let launch = store.launchPhase(at: now)
             VStack(alignment: .leading, spacing: DS.Space.md) {
                 HStack(spacing: DS.Space.sm) {
                     // The streak drops under the pill at the accessibility text sizes.
@@ -48,7 +50,7 @@ struct PhoneHeroCard: View {
                         }
                     }
                     Spacer(minLength: 0)
-                    if store.isRefreshing { ProgressView().controlSize(.small) }
+                    if launch.showsSpinner(isRefreshing: store.isRefreshing) { ProgressView().controlSize(.small) }
                 }
                 .dsAnimation(.standard, value: s.range)
                 // The pill swaps to "No recent data" and back without a jump.
@@ -59,21 +61,24 @@ struct PhoneHeroCard: View {
                 } else if let cur = s.current {
                     HStack(alignment: .center, spacing: DS.Space.md) {
                         VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                            valueRow(cur, stale: stale, tint: tone.color, now: now)
+                            valueRow(cur, stale: stale, tint: tone.color, now: now, launch: launch)
                             trendRow(cur, stale: stale)
                         }
+                        .launchDim(launch, stale: stale)
                         Spacer(minLength: DS.Space.sm)
                         // At the accessibility text sizes the reading needs the whole width, and
                         // the trend is in words under it, so the needle steps aside.
                         if !typeSize.dsLargeText {
                             TrendDial(trend: stale ? .unknown : cur.trend, tint: tone.color, size: 80)
                                 .opacity(stale ? 0.6 : 1)
+                                .launchDim(launch, stale: stale)
                                 .readingRipple(trigger: ripple, in: Circle(), tint: tone.color)
                                 .accessibilityHidden(true)
                         }
                     }
                     RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
                               forecastMgdl: headline?.sample.mgdl, thickness: 6, unit: s.unit)
+                        .launchDim(launch, stale: stale)
                         .padding(.vertical, DS.Space.xxs)
                     if let outlook, headline != nil || outlook.lowExpectedAt != nil {
                         ForecastNote(unit: s.unit, headline: headline.map { (minutes: $0.minutes, mgdl: $0.sample.mgdl) },
@@ -87,7 +92,7 @@ struct PhoneHeroCard: View {
                             .foregroundStyle(.secondary)
                             .transition(.opacity)
                     }
-                    freshness(cur, stale: stale, now: now)
+                    freshness(cur, stale: stale, now: now, launch: launch)
                 } else {
                     waiting
                 }
@@ -111,7 +116,8 @@ struct PhoneHeroCard: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(warmUp.map { $0.spoken(at: now) }
                                 ?? (s.current == nil ? waitingSummary
-                                    : s.accessibilitySummary(at: now) + forecastSentence(outlook, headline: headline)))
+                                    : s.accessibilitySummary(at: now) + (launch.spokenNote.map { ". \($0)" } ?? "")
+                                      + forecastSentence(outlook, headline: headline)))
             .accessibilityAddTraits(.updatesFrequently)
             // The card is one VoiceOver element, so the empty state's button is an action on it.
             .accessibilityActions {
@@ -124,8 +130,10 @@ struct PhoneHeroCard: View {
                 Button("Refresh Now", systemImage: "arrow.clockwise") { Task { await store.refresh() } }
             }
         }
-        .onChange(of: s.current?.timestamp) { old, new in
-            guard old != nil, new != nil, old != new, !reduceMotion else { return }
+        // One ripple per new reading, but not for the launch handover, which is a single fade.
+        .onChange(of: RippleKey(timestamp: s.current?.timestamp, phase: store.launchPhase())) { old, new in
+            guard LaunchReading.playsRipple(from: (old.timestamp, old.phase), to: (new.timestamp, new.phase),
+                                            reduceMotion: reduceMotion) else { return }
             ripple += 1
         }
         // A tap you can feel when a new reading, with the app open, crosses into a low (warning)
@@ -190,24 +198,28 @@ struct PhoneHeroCard: View {
         return store.statusLine
     }
 
-    private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color, now: Date) -> some View {
+    private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color, now: Date,
+                          launch: LaunchReading) -> some View {
         // The unit moves under the number at the accessibility sizes, so the number keeps the width.
         DSAccessibleStack(verticalAlignment: .firstTextBaseline, spacing: DS.Space.xs + 2) {
-            Text(s.unit.format(mgdl: cur.mgdl))
-                // Already very large: it stops growing at xxxLarge (about 115 pt), so even
-                // "22.2" fits a small phone at AX5 without shrinking much.
-                .font(.system(size: (96 * (1 + (min(textScale.scale, 1.5) - 1) * 0.4)).rounded(), weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tint))
-                // A new reading rolls the digits over to it (up or down with the change) and a range
-                // change cross-fades the colour, like the Live Activity. Once per change; under Reduce
-                // Motion the number just changes. VoiceOver reads the card's label, which is always
-                // the new reading, never a figure part-way through the roll.
-                .readingChange(mgdl: cur.mgdl, tone: s.displayTone(at: now), instantUnderReduceMotion: true)
-                // The line draws across as the data goes stale (docs/Redesign.md §4.3).
-                .staleStrike(stale)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
+            // The saved reading cross-fades to the first live one once, rather than rolling.
+            LaunchFigure(phase: launch) {
+                Text(s.unit.format(mgdl: cur.mgdl))
+                    // Already very large: it stops growing at xxxLarge (about 115 pt), so even
+                    // "22.2" fits a small phone at AX5 without shrinking much.
+                    .font(.system(size: (96 * (1 + (min(textScale.scale, 1.5) - 1) * 0.4)).rounded(), weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tint))
+                    // A new reading rolls the digits over to it (up or down with the change) and a range
+                    // change cross-fades the colour, like the Live Activity. Once per change; under Reduce
+                    // Motion the number just changes. VoiceOver reads the card's label, which is always
+                    // the new reading, never a figure part-way through the roll.
+                    .readingChange(mgdl: cur.mgdl, tone: s.displayTone(at: now), instantUnderReduceMotion: true)
+                    // The line draws across as the data goes stale (docs/Redesign.md §4.3).
+                    .staleStrike(stale)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+            }
             Text(s.unit.label)
                 .dsFont(.callout)
                 .fontWeight(.semibold)
@@ -266,19 +278,22 @@ struct PhoneHeroCard: View {
 
     private func tint(stale: Bool) -> Color { stale ? Tone.warning.color : Palette.neutral }
 
-    private func freshness(_ cur: GlucoseReading, stale: Bool, now: Date) -> some View {
+    private func freshness(_ cur: GlucoseReading, stale: Bool, now: Date, launch: LaunchReading) -> some View {
         // Meter, age and clock time on one line; each on its own at the accessibility sizes.
         DSAccessibleStack(spacing: DS.Space.xs) {
             HStack(spacing: DS.Space.xs) {
                 if stale {
                     Image(systemName: "clock.badge.exclamationmark")
+                } else if launch == .stored {
+                    // Not live yet: no pulsing dot until this launch's first fetch lands.
+                    Image(systemName: "clock")
                 } else {
                     LiveDot(live: true).padding(.trailing, 2)
                 }
                 FreshnessMeter(readingDate: cur.timestamp, stale: stale, tint: tint(stale: stale), width: 36)
                     .padding(.trailing, DS.Space.xxs)
             }
-            Text(stale ? "Last reading \(PopoverFormat.ageAgo(cur.age(at: now)))" : "Updated \(PopoverFormat.ageAgo(cur.age(at: now)))")
+            Text("\(launch.ageLead(stale: stale)) \(PopoverFormat.ageAgo(cur.age(at: now)))")
             Text(typeSize.dsLargeText ? ClockLabel.dayTime(cur.timestamp, now: now)
                                       : "· \(ClockLabel.dayTime(cur.timestamp, now: now))")
                 .foregroundStyle(.tertiary)

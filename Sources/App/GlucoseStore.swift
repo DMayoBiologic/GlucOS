@@ -19,6 +19,9 @@ final class GlucoseStore: ObservableObject {
     @Published private(set) var notificationsBlocked = false
     /// The last fetch's failure in plain words, with what to do about it. Nil when connected.
     @Published private(set) var connectionProblem: ConnectionProblem?
+    /// False until this launch's first fetch lands. Until then the reading on screen is the one
+    /// saved before launch, drawn dimmed with its age (`LaunchReading`).
+    @Published private(set) var fetchedThisLaunch = false
     /// Every reading kept on disk (up to 90 days), oldest → newest. Feeds the dashboard window.
     @Published private(set) var archive: [GlucoseReading]
 
@@ -164,6 +167,8 @@ final class GlucoseStore: ObservableObject {
             s.sensor = r.sensor
             s.fetchedAt = Date()
             s.lastError = nil
+            // Set with the snapshot, so the saved reading hands over to this one in a single update.
+            if !fetchedThisLaunch { fetchedThisLaunch = true }
             snapshot = s
             if connectionProblem != nil { connectionProblem = nil }
             record(s)
@@ -186,6 +191,12 @@ final class GlucoseStore: ObservableObject {
         alerts.evaluate(snapshot, settings: settings)
         alerts.evaluatePrediction(snapshot, forecast: outlook.outlook?.glucoseForecast, settings: settings)
         await checkNotificationPermission()
+    }
+
+    /// Whether the reading on screen is still the one saved before this launch (`LaunchReading`).
+    func launchPhase(at now: Date = Date()) -> LaunchReading {
+        LaunchReading.phase(hasReading: snapshot.current != nil, fetchedThisLaunch: fetchedThisLaunch,
+                            warmingUp: snapshot.warmUp(at: now) != nil)
     }
 
     /// A pull to refresh. Joins a fetch already in flight instead of skipping it (`refresh()` returns
