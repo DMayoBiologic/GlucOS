@@ -824,7 +824,7 @@ private struct KeyboardLoggingSection: View {
         } header: {
             Text("Keyboard")
         } footer: {
-            Text("In GlucOS, ⌘L logs and ⌘? lists every shortcut. In the log window, the arrow keys move between moments, Return picks one and moves on, and Space picks several.")
+            Text("In GlucOS, ⌘L logs (during a low, it opens Log treatment) and ⌘? lists every shortcut. In the log window, the arrow keys move between moments, Return picks one and moves on, and Space picks several.")
                 .foregroundStyle(.secondary)
         }
     }

@@ -35,6 +35,8 @@ struct LowTreatButtonView: View {
     let reason: LowTreatButton.Reason
     /// A "Treat a low" usual exists, so the sheet opens filled in (only changes the hint).
     let hasUsual: Bool
+    /// The Mac popover gives it ⌘L while it shows (`ShortcutCatalog.lowTreatment`).
+    var shortcut: KeyboardShortcut? = nil
     let action: () -> Void
 
     var body: some View {
@@ -54,6 +56,8 @@ struct LowTreatButtonView: View {
                 }
             }
             .buttonStyle(LowTreatButtonStyle())
+            .keyboardShortcut(shortcut)
+            .help(shortcut == nil ? "" : "\(LowTreatButton.title) (⌘L)")
             .accessibilityLabel(LowTreatButton.accessibilityLabel(reason, now: context.date))
             .accessibilityHint(LowTreatButton.accessibilityHint(hasUsual: hasUsual))
             .frame(maxWidth: .infinity, alignment: .leading)

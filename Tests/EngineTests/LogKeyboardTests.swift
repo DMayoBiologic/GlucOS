@@ -128,6 +128,12 @@ final class LogKeyboardTests: XCTestCase {
         }
     }
 
+    func testPopoverListsCommandLDuringALow() {
+        let rows = ShortcutCatalog.popover(globalKey: nil).flatMap(\.rows)
+        XCTAssertTrue(rows.contains(ShortcutCatalog.lowTreatment))
+        XCTAssertFalse(ShortcutCatalog.logSheet(momentCount: 6, globalKey: nil).flatMap(\.rows).contains(ShortcutCatalog.lowTreatment))
+    }
+
     func testUsualKeysCoverTheFirstThreeEntries() {
         XCTAssertEqual(UsualKeys.display(for: 0), "⌥⌘1")
         XCTAssertEqual(UsualKeys.display(for: 2), "⌥⌘3")

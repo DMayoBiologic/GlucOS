@@ -42,6 +42,7 @@ let package = Package(
                 "Shared/HapticRules.swift",
                 "Shared/MenuBarGlance.swift",
                 "Shared/WidgetGlance.swift",
+                "Shared/SpokenGlucose.swift",
                 "Core/RelayProtocol.swift",
                 "Core/RelayRetry.swift",
                 "Core/FunctionRegion.swift",

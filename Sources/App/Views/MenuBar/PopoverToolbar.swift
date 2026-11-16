@@ -8,6 +8,9 @@ struct PopoverToolbar: View {
     @EnvironmentObject var updater: Updater
 
     var showsShortcuts: Bool
+    /// During a low ⌘L belongs to the inline Log treatment button (`LowTreatButtonView`), so this
+    /// button gives it up while that shows.
+    var lowTreatmentHoldsLogKey = false
     var onLog: () -> Void
     var onRefresh: () -> Void
     var onDashboard: () -> Void
@@ -22,9 +25,9 @@ struct PopoverToolbar: View {
                     .labelStyle(.titleAndIcon)
             }
             .buttonStyle(PillIconButtonStyle(prominent: true))
-            .keyboardShortcut("l")
-            .help("Log insulin or food (⌘L)")
-            .overlay(alignment: .bottom) { badge("⌘L") }
+            .keyboardShortcut(lowTreatmentHoldsLogKey ? nil : KeyboardShortcut("l"))
+            .help(lowTreatmentHoldsLogKey ? "Log insulin or food" : "Log insulin or food (⌘L)")
+            .overlay(alignment: .bottom) { if !lowTreatmentHoldsLogKey { badge("⌘L") } }
 
             Button(action: onRefresh) {
                 ZStack {

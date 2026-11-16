@@ -4,7 +4,9 @@ Logging on the Mac can be done without touching the mouse.
 
 ## Opening the log window
 
-- **⌘L** in the menu bar popover or the dashboard opens the log sheet.
+- **⌘L** in the menu bar popover or the dashboard opens the log sheet. During a low, while the
+  popover shows its Log treatment button, ⌘L opens the low treatment sheet instead, filled in from
+  "Treat a low" (docs/AlertActions.md); nothing is logged until you log it.
 - **⌥⌘1 – ⌥⌘3** in the menu bar popover open it filled in from one of "Your usual" (the chips
   above the toolbar, in the order shown). Return then logs it, after the same checks as the button.
 - **From any app (optional):** Settings → Logging → Keyboard → "Open the log window from any app".
