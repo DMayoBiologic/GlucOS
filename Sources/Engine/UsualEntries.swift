@@ -99,6 +99,21 @@ struct UsualEntry: Identifiable, Hashable {
         }
     }
 
+    /// A short chip label for narrow places (the menu bar popover): what it is, not "Usual …".
+    /// "Toast and banana", "45 g carbs", "Correction 2 u", "Treat a low".
+    var shortTitle: String {
+        switch kind {
+        case .meal:
+            if !food.isEmpty { return food }
+            return carbs > 0 ? "\(LogFormat.grams(carbs)) carbs" : title
+        case .correction:
+            guard let units else { return "Correction" }
+            return "Correction \(LogFormat.units(units))"
+        case .lowTreatment:
+            return title
+        }
+    }
+
     /// For VoiceOver: words, not symbols. "Usual breakfast: toast and banana, 45 grams of carbs".
     var spokenLabel: String {
         var bits: [String] = []

@@ -128,6 +128,33 @@ final class LogKeyboardTests: XCTestCase {
         }
     }
 
+    func testUsualKeysCoverTheFirstThreeEntries() {
+        XCTAssertEqual(UsualKeys.display(for: 0), "⌥⌘1")
+        XCTAssertEqual(UsualKeys.display(for: 2), "⌥⌘3")
+        XCTAssertNil(UsualKeys.display(for: 3))
+        XCTAssertNil(UsualKeys.digit(for: -1))
+        XCTAssertEqual(UsualKeys.spoken(for: 1), "Option Command 2")
+        XCTAssertNil(UsualKeys.range(count: 0))
+        XCTAssertEqual(UsualKeys.range(count: 1), "⌥⌘1")
+        XCTAssertEqual(UsualKeys.range(count: 2), "⌥⌘1 – ⌥⌘2")
+        XCTAssertEqual(UsualKeys.range(count: 5), "⌥⌘1 – ⌥⌘3")
+    }
+
+    func testUsualKeysAreListedOnlyWhenOffered() {
+        // The sheet lists them for the entries it's offering, never for none.
+        let none = ShortcutCatalog.logging(momentCount: 6, usualCount: 0).rows.map(\.keys)
+        XCTAssertFalse(none.contains { $0.hasPrefix("⌥⌘") })
+        let two = ShortcutCatalog.logSheet(momentCount: 6, usualCount: 2, globalKey: nil).flatMap(\.rows)
+        XCTAssertTrue(two.contains(ShortcutRow(keys: "⌥⌘1 – ⌥⌘2", action: "Fill in one of Your usual")))
+        // The popover always lists them: its row shows up to three.
+        let popover = ShortcutCatalog.popover(globalKey: nil).flatMap(\.rows).map(\.keys)
+        XCTAssertTrue(popover.contains("⌥⌘1 – ⌥⌘3"))
+        // ⌥⌘ digits never take ⌘1–⌘3, which stay the chart range there.
+        XCTAssertTrue(popover.contains("⌘1  ⌘2  ⌘3"))
+        let keys = ShortcutCatalog.logSheet(momentCount: 6, usualCount: 3, globalKey: .suggested).flatMap(\.rows).map(\.keys)
+        XCTAssertEqual(keys.count, Set(keys).count)
+    }
+
     func testMomentCountsPerTherapyFitTheThreeWideGrid() {
         XCTAssertEqual(LogFlow.moments(logsInsulin: true, pump: false).count, 6)
         XCTAssertEqual(LogFlow.moments(logsInsulin: true, pump: true).count, 6)
