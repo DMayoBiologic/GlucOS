@@ -184,6 +184,18 @@ struct SensorWarmUp: Hashable {
         return "Readings start in about \(m) min"
     }
 
+    /// The countdown for VoiceOver, in whole words ("min" can be read as "minimum") and with the
+    /// clock time of the first reading, which the screen shows as a line of its own:
+    /// "Sensor warming up. Readings start in about 42 minutes, around 9:41 am."
+    func spoken(at now: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
+                locale: Locale = .autoupdatingCurrent) -> String {
+        let m = minutesLeft(at: now)
+        if m <= 0 { return "Sensor warming up. Readings start any minute now." }
+        let minutes = m == 1 ? "1 minute" : "\(m) minutes"
+        let at = ClockLabel.time(endsAt, calendar: calendar, locale: locale)
+        return "Sensor warming up. Readings start in about \(minutes), around \(at)."
+    }
+
     /// The next moment the countdown reads differently with no new data: each minute of the hour,
     /// then the end of the grace, when the warm-up gives way to the usual waiting screen. Nil once
     /// it's over. The Mac menu bar item sets one timer for this instead of ticking.

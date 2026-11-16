@@ -78,7 +78,7 @@ final class MenuBarStatusModel: ObservableObject {
         scheduleNextChange(snapshot: snapshot, now: now)
 
         let back = settings.showForecast ? snapshot.backInRange(at: now)?.minutes : nil
-        let label = Self.spokenLabel(for: next, snapshot: snapshot, backInRangeMinutes: back)
+        let label = Self.spokenLabel(for: next, snapshot: snapshot, backInRangeMinutes: back, now: now)
         if label != accessibilityLabel { accessibilityLabel = label }
         toolTip = MenuBarGlance.toolTip(snapshot: snapshot, hasCredentials: settings.hasCredentials,
                                         showForecast: settings.showForecast, now: now)
@@ -153,13 +153,16 @@ final class MenuBarStatusModel: ObservableObject {
     /// Names the app first, so VoiceOver users moving through the menu bar know whose item it is.
     /// A live reading leaves out its age, which would be out of date between readings; a stale one
     /// gives it to the minute.
-    static func spokenLabel(for g: MenuBarGlance, snapshot: GlucoseSnapshot, backInRangeMinutes: Int? = nil) -> String {
+    static func spokenLabel(for g: MenuBarGlance, snapshot: GlucoseSnapshot, backInRangeMinutes: Int? = nil,
+                            now: Date = Date()) -> String {
         let unit = snapshot.unit
         switch g.state {
         case .notConnected: return "GlucOS, not connected"
         case .waiting: return "GlucOS, waiting for a reading"
         case .warmingUp:
-            return "GlucOS, sensor warming up" + (snapshot.warmUp().map { ". \($0.headline())" } ?? "")
+            // Whole words and the clock time, as in the popover: "Readings start in about 42 minutes,
+            // around 9:41 am". `refresh` rebuilds it at each minute of the countdown.
+            return "GlucOS. " + (snapshot.warmUp(at: now)?.spoken(at: now) ?? "Sensor warming up.")
         case .stale:
             let age = g.ageText.map { " from \($0) ago" } ?? ""
             return "GlucOS, no new reading. Last reading \(g.valueText) \(unit.spokenLabel)\(age). Data is stale"

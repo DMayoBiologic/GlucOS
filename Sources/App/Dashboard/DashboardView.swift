@@ -285,7 +285,8 @@ struct DashboardView: View {
                 .padding(DS.Space.xl)
                 .transition(DS.Transition.toast(reduceMotion: reduceMotion))
                 .task(id: toast.id) {
-                    try? await Task.sleep(for: .seconds(8))
+                    // Longer under VoiceOver, so there's time to hear it and reach Dismiss.
+                    try? await Task.sleep(for: .seconds(NSWorkspace.shared.isVoiceOverEnabled ? 20 : 8))
                     DS.animate(.standard, reduceMotion: reduceMotion) { if self.toast?.id == toast.id { self.toast = nil } }
                 }
         }
@@ -293,6 +294,9 @@ struct DashboardView: View {
 
     private func showToast(_ t: DashboardToast) {
         DS.animate(.standard, reduceMotion: reduceMotion) { toast = t }
+        // The toast sits at the bottom of the window, away from VoiceOver's focus (after an export
+        // the focus is back on the dashboard), so it's read out as it appears.
+        VoiceOver.announce([t.severity.accessibilityPrefix + t.title, t.message].compactMap { $0 }.joined(separator: ". "))
     }
 
     // MARK: Toolbar

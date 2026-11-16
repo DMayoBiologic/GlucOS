@@ -109,7 +109,7 @@ struct PhoneHeroCard: View {
             .urgentRim(s.range == .urgentLow && !stale && warmUp == nil,
                        in: RoundedRectangle(cornerRadius: DS.Radius.hero, style: .continuous))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(warmUp.map { "Sensor warming up. \($0.headline(at: now))." }
+            .accessibilityLabel(warmUp.map { $0.spoken(at: now) }
                                 ?? (s.current == nil ? waitingSummary
                                     : s.accessibilitySummary(at: now) + forecastSentence(outlook, headline: headline)))
             .accessibilityAddTraits(.updatesFrequently)
