@@ -37,6 +37,19 @@ struct MenuBarView: View {
 
     private var s: GlucoseSnapshot { store.snapshot }
 
+    /// Why "Log treatment" shows under the reading, if it does (`LowTreatButton`).
+    private var lowTreat: LowTreatButton.Reason? {
+        LowTreatButton.current(store: store, logbook: logbook, settings: settings)
+    }
+
+    /// The log window for a low, as the alert's Log treatment button opens it: filled in from the
+    /// "Treat a low" usual, nothing logged until Log.
+    private func openLowTreatment() {
+        LogWindowRequest.shared.target = .treating(.low)
+        openWindow(id: LogWindow.id)
+        NSApp.activate()
+    }
+
     var body: some View {
         ScrollView(.vertical) {
             content
@@ -71,6 +84,7 @@ struct MenuBarView: View {
         .animation(PopoverMotion.quick(reduceMotion), value: toast)
         .animation(PopoverMotion.quick(reduceMotion), value: showsShortcutList)
         .animation(PopoverMotion.standard(reduceMotion), value: snoozeStore.isSnoozing)
+        .animation(PopoverMotion.standard(reduceMotion), value: lowTreat != nil)
         .task { await store.checkNotificationPermission() }
         .onAppear { commandKey.start(); staggerSectionsIn() }
         .onDisappear {
@@ -95,6 +109,14 @@ struct MenuBarView: View {
             // While an alert is snoozed: until when, and a click turns alerts back on.
             if snoozeStore.isSnoozing {
                 AlertSnoozeChipView(snoozes: snoozeStore.snoozes) { AlertSnoozeStore.shared.resumeAll() }
+                    .transition(.opacity)
+                    .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
+            }
+            // During a low, or with one predicted: the alert's Log treatment button, inline.
+            if let lowTreat {
+                LowTreatButtonView(reason: lowTreat,
+                                   hasUsual: LowQuestion.shared.usual(logbook: logbook) != nil,
+                                   action: openLowTreatment)
                     .transition(.opacity)
                     .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
             }
