@@ -165,7 +165,11 @@ final class PhoneServices: ObservableObject {
             return
         }
         let readings = store.readings(lastHours: GlucoseActivityState.historyHours + 0.5)
-        guard var state = GlucoseActivityState.make(from: store.snapshot, readings: readings) else { return }
+        // A new sensor warming up: a countdown to its first reading rather than the old sensor's
+        // last one, crossed out.
+        let warmUp = store.snapshot.warmUp()
+        guard var state = warmUp.map({ GlucoseActivityState.makeWarmUp($0, snapshot: store.snapshot) })
+                ?? GlucoseActivityState.make(from: store.snapshot, readings: readings) else { return }
         // Who's checking in, from the relay; while its status is unknown, whatever the card shows.
         state.checkIn = relaySettings.isConfigured
             ? (relayStatus.map { $0.checkIn } ?? liveActivity.currentCheckIn)

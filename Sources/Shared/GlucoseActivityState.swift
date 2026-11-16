@@ -36,6 +36,11 @@ struct GlucoseActivityState: Codable, Hashable {
     /// A check-in on this card: on a follower's, theirs; on the owner's, who's waiting for an answer.
     /// Added by the relay (and by the app from what the relay says); never by `make`.
     var checkIn: CheckInState?
+    /// While a new sensor warms up: when its first reading is due, seconds since 1970. The card
+    /// shows a countdown instead of a reading (`makeWarmUp`); then `mgdl` and `history` are
+    /// placeholders. Only the app sets it; the relay's cards never have it, so its first reading
+    /// replaces the countdown.
+    var warmUpEndsAt: Double?
 
     static let historyStep: TimeInterval = 5 * 60
     /// How much history the card's sparkline covers.
@@ -51,7 +56,11 @@ struct GlucoseActivityState: Codable, Hashable {
     var range: GlucoseRange { GlucoseRange.classify(mgdl: mgdl, low: lowMgdl, high: highMgdl) }
 
     /// When the card should turn grey: the same 6 minutes as everywhere else.
-    var staleDate: Date { readingDate.addingTimeInterval(GlucoseSnapshot.staleAfter) }
+    /// During a warm-up, once the first reading is well overdue instead.
+    var staleDate: Date {
+        if let warmUpEnd { return warmUpEnd.addingTimeInterval(SensorWarmUp.grace) }
+        return readingDate.addingTimeInterval(GlucoseSnapshot.staleAfter)
+    }
     func isStale(at now: Date = Date()) -> Bool { now > staleDate }
 
     var valueText: String { glucoseUnit.format(mgdl: mgdl) }
@@ -82,12 +91,30 @@ struct GlucoseActivityState: Codable, Hashable {
         return (forecast.count * 5, Double(last))
     }
 
+    var warmUpEnd: Date? { warmUpEndsAt.map { Date(timeIntervalSince1970: $0) } }
+    var isWarmingUp: Bool { warmUpEndsAt != nil }
+    /// The warm-up's start, for the countdown ring (the reading time holds it on a warm-up card).
+    var warmUpStart: Date { readingDate }
+
     var lowExpectedDate: Date? { lowExpectedAt.map { Date(timeIntervalSince1970: $0) } }
 
     /// Low now, or forecast to be: when a follower's card offers Check in.
     var offersCheckIn: Bool { range == .low || range == .urgentLow || lowExpectedAt != nil }
 
     // MARK: Building
+
+    /// The card for a sensor warming up: a countdown to its first reading. The placeholder reading
+    /// sits mid-range so anything that doesn't know about warm-ups still draws something calm.
+    static func makeWarmUp(_ warmUp: SensorWarmUp, snapshot s: GlucoseSnapshot,
+                           source: String = "phone") -> GlucoseActivityState {
+        var state = GlucoseActivityState(mgdl: (s.lowMgdl + s.highMgdl) / 2, trend: Trend.unknown.rawValue,
+                                         readingAt: warmUp.startedAt.timeIntervalSince1970,
+                                         deltaMgdl: nil, unit: s.unit.rawValue,
+                                         lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, history: [],
+                                         source: source)
+        state.warmUpEndsAt = warmUp.endsAt.timeIntervalSince1970
+        return state
+    }
 
     /// The state for a snapshot, or nil when there's no reading. `readings` is everything known
     /// (the snapshot's history is used when it's empty); only the last few hours are kept.
