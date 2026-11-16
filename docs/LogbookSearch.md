@@ -139,3 +139,9 @@ tested in LogbookLinkTests).
   rather than a kind of entry, so the chip bar lists it only while the card has opened on it
   (`LogbookFilter.isListed`); new entries arriving don't drop it. iPhone zoom and Mac "‹ Insights"
   work as for Lows and Highs.
+- **Weekdays and Weekends (round 40).** Each side of the Insights Weekdays and weekends card is
+  its own button: it opens the Logbook on a **Weekdays** or **Weekends** chip over the card's 7, 14
+  or 30 days (`LogbookLink.weekPart`), with every entry and alert on those days of the week. Weekend
+  days follow the device's region (`Calendar.isDateInWeekend`), as the card does. Like Overnight,
+  both chips are listed only while the card has opened on them. On iPhone both sides zoom from the
+  card; on the Mac "‹ Insights" scrolls back to the one card from either (`LogbookFilter.insightsCard`).
