@@ -67,6 +67,12 @@ struct PhoneLogbookView: View {
     @State private var dayRanges = DayInRangeCache()
     /// Day bars that have drawn in, so each plays once.
     @State private var drawnBars = DrawnOnce()
+    /// The day opened into its chart from its bar (`DayMiniChart`), one at a time.
+    @State private var openDay: String?
+    /// The open day's trace, worked out once per day or readings change.
+    @State private var dayCharts = DayChartCache()
+    /// Where a day's bar and its chart meet, so the chart grows out of the bar and back into it.
+    @Namespace private var dayChartSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Opened from a card (`LogbookLink`): its chip picked and its period above the list.
@@ -207,7 +213,7 @@ struct PhoneLogbookView: View {
                 }
             } header: {
                 // Day headers stay pinned, on a blur, while their day scrolls under them.
-                dayHeader(day, totals: totals[day.id] ?? day.totals, range: ranges[day.start], now: now)
+                dayHeader(day, totals: totals[day.id] ?? day.totals, range: ranges[day.start], all: all, now: now)
                     .padding(.horizontal, DS.Space.lg)
                     .padding(.vertical, DS.Space.xs + 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -322,8 +328,19 @@ struct PhoneLogbookView: View {
     /// The day's name and totals, with its time in range under them as a thin bar and a figure
     /// (`DayRangeBar`). Days without enough readings have no bar. VoiceOver reads one header:
     /// "Tuesday 12 November, 78% in range, 4% below", then the totals.
-    private func dayHeader(_ day: PhoneLogbookDay, totals: String, range: DayInRange?, now: Date) -> some View {
-        VStack(alignment: .leading, spacing: DS.Space.xs) {
+    ///
+    /// Tapping a day with a bar opens it in place into that day's chart (`DayMiniChart`): the bar
+    /// grows into the chart and the chart shrinks back into the bar on a second tap. Opening
+    /// another day closes this one. Under Reduce Motion the two cross-fade instead. Nothing loops.
+    private func dayHeader(_ day: PhoneLogbookDay, totals: String, range: DayInRange?, all: [LogEntry],
+                           now: Date) -> some View {
+        let open = range != nil && openDay == day.id
+        let snapshot = store.snapshot
+        let segments: [[DayChartPoint]] = open
+            ? dayCharts.segments(readings: store.archive, from: day.start, to: DayChart.end(of: day.start)) : []
+        let markers: [ChartLogMarker] = open ? ChartLogMarker.day(all, start: day.start) : []
+        let spokenDay = ClockLabel.day(of: day.start, now: now)
+        return VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(alignment: .firstTextBaseline) {
                 Text(day.title)
                     .dsFont(.headline)
@@ -335,9 +352,29 @@ struct PhoneLogbookView: View {
                     .foregroundStyle(.secondary)
             }
             if let range {
+                if open {
+                    DayMiniChart(start: day.start, segments: segments, markers: markers, unit: snapshot.unit,
+                                 lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl)
+                        .padding(.top, DS.Space.xs)
+                        .dayChartMatch(day.id, in: dayChartSpace, enabled: !reduceMotion)
+                        .transition(.opacity)
+                }
                 HStack(spacing: DS.Space.sm) {
-                    DayRangeBar(id: day.id, figures: range, drawn: drawnBars)
-                        .frame(maxWidth: .infinity)
+                    if open {
+                        Text(DayChartText.caption(segments, unit: snapshot.unit) ?? "No readings")
+                            .dsFont(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .transition(.opacity)
+                    } else {
+                        DayRangeBar(id: day.id, figures: range, drawn: drawnBars)
+                            .frame(maxWidth: .infinity)
+                            .dayChartMatch(day.id, in: dayChartSpace, enabled: !reduceMotion)
+                            .transition(.opacity)
+                    }
                     Text("\(DayInRangeText.percent(range)) in range")
                         .dsFont(.caption)
                         .monospacedDigit()
@@ -348,10 +385,26 @@ struct PhoneLogbookView: View {
             }
         }
         .textCase(nil)
+        .contentShape(Rectangle())
+        .onTapGesture { if range != nil { toggleDay(day.id) } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(DayInRangeText.spoken(ClockLabel.day(of: day.start, now: now), range))
+        .accessibilityLabel(open
+            ? DayChartText.spoken(day: spokenDay, figures: range, segments: segments, unit: snapshot.unit,
+                                  low: snapshot.lowMgdl, high: snapshot.highMgdl, logged: markers.count)
+            : DayInRangeText.spoken(spokenDay, range))
         .accessibilityValue(totals)
-        .accessibilityAddTraits(.isHeader)
+        .accessibilityAddTraits(range != nil ? [.isHeader, .isButton] : .isHeader)
+        .accessibilityHint(range == nil ? "" : (open ? "Hides the day's chart" : "Shows the day's chart"))
+        .accessibilityAction { if range != nil { toggleDay(day.id) } }
+    }
+
+    /// Opens a day into its chart, or closes it: the bar grows into the chart (a spring the eye can
+    /// follow) or, under Reduce Motion, the two cross-fade.
+    private func toggleDay(_ id: String) {
+        Haptics.play(.choice)
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.25) : DSMotion.emphasized.animation) {
+            openDay = DayChart.toggled(open: openDay, tapped: id)
+        }
     }
 
     private func row(_ entry: LogEntry, terms: [String]) -> some View {
@@ -593,5 +646,14 @@ extension LogPart {
         case .site: return Palette.site
         case .event: return Palette.context
         }
+    }
+}
+
+private extension View {
+    /// The day bar and its chart share a frame, so one grows out of the other. Off under Reduce
+    /// Motion, where they cross-fade in place.
+    @ViewBuilder
+    func dayChartMatch(_ id: String, in space: Namespace.ID, enabled: Bool) -> some View {
+        if enabled { matchedGeometryEffect(id: "dayChart.\(id)", in: space) } else { self }
     }
 }
