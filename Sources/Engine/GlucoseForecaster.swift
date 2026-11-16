@@ -193,6 +193,12 @@ struct GlucoseForecast: Hashable {
     /// Extra widening of the upper side alone at each 5-minute sample, by minutes ahead, for a
     /// forecast that starts low (`ForecastRangeScale.lowStartUpper`). Empty when there was none.
     var upperScales: [Int: Double] = [:]
+    /// Extra widening of the lower side alone at each 5-minute sample, by minutes ahead, for a
+    /// forecast that starts high (`ForecastRangeScale.highStartLower`). Empty when there was none.
+    var lowerScales: [Int: Double] = [:]
+    /// The lower side each widened sample had before `lowerScales`, by minutes ahead. Possible lows
+    /// (`firstRangeBelow`) read these, so the wider drawn range never moves a warning.
+    var warningLowers: [Int: Double] = [:]
     /// Insulin and carbs were modelled within the first hour after a log.
     var fresh = false
     /// Insulin was modelled with no logged carbs being absorbed (`ForecastLimitation.insulinOnly`).
@@ -210,11 +216,20 @@ struct GlucoseForecast: Hashable {
     func rangeScale(atMinutes minutes: Int) -> Double { rangeScales[minutes] ?? rangeScale }
     /// The extra widening of the upper side `minutes` ahead (1 when there was none).
     func upperScale(atMinutes minutes: Int) -> Double { upperScales[minutes] ?? 1 }
+    /// The extra widening of the lower side `minutes` ahead (1 when there was none).
+    func lowerScale(atMinutes minutes: Int) -> Double { lowerScales[minutes] ?? 1 }
 
     var horizon: TimeInterval { samples.last.map { $0.date.timeIntervalSince(issuedAt) } ?? 0 }
 
     func firstBelow(_ mgdl: Double) -> Date? { samples.first { $0.mgdl < mgdl }?.date }
-    func firstRangeBelow(_ mgdl: Double) -> Date? { samples.first { $0.lowerMgdl < mgdl }?.date }
+    /// When the likely range first reaches below `mgdl`, as it was before any high-start widening
+    /// of its lower side (§41), so that widening never changes when a possible low is shown.
+    func firstRangeBelow(_ mgdl: Double) -> Date? {
+        samples.first { s in
+            let m = Int((s.date.timeIntervalSince(issuedAt) / 60).rounded())
+            return (warningLowers[m] ?? s.lowerMgdl) < mgdl
+        }?.date
+    }
     func firstAbove(_ mgdl: Double) -> Date? { samples.first { $0.mgdl > mgdl }?.date }
 }
 
@@ -286,6 +301,27 @@ struct ForecastRangeScale: Hashable, Codable {
     static func lowStartUpper(startMgdl: Double, minutes: Double, countsTreatment: Bool) -> Double {
         guard startMgdl < lowStartMgdl, !countsTreatment, minutes > 0 else { return 1 }
         let points = lowStartUpperByMinutes
+        for (a, b) in zip(points, points.dropFirst()) where minutes <= b.minutes {
+            return a.factor + (b.factor - a.factor) * (minutes - a.minutes) / (b.minutes - a.minutes)
+        }
+        return points.last!.factor
+    }
+
+    /// Above this (10 mmol/L) a forecast's range runs too high an hour out: glucose usually comes
+    /// down faster than the model draws, corrections or not (docs/ForecastAccuracy.md §41).
+    static let highStartMgdl = 180.0
+    /// How much further the lower side alone is widened for a forecast starting over
+    /// `highStartMgdl`, by minutes ahead: what would have held 4 readings in 5 an hour after the
+    /// highs shown 12–16 Nov (§41). None to 30 minutes, where the range already held them, and none
+    /// again from 90, where it did too. Interpolated in between.
+    static let highStartLowerByMinutes: [(minutes: Double, factor: Double)] = [(0, 1), (30, 1), (60, 1.7), (90, 1)]
+
+    /// The lower side's extra widening `minutes` ahead for a forecast starting at `startMgdl`.
+    /// 1 at or below `highStartMgdl`. The central line and upper side are never touched, and
+    /// possible lows read the lower side from before it (`GlucoseForecast.warningLowers`).
+    static func highStartLower(startMgdl: Double, minutes: Double) -> Double {
+        guard startMgdl > highStartMgdl, minutes > 0 else { return 1 }
+        let points = highStartLowerByMinutes
         for (a, b) in zip(points, points.dropFirst()) where minutes <= b.minutes {
             return a.factor + (b.factor - a.factor) * (minutes - a.minutes) / (b.minutes - a.minutes)
         }
@@ -535,6 +571,8 @@ enum GlucoseForecaster {
         let contextWiden = activeTags.isEmpty ? 1.0 : 1.5
         var rangeScales: [Int: Double] = [:]
         var upperScales: [Int: Double] = [:]
+        var lowerScales: [Int: Double] = [:]
+        var warningLowers: [Int: Double] = [:]
         let countsTreatment = limitations.contains(.lowTreatment)
         let fade = max(60, input.tuning.trendFade)
         let gain = min(1, max(0, input.tuning.trendGain))
@@ -558,7 +596,8 @@ enum GlucoseForecaster {
             return p.ratePerMinute(after: t.timeIntervalSince(wake))
         }
         var morningAdded = 0.0
-        func band(_ minutes: Double) -> (Double, Double) {
+        /// The range's two sides, and the lower side before any high-start widening.
+        func band(_ minutes: Double) -> (Double, Double, Double) {
             let q = stats.flatMap { ForecastCalibration.interpolate($0, minutes: minutes) }
                 ?? ForecastCalibration.defaultBand(minutes: minutes)
             let scale = scaled ? input.rangeScale.factor(for: basis, minutes: minutes, trendPerMinute: trend) : 1
@@ -567,7 +606,9 @@ enum GlucoseForecaster {
             let up = scaled ? ForecastRangeScale.lowStartUpper(startMgdl: latest.mgdl, minutes: minutes,
                                                                countsTreatment: countsTreatment) : 1
             if up > 1 { upperScales[Int(minutes.rounded())] = up }
-            return (q.lower * widen, q.upper * widen * up)
+            let down = scaled ? ForecastRangeScale.highStartLower(startMgdl: latest.mgdl, minutes: minutes) : 1
+            if down > 1 { lowerScales[Int(minutes.rounded())] = down }
+            return (q.lower * widen * down, q.upper * widen * up, q.lower * widen)
         }
         samples.append(ForecastSample(date: t0, mgdl: g, lowerMgdl: g, upperMgdl: g))
         while minute < lookMinutes {
@@ -587,7 +628,8 @@ enum GlucoseForecaster {
                                                     lowerMgdl: central, upperMgdl: central))
                     continue
                 }
-                let (lo, hi) = band(minute)
+                let (lo, hi, warnLo) = band(minute)
+                if lo != warnLo { warningLowers[Int(minute.rounded())] = max(sensorRange.lowerBound - 1, central + warnLo) }
                 samples.append(ForecastSample(date: t0.addingTimeInterval(minute * 60), mgdl: central,
                                               lowerMgdl: max(sensorRange.lowerBound - 1, central + lo),
                                               upperMgdl: min(sensorRange.upperBound + 1, central + hi)))
@@ -601,7 +643,8 @@ enum GlucoseForecaster {
         var forecast = GlucoseForecast(issuedAt: t0, startMgdl: latest.mgdl, basis: basis, trendPerMinute: trend,
                                        samples: drawn, limitations: limitations, calibrated: calibrated,
                                        morning: morning, rangeScale: max(rangeScale, rangeScales.values.max() ?? 1),
-                                       rangeScales: rangeScales, upperScales: upperScales, fresh: freshModel, insulinOnly: insulinOnly,
+                                       rangeScales: rangeScales, upperScales: upperScales, lowerScales: lowerScales,
+                                       warningLowers: warningLowers, fresh: freshModel, insulinOnly: insulinOnly,
                                        unshown: samples.filter { $0.date > cutAt })
         forecast.lowLookahead = lookahead
         if shownHorizon <= 0 {

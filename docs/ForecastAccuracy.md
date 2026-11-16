@@ -2581,3 +2581,80 @@ fixture regenerated).
 A drawn range from 65 can now reach 140 at 30 minutes, which is honest (four rebounds in five went
 higher than the old top) but looks wide. Retest at three weeks or 15 lows, and once §37 has scored
 ten treated lows, check whether `lowTreatment` forecasts need this too.
+
+## 41. Do forecasts that start high come down faster than the range allows? (16 Nov 2026)
+
+The question: §40 found forecasts that start low come back up faster than their range allows.
+Is the mirror true for highs: at 15, 30 and 60 minutes, do forecasts that start high come down
+faster than the line (corrections), and is the bottom of the range right? **Up to 30 minutes the
+range bottom is fine (79% and 78% inside). An hour out it isn't: forecasts starting over 180 mg/dL
+(10 mmol/L) held only 57%, and all 19 misses were glucose coming down below the range. Widening
+the lower side alone around the hour held 77–84% on highs and days the fit hadn't seen, so it
+ships. Possible lows and low warnings read the range bottom from before the widening, so none of
+them move.**
+
+**The data.** Every shown point with a reading at that distance (Mac, iPhone and relay, 12–16 Nov
+Perth; same export as §40, `scripts/high-start-range.py`). The relay only draws 30 minutes, and
+every 60-minute point starting high is a Mac or iPhone model forecast. Bias is actual minus
+forecast, so negative means the forecast ran high.
+
+| Starting over 180 mg/dL | 15 min | 30 min | 45 min | 60 min | 90 min |
+|---|---|---|---|---|---|
+| Points | 126 | 89 | 53 | 44 | 9 |
+| Inside the range (aim 80%) | 79% | 78% | 64% | **57%** | 89% |
+| Missed below / above | 22 / 4 | 18 / 2 | 18 / 1 | **19 / 0** | 1 / 0 |
+| Bias (mg/dL) | −9 | −18 | −33 | **−54** | −34 |
+| Lower side needed for 4 in 5 | 0.91× | 1.04× | 1.42× | **1.72×** | 0.77× |
+
+Yes, highs come down faster than the line, and more so the further out: −9 mg/dL at 15 minutes
+(§36's figure), −54 at an hour. At 15 and 30 minutes the range is wide enough to take it, as §36
+found. At 45 and 60 it isn't. It's there over 160 and over 200 too, on trend and model forecasts,
+rising and falling starts, and on 4 of 5 days (14 Nov's six points all landed inside). Mostly
+clean points (36 of 44 at 60 minutes had nothing logged after), so it's not only logged
+corrections: insulin already on board doing more than the model credits, or meals peaking early.
+Fixing that is the insulin curve, which is dosing maths and not touched here (§20 already found
+no held-out win in its timing).
+
+**The test.** For forecasts starting over 180, the lower half of the shown range times a factor
+per horizon, the factor being what would have held 4 in 5 of the other highs (leave one high out,
+points over 2 hours apart counting as different highs), and again leaving one day out. The upper
+side stays as shown. Interval score as in §40 (width + 10 × how far outside; lower is better).
+
+| Held out, starting over 180 | Shipped | Lower side widened | Better on |
+|---|---|---|---|
+| 15 min, one high out (126) | 79% inside, 51 wide, score 87 | 79%, 52 wide, 87 | 0 of 15 (factor ~1) |
+| 30 min, one high out (89) | 78%, 75 wide, 141 | 79%, 80 wide, 145 | 3 of 14 |
+| 60 min, one high out (44) | 57%, 121 wide, 292 | **77%, 162 wide, 222** | 5 of 8 highs |
+| 60 min, one day out | 57%, 121 wide, 292 | **84%, 163 wide, 216** | 4 of 5 days |
+
+The 60-minute factor came out at 1.60–1.83 whichever high or day was left out. Fitting on 12–14
+Nov and testing on 15–16 Nov took the score from 348 to 254; the other way round, 253 to 196.
+At 15 and 30 minutes there's nothing to win, so they stay as they are. The 45-minute points
+(interpolated 1.35×, not fitted there) were better on 4 of 5 days (64% → 74% inside, score
+218 → 196), and at 90 minutes
+widening made it worse (8 of 9 already inside), so the widening tapers back to none by then.
+
+**What ships** (`ForecastRangeScale.highStartLower`, Mac and iPhone):
+
+- A forecast that starts over 180 mg/dL draws the lower side of its range 1.7× at 60 minutes,
+  rising from none at 30 and back to none at 90 (interpolated, so 1.35× at 45 and 75), on top of
+  the usual widening, down to the sensor's floor.
+- Each point keeps the factor (`lowerScale`), and the range widening (§9, §11) takes it out before
+  learning from that point, as §40 does for `upperScale`.
+- The relay is unchanged: its trend forecast stops at 30 minutes, where the factor is 1.
+
+**Low warnings.** The central line doesn't move, so predicted lows (`PredictiveAlertRules`, the
+trend's 30-minute lookahead) are exactly as before. "A low is possible from …"
+(`firstRangeBelow`) is the one thing that reads the range bottom, so the forecast keeps the bottom
+each widened sample had before (`warningLowers`) and that reads it; it fires at exactly the same
+moments (`HighStartRangeTests.testPossibleAndPredictedLowsAreUnchanged`). The chart's hover caption
+on the Mac describes the drawn range, so it can now say the range reaches below your low an hour
+out from a fast-falling high, which is what the wider range honestly shows.
+
+**Dosing.** Not touched: ranges feed no dose, insulin on board, learner or bolus figure. The
+central-line fix (shifting highs down, §36) stays rejected for now: it would move "Back in range
+≈ X min" sooner and changes the line, not the range.
+
+**Caveats.** Eight highs and 44 points at 60 minutes over five days; the factor is rough and
+falls back on four days of data. Retest at three weeks with `scripts/high-start-range.py`. If the
+insulin curve is ever re-fitted (with Declan's OK), drop this first and measure again.
