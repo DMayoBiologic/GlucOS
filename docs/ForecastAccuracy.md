@@ -1157,3 +1157,83 @@ widening on live readings only. §16 needs the relay to score 30 and 60 minutes 
 before its overnight checks can settle it. §15 needs slow meals logged. Logging low treatments
 would help everywhere: tonight's 04:50 low and the rise to 140 straight after it have nothing in
 the logbook, so the points after it count as "clean" when they weren't.
+
+## 24. "Back in range in about X min" (16 Nov 2026)
+
+When glucose is above range, the iPhone's Today screen can now say when the forecast comes back
+into range: "Back in range ≈ 20 min", under the forecast note. The question was whether that time
+is close enough to show. **On held-out days it typically missed by 6 minutes, well inside the
+15-minute bar, so it's shown, but only while each device's own checks keep the typical miss
+within 15 minutes.**
+
+**How the time is worked out** (`Engine/BackInRange.swift`). Where the forecast's central line
+first comes down to the high threshold, linear between its points. Nothing past the last drawn
+point is guessed, so the estimate only appears when the drawn forecast itself comes back into
+range, which is mostly in the last half hour of a high. Lows are given no time back at all: the
+forecast can't see a low being treated (most treatments aren't logged), and on the 19 low
+forecasts that didn't come back up within their drawn points, 13 were back in range by then
+anyway. A "back soon" beside a low must never read as a reason to wait.
+
+**The data.** Every forecast in `glucos.forecast_checks` that started above 180 mg/dL (Declan's
+high threshold), 12 Nov 15:08 to 16 Nov 08:21 Perth: 102 forecasts on the Mac, iPhone and relay.
+The estimate uses each forecast's stored points (15, 30, 45, 60 minutes and on, the drawn ones
+only) with the starting reading at 0. The actual return is the first live reading (LinkUp's graph
+points left out, §23) at or under 180 whose next reading, within 20 minutes, is too, looked for up
+to 6 hours later.
+
+**Most highs get no estimate.** 89 of the 102 forecasts stayed above range to the end of what was
+drawn. 24 of those were back in range before the forecast's end anyway, mostly the trend-only
+forecasts that run level at about 55–70% of the trend (§3). Saying nothing there costs nothing.
+
+**The 13 that did come back:**
+
+| | Checks | Typical miss (median) | Mean miss | Within 15 min |
+|---|---|---|---|---|
+| All | 13 | **5.8 min** | 17.6 min | 9 of 13 |
+| Nothing logged after the forecast | 10 | 5.8 min | 8.8 min | 8 of 10 |
+| Something logged after it | 3 | 65 min | 47 min | 1 of 3 |
+| Estimate 15 min or less | 9 | 5.8 min | 20.7 min | 6 of 9 |
+| Estimate over 15 min | 4 | 6.4 min | 10.5 min | 3 of 4 |
+| Mac / iPhone / Lock Screen | 7 / 5 / 1 | 5.7 / 7.4 / 4.8 min | | 5 / 3 / 1 |
+
+The two big misses (14 Nov 21:33 and 21:36, both "≈ 15 min", back after 80 minutes) had food
+logged after the forecast, which no estimate made at the time could know. The worst clean miss
+was 25 minutes early (15 Nov 00:39, "≈ 35 min", back in 8). The signed median is +4 minutes: the
+estimate runs a little late more often than early, which is the safer side for a high.
+
+**Held out by day.** For each of the four days in turn, the gate (typical miss within 15 minutes,
+at least 5 checks) was decided on the other three days and applied to the held-out one. It opened
+every time (typical miss on the other days 5.7–7.4 minutes), so every held-out estimate would have
+been shown: 13 shown, typical miss 5.8 minutes, 9 of 13 within 15.
+
+**The rule in the apps.** Each device scores its own settled forecasts from the last 30 days the
+same way (`BackInRange.check`, from `forecast-log.json` and its stored readings) and shows the
+estimate only with at least 5 checks and a median miss of 15 minutes or less. Replaying that
+walk-forward per device on these forecasts, the Mac would have opened after its fifth check and
+the iPhone now has five (typical miss 7.4 minutes), so it should show from the first launch
+of this version. A forecast still above range 6 hours later counts as a miss of 6 hours less the
+estimate, so a run of wrong "≈ 10 min" calls closes the gate quickly. The live estimate uses the
+forecast's 5-minute points rather than the log's 15-minute ones, so it's at least as fine as what
+was checked. The Lock Screen doesn't show it: the relay's forecast has had 1 check.
+
+To rerun (estimate from stored points, actual from live readings):
+
+    with rd0 as (select r.at, r.mgdl from glucos.readings r where not (r.trend = 0 and exists (
+        select 1 from glucos.readings o where o.at <> r.at and abs(extract(epoch from o.at - r.at)) < 30))),
+    rd as (select at, mgdl, lead(at) over (order by at) nat, lead(mgdl) over (order by at) nmg from rd0),
+    f as (select * from glucos.forecast_checks where start_mgdl > 180),
+    pts as (select f.id, 0 m, f.start_mgdl v, true sh from f union all
+      select f.id, (e->>'minutes')::int, (e->>'mgdl')::float, coalesce((e->>'shown')::bool, true)
+      from f, jsonb_array_elements(f.points) e),
+    seg as (select id, m, v, lag(m) over w m0, lag(v) over w v0, sh from pts window w as (partition by id order by m)),
+    est as (select distinct on (id) id, m0 + (v0 - 180) / (v0 - v) * (m - m0) est from seg
+      where m0 is not null and sh and v0 > 180 and v <= 180 order by id, m)
+    select f.device, f.issued_at, est.est, (select extract(epoch from min(rd.at) - f.issued_at) / 60 from rd
+      where rd.at > f.issued_at and rd.at <= f.issued_at + interval '6 hours' and rd.mgdl between 70 and 180
+        and rd.nmg between 70 and 180 and rd.nat <= rd.at + interval '20 minutes') actual
+    from f join est using (id) order by f.issued_at;
+
+**When to look again.** 13 checks is few, and the tail is wide (4 of 13 off by more than 15
+minutes). Re-run around 3 December. If the share within 15 minutes stays under 7 in 10, try
+requiring that as well as the median. If the relay reaches 5 checks under the same bar, the Lock
+Screen could show it too.

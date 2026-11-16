@@ -47,6 +47,10 @@ struct OutlookSnapshot: Codable, Hashable {
     var lowExpectedAt: Date?
     /// When the forecast's likely range first reaches below the low threshold.
     var lowPossibleAt: Date?
+    /// From above range: when the forecast's central line comes back down to the high threshold.
+    /// Nil when it doesn't within the drawn forecast, or while this device's checks of the
+    /// estimate miss by more than 15 minutes typically (`BackInRange`).
+    var backInRangeAt: Date?
     /// Plain-language reason no forecast is shown, if none is.
     var unavailableReason: String?
     /// The user's usual post-wake rise, when the forecast includes it.
