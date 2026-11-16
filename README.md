@@ -64,6 +64,7 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 - **New sensor warming up**: the popover and menu bar count down to the first reading, and the empty popover says what to do next.
 - **Forecast accuracy** in Insights: the bars grow in row by row and the figures roll when the period changes.
 - **Opening the popover**: your last reading is there at once, dimmed with its age, and fades to the live value when it arrives.
+- **Logging shows on the chart**: a meal, dose or treatment you log pops onto the popover chart at its time, and a deleted one shrinks away.
 - **Dashboard** (⌘D in the popover, or the expand button on the chart): a resizable window with
   - an interactive chart from 3 hours to 30 days: hover for any reading (with its 15-minute change),
     drag across it to select a stretch and see its average, time in range and change, pinch or
