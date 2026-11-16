@@ -238,4 +238,90 @@ final class AlertSnoozeTests: XCTestCase {
         """#.utf8))
         XCTAssertEqual(none.snoozes, AlertSnoozes())
     }
+
+    // MARK: The Lock Screen card and the menu bar (SnoozeBadge)
+    // The relay builds the same badge (`cardSnooze`), tested on the same cases in checkins_test.ts.
+
+    func testBadgeNamesTheLastEndAndWhatItCovers() {
+        XCTAssertNil(AlertSnoozes().badge(at: afternoon))
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 30, now: afternoon)
+        XCTAssertEqual(s.badge(at: afternoon), SnoozeBadge(until: afternoon.addingTimeInterval(1800).timeIntervalSince1970,
+                                                           levels: ["low"]))
+        XCTAssertNil(s.badge(at: afternoon.addingTimeInterval(1800)))
+        // Soonest first; the badge's time is the last end.
+        s.snooze(.high, minutes: 10, now: afternoon)
+        XCTAssertEqual(s.badge(at: afternoon)?.levels, ["high", "low"])
+        XCTAssertEqual(s.badge(at: afternoon)?.until, afternoon.addingTimeInterval(1800).timeIntervalSince1970)
+        // A very-high snooze covers a high one that ends no later, not one that outlasts it.
+        var vh = AlertSnoozes()
+        vh.snooze(.veryHigh, minutes: 20, now: afternoon)
+        vh.snooze(.high, minutes: 10, now: afternoon)
+        XCTAssertEqual(vh.badge(at: afternoon)?.levels, ["veryHigh"])
+        vh.snooze(.high, minutes: 30, now: afternoon)
+        XCTAssertEqual(vh.badge(at: afternoon)?.levels, ["veryHigh", "high"])
+        // Urgent lows are never snoozed, so never badged.
+        var u = AlertSnoozes()
+        u.snooze(.urgentLow, minutes: 30, now: afternoon)
+        XCTAssertNil(u.badge(at: afternoon))
+    }
+
+    func testBadgeWording() {
+        let until = afternoon.addingTimeInterval(1800).timeIntervalSince1970
+        func badge(_ levels: [String]) -> SnoozeBadge { SnoozeBadge(until: until, levels: levels) }
+        XCTAssertEqual(plain(badge(["low"]).shortText(calendar: perth, locale: us)), "until 2:30 PM")
+        XCTAssertEqual(plain(badge(["low"]).sentence(calendar: perth, locale: us)), "Low alerts snoozed until 2:30 PM")
+        XCTAssertEqual(plain(badge(["veryHigh"]).sentence(calendar: perth, locale: us)),
+                       "High and very high alerts snoozed until 2:30 PM")
+        XCTAssertEqual(plain(badge(["low", "veryHigh"]).sentence(calendar: perth, locale: us)),
+                       "Low, high and very high alerts snoozed until 2:30 PM")
+        XCTAssertEqual(plain(badge(["veryHigh", "high"]).sentence(calendar: perth, locale: us)),
+                       "High and very high alerts snoozed until 2:30 PM")
+        // A level a newer relay adds still reads sensibly.
+        XCTAssertEqual(plain(badge(["somethingNew"]).sentence(calendar: perth, locale: us)),
+                       "Alerts snoozed until 2:30 PM")
+    }
+
+    func testCardCarriesTheSnoozeAndOldCardsDecode() throws {
+        let card = #"""
+        {"mgdl":70,"trend":3,"readingAt":1794808800,"unit":"mmol","lowMgdl":70,"highMgdl":180,
+         "history":[70],"forecast":[],"source":"relay"
+        """#
+        let old = try JSONDecoder().decode(GlucoseActivityState.self, from: Data((card + "}").utf8))
+        XCTAssertNil(old.snooze)
+        let new = try JSONDecoder().decode(GlucoseActivityState.self, from: Data(
+            (card + #","snooze":{"until":1794810620,"levels":["low"]}}"#).utf8))
+        XCTAssertEqual(new.snooze, SnoozeBadge(until: 1_794_810_620, levels: ["low"]))
+        // Drawn after the end (before the next card arrives): no bell-slash.
+        XCTAssertNotNil(new.runningSnooze(at: Date(timeIntervalSince1970: 1_794_810_619)))
+        XCTAssertNil(new.runningSnooze(at: Date(timeIntervalSince1970: 1_794_810_620)))
+        // `make` never sets it: the app and the relay add it to the owner's card.
+        XCTAssertNil(GlucoseActivityState.make(from: snapshot(100, at: afternoon), now: afternoon)?.snooze)
+    }
+
+    func testMenuBarShowsTheSnoozeOnlyWhileItRuns() {
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 30, now: afternoon)
+        let badge = s.badge(at: afternoon)
+        let snap = snapshot(80, at: afternoon)
+        func glance(_ b: SnoozeBadge?, at t: Date) -> MenuBarGlance {
+            MenuBarGlance.make(snapshot: snap, recent: [], hasCredentials: true, showDelta: false, showSparkline: false,
+                               colorByRange: true, snooze: b, now: t)
+        }
+        XCTAssertFalse(glance(nil, at: afternoon).snoozed)
+        XCTAssertTrue(glance(badge, at: afternoon).snoozed)
+        XCTAssertFalse(glance(badge, at: afternoon.addingTimeInterval(1800)).snoozed)
+        // A yes or no: the glance (and so the drawing) doesn't change with the minutes left.
+        XCTAssertEqual(glance(badge, at: afternoon.addingTimeInterval(1)), glance(badge, at: afternoon.addingTimeInterval(61)))
+
+        let tip = MenuBarGlance.toolTip(snapshot: snap, hasCredentials: true, showForecast: false, snooze: badge,
+                                        now: afternoon, calendar: perth, locale: us)
+        XCTAssertEqual(plain(tip.components(separatedBy: "\n").last), "Low alerts snoozed until 2:30 PM")
+        let plainTip = MenuBarGlance.toolTip(snapshot: snap, hasCredentials: true, showForecast: false,
+                                             now: afternoon, calendar: perth, locale: us)
+        XCTAssertFalse(plainTip.contains("snoozed"))
+        let ended = MenuBarGlance.toolTip(snapshot: snap, hasCredentials: true, showForecast: false, snooze: badge,
+                                          now: afternoon.addingTimeInterval(1800), calendar: perth, locale: us)
+        XCTAssertFalse(ended.contains("snoozed"))
+    }
 }

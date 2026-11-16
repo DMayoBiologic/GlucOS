@@ -4,7 +4,7 @@ import { assert, assertEquals } from "jsr:@std/assert@1";
 import type { PushRequest, PushSender } from "./apns.ts";
 import { checkInAnswerShownFor, checkInOpenFor, checkInPingGap, checkInRemindAfter, cleanName } from "./checkins.ts";
 import { newRow, RelayEngine, type RelayRow, type Store, type Tx } from "./engine.ts";
-import { type AlertSnoozes, alertCategory, type Reading, silences, snoozeAlert } from "./core.ts";
+import { type AlertSnoozes, alertCategory, type CardState, cardSnooze, type Reading, silences, snoozeAlert } from "./core.ts";
 import type { Account, GlucoseFetcher, LibreSession } from "./libre.ts";
 import { MemoryShareStore } from "./sharing.ts";
 import { handle as shareHandle } from "../share/index.ts";
@@ -454,4 +454,59 @@ Deno.test("snooze: followers' high alerts carry none of the owner's buttons", as
   assertEquals(aps(owner[0]).category, "glucos.alert");
   assert(follower.length > 0);
   assert(follower.every((p) => aps(p).category === undefined));
+});
+
+// MARK: - The snooze on the Lock Screen card (docs/AlertActions.md, "Snoozed on the Lock Screen")
+
+Deno.test("snooze: the card's badge matches AlertSnoozes.badge in AlertSnooze.swift", () => {
+  const now = 1_000_000;
+  assertEquals(cardSnooze({}, now), undefined);
+  assertEquals(cardSnooze(null, now), undefined);
+  // Ended snoozes don't count.
+  assertEquals(cardSnooze({ low: now }, now), undefined);
+  assertEquals(cardSnooze({ low: now + 600 }, now), { until: now + 600, levels: ["low"] });
+  // Soonest first; the badge names the last end.
+  assertEquals(cardSnooze({ low: now + 1800, high: now + 600 }, now), { until: now + 1800, levels: ["high", "low"] });
+  // A very-high snooze covers a high one ending no later, but not one that outlasts it.
+  assertEquals(cardSnooze({ high: now + 600, veryHigh: now + 1200 }, now), { until: now + 1200, levels: ["veryHigh"] });
+  assertEquals(cardSnooze({ high: now + 1800, veryHigh: now + 1200 }, now),
+    { until: now + 1800, levels: ["veryHigh", "high"] });
+});
+
+/// The snooze on the last card pushed to `token`, and whether there was a card at all.
+function cardSnoozeOn(t: Awaited<ReturnType<typeof setup>>, token: string) {
+  const p = lastCard(t, token);
+  assert(p, "no card pushed");
+  return (aps(p)["content-state"] as CardState).snooze;
+}
+
+Deno.test("snooze: the owner's card shows it until it ends; followers' cards never do", async () => {
+  const t = await setup();
+  t.setMgdl(62);
+  await t.engine.tick();
+  assertEquals(cardSnoozeOn(t, ownerCard), undefined);
+  await t.engine.snoozeAlerts("low", 30);
+  const until = t.clock() + 30 * 60;
+  t.sent.length = 0;
+  t.advance(60);
+  await t.engine.tick();
+  // The card changed, so it's pushed on this tick rather than on the refresh timer.
+  assertEquals(cardSnoozeOn(t, ownerCard), { until, levels: ["low"] });
+  assertEquals(cardSnoozeOn(t, followerCard), undefined);
+  for (let i = 0; i < 30; i++) {
+    t.advance(60);
+    await t.engine.tick();
+  }
+  assert(t.to(followerCard).every((p) => (aps(p)["content-state"] as CardState | undefined)?.snooze === undefined));
+  // Past the end: the owner's next card has no snooze.
+  assertEquals(cardSnoozeOn(t, ownerCard), undefined);
+  // Resume takes it off on the next tick too.
+  await t.engine.snoozeAlerts("low", 30);
+  t.advance(60);
+  await t.engine.tick();
+  assert(cardSnoozeOn(t, ownerCard));
+  await t.engine.resumeAlerts();
+  t.advance(60);
+  await t.engine.tick();
+  assertEquals(cardSnoozeOn(t, ownerCard), undefined);
 });

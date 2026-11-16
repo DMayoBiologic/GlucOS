@@ -7,7 +7,7 @@ import {
   type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
   backInRangeCheck, backInRangeConfirmWithin, backInRangeLookAhead, type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
   effectiveRangeScale, minutesBack, rangeScaleFrom, rangeWindow, type Sensor, type Trend, unitOf,
-  type AlertSnoozes, ownerNotices, pruneSnoozes, runningSnoozes, snoozeAlert, snoozeLevel,
+  type AlertSnoozes, cardSnooze, ownerNotices, pruneSnoozes, runningSnoozes, snoozeAlert, snoozeLevel, withSnooze,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
 import {
@@ -23,7 +23,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.15.0";
+export const version = "2.16.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -624,7 +624,10 @@ export class RelayEngine {
             collapseId: "glucos.checkin", expiration: now + checkInOpenFor, sandbox: row.prefs.sandbox,
           }, (r) => { delete r.prefs.deviceToken; });
         }
-        const ownerCard = result.card ? withCheckIn(result.card, ownerCheckInCard(checkIns, now)) : null;
+        // The owner's card also says while their alerts are snoozed; followers' cards never do.
+        const ownerCard = result.card
+          ? withSnooze(withCheckIn(result.card, ownerCheckInCard(checkIns, now)), cardSnooze(snoozes, now))
+          : null;
         await this.updateActivity(row, ownerCard, result.notices.length > 0, priority, now);
         if (result.card) w.latestCard = { card: result.card, at: now };
         await this.updateFollowers(w, result.card, result.notices, priority, now, checkIns, due);

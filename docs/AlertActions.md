@@ -57,6 +57,37 @@ change: a snoozed alert was let go of, so if it's still due it fires on the next
 - The Mac's chip covers the Mac's own snoozes (the Mac has no relay connection).
 - View: `Sources/App/Views/AlertSnoozeChipView.swift` (shared by both apps).
 
+## Snoozed on the Lock Screen
+
+While the owner's alerts are snoozed, the Live Activity says so wherever the reading shows: the
+Lock Screen card's top line and the expanded Dynamic Island read "Low · 🔕 until 2:30 pm" (a
+`bell.slash.fill` and the clock time the last running snooze ends). VoiceOver hears it at the end
+of the card's summary: "… Low alerts snoozed until 2:30 pm." It never appears on a follower's card,
+since a snooze never changes what followers get, and alert rules are unchanged.
+
+- Data: `GlucoseActivityState.snooze` (`SnoozeBadge` in `Sources/Shared/GlucoseActivityState.swift`:
+  `until`, seconds since 1970, and the snoozed `levels`). The apps build it with
+  `AlertSnoozes.badge(at:)`, the relay with `cardSnooze` in `core.ts`, by the same rule: soonest
+  end first, and a very-high snooze hides a high one that ends no later. Tests: `AlertSnoozeTests`
+  and "snooze: the card's badge …" / "snooze: the owner's card shows it …" in `checkins_test.ts`.
+- **App closed:** relay 2.16.0 puts its running snoozes on the owner's card each tick (followers'
+  cards never), so the card changes, and is pushed, when a snooze starts, ends or is resumed.
+- **App running:** the phone adds its own snoozes (which have taken the relay's, see above) and
+  redraws the card as soon as `AlertSnoozeStore` changes: a button, Resume, a relay status, or a
+  snooze ending. Nothing ticks.
+- A card drawn after the snooze ended but before the next update leaves the badge off
+  (`GlucoseActivityState.runningSnooze(at:)`). It fades in and out once, instant under Reduce
+  Motion. The Watch Smart Stack and CarPlay layout doesn't show it (too small).
+
+## Snoozed in the menu bar
+
+The Mac menu bar item shows a small bell-slash after the reading while any alert is snoozed, and
+its tooltip and VoiceOver label end with "Low alerts snoozed until 2:30 pm". The popover (the
+menu) already has the snoozed chip with Resume. `MenuBarGlance.snoozed` is only a yes or no, so the
+item redraws when a snooze starts or ends, never for its minutes, so the menu bar stays cheap.
+Hidden while the reading is stale, where the warning sign and age take
+the space; the tooltip still says it.
+
 ## Log treatment
 
 Called "I'm treating it" until round 31. Only the title changed: the action identifier
