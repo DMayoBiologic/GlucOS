@@ -155,29 +155,19 @@ enum GlucoseAnalytics {
     /// Thins readings to at most two per `bucket` (that bucket's lowest and highest, in time order),
     /// so a 30-day chart stays fast without smoothing away a single low. Then splits into
     /// continuous segments.
-    static func plotPoints(_ sorted: [GlucoseReading], bucket: TimeInterval, maxGap: TimeInterval) -> [PlotPoint] {
-        var thinned: [GlucoseReading] = []
-        if bucket <= HistoryArchive.slot || sorted.count < 3 {
-            thinned = sorted
+    ///
+    /// With `detailFrom`, readings from then on are thinned by `detailBucket` (and split at gaps
+    /// longer than `detailMaxGap`) instead: the dashboard chart keeps the detail of what's on
+    /// screen while the range changes, and thins only what's off screen for the wider span.
+    static func plotPoints(_ sorted: [GlucoseReading], bucket: TimeInterval, maxGap: TimeInterval,
+                           detailFrom: Date? = nil, detailBucket: TimeInterval = 0,
+                           detailMaxGap: TimeInterval = 30 * 60) -> [PlotPoint] {
+        let thinned: [GlucoseReading]
+        if let detailFrom {
+            let split = lowerBound(sorted, detailFrom)
+            thinned = thin(sorted[..<split], bucket: bucket) + thin(sorted[split...], bucket: detailBucket)
         } else {
-            thinned.reserveCapacity(Int(Double(sorted.count) * 2 * HistoryArchive.slot / bucket) + 2)
-            var i = 0
-            while i < sorted.count {
-                let key = (sorted[i].timestamp.timeIntervalSince1970 / bucket).rounded(.down)
-                var lo = i, hi = i, j = i
-                while j < sorted.count, (sorted[j].timestamp.timeIntervalSince1970 / bucket).rounded(.down) == key {
-                    if sorted[j].mgdl < sorted[lo].mgdl { lo = j }
-                    if sorted[j].mgdl > sorted[hi].mgdl { hi = j }
-                    j += 1
-                }
-                if lo == hi {
-                    thinned.append(sorted[lo])
-                } else {
-                    thinned.append(sorted[min(lo, hi)])
-                    thinned.append(sorted[max(lo, hi)])
-                }
-                i = j
-            }
+            thinned = thin(sorted[...], bucket: bucket)
         }
 
         var out: [PlotPoint] = []
@@ -185,11 +175,37 @@ enum GlucoseAnalytics {
         var segment = 0
         var previous: Date?
         for r in thinned {
-            if let previous, r.timestamp.timeIntervalSince(previous) > maxGap { segment += 1 }
+            let gap = detailFrom.map { r.timestamp >= $0 ? detailMaxGap : maxGap } ?? maxGap
+            if let previous, r.timestamp.timeIntervalSince(previous) > gap { segment += 1 }
             out.append(PlotPoint(date: r.timestamp, mgdl: r.mgdl, segment: segment))
             previous = r.timestamp
         }
         return out
+    }
+
+    /// Each `bucket`'s lowest and highest reading, in time order.
+    private static func thin(_ sorted: ArraySlice<GlucoseReading>, bucket: TimeInterval) -> [GlucoseReading] {
+        if bucket <= HistoryArchive.slot || sorted.count < 3 { return Array(sorted) }
+        var thinned: [GlucoseReading] = []
+        thinned.reserveCapacity(Int(Double(sorted.count) * 2 * HistoryArchive.slot / bucket) + 2)
+        var i = sorted.startIndex
+        while i < sorted.endIndex {
+            let key = (sorted[i].timestamp.timeIntervalSince1970 / bucket).rounded(.down)
+            var lo = i, hi = i, j = i
+            while j < sorted.endIndex, (sorted[j].timestamp.timeIntervalSince1970 / bucket).rounded(.down) == key {
+                if sorted[j].mgdl < sorted[lo].mgdl { lo = j }
+                if sorted[j].mgdl > sorted[hi].mgdl { hi = j }
+                j += 1
+            }
+            if lo == hi {
+                thinned.append(sorted[lo])
+            } else {
+                thinned.append(sorted[min(lo, hi)])
+                thinned.append(sorted[max(lo, hi)])
+            }
+            i = j
+        }
+        return thinned
     }
 
     /// Share of 15-minute slots in the range that have at least one reading.

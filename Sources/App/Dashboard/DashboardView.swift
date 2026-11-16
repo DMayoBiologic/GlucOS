@@ -173,7 +173,6 @@ struct DashboardView: View {
                 switch section {
                 case .overview:
                     OverviewSection(data: data, snapshot: store.snapshot,
-                                    events: logbook.chartEvents(in: data.domain),
                                     comparison: comparisonReadings(data),
                                     archive: store.archive)
                 case .patterns:
@@ -768,6 +767,13 @@ struct DashboardData {
     /// changes but not when a new reading extends a live period.
     var periodKey: String {
         "\(range.rawValue)-\(isLive ? "live" : String(Int(domain.upperBound.timeIntervalSince1970)))"
+    }
+
+    /// Names where the period ends but not its length: the Overview chart wipes in when this
+    /// changes (moving to another stretch of time), and glides to a new range when only the
+    /// length does.
+    var chartKey: String {
+        isLive ? "live" : String(Int(domain.upperBound.timeIntervalSince1970))
     }
 
     init(archive: [GlucoseReading], range: DashboardRange, snapshot: GlucoseSnapshot,
