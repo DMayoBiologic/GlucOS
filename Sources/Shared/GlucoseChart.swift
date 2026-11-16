@@ -224,6 +224,40 @@ struct GlucoseChart: View {
         return spoke
     }
 
+    /// Markers popping in or shrinking out, and the rings on ones logged from elsewhere. The chart
+    /// leaves a popping marker out until it lands, then draws it in the same place, so the
+    /// hand-over can't be seen.
+    @ViewBuilder
+    private func markerOverlays(proxy: ChartProxy, yd: ClosedRange<Double>) -> some View {
+        ForEach(flights) { flight in
+            MarkerFlightView(proxy: proxy, flight: flight, value: markerY(lane: flight.marker.lane, yd: yd)) {
+                landed(flight)
+            }
+        }
+        ForEach(glows) { glow in
+            LoggedElsewhereMarkerGlow(proxy: proxy, date: glow.marker.date,
+                                      value: markerY(lane: glow.marker.lane, yd: yd),
+                                      tint: glow.marker.tint, origin: glow.origin, delay: glow.delay) {
+                glows.removeAll { $0.id == glow.id }
+            }
+        }
+    }
+
+    private func appeared(visibleFrom start: Date) {
+        if interactive, range == nil { range = ChartSpanTransition(hours: hours) }
+        onScreen = true
+        guard popsMarkers, interactive else { return }
+        if seenMarkers == nil { seenMarkers = events }
+        // What's there when the chart opens doesn't pop, but an entry logged from elsewhere while
+        // it was away (the Mac's shortcut, Siri) still gets its one highlight.
+        glowLoggedElsewhere(events.filter { $0.date >= start }, pop: nil)
+    }
+
+    private func disappeared() {
+        onScreen = false
+        glows = []
+    }
+
     private func landed(_ flight: MarkerFlight) {
         withTransaction(Transaction(animation: nil)) { flights.removeAll { $0.id == flight.id } }
     }
@@ -424,36 +458,10 @@ struct GlucoseChart: View {
             if interactive, !stale, !reduceMotion, let last = window.last {
                 TracePulse(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl), tint: currentTint)
             }
-            // Markers popping in or shrinking out. The chart leaves a popping marker out until it
-            // lands, then draws it in the same place, so the hand-over can't be seen.
-            ForEach(flights) { flight in
-                MarkerFlightView(proxy: proxy, flight: flight, value: markerY(lane: flight.marker.lane, yd: yd)) {
-                    landed(flight)
-                }
-            }
-            ForEach(glows) { glow in
-                LoggedElsewhereMarkerGlow(proxy: proxy, date: glow.marker.date,
-                                          value: markerY(lane: glow.marker.lane, yd: yd),
-                                          tint: glow.marker.tint, origin: glow.origin, delay: glow.delay) {
-                    glows.removeAll { $0.id == glow.id }
-                }
-            }
+            markerOverlays(proxy: proxy, yd: yd)
         }
-        .onAppear {
-            if interactive, range == nil { range = ChartSpanTransition(hours: hours) }
-            onScreen = true
-            if popsMarkers, interactive {
-                if seenMarkers == nil { seenMarkers = events }
-                // What's there when the chart opens doesn't pop, but an entry logged from elsewhere
-                // while it was away (the Mac's shortcut, Siri) still gets its one highlight.
-                let start = window.first?.timestamp ?? .distantFuture
-                glowLoggedElsewhere(events.filter { $0.date >= start }, pop: nil)
-            }
-        }
-        .onDisappear {
-            onScreen = false
-            glows = []
-        }
+        .onAppear { appeared(visibleFrom: window.first?.timestamp ?? .distantFuture) }
+        .onDisappear { disappeared() }
         .onChange(of: events.map(\.id)) { _, _ in
             markersChanged(visibleFrom: window.first?.timestamp ?? .distantFuture)
         }
