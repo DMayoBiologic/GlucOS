@@ -33,9 +33,21 @@ struct Outlook {
     let background: BackgroundInsulinActivity
     let carbs: CarbActivity
     let model: OutlookModel
+    /// When carbs logged for a low were modelled on the fast low-treatment curve: the forecast
+    /// without that curve, the way it was before §37. Predicted alerts read this one.
+    var withoutLowTreatment: Result<GlucoseForecast, ForecastFailure>? = nil
 
     var glucoseForecast: GlucoseForecast? {
         if case .success(let f) = forecast { return f }
+        return nil
+    }
+
+    /// The forecast predicted alerts read: the one shown, or, when it includes a low treatment's
+    /// fast curve, the same forecast without it. A logged treatment raises the forecast, so this
+    /// keeps a predicted low from ever being warned of later than before (§37).
+    var alertForecast: GlucoseForecast? {
+        guard let plain = withoutLowTreatment else { return glucoseForecast }
+        if case .success(let f) = plain { return f }
         return nil
     }
 
@@ -114,11 +126,28 @@ enum OutlookEngine {
         input.liveHorizon = model.liveHorizon
         let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
             + unloggedMeals
+        let forecast = GlucoseForecaster.forecast(input)
+        var plain: Result<GlucoseForecast, ForecastFailure>?
+        if forecast.usesLowTreatment {
+            input.lowTreatmentCurve = false
+            plain = GlucoseForecaster.forecast(input)
+        }
         return Outlook(at: now,
-                       forecast: GlucoseForecaster.forecast(input),
+                       forecast: forecast,
                        insulin: InsulinActivity.compute(doses: doses, at: now),
                        background: BackgroundInsulinActivity.compute(doses: doses, at: now),
                        carbs: CarbActivity.compute(meals: meals, hypoTreatments: hypo, at: now),
-                       model: model)
+                       model: model,
+                       withoutLowTreatment: plain)
+    }
+}
+
+extension Result where Success == GlucoseForecast, Failure == ForecastFailure {
+    /// Whether a low treatment's fast curve went into it (success or not).
+    var usesLowTreatment: Bool {
+        switch self {
+        case .success(let f): return f.limitations.contains(.lowTreatment)
+        case .failure(let e): return e.limitations.contains(.lowTreatment)
+        }
     }
 }

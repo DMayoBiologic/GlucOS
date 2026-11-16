@@ -2271,3 +2271,90 @@ select m, case when s < 81 then 'under 4.5' when s <= 180 then '4.5-10' else 'ov
   avg((abs(a - f) <= case when a >= f or lo <= 39.5 then up - f else f - lo end)::int) inside
 from p where a is not null and not al and m in (15, 30) group by 1, 2 order by 1, 2;
 ```
+
+## 37. Counting logged low treatments in the forecast (16 Nov 2026)
+
+The question: §36 found forecasts that start under 4.5 mmol/L run low, because glucose comes back
+up after a treatment. When the treatment *is* logged, does modelling it as fast carbs beat what
+ships on lows the test hadn't seen? **Yes, by a wide margin and on every treated low, so it ships.
+The shown forecast changes; low warnings don't.**
+
+**What ships today after a logged low treatment.** Carbs tagged as a hypo treatment ("Treat a
+low", "Log treatment") made the forecast trend only (`uncountedFood`), even with their carbs
+logged. Carbs logged without the tag went on the meal curve (absorbed over three hours, from ten
+minutes in), and for the first hour usually trend only (`freshLog`).
+
+**The data.** Every meal logged at or under 45 g while the reading was under 70 mg/dL and with
+one-minute readings around it: four, none tagged.
+
+| Low | Treatment | Reading at log | Peak within 45 min |
+|---|---|---|---|
+| 12 Nov 19:08 | Burrito bowl, 37.5 g (+4 u, logged later) | 65 | 212 |
+| 12 Nov 23:42 | Sports drink, 36.8 g | 66 | 156 |
+| 13 Nov 19:27 | Sports drink, 21.4 g | 53 | 145 |
+| 16 Nov 01:19 | Coke, 35 g | 54 | 151 |
+
+Glucose was back up 90–145 mg/dL within about 45 minutes each time: more, and much sooner, than
+the learnt carb effect (2.8 mg/dL per gram) gives the same grams on the meal curve.
+
+**The test.** Forecasts every 5 minutes from the log to an hour after it, scored at 15 and 30
+minutes against the readings (104 points), with the engine's trend handling (20-minute trend,
+30-minute fade, 60% gain) and the logged insulin. Candidates: the treatment's carbs on a curve of
+their own, delay 0–20 minutes, absorbed over 30–120, at 1–1.5× the learnt carb effect, picked on
+three lows and scored on the fourth (leave one low out).
+
+| Held out, mean miss (mg/dL) | 15 min | 30 min | Bias |
+|---|---|---|---|
+| No change | 26.7 | 41.6 | |
+| Trend only | 24.5 | 42.3 | |
+| Meal curve (what ships when it's modelled) | 24.4 | 40.5 | +10.9 |
+| **Fast curve, held out** | **18.9** | **25.6** | **+1.3** |
+
+| Each low held out (15 / 30 min) | Fast curve | Meal curve | No change |
+|---|---|---|---|
+| 12 Nov 19:08 | 21.8 / 25.8 | 25.4 / 39.4 | 30.2 / 40.1 |
+| 12 Nov 23:42 | 24.0 / 33.6 | 32.6 / 56.5 | 28.5 / 41.8 |
+| 13 Nov 19:27 | 9.8 / 12.5 | 13.3 / 20.5 | 23.9 / 39.6 |
+| 16 Nov 01:19 | 20.0 / 30.6 | 26.1 / 45.5 | 24.3 / 44.8 |
+
+The fit picked the same curve on three of the four folds (10-minute delay, absorbed over 30
+minutes, 1.5× the carb effect; the other moved the delay to 15), and it beat the meal curve at
+both horizons on every low, well past the tuner's bar (3% better and better in both halves). A
+wider grid (up to 2.5×, 15-minute absorption) fitted less steadily and did no better held out.
+The extra half on top of the carb effect is the rebound from the low itself (§17).
+
+**What ships** (`Engine/LowTreatment.swift`):
+
+- A low treatment is carbs, 45 g or less, logged with a hypo treatment tag or while the reading
+  was under 70 mg/dL. Bigger meals keep the meal curve whatever the reading.
+- In the forecast only, its carbs are absorbed over 30 minutes after a 10-minute delay, at 1.5×
+  the learnt carb effect. It needs the carb effect learnt, as any carbs do.
+- A tagged treatment with its carbs logged is no longer `uncountedFood` (a tag on its own still
+  is), and a treatment doesn't start the `freshLog` hour (a dose logged with it still does).
+- The forecast says so (`lowTreatment`: "Includes the fast carbs logged for a low"), so the
+  forecast log can check these apart. After 40 minutes nothing of the treatment is left.
+
+**Low warnings.** Counting a treatment raises the forecast, which would make a predicted low
+later. So predicted alerts read the forecast worked out without the fast curve
+(`Outlook.alertForecast`, exactly what shipped before): every warning, low or high, fires as it
+did. The relay has no logbook and never sees treatments, so its forecast and warnings are
+unchanged, and it and the apps still run the same alert rules on the same kind of forecast.
+Lows on actual readings are untouched.
+
+**Dosing.** Carbs on board, the carb-effect learner and the bolus calculator keep the meal curve
+for the same entry (they never read the forecast, §26); only the forecaster's own rate uses the
+fast curve.
+
+**Caveats.** Four lows, so the 1.5× is rough. The one way it can mislead is the 16 Nov low, where
+glucose sat at 53 for 18 minutes after the Coke: the fast curve drew it coming up about 10 mg/dL
+early once. Treatments that go unlogged (most §36 rebounds) still aren't seen; "Did you treat this
+low?" (#125) logs them, and they then count. Rerun once ten treated lows are logged, checking the
+`lowTreatment` forecasts in `glucos.forecast_checks`:
+
+```sql
+select (e->>'minutes')::int m, count(*), avg(abs((e->>'actual')::float - (e->>'mgdl')::float)) miss,
+  avg(abs((e->>'actual')::float - c.start_mgdl)) no_change
+from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+where 'lowTreatment' = any(c.limitations) and e->>'actual' is not null
+group by 1 order by 1;
+```
