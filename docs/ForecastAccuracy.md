@@ -1325,3 +1325,73 @@ estimates, and `meal_at` groups them for the held-out folds):
       case when est.horizon = 0 then 'nothing drawn' when est.est_min = 0 then 'falling or flat'
         when est.est_min = est.horizon then 'still rising' else 'turns over' end kind
     from w join est using (id) join act using (id) order by w.issued_at;
+
+## 26. Should the forecast expect a bigger, later rise after meals? (16 Nov 2026)
+
+§25 found the forecast's post-meal peak 2.7 mmol/L too low and 21 minutes early. The idea here: a
+forecast-only correction learnt from past meals, a scale on the carb rise and a delay before it,
+applied to the forecast's carb term and nothing else. **It doesn't help. Inside what the forecast
+draws (up to 60 minutes after most meals) post-meal forecasts aren't running low, so there's
+nothing for a bigger rise to fix, and a later rise only moves the turn past the drawn points.
+Nothing shipped; no app code changed.**
+
+**Nothing that doses reads the forecast.** Checked before testing, so a forecast-only change
+could ship on its own: `BolusCalculator.suggest` takes the carbs, readings, doses, contexts and the
+user's own settings (`BolusRequest`, built in `BolusViews`), its trend adjustment is the measured
+rate (`BolusCalculator.ratePerMinute`), and insulin on board is `InsulinActivity.compute(doses:)`
+on the fixed action curves. None of them touch `GlucoseForecaster`, `OutlookEngine` or the
+forecast log. The learnt carb effect (`EffectProfile.reliableCarbs`) is read by the forecaster,
+the morning pattern and the Outlook card only. A correction would have lived in the forecaster's
+`modelRate`, leaving `CarbAbsorptionCurve.standard` (shared with carbs on board and the effect
+learner) alone.
+
+**The test.** Every insulin-and-carb forecast (`trendInsulinCarbs`) in the 2 hours after a meal in
+`glucos.forecast_checks`, 12–15 Nov: 44 forecasts after 5 meals (green juice, burrito bowl, the
+late-night sports drink, eggs and potato, hamburger), scored at 15–60 minutes on points not marked
+`after_log` (174 points). The correction replaces the carb term with `scale × K × carb rate(t −
+delay)` under the same 30-minute trend fade, every logged meal counted (K = 2.8 mg/dL per gram, the
+learnt value, §1). Scale 0.5–3, delay 0–120 minutes were fitted on four meals and scored on the
+fifth.
+
+| Ahead | Points | As drawn | With the fitted correction | Bias as drawn |
+|---|---|---|---|---|
+| 15 min | 40 | 18.2 mg/dL | 18.3 | +0.7 |
+| 30 min | 38 | 23.9 | 23.8 | −3.0 |
+| 45 min | 37 | 27.8 | 26.4 | +0.5 |
+| 60 min | 35 | 28.6 | **29.7** | +3.6 |
+| All | 150 | 24.4 | 24.4 | |
+
+(Typical miss, held out by meal. Without the sports drink, which was a low being treated: 18.8
+against 19.1 overall, and 26.4 against 28.1 at 60 minutes.)
+
+The fitted scale came out at 0.75–1.25, so no bigger rise, and the delay sat at 45–60 minutes, the
+fit pushing the rise past the drawn points rather than describing it. Three of the five held-out
+meals came out a little better (juice 19.2 → 15.3, hamburger 13.0 → 12.6, sports drink 51.4 →
+50.8), two worse (eggs 16.1 → 18.6, burrito bowl 25.3 → 26.4), and 60 minutes got worse. That
+fails the tuner's own rule for a change (§2: at least 3% better, and better in both halves).
+
+The peak got worse too. On the same forecasts, the ones whose drawn line turns over went from 5 to
+3, and their typical height miss went from 41 to 119 mg/dL too low: with the rise pushed later the
+line turns at the wrong time, early on the burrito bowl, so the estimate is further off, not closer.
+
+**So what is §25's 2.7 mmol/L?** It's the horizon, not the shape. Real peaks came 2 to 3 hours after
+eating; the forecast is drawn only as far as it beats "no change" (about 60 minutes after meals),
+and inside that it's unbiased. A correction can't show a peak the forecast doesn't draw, and
+drawing further would show lines that have lost to "no change". K was taken as one figure for the
+whole period, which is only approximate for 12 Nov forecasts made while it was still being learnt;
+the scale fit would absorb a K that was off by a constant, and it found none.
+
+Re-run when there are 10 or more meals with insulin-and-carb forecasts, or once forecasts after
+meals are drawn past 90 minutes (the live checks would have to allow it first). The prototype
+reads the export below and the meal list, and needs nothing else:
+
+    with m0 as (select to_timestamp((payload->>'timestamp')::float) t, (payload->>'carbs')::float carbs,
+      payload->>'food' food from glucos.logbook where not deleted and kind = 'meal'),
+    m as (select * from m0 where not exists (select 1 from m0 p where p.t < m0.t
+      and p.t > m0.t - interval '20 minutes' and p.carbs = m0.carbs and p.food = m0.food))
+    select m.t meal_at, f.issued_at, f.device, f.start_mgdl, p.*
+    from glucos.forecast_checks f join m on f.issued_at between m.t and m.t + interval '2 hours'
+      cross join lateral jsonb_to_recordset(f.points) p(minutes int, mgdl float, actual float, after_log bool)
+    where f.basis = 'trendInsulinCarbs' and p.minutes <= 60 and not p.after_log and p.actual is not null
+      and not exists (select 1 from m n where n.t > m.t and n.t <= f.issued_at)
+    order by f.issued_at, p.minutes;
