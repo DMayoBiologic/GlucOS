@@ -1,17 +1,21 @@
 import SwiftUI
 
-/// The Insights "Week in review" card on the Mac and iPhone: time in range, the average and lows
-/// over the last 7 days beside the 7 before, and the best and hardest part of the day this week.
-/// Worked out off the main thread once per data change (`WeekInReviewCache`). Nothing here runs a
-/// timer or loops (docs/Redesign.md power rules): the in-range and average figures roll once to a
-/// new value, and count up when the card appears where `figuresCountUp` is on (iPhone and Mac Insights);
-/// the sentences and tile colours cross-fade alongside.
-/// Callers give it their own card surface.
+/// The Insights "Week in review" card on the Mac and iPhone: this week beside last week for time in
+/// range, the average and lows, and the best and hardest part of the day this week. Worked out off
+/// the main thread once per data change (`WeekInReviewCache`). Nothing here runs a timer or loops
+/// (docs/Redesign.md power rules): each figure rolls once to a new value, and counts up when the
+/// card appears where `figuresCountUp` is on (iPhone and Mac Insights); the sentences cross-fade
+/// alongside. Instant under Reduce Motion. Callers give it their own card surface.
+///
+/// With `openLogbook`, each week is a button that opens the Logbook on that week's 7 days
+/// (`LogbookLink.week`). The iPhone zooms the card into it; the Mac cross-fades to its Logbook
+/// section (docs/LogbookSearch.md, "From the Insights cards").
 struct WeekInReviewView: View {
     let readings: [GlucoseReading]
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
+    var openLogbook: ((LogbookLink) -> Void)? = nil
 
     @State private var value: WeekInReview?
     @State private var shownKey: WeekInReviewCache.Key?
@@ -60,28 +64,21 @@ struct WeekInReviewView: View {
                 .dsFont(.headline)
                 .fixedSize(horizontal: false, vertical: true)
             DSAccessibleStack(verticalAlignment: .top, spacing: DS.Space.md) {
-                StatTile("In range", value: Format.percent(w.thisWeek.timeInRange),
-                         caption: WeekInReviewText.rangeCaption(w),
-                         tone: w.rangeChange == .better ? .success : .neutral,
-                         rolling: .init(w.thisWeek.timeInRange) { Format.percent($0) })
-                StatTile("Average", value: unit.format(mgdl: w.thisWeek.meanMgdl), unit: unit.label,
-                         caption: WeekInReviewText.meanCaption(w, unit: unit),
-                         tone: .glucose(GlucoseRange.classify(mgdl: w.thisWeek.meanMgdl, low: lowMgdl, high: highMgdl)),
-                         rolling: .init(w.thisWeek.meanMgdl) { unit.format(mgdl: $0) })
-                StatTile("Lows", value: WeekInReviewText.lowsValue(w.thisWeek.lows),
-                         caption: WeekInReviewText.lowsCaption(w),
-                         tone: w.thisWeek.lows > 0 ? .glucose(.low) : .neutral,
-                         rolling: .init(Double(w.thisWeek.lows)) { WeekInReviewText.lowsValue(Int($0.rounded())) })
+                ForEach(w.sides) { side in
+                    if let week = w.week(side) { sideButton(side, week, w) }
+                }
             }
             .monospacedDigit()
             let lines = WeekInReviewText.lines(w)
+            let spoken = WeekInReviewText.spokenLines(w)
             if !lines.isEmpty {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    ForEach(lines, id: \.self) {
-                        Text($0)
+                    ForEach(lines.indices, id: \.self) { i in
+                        Text(lines[i])
                             .dsFont(.callout)
                             .monospacedDigit()
                             .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityLabel(i < spoken.count ? spoken[i] : lines[i])
                     }
                 }
             }
@@ -90,9 +87,47 @@ struct WeekInReviewView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        // One stop for VoiceOver: the whole week in a few sentences.
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(WeekInReviewText.title)
-        .accessibilityValue(WeekInReviewText.spoken(w, unit: unit))
+    }
+
+    /// One week: its time in range large, the average and lows rolling under it, and a chevron when
+    /// it opens the Logbook. The whole tile is the button. This week settles first, then last week.
+    private func sideButton(_ side: WeekInReview.Side, _ week: WeekInReview.Week, _ w: WeekInReview) -> some View {
+        let order = side.rawValue * 3
+        let tile = StatTile(side.title, value: WeekInReviewText.percent(week.timeInRange),
+                            tone: .glucose(.inRange), boxed: true,
+                            rolling: .init(week.timeInRange, order: order) { WeekInReviewText.percent($0) }) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                HStack(spacing: 0) {
+                    Text("Average ")
+                    RollingFigure(week.meanMgdl, order: order + 1) { unit.format(mgdl: $0) }
+                    Text(" \(unit.label)")
+                }
+                HStack(spacing: DS.Space.xs) {
+                    RollingFigure(Double(week.lows), order: order + 2) { WeekInReviewText.lows(Int($0.rounded())) }
+                        .foregroundStyle(week.lows > 0 ? AnyShapeStyle(Tone.glucose(.low).textColor) : AnyShapeStyle(Color.secondary))
+                    Spacer(minLength: DS.Space.xs)
+                    if openLogbook != nil {
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .dsFont(.caption)
+            .padding(.top, DS.Space.xxs)
+        }
+        return Button { open(side, w) } label: { tile.contentShape(Rectangle()) }
+            .buttonStyle(.plain)
+            .disabled(openLogbook == nil)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(side.title)
+            .accessibilityValue(WeekInReviewText.spoken(side, w, unit: unit) ?? "")
+            .accessibilityHint(openLogbook == nil ? "" : WeekInReviewText.logbookHint(side))
+    }
+
+    /// That week's 7 days in the Logbook, on its This week or Last week chip.
+    private func open(_ side: WeekInReview.Side, _ w: WeekInReview) {
+        guard let openLogbook else { return }
+        openLogbook(.week(side, newestReading: w.end, now: Date()))
     }
 }

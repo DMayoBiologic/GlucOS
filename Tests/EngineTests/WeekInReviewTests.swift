@@ -32,7 +32,9 @@ final class WeekInReviewTests: XCTestCase {
         XCTAssertEqual(last.days, 7)
         XCTAssertEqual(w.rangeChange, .same)
         XCTAssertEqual(WeekInReviewText.headline(w), "About the same time in range as last week.")
-        XCTAssertEqual(WeekInReviewText.lowsCaption(w), "None last week")
+        XCTAssertEqual(w.sides, [.current, .previous])
+        XCTAssertEqual(WeekInReviewText.spoken(.previous, w, unit: .mgdl),
+                       "7 days. 100 percent in range. Average 120 mg/dL. No lows.")
         XCTAssertTrue(w.steadyAcrossDay)
         XCTAssertEqual(WeekInReviewText.lines(w), ["About the same at every time of day."])
     }
@@ -43,8 +45,8 @@ final class WeekInReviewTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(better.lastWeek).timeInRange, 0.75, accuracy: 0.02)
         XCTAssertEqual(better.rangeChange, .better)
         XCTAssertEqual(WeekInReviewText.headline(better), "More time in range than last week.")
-        XCTAssertEqual(WeekInReviewText.rangeCaption(better), "Last week 75%")
-        XCTAssertEqual(WeekInReviewText.meanCaption(better, unit: .mgdl), "Last week 150")
+        XCTAssertEqual(WeekInReviewText.percent(try XCTUnwrap(better.week(.previous)).timeInRange), "75%")
+        XCTAssertEqual(WeekInReviewText.average(try XCTUnwrap(better.week(.previous)), unit: .mgdl), "150 mg/dL")
 
         let worse = try XCTUnwrap(compute(history(days: 14) { m, ago in ago < 7 && m >= 18 * 60 ? 240 : 120 }))
         XCTAssertEqual(worse.rangeChange, .worse)
@@ -68,9 +70,11 @@ final class WeekInReviewTests: XCTestCase {
         XCTAssertGreaterThan(w.thisWeek.lows, 0)
         XCTAssertEqual(w.lastWeek?.lows, 0)
 
-        let spoken = WeekInReviewText.spoken(w, unit: .mgdl)
-        XCTAssertTrue(spoken.contains("Hardest evenings, 6 pm to midnight, 0 percent in range, mostly above range"))
-        XCTAssertTrue(spoken.contains("none last week"))
+        XCTAssertEqual(WeekInReviewText.spokenLines(w).last,
+                       "Hardest: evenings, 6 pm to midnight, 0 percent in range, mostly above range.")
+        XCTAssertEqual(WeekInReviewText.spokenLines(w).count, WeekInReviewText.lines(w).count)
+        XCTAssertTrue(try XCTUnwrap(WeekInReviewText.spoken(.current, w, unit: .mgdl)).hasSuffix(WeekInReviewText.lows(w.thisWeek.lows) + "."))
+        XCTAssertTrue(try XCTUnwrap(WeekInReviewText.spoken(.previous, w, unit: .mgdl)).hasSuffix("No lows."))
     }
 
     func testHardestCanLeanLow() throws {
@@ -83,10 +87,10 @@ final class WeekInReviewTests: XCTestCase {
         let w = try XCTUnwrap(compute(history(days: 7) { _, _ in 120 }))
         XCTAssertNil(w.lastWeek)
         XCTAssertNil(w.rangeChange)
-        XCTAssertNil(WeekInReviewText.rangeCaption(w))
+        XCTAssertEqual(w.sides, [.current])
+        XCTAssertNil(WeekInReviewText.spoken(.previous, w, unit: .mgdl))
         XCTAssertEqual(WeekInReviewText.headline(w), "100% in range over the last 7 days.")
         XCTAssertTrue(WeekInReviewText.footnote(w).hasPrefix("Last week joins in"))
-        XCTAssertTrue(WeekInReviewText.spoken(w, unit: .mgdl).contains("Last week joins in"))
     }
 
     func testPartialLastWeekIsLeftOut() throws {
@@ -116,5 +120,47 @@ final class WeekInReviewTests: XCTestCase {
         XCTAssertNotEqual(k1, WeekInReviewCache.key(readings: a, low: 70, high: 200))
         let more = a + [reading(referenceNow.addingTimeInterval(900), 120)]
         XCTAssertNotEqual(k1, WeekInReviewCache.key(readings: more, low: 70, high: 180))
+    }
+
+    func testLowsWords() {
+        XCTAssertEqual(WeekInReviewText.lows(0), "No lows")
+        XCTAssertEqual(WeekInReviewText.lows(1), "1 low")
+        XCTAssertEqual(WeekInReviewText.lows(3), "3 lows")
+    }
+
+    func testEachWeekOpensTheLogbookOnItsOwnSevenDays() {
+        let newest = referenceNow.addingTimeInterval(-600)
+        let this = LogbookLink.week(.current, newestReading: newest, now: referenceNow)
+        XCTAssertEqual(this.filter, .thisWeek)
+        XCTAssertEqual(this.period.interval.start, newest.addingTimeInterval(-7 * 86_400))
+        // Runs on to now, so something logged after the last reading still shows.
+        XCTAssertEqual(this.period.interval.end, referenceNow)
+        XCTAssertEqual(this.period.label, "Last 7 days")
+
+        let last = LogbookLink.week(.previous, newestReading: newest, now: referenceNow)
+        XCTAssertEqual(last.filter, .lastWeek)
+        XCTAssertEqual(last.period.interval.start, newest.addingTimeInterval(-14 * 86_400))
+        XCTAssertEqual(last.period.interval.end, newest.addingTimeInterval(-7 * 86_400))
+        XCTAssertEqual(last.period.label, "7 days before")
+
+        // The weeks meet without overlapping, matching what the card counted.
+        XCTAssertEqual(WeekInReview.interval(.previous, end: newest).end, WeekInReview.interval(.current, end: newest).start)
+        XCTAssertNotEqual(this.sourceID, last.sourceID)
+    }
+
+    func testTheWeekChipsKeepEverythingAndAreOnlyOfferedFromTheCard() {
+        let dose = LogEntry.dose(InsulinDose(timestamp: referenceNow, units: 2, kind: .rapid, name: "NovoRapid", note: ""))
+        XCTAssertTrue(LogbookFilter.thisWeek.matches(dose, lowIDs: []))
+        XCTAssertTrue(LogbookFilter.lastWeek.matches(dose, lowIDs: []))
+        XCTAssertFalse(LogbookFilter.thisWeek.isListed)
+        XCTAssertFalse(LogbookFilter.lastWeek.isListed)
+        let offered = LogbookFilter.available(entries: [dose], alerts: [])
+        XCTAssertFalse(offered.contains(.thisWeek))
+        XCTAssertFalse(offered.contains(.lastWeek))
+        XCTAssertEqual(LogbookFilter.thisWeek.title, "This week")
+        XCTAssertEqual(LogbookFilter.lastWeek.title, "Last week")
+        // Back on the Mac goes to the one card from either week.
+        XCTAssertEqual(LogbookFilter.lastWeek.insightsCard, .thisWeek)
+        XCTAssertEqual(LogbookFilter.thisWeek.insightsCard, .thisWeek)
     }
 }
