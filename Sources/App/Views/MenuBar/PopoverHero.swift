@@ -40,19 +40,26 @@ struct PopoverHero: View {
         let stale = s.isStale()
         let tone = s.displayTone()
         let tint = tone.color
+        // The first open after launch, before the first fetch lands: the saved reading, dimmed
+        // with its age, then one cross-fade to the live one (`LaunchReading`).
+        let launch = store.launchPhase()
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    statusRow(stale: stale)
+                    statusRow(stale: stale, launch: launch)
                     if let cur = s.current {
-                        valueRow(cur, stale: stale, tint: tint)
-                        trendRow(cur, stale: stale)
+                        Group {
+                            valueRow(cur, stale: stale, tint: tint, launch: launch)
+                            trendRow(cur, stale: stale)
+                        }
+                        .launchDim(launch, stale: stale)
                     }
                 }
                 Spacer(minLength: 4)
                 if let cur = s.current {
                     TrendDial(trend: stale ? .unknown : cur.trend, tint: tint, size: 62)
                         .opacity(stale ? 0.6 : 1)
+                        .launchDim(launch, stale: stale)
                         .accessibilityHidden(true)
                 }
             }
@@ -60,7 +67,8 @@ struct PopoverHero: View {
                 RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
                           forecastMgdl: stale || !settings.showForecast ? nil : s.currentOutlook().flatMap(OutlookFormat.headlineSample)?.sample.mgdl,
                           thickness: 5, unit: s.unit)
-                FreshnessRow(reading: cur)
+                    .launchDim(launch, stale: stale)
+                FreshnessRow(reading: cur, launch: launch)
             }
         }
         .padding(.horizontal, 16)
@@ -102,15 +110,17 @@ struct PopoverHero: View {
             Divider()
             Button("Open Dashboard", systemImage: "macwindow", action: onOpenDashboard)
         }
-        .onChange(of: s.current?.timestamp) { old, new in
-            guard old != nil, new != nil, old != new, !reduceMotion else { return }
+        // One ripple per new reading, but not for the launch handover, which is a single fade.
+        .onChange(of: RippleKey(timestamp: s.current?.timestamp, phase: store.launchPhase())) { old, new in
+            guard LaunchReading.playsRipple(from: (old.timestamp, old.phase), to: (new.timestamp, new.phase),
+                                            reduceMotion: reduceMotion) else { return }
             ripple += 1
         }
     }
 
     // MARK: Rows
 
-    private func statusRow(stale: Bool) -> some View {
+    private func statusRow(stale: Bool, launch: LaunchReading) -> some View {
         HStack(spacing: 6) {
             if let range = s.range { RangeBadgeSwap(range: range, stale: stale) }
             if let streak = s.rangeStreak(), streak.duration >= 5 * 60 {
@@ -121,7 +131,8 @@ struct PopoverHero: View {
                     .contentTransition(.numericText())
                     .help("Time since the reading last left this range")
             }
-            if store.isRefreshing {
+            // Not while the saved reading waits: its dimmed figure already says it is being checked.
+            if launch.showsSpinner(isRefreshing: store.isRefreshing) {
                 ProgressView().controlSize(.mini)
                     .transition(.opacity)
             }
@@ -129,23 +140,26 @@ struct PopoverHero: View {
         .frame(height: 22)
     }
 
-    private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color) -> some View {
+    private func valueRow(_ cur: GlucoseReading, stale: Bool, tint: Color, launch: LaunchReading) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text(s.unit.format(mgdl: cur.mgdl))
-                .font(.system(size: (54 * (1 + (textScale.scale - 1) * 0.5)).rounded(), weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(numberStyle(tint)))
-                // A new reading rolls the digits over to it, up or down with the change, like the
-                // iPhone and the Live Activity. Crossing a range edge moves the figure and its colour
-                // together on the slower colour fade. Once per change, never while the popover just
-                // sits open; under Reduce Motion the number just changes. VoiceOver reads the card's
-                // label, which is always the new reading, never a figure part-way through the roll.
-                .readingChange(mgdl: cur.mgdl, tone: s.displayTone(), instantUnderReduceMotion: true)
-                // A stale value is crossed through lightly, so it can't be read as current even in
-                // a quick glance or a screenshot. The line draws across as the data goes stale.
-                .staleStrike(stale)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+            // The saved reading cross-fades to the first live one once, rather than rolling.
+            LaunchFigure(phase: launch) {
+                Text(s.unit.format(mgdl: cur.mgdl))
+                    .font(.system(size: (54 * (1 + (textScale.scale - 1) * 0.5)).rounded(), weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(numberStyle(tint)))
+                    // A new reading rolls the digits over to it, up or down with the change, like the
+                    // iPhone and the Live Activity. Crossing a range edge moves the figure and its colour
+                    // together on the slower colour fade. Once per change, never while the popover just
+                    // sits open; under Reduce Motion the number just changes. VoiceOver reads the card's
+                    // label, which is always the new reading, never a figure part-way through the roll.
+                    .readingChange(mgdl: cur.mgdl, tone: s.displayTone(), instantUnderReduceMotion: true)
+                    // A stale value is crossed through lightly, so it can't be read as current even in
+                    // a quick glance or a screenshot. The line draws across as the data goes stale.
+                    .staleStrike(stale)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
             Text(s.unit.label)
                 .fontWeight(.semibold).dsFont(.callout)
                 .foregroundStyle(.secondary)
@@ -187,6 +201,7 @@ struct PopoverHero: View {
 
     private var accessibilityLabel: String {
         var label = s.accessibilitySummary()
+        if let note = store.launchPhase().spokenNote { label += ", \(note)" }
         if let streak = s.rangeStreak(), streak.duration >= 5 * 60 {
             label += ", \(streak.range.label) for \(streak.isOpenEnded ? "over " : "")\(PopoverFormat.spokenStreak(streak.duration))"
         }
@@ -199,12 +214,14 @@ struct PopoverHero: View {
 /// The label ticks every second on its own, so the rest of the popover doesn't re-render with it.
 private struct FreshnessRow: View {
     let reading: GlucoseReading
+    /// The saved reading from before launch is never "Updated", and isn't warned about as nearly stale.
+    var launch: LaunchReading = .live
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let age = reading.age(at: context.date)
             let stale = age > GlucoseSnapshot.staleAfter
-            let nearlyStale = !stale && age > GlucoseSnapshot.staleAfter * 0.66
+            let nearlyStale = !stale && launch == .live && age > GlucoseSnapshot.staleAfter * 0.66
             let warning = Tone.warning
             let color: Color = stale || nearlyStale ? warning.textColor : .secondary
             VStack(alignment: .leading, spacing: 5) {
@@ -214,7 +231,7 @@ private struct FreshnessRow: View {
                     } else {
                         Image(systemName: "clock").imageScale(.small)
                     }
-                    Text(stale ? "Last reading \(PopoverFormat.ageAgo(age))" : "Updated \(PopoverFormat.ageAgo(age))")
+                    Text("\(launch.ageLead(stale: stale)) \(PopoverFormat.ageAgo(age))")
                         .monospacedDigit()
                     Spacer(minLength: 4)
                     Text(reading.timestamp.formatted(date: .omitted, time: .shortened))

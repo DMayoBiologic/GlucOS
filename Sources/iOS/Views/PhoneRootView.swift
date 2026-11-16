@@ -282,6 +282,8 @@ private struct PhoneTitleReading: View {
         let s = store.snapshot
         let stale = s.isStale()
         let tone = s.displayTone()
+        // Right after launch: the saved reading, dimmed, until the first fetch (like the stage).
+        let launch = store.launchPhase()
         HStack(spacing: DS.Space.xs) {
             if let cur = s.current {
                 // The octagon marks an urgent low here too, not just the colour.
@@ -289,20 +291,24 @@ private struct PhoneTitleReading: View {
                     Image(systemName: "exclamationmark.octagon.fill").font(.subheadline.weight(.bold))
                 }
                 // Rolls and cross-fades like the stage's figure; just changes under Reduce Motion.
-                Text(s.unit.format(mgdl: cur.mgdl))
-                    .font(.system(.headline, design: .rounded).weight(.bold))
-                    .monospacedDigit()
-                    .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
-                    .readingChange(mgdl: cur.mgdl, tone: tone, instantUnderReduceMotion: true)
-                    .staleStrike(stale, thickness: 2)
+                // The saved reading cross-fades to the first live one once.
+                LaunchFigure(phase: launch) {
+                    Text(s.unit.format(mgdl: cur.mgdl))
+                        .font(.system(.headline, design: .rounded).weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
+                        .readingChange(mgdl: cur.mgdl, tone: tone, instantUnderReduceMotion: true)
+                        .staleStrike(stale, thickness: 2)
+                }
                 TrendArrow(trend: cur.trend, stale: stale)
                     .font(.subheadline.weight(.bold))
             }
         }
         .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
         .dsAnimation(.sweep, value: tone)
+        .launchDim(launch, stale: stale)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(s.accessibilitySummary())
+        .accessibilityLabel(s.accessibilitySummary() + (launch.spokenNote.map { ". \($0)" } ?? ""))
     }
 }
 
