@@ -7,7 +7,7 @@ import {
   type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
   backInRangeCheck, backInRangeConfirmWithin, backInRangeLookAhead, type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
   effectiveRangeScale, minutesBack, rangeScaleFrom, rangeWindow, type Sensor, type Trend, unitOf,
-  type AlertSnoozes, ownerNotices, pruneSnoozes, snoozeAlert, snoozeLevel,
+  type AlertSnoozes, ownerNotices, pruneSnoozes, runningSnoozes, snoozeAlert, snoozeLevel,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
 import {
@@ -23,7 +23,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.14.0";
+export const version = "2.15.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -236,6 +236,9 @@ export interface RelayStatus {
   alertsEnabled: boolean;
   /// Followers waiting for the owner to answer a check-in (checkins.ts). Missing when nobody is.
   checkIn?: CheckInCard;
+  /// The owner's snoozes still running (2.15.0 on: always sent, `{}` when none), so the iPhone's
+  /// "snoozed" chip and its own alerts agree with what the relay pushes.
+  snoozes: AlertSnoozes;
 }
 
 // MARK: - Engine
@@ -435,6 +438,15 @@ export class RelayEngine {
     });
   }
 
+  /// Tapping the "snoozed" chip on the owner's phone: every snooze ends now. A snoozed alert was
+  /// let go of while snoozed, so if it's still due it's pushed on the next tick.
+  resumeAlerts(): Promise<RelayStatus> {
+    return this.store.transaction(async (tx) => {
+      tx.row.work.snoozes = {};
+      return this.statusOf(tx.row, (await tx.account()) !== null);
+    });
+  }
+
   async answerCheckIns(answer: CheckInAnswer): Promise<RelayStatus> {
     const now = this.clock();
     const shares = this.shares;
@@ -505,6 +517,7 @@ export class RelayEngine {
       hasPushToStartToken: !!row.prefs.pushToStartToken,
       liveActivityEnabled: row.prefs.liveActivityEnabled,
       alertsEnabled: row.prefs.alerts.enabled,
+      snoozes: runningSnoozes(w.snoozes, this.clock()),
     };
     if (w.lastFetchAt !== null) s.lastFetchAt = w.lastFetchAt;
     if (w.current) s.lastReadingAt = w.current.t;

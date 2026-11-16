@@ -149,12 +149,21 @@ final class AlertSnoozeStore: ObservableObject {
     private let defaults: UserDefaults
 
     @Published private(set) var snoozes: AlertSnoozes
+    /// Goes up with every change made on this device (a snooze button, the chip's Resume), so a
+    /// relay status that was asked for before the change can't undo it (`adopt`).
+    private(set) var revision = 0
+
+    private var pruneTask: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         snoozes = defaults.data(forKey: Self.key).flatMap { try? JSONDecoder().decode(AlertSnoozes.self, from: $0) }
             ?? AlertSnoozes()
+        pruneWhenNextEnds()
     }
+
+    /// Something is snoozed right now: the "snoozed" chip shows.
+    var isSnoozing: Bool { !snoozes.active(at: Date()).isEmpty }
 
     /// False for an alert that can't be snoozed (urgent lows).
     @discardableResult
@@ -162,9 +171,54 @@ final class AlertSnoozeStore: ObservableObject {
         var s = snoozes
         s.prune(now: now)
         guard s.snooze(kind, minutes: minutes, now: now) else { return false }
+        save(s)
+        revision += 1
+        return true
+    }
+
+    /// The "snoozed" chip was tapped: every alert is back on now. Snoozed alerts were let go of, so
+    /// one that's still due fires on the next reading.
+    func resumeAll() {
+        guard snoozes != AlertSnoozes() else { return }
+        save(AlertSnoozes())
+        revision += 1
+    }
+
+    /// The relay's snoozes (iPhone, relay 2.15.0 on), which decide what it pushes: this device
+    /// takes them as its own, so the chip, the phone's own alerts and the pushes all agree. Skipped
+    /// when this device changed a snooze after the status was asked for (`revision` moved on).
+    func adopt(_ relay: AlertSnoozes, askedAt revision: Int, now: Date = Date()) {
+        guard revision == self.revision else { return }
+        var r = relay
+        r.prune(now: now)
+        var mine = snoozes
+        mine.prune(now: now)
+        guard r != mine else { return }
+        save(r)
+    }
+
+    private func save(_ s: AlertSnoozes) {
         snoozes = s
         defaults.set(try? JSONEncoder().encode(s), forKey: Self.key)
-        return true
+        pruneWhenNextEnds()
+    }
+
+    /// Drops each snooze the moment it ends, so the chip goes away then (one fade) without anything
+    /// polling. The alert rules read the end times, not this, so it changes nothing about alerts.
+    private func pruneWhenNextEnds(now: Date = Date()) {
+        pruneTask?.cancel()
+        var pruned = snoozes
+        pruned.prune(now: now)
+        if pruned != snoozes {
+            snoozes = pruned
+            defaults.set(try? JSONEncoder().encode(pruned), forKey: Self.key)
+        }
+        guard let end = pruned.nextEnd(after: now) else { return }
+        pruneTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(0.5, end.timeIntervalSinceNow + 0.5)))
+            guard !Task.isCancelled else { return }
+            self?.pruneWhenNextEnds()
+        }
     }
 }
 

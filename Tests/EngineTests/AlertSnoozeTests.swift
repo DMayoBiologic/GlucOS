@@ -129,4 +129,113 @@ final class AlertSnoozeTests: XCTestCase {
             XCTAssertFalse(s.silences(kind, at: t), "\(kind)")
         }
     }
+
+    // MARK: The "snoozed" chip (AlertSnoozeChip)
+
+    private var perth: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Australia/Perth")!
+        return c
+    }
+    private let us = Locale(identifier: "en_US")
+    /// 2:00:20 pm in Perth.
+    private let afternoon = Date(timeIntervalSince1970: 1_794_808_820)
+
+    private func plain(_ s: String?) -> String? {
+        s?.replacingOccurrences(of: "\u{202F}", with: " ").replacingOccurrences(of: "\u{00A0}", with: " ")
+    }
+
+    private func chip(_ s: AlertSnoozes, at t: Date) -> AlertSnoozeChip? {
+        AlertSnoozeChip(s, now: t, calendar: perth, locale: us)
+    }
+
+    func testNoChipWithoutASnooze() {
+        XCTAssertNil(chip(AlertSnoozes(), at: afternoon))
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 30, now: afternoon)
+        // Gone the moment it ends, never "0 min".
+        XCTAssertNil(chip(s, at: afternoon.addingTimeInterval(30 * 60)))
+        XCTAssertEqual(chip(s, at: afternoon.addingTimeInterval(30 * 60 - 1))?.remaining, "1 min")
+        // An urgent low can't be snoozed, so it never shows one.
+        var u = AlertSnoozes()
+        u.snooze(.urgentLow, minutes: 30, now: afternoon)
+        XCTAssertNil(chip(u, at: afternoon))
+    }
+
+    func testChipSaysUntilWhenAndMinutesLeft() {
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 30, now: afternoon)
+        let c = chip(s, at: afternoon)!
+        XCTAssertEqual(plain(c.title), "Low alerts snoozed until 2:30 PM")
+        XCTAssertEqual(c.remaining, "30 min")
+        XCTAssertEqual(plain(c.accessibilityLabel), "Low alerts snoozed until 2:30 PM, 30 minutes left")
+        // Rounded up: 12 min 20 s left reads 13 min.
+        XCTAssertEqual(chip(s, at: afternoon.addingTimeInterval(17 * 60 + 40))?.remaining, "13 min")
+        XCTAssertEqual(plain(chip(s, at: afternoon.addingTimeInterval(29 * 60 + 30))?.accessibilityLabel),
+                       "Low alerts snoozed until 2:30 PM, 1 minute left")
+    }
+
+    func testChipNamesWhatEachSnoozeCovers() {
+        var high = AlertSnoozes()
+        high.snooze(.predictedHigh, minutes: 30, now: afternoon)
+        XCTAssertEqual(plain(chip(high, at: afternoon)?.title), "High alerts snoozed until 2:30 PM")
+        // A very-high snooze quiets highs too, and a shorter high snooze under it says nothing new.
+        var vh = AlertSnoozes()
+        vh.snooze(.veryHigh, minutes: 30, now: afternoon)
+        vh.snooze(.high, minutes: 15, now: afternoon)
+        XCTAssertEqual(plain(chip(vh, at: afternoon)?.title), "High and very high alerts snoozed until 2:30 PM")
+        // Same end: one time. Different ends: each its own, soonest first.
+        var both = AlertSnoozes()
+        both.snooze(.low, minutes: 30, now: afternoon)
+        both.snooze(.high, minutes: 30, now: afternoon)
+        XCTAssertEqual(plain(chip(both, at: afternoon)?.title), "Low and high alerts snoozed until 2:30 PM")
+        var apart = AlertSnoozes()
+        apart.snooze(.high, minutes: 30, now: afternoon)
+        apart.snooze(.low, minutes: 15, now: afternoon)
+        let c = chip(apart, at: afternoon)!
+        XCTAssertEqual(plain(c.title), "Low alerts snoozed until 2:15 PM, high until 2:30 PM")
+        XCTAssertEqual(c.remaining, "30 min")
+    }
+
+    func testResumeEndsEverySnooze() {
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 30, now: afternoon)
+        s.snooze(.veryHigh, minutes: 30, now: afternoon)
+        s.resumeAll()
+        XCTAssertEqual(s, AlertSnoozes())
+        XCTAssertFalse(s.silences(.low, at: afternoon.addingTimeInterval(60)))
+        XCTAssertFalse(s.silences(.high, at: afternoon.addingTimeInterval(60)))
+    }
+
+    func testChipRedrawsOnceAMinuteAndAtEachEnd() {
+        XCTAssertEqual(AlertSnoozes().redrawDates(from: afternoon), [])
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 30, now: afternoon)
+        let dates = s.redrawDates(from: afternoon)
+        // 2:01 … 2:30 on the minute, then the end at 2:30:20: 31 redraws in 30 minutes.
+        XCTAssertEqual(dates.count, 31)
+        XCTAssertEqual(dates.first, Date(timeIntervalSince1970: 1_794_808_860))
+        XCTAssertEqual(dates.last, afternoon.addingTimeInterval(30 * 60))
+        XCTAssertEqual(dates, dates.sorted())
+        XCTAssertTrue(zip(dates, dates.dropFirst()).allSatisfy { $1.timeIntervalSince($0) <= 60 && $1 > $0 })
+    }
+
+    func testRelayStatusSnoozesDecodeAndAreOptional() throws {
+        let old = try JSONDecoder().decode(RelayStatus.self, from: Data(#"""
+        {"version":"2.14.0","hasAccount":true,"hasDeviceToken":true,"hasPushToStartToken":false,
+         "liveActivityEnabled":true,"alertsEnabled":true}
+        """#.utf8))
+        XCTAssertNil(old.snoozes)
+        let new = try JSONDecoder().decode(RelayStatus.self, from: Data(#"""
+        {"version":"2.15.0","hasAccount":true,"hasDeviceToken":true,"hasPushToStartToken":false,
+         "liveActivityEnabled":true,"alertsEnabled":true,"snoozes":{"low":1794810620}}
+        """#.utf8))
+        XCTAssertEqual(new.snoozes?.low, 1_794_810_620)
+        XCTAssertNil(new.snoozes?.high)
+        let none = try JSONDecoder().decode(RelayStatus.self, from: Data(#"""
+        {"version":"2.15.0","hasAccount":true,"hasDeviceToken":true,"hasPushToStartToken":false,
+         "liveActivityEnabled":true,"alertsEnabled":true,"snoozes":{}}
+        """#.utf8))
+        XCTAssertEqual(none.snoozes, AlertSnoozes())
+    }
 }

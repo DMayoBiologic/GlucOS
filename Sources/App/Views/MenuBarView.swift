@@ -33,6 +33,7 @@ struct MenuBarView: View {
     /// False only for the moment between the popover opening and its sections starting to come
     /// in (`PopoverStagger`). Anything that goes wrong leaves it true, so content is never hidden.
     @State private var sectionsIn = true
+    @ObservedObject private var snoozeStore = AlertSnoozeStore.shared
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -69,6 +70,7 @@ struct MenuBarView: View {
         .animation(PopoverMotion.standard(reduceMotion), value: s.isStale())
         .animation(PopoverMotion.quick(reduceMotion), value: toast)
         .animation(PopoverMotion.quick(reduceMotion), value: showsShortcutList)
+        .animation(PopoverMotion.standard(reduceMotion), value: snoozeStore.isSnoozing)
         .task { await store.checkNotificationPermission() }
         .onAppear { commandKey.start(); staggerSectionsIn() }
         .onDisappear {
@@ -90,6 +92,12 @@ struct MenuBarView: View {
                 heroSlot(warmUp: s.warmUp(at: context.date))
             }
             .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
+            // While an alert is snoozed: until when, and a click turns alerts back on.
+            if snoozeStore.isSnoozing {
+                AlertSnoozeChipView(snoozes: snoozeStore.snoozes) { AlertSnoozeStore.shared.resumeAll() }
+                    .transition(.opacity)
+                    .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
+            }
             PopoverNotices(notices: notices)
                 .accessibilitySortPriority(3)
                 .popoverEntrance(.notices, showing: showing, shown: sectionsIn)

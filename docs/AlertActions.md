@@ -29,6 +29,34 @@ alert came from the relay as a push or from the device itself.
   a quiet notification, since the push may still come. The Mac's snooze is its own (the Mac has no
   relay connection).
 
+## Snoozed chip
+
+While any alert is snoozed (by Snooze 30 min or by Log treatment), iPhone Today (under the reading)
+and the Mac popover (under the hero card) show one small chip: "Low alerts snoozed until 2:30 pm ·
+12 min · Resume". Tapping or clicking it turns every alert back on at once. Alert rules don't
+change: a snoozed alert was let go of, so if it's still due it fires on the next reading.
+
+- Wording (`AlertSnoozeChip` in `Sources/Core/AlertSnooze.swift`, tests in `AlertSnoozeTests`):
+  each level by the button that snoozed it. A very-high snooze reads "High and very high" (it quiets
+  highs too) and hides a shorter high snooze under it; snoozes ending at the same minute share one
+  time ("Low and high alerts snoozed until 2:30 pm"), otherwise each says its own, soonest first.
+  Minutes left round up, so it never says "0 min"; VoiceOver hears "…, 12 minutes left" and the hint
+  "Turns these alerts back on now", then "Alerts are back on." after a tap.
+- Motion: one fade in when a snooze starts and one fade out when it ends or is resumed, instant under
+  Reduce Motion. Nothing loops: the chip redraws once a minute and at each snooze's end
+  (`AlertSnoozes.redrawDates`), and `AlertSnoozeStore` drops a snooze the moment it ends with one
+  timer rather than polling.
+- **The iPhone and the relay agree.** Relay 2.15.0 sends its running snoozes in every status
+  (`snoozes`, `{}` when none) and has `POST /v1/alerts/resume` (empty body) to end them all. The
+  phone takes the relay's snoozes as its own whenever a status arrives (`AlertSnoozeStore.adopt`),
+  so the chip, the phone's local alerts and the pushes go by the same end times. A status asked for
+  before a snooze or Resume on the phone is ignored for snoozes (`revision`), so it can't undo it.
+  Resume clears the phone first, then the relay; if the relay can't be reached its snoozes still
+  stand, so the phone puts them back and says "Couldn't reach GlucOS's server, so alerts are still
+  snoozed" under the chip. With no relay, or one before 2.15.0, the phone's snoozes are its own.
+- The Mac's chip covers the Mac's own snoozes (the Mac has no relay connection).
+- View: `Sources/App/Views/AlertSnoozeChipView.swift` (shared by both apps).
+
 ## Log treatment
 
 Called "I'm treating it" until round 31. Only the title changed: the action identifier
@@ -58,8 +86,8 @@ Logbook on both devices. See docs/AlertLog.md.
 
 - Rules and button titles: `Sources/Core/AlertSnooze.swift` (`AlertSnoozes.buttonTitles(for:)`,
   tests `AlertSnoozeTests`), relay copy in
-  `supabase/functions/relay/core.ts` (`snoozeLevel`, `silences`, `ownerNotices`; tests "snooze: …"
-  in `checkins_test.ts`).
+  `supabase/functions/relay/core.ts` (`snoozeLevel`, `silences`, `ownerNotices`, `runningSnoozes`;
+  tests "snooze: …" in `checkins_test.ts`). Resume: `RelayEngine.resumeAlerts`.
 - Notification categories `glucos.alert` and `glucos.alert.urgent`, registered by both apps
   (`AlertNotifications` in `Sources/App/AlertManager.swift`) and named by the relay's pushes. A
   follower's copy of an alert never carries them: lows get Check in (`glucos.follow.low`), the rest

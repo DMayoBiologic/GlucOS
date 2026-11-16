@@ -386,6 +386,31 @@ Deno.test("snooze: followers get every low alert exactly as without a snooze", a
   assert(quiet.follower.every((p) => aps(p).category === "glucos.follow.low"));
 });
 
+Deno.test("snooze: the owner's status carries the running snoozes, and resume ends them", async () => {
+  const t = await setup();
+  t.setMgdl(62);
+  await t.engine.tick();
+  assertEquals((await t.engine.status()).snoozes, {});
+  const snoozed = await t.engine.snoozeAlerts("low", 30);
+  assert(snoozed !== "not snoozable");
+  assertEquals(snoozed.snoozes, { low: t.clock() + 30 * 60 });
+  assertEquals((await t.engine.status()).snoozes, { low: t.clock() + 30 * 60 });
+  // Ended snoozes drop out of the status even before a tick prunes them.
+  t.advance(30 * 60);
+  assertEquals((await t.engine.status()).snoozes, {});
+  // Resume: the still-due low is pushed on the very next tick, not 30 minutes later.
+  await t.engine.snoozeAlerts("low", 30);
+  t.advance(60);
+  t.sent.length = 0;
+  await t.engine.tick();
+  const lows = () => t.to(ownerPhone).filter((p) => p.type === "alert" && p.collapseId?.startsWith("glucos.low"));
+  assertEquals(lows().length, 0);
+  assertEquals((await t.engine.resumeAlerts()).snoozes, {});
+  t.advance(60);
+  await t.engine.tick();
+  assertEquals(lows().length, 1);
+});
+
 Deno.test("snooze: an urgent low always gets through, and can't be snoozed", async () => {
   const t = await setup();
   t.setMgdl(62);

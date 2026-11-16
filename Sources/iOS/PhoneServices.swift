@@ -32,6 +32,8 @@ final class PhoneServices: ObservableObject {
     @Published private(set) var relayStatus: RelayStatus?
     /// Shown in the banner and Settings only once the relay has stayed unreachable (`RelayHealth`).
     @Published private(set) var relayError: String?
+    /// The chip's Resume didn't reach the relay (shown under the chip until the next Resume).
+    @Published private(set) var snoozeResumeError: String?
     private var relayHealth = RelayHealth()
     @Published private(set) var isSyncingRelay = false
     @Published private(set) var pushRegistrationError: String?
@@ -189,7 +191,7 @@ final class PhoneServices: ObservableObject {
     func answerCheckIn(_ answer: CheckInAnswer.Answer) async throws {
         guard let client = relaySettings.client else { throw RelayClient.RelayError.unauthorized }
         do {
-            apply(try await client.answerCheckIns(answer))
+            try await applying { try await client.answerCheckIns(answer) }
         } catch {
             Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "checkin.answer", error: error)
             throw error
@@ -204,10 +206,28 @@ final class PhoneServices: ObservableObject {
     func snoozeRelayAlerts(_ kind: AlertNotice.Kind, minutes: Int) async throws {
         guard let client = relaySettings.client else { return }
         do {
-            apply(try await client.snoozeAlerts(AlertSnoozeRequest(kind: kind.rawValue, minutes: minutes)))
+            try await applying { try await client.snoozeAlerts(AlertSnoozeRequest(kind: kind.rawValue, minutes: minutes)) }
         } catch {
             Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "alerts.snooze", error: error)
             throw error
+        }
+    }
+
+    /// The "snoozed" chip on Today: every alert back on, here and on the relay. If the relay can't
+    /// be reached its snoozes still stand, so the phone takes them back (the chip returns) and
+    /// says so, rather than show alerts as on while pushes stay quiet.
+    func resumeAlerts() async {
+        let before = AlertSnoozeStore.shared.snoozes
+        snoozeResumeError = nil
+        AlertSnoozeStore.shared.resumeAll()
+        // Without a relay, or one from before 2.15.0, the snoozes are only this phone's.
+        guard let client = relaySettings.client, relayStatus?.snoozes != nil else { return }
+        do {
+            try await applying { try await client.resumeAlerts() }
+        } catch {
+            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "alerts.resume", error: error)
+            AlertSnoozeStore.shared.adopt(before, askedAt: AlertSnoozeStore.shared.revision)
+            snoozeResumeError = "Couldn't reach GlucOS's server, so alerts are still snoozed. Try again in a moment."
         }
     }
 
@@ -284,7 +304,7 @@ final class PhoneServices: ObservableObject {
         isSyncingRelay = true
         defer { isSyncingRelay = false }
         do {
-            apply(try await client.register(r))
+            try await applying { try await client.register(r) }
             return true
         } catch {
             failed(error, step: "register")
@@ -328,7 +348,7 @@ final class PhoneServices: ObservableObject {
     func refreshRelayStatus() async {
         guard let client = relaySettings.client else { return }
         lastStatusCheck = Date()
-        do { apply(try await client.status()) } catch {
+        do { try await applying { try await client.status() } } catch {
             failed(error, step: "status")
         }
     }
@@ -355,10 +375,23 @@ final class PhoneServices: ObservableObject {
 
     func sendRelayTest() async {
         guard let client = relaySettings.client else { return }
-        do { apply(try await client.sendTest()) } catch { relayError = error.localizedDescription }
+        do { try await applying { try await client.sendTest() } } catch { relayError = error.localizedDescription }
     }
 
-    private func apply(_ status: RelayStatus) {
+    /// Makes a relay call and applies the status it returns. The snooze revision is read before
+    /// the call goes out, so a status asked for before a snooze or a Resume on this phone can't
+    /// undo it.
+    private func applying(_ call: () async throws -> RelayStatus) async throws {
+        let revision = AlertSnoozeStore.shared.revision
+        apply(try await call(), snoozeRevision: revision)
+    }
+
+    private func apply(_ status: RelayStatus, snoozeRevision: Int) {
+        // The relay's snoozes decide what it pushes, so the chip and this phone's own alerts go by
+        // them too (relays before 2.15.0 don't say: then the phone keeps its own).
+        if let snoozes = status.snoozes {
+            AlertSnoozeStore.shared.adopt(snoozes, askedAt: snoozeRevision)
+        }
         // While the relay is fetching and can reach this phone it sends the alerts, even when the
         // app is closed, and `deliversLocally` stands down so they don't arrive twice.
         relayStatus = status

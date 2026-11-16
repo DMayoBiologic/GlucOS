@@ -120,6 +120,7 @@ struct PhoneHomeView: View {
     @Namespace private var routes
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PhoneSetupView.pendingKey) private var setupPending = false
+    @ObservedObject private var snoozeStore = AlertSnoozeStore.shared
 
     var body: some View {
         NavigationStack {
@@ -133,6 +134,13 @@ struct PhoneHomeView: View {
                     PhoneCheckInBanner()
                     // Cards assemble top to bottom on launch rather than popping in at once.
                     PhoneHeroCard().dsEntrance(0)
+                    // While an alert is snoozed: until when, and a tap turns alerts back on.
+                    if snoozeStore.isSnoozing {
+                        AlertSnoozeChipView(snoozes: snoozeStore.snoozes, error: services.snoozeResumeError) {
+                            Task { await services.resumeAlerts() }
+                        }
+                        .transition(.opacity)
+                    }
                     ForEach(follows.follows) { PhoneFollowingCard(follow: $0).dsEntrance(1) }
                     PhoneOnBoardCard().dsEntrance(1)
                     PhoneChartCard().dsEntrance(2)
@@ -161,6 +169,8 @@ struct PhoneHomeView: View {
                 }
                 .padding(.horizontal, DS.Space.lg)
                 .padding(.bottom, DS.Space.lg)
+                // The snoozed chip fades in and out once; instant under Reduce Motion.
+                .animation(DSMotion.standard.animation(reduceMotion: reduceMotion), value: snoozeStore.isSnoozing)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
