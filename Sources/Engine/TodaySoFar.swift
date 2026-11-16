@@ -116,12 +116,23 @@ struct TodaySoFar: Hashable {
     /// at or above `low`. A gap of over 30 minutes ends a run at its last low bucket; a run still going
     /// at the end counts once it has lasted 15 minutes. `points` must be in time order.
     static func lowRuns(_ points: [(Date, Double)], low: Double) -> Int {
-        var count = 0
+        lowSpans(points, low: low).count
+    }
+
+    /// One run below range, from its first low bucket to where it ended (`lowRuns`).
+    struct LowSpan: Hashable {
+        let start: Date
+        let end: Date
+    }
+
+    /// The runs `lowRuns` counts, oldest first, so other cards (Insights Lows) read lows the same way.
+    static func lowSpans(_ points: [(Date, Double)], low: Double) -> [LowSpan] {
+        var spans: [LowSpan] = []
         var start: Date?
         var lastLow: Date?
         let size = Double(bucketMinutes) * 60
         func close(_ end: Date) {
-            if let s = start, end.timeIntervalSince(s) >= lowMinimum { count += 1 }
+            if let s = start, end.timeIntervalSince(s) >= lowMinimum { spans.append(LowSpan(start: s, end: end)) }
             start = nil; lastLow = nil
         }
         for (t, mgdl) in points {
@@ -135,7 +146,7 @@ struct TodaySoFar: Hashable {
         }
         // A bucket covers five minutes, so a run's last low bucket lasts to its end.
         if let l = lastLow { close(l.addingTimeInterval(size)) }
-        return count
+        return spans
     }
 
     static func median(_ values: [Double]) -> Double {
