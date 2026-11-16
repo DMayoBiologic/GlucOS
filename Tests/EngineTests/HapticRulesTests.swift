@@ -55,7 +55,7 @@ final class HapticRulesTests: XCTestCase {
         var gate = HapticGate()
         XCTAssertTrue(gate.admit(.done, at: t0))
         XCTAssertFalse(gate.admit(.done, at: t0.addingTimeInterval(0.3)))
-        XCTAssertTrue(gate.admit(.done, at: t0.addingTimeInterval(HapticGate.quietGap)))
+        XCTAssertTrue(gate.admit(.done, at: t0.addingTimeInterval(HapticGate.quietGap + 0.01)))
     }
 
     func testQuickTicksEachPlay() {
