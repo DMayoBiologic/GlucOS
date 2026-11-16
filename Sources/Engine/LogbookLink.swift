@@ -2,8 +2,8 @@ import Foundation
 
 // Opening the Logbook from somewhere else with a chip and a stretch of time already picked
 // (docs/LogbookSearch.md, "From the Insights cards"). Today that's the Insights Lows, Highs,
-// Overnight and Weekdays and weekends cards: tapping one shows its chip over the same days the
-// card counted.
+// Overnight, Weekdays and weekends and Week in review cards: tapping one shows its chip over the
+// same days the card counted.
 
 /// The chip and period the Logbook opens with. Nothing is typed into the search field: the period
 /// shows as the usual chip above the list ("Last 14 days ✕"), and ✕ or Clear Filters drops it.
@@ -36,6 +36,23 @@ struct LogbookLink: Hashable, Sendable {
     static func weekPart(_ side: WeekdayWeekend.Side, _ period: WeekdayWeekend.Period, newestReading: Date?,
                          now: Date) -> LogbookLink {
         card(side.filter, days: period.days, newestReading: newestReading, now: now)
+    }
+
+    /// One week of the Week in review card, on the This week or Last week chip: everything logged
+    /// over the 7 days the card counted for it (`WeekInReview.interval`). This week runs on to now,
+    /// as the other cards' periods do, so something logged after the last reading still shows.
+    static func week(_ side: WeekInReview.Side, newestReading: Date?, now: Date) -> LogbookLink {
+        let span = WeekInReview.interval(side, end: newestReading ?? now)
+        switch side {
+        case .current:
+            return LogbookLink(filter: side.filter,
+                               period: .init(label: "Last 7 days", phrase: "in the last 7 days",
+                                             interval: DateInterval(start: span.start, end: max(span.end, now))))
+        case .previous:
+            return LogbookLink(filter: side.filter,
+                               period: .init(label: "7 days before", phrase: "in the 7 days before the last 7",
+                                             interval: span))
+        }
     }
 
     private static func card(_ filter: LogbookFilter, days: Int, newestReading: Date?, now: Date) -> LogbookLink {
