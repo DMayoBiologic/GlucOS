@@ -3017,3 +3017,102 @@ it clears 3% at 15 and 30 minutes at the Mac's and relay's gain. Don't ease fall
 low-warning check passing on every low. To rerun: `python3 scripts/turning-point-damping.py DIR`,
 with readings.json and logs.json as for `scripts/acceleration-trend.py` (§39), exported from
 `glucos.readings where trend > 0` and the meals in `glucos.logbook` (`payload->>'timestamp'`).
+
+## 46. Correcting each horizon's average miss (16 Nov 2026)
+
+The question: if forecasts at 15, 30 or 60 minutes run on average a little high or low, split by
+the trend they started from, would subtracting that average (learnt as it goes, from forecasts
+already scored) bring the line closer and the range around more readings, on days it wasn't
+learnt from, without making a low warning later? **No. The average miss in each bucket is small
+next to the typical miss and changes sign from one day to the next, so every version tried, rolling
+or fixed, by horizon alone or by horizon and trend, is level or worse at every horizon. Nothing
+shipped; no app or relay code changed, so the relay stays 2.17.0.**
+
+Not a repeat of §36 or §44: those shifted forecasts by start level (highs down, or toward the
+7-day mean). This splits by horizon and starting trend instead, and learns the shift walking
+forward, as the app would have to. It's the learnt drift PR #53 rejected, retried on the stored
+shown forecasts rather than a replay.
+
+**The data.** 854 clean shown points (nothing logged after, drawn) in `glucos.forecast_checks`
+with a reading at 15 (445), 30 (265) or 60 minutes (144), Mac, iPhone and relay, 12–17 Nov Perth.
+Bias is actual minus forecast, so positive means the forecast ran low.
+
+| Start trend (mg/dL a minute) | 15 min: bias / miss | 30 min | 60 min |
+|---|---|---|---|
+| Falling faster than 1 | +2.8 / 19.2 (124) | −1.3 / 33.3 (67) | +24.8 / 64.8 (32) |
+| Falling 0.3–1 | +3.0 / 11.8 (71) | +4.4 / 22.6 (46) | +10.3 / 47.0 (24) |
+| Steady | +0.8 / 17.5 (86) | +8.0 / 27.1 (51) | +17.0 / 36.6 (29) |
+| Rising 0.3–1 | +3.4 / 18.6 (62) | +10.0 / 32.3 (39) | +9.4 / 64.3 (16) |
+| Rising faster than 1 | −6.1 / 22.6 (102) | −4.6 / 36.9 (62) | +1.0 / 61.0 (43) |
+
+The only sizeable averages are at 60 minutes, where there are fewest points and the miss is
+three to six times the bias. By Perth day, falls, steady and rises at each horizon swing both
+ways: at 30 minutes falling starts ran −10, +4, +8, +15 and −22 on 12–16 Nov, and at 60 minutes
+rising starts −17, −30, −2, −22 and then +49. The day-to-day spread of a bucket's bias (13–36
+mg/dL) is larger than its average (0–19), so last night's bias says little about this morning's.
+
+**The test.** Each point's line and both sides of its range moved by d, the mean of actual −
+forecast over points at the same horizon (and, where split, the same trend bucket) whose reading
+had already come in before this one was issued, from the last 6, 24 or 72 hours or all history,
+once there were 5 of them. Shrunk toward 0 as sum / (n + k) with k = 0, 10 or 30. Also leave one
+Perth day out with a fixed mean or median per horizon, per horizon and trend, and per horizon,
+trend and apps or relay.
+
+Mean miss change against what ships (negative is better); coverage as shipped is 74.2% / 69.8% /
+68.1%:
+
+| Version | 15 min | 30 min | 60 min | Days better (15 / 30 / 60) |
+|---|---|---|---|---|
+| Rolling, by horizon, 6 h, k 30 | +2.1% | +3.0% | +4.0% | |
+| Rolling, by horizon, all history, k 30 | +0.6% | +1.1% | +2.5% | |
+| Rolling, by horizon and 3 trends, 24 h, k 30 | +0.7% | +1.5% | **−0.7%** | |
+| Rolling, by horizon and 3 trends, all history, k 10 | +1.0% | +2.3% | +3.0% | |
+| Rolling, by horizon and 5 trends, all history, k 30 | +0.8% | +1.9% | +2.7% | |
+| Unshrunk (k 0), any window | +0.8 to +4.8% | +1.7 to +8.1% | +4.6 to +22% | |
+| Held-out day, median by horizon | +0.1% | 0.0% | +1.0% | 4/6, 4/6, 3/5 |
+| Held-out day, mean by horizon and 3 trends | +2.5% | +2.1% | +8.2% | 3/6, 2/6, 1/5 |
+| Held-out day, median by horizon, 3 trends, apps/relay | +16.8% | +0.2% | +12.9% | 2/6, 2/6, 1/5 |
+
+(36 rolling versions were run; the table gives the best of each kind and the range of the
+unshrunk ones. Every one is worse at 15 and 30 minutes.)
+
+- **The more it learns from, the less it does.** Shrinking harder and using longer windows only
+  brings the correction closer to zero, and the result closer to what ships, never past it.
+  Short windows chase the last few hours' meal or low, which is over by the next forecast.
+- **Coverage moves by under 2 points either way** (best 74.2 → 75.7% at 15 minutes, by horizon
+  and 3 trends from all history, while the miss there is 0.6% worse). At 60 minutes every rolling
+  version loses coverage (68.1 → 58–68%).
+- **The one better cell** (60 minutes, 3 trends, 24 h, k 30: 55.0 → 54.6) is 0.7%, alone among 36,
+  and the same settings are worse at 15 and 30. That's noise, not a bias.
+
+**Low warnings.** Of the 25 points that ended under 70 (16 / 6 / 3), the range bottom reached
+under 70 on 22 as shipped and on 22 with every rolling version at 15 and 30 minutes (one 60-minute
+point lost it with the 6-hour and 24-hour unshrunk versions), and the line was under 80 on 20 as
+shipped against 19 for the trend-split versions at 15 minutes. So no version catches a low that
+shipped missed, and the trend-split ones lose one. Nothing shipped, so low warnings (§13, §30) and
+"a low is possible" are exactly as before.
+
+**Dosing.** Not touched: a shift would have been forecast-only, after the insulin and carb
+effects, and nothing here changes insulin on board, the effect learner or the bolus figure.
+
+**Caveats.** Six days, 144 points at 60 minutes. The shown points already carry the trend gain
+the tuner fits (§10) and the range widening (§9), which between them take out the steady part of
+any bias; what's left is the meal-by-meal and low-by-low part no average can follow. Rerun at three
+weeks with the query below; only take a correction if a shrunk, all-history version by horizon
+is 3% better at 15 and 30 minutes and on most held-out days, with the low check unchanged.
+
+```sql
+with p0 as (select c.issued_at t, c.trend_per_minute tr, (e->>'minutes')::int m, (e->>'actual')::float a,
+  (e->>'mgdl')::float f, (e->>'lower')::float lo, (e->>'upper')::float up,
+  coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al, coalesce(e->>'shown', 'true') shown
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e),
+p as (select *, case when tr < -0.3 then 1 when tr <= 0.3 then 2 else 3 end tb, row_number() over () id
+  from p0 where a is not null and not al and shown <> 'false' and m in (15, 30, 60)),
+r as (select p.*, case when q.n >= 5 then q.s / (q.n + 30) else 0 end d from p cross join lateral (
+  select count(*) n, sum(x.a - x.f) s from p x where x.m = p.m and x.tb = p.tb   -- drop "and x.tb = p.tb" for horizon only
+    and x.t + make_interval(mins => x.m) <= p.t) q)                              -- add "and x.t > p.t - interval '24 h'" for a window
+select m, count(*), avg(abs(a - f)) miss, avg(abs(a - f - d)) corrected,
+  avg((a between lo and up)::int) inside, avg((a between lo + d and up + d)::int) corrected_inside,
+  sum((a < 70 and lo < 70)::int) low_bottom, sum((a < 70 and lo + d < 70)::int) low_bottom_corrected
+from r group by 1 order by 1;
+```
