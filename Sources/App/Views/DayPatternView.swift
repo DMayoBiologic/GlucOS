@@ -4,8 +4,11 @@ import Accessibility
 
 /// The Insights "Your usual day" card on the Mac and iPhone: each time of day over the last 14 or
 /// 30 days, as a middle line with the middle half and 8 in 10 readings shaded round it (an AGP).
-/// The pattern is worked out off the main thread once per data change (`DayPatternCache`) and drawn
-/// as a still picture: nothing on it animates. Callers give it their own card surface.
+/// The pattern is worked out off the main thread once per data change (`DayPatternCache`). When the
+/// chart first shows, its bands grow out of the middle line; switching between 14 and 30 days
+/// glides each band and the glucose axis to the new period (`DayPatternMotion`). Both play once,
+/// never loop, and Reduce Motion shows the new picture at once. Callers give it their own card
+/// surface.
 struct DayPatternView: View {
     let readings: [GlucoseReading]
     let unit: GlucoseUnit
@@ -30,9 +33,14 @@ struct DayPatternView: View {
             .labelsHidden()
             .accessibilityLabel("Period")
 
-            if let pattern, shownKey?.window == window {
-                DayPatternChart(pattern: pattern, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
-                    .frame(height: 190)
+            // While the other period is worked out, the last one stays up so the chart can glide
+            // from it rather than blanking.
+            if let pattern {
+                DayPatternMotion(pattern: pattern, lowMgdl: lowMgdl, highMgdl: highMgdl) { drawn, tint, yDomain in
+                    DayPatternChart(drawn: drawn, tint: tint, pattern: pattern, yDomainMgdl: yDomain,
+                                    unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
+                }
+                .frame(height: 190)
                 legend
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     ForEach(DayPatternText.lines(pattern, unit: unit, low: lowMgdl, high: highMgdl), id: \.self) {
@@ -80,10 +88,119 @@ struct DayPatternView: View {
     }
 }
 
+/// Plays the chart's two movements: the bands drawing in when it first shows, and the glide when
+/// the period changes. A new pattern for the same period (fresh readings) is drawn as it is.
+private struct DayPatternMotion<Content: View>: View {
+    let pattern: DayPattern
+    let lowMgdl: Double
+    let highMgdl: Double
+    /// The pattern to draw this frame, the one to colour it by (the bands at full width, so the
+    /// colours don't shift while they grow), and the glucose axis in mg/dL.
+    @ViewBuilder let content: (_ drawn: DayPattern, _ tint: DayPattern, _ yDomainMgdl: ClosedRange<Double>) -> Content
+
+    @State private var from: DayPattern?
+    @State private var to: DayPattern?
+    @State private var phase: Double = 1
+    @State private var reveal: Double = 1
+    @State private var drewIn = false
+    /// Counts changes, so a movement still being set up never overrides a newer one.
+    @State private var generation = 0
+    @State private var onScreen = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var animates: Bool { !reduceMotion && onScreen }
+
+    var body: some View {
+        DayPatternFrame(from: from ?? pattern, to: to ?? pattern, phase: phase, reveal: reveal,
+                        lowMgdl: lowMgdl, highMgdl: highMgdl, content: content)
+            .onAppear {
+                onScreen = true
+                settle(on: pattern)
+                guard !drewIn else { return }
+                drewIn = true
+                drawIn()
+            }
+            .onDisappear {
+                onScreen = false
+                generation += 1
+            }
+            .onChange(of: pattern) { old, new in
+                if old.window != new.window { glide(from: to ?? old, to: new) } else { settle(on: new) }
+            }
+    }
+
+    private func settle(on pattern: DayPattern) {
+        generation += 1
+        withTransaction(Transaction(animation: nil)) {
+            from = pattern
+            to = pattern
+            phase = 1
+            reveal = 1
+        }
+    }
+
+    /// The bands grow out of the middle line, once the card around them has come in.
+    private func drawIn() {
+        guard animates else { return }
+        withTransaction(Transaction(animation: nil)) { reveal = 0 }
+        let generation = self.generation
+        // On the next turn, so the collapsed first frame is drawn before the bands grow.
+        DispatchQueue.main.async {
+            guard generation == self.generation else { return }
+            withAnimation(DSMotion.sweep.animation.delay(0.15)) { reveal = 1 }
+        }
+    }
+
+    private func glide(from old: DayPattern, to new: DayPattern) {
+        guard animates, reveal == 1 else { settle(on: new); return }
+        generation += 1
+        let generation = self.generation
+        withTransaction(Transaction(animation: nil)) {
+            from = old
+            to = new
+            phase = 0
+        }
+        DispatchQueue.main.async {
+            guard generation == self.generation else { return }
+            withAnimation(DSMotion.ambient.animation) { phase = 1 }
+        }
+    }
+}
+
+/// One frame of `DayPatternMotion`: SwiftUI steps `phase` and `reveal` through every frame, and the
+/// chart is handed that frame's pattern and axis.
+private struct DayPatternFrame<Content: View>: View, Animatable {
+    let from: DayPattern
+    let to: DayPattern
+    var phase: Double
+    var reveal: Double
+    let lowMgdl: Double
+    let highMgdl: Double
+    let content: (_ drawn: DayPattern, _ tint: DayPattern, _ yDomainMgdl: ClosedRange<Double>) -> Content
+
+    var animatableData: AnimatablePair<Double, Double> {
+        get { AnimatablePair(phase, reveal) }
+        set { phase = newValue.first; reveal = newValue.second }
+    }
+
+    var body: some View {
+        let blended = DayPatternMorph.blend(from: from, to: to, t: phase)
+        content(DayPatternMorph.spread(blended, reveal: reveal), blended,
+                DayPatternMorph.yDomain(from: from, to: to, t: phase, low: lowMgdl, high: highMgdl))
+    }
+}
+
 /// The chart itself: the target band, the two percentile bands and the middle line, coloured by
 /// range the same way as the glucose trace (`ThresholdGradient`).
 private struct DayPatternChart: View {
+    /// What's drawn this frame (part way through a draw-in or glide).
+    let drawn: DayPattern
+    /// What the bands are coloured by: `drawn` at full width.
+    let tint: DayPattern
+    /// The settled pattern, for VoiceOver.
     let pattern: DayPattern
+    /// The glucose axis in mg/dL.
+    let yDomainMgdl: ClosedRange<Double>
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
@@ -103,11 +220,11 @@ private struct DayPatternChart: View {
     private var segments: [[Point]] {
         var out: [[Point]] = []
         var run: [Point] = []
-        for s in pattern.slots {
+        for s in drawn.slots {
             if let s { run.append(Point(x: s.midMinute, slot: s)) } else if !run.isEmpty { out.append(run); run = [] }
         }
         if !run.isEmpty { out.append(run) }
-        if let first = pattern.slots.first.flatMap({ $0 }), let last = pattern.slots.last.flatMap({ $0 }),
+        if let first = drawn.slots.first.flatMap({ $0 }), let last = drawn.slots.last.flatMap({ $0 }),
            !out.isEmpty {
             let mid = DayPattern.Slot(minute: 0, p10: (first.p10 + last.p10) / 2, p25: (first.p25 + last.p25) / 2,
                                       p50: (first.p50 + last.p50) / 2, p75: (first.p75 + last.p75) / 2,
@@ -118,13 +235,6 @@ private struct DayPatternChart: View {
         return out
     }
 
-    private var yDomainMgdl: ClosedRange<Double> {
-        let f = pattern.filled
-        let lo = min(f.map(\.p10).min() ?? 60, lowMgdl, 60) - 10
-        let hi = max(f.map(\.p90).max() ?? 200, highMgdl, 200) + 10
-        return lo...hi
-    }
-
     private func v(_ mgdl: Double) -> Double { unit.value(fromMgdl: mgdl) }
 
     private func gradient(_ lo: Double?, _ hi: Double?) -> LinearGradient {
@@ -132,13 +242,14 @@ private struct DayPatternChart: View {
     }
 
     var body: some View {
-        let f = pattern.filled
+        let f = tint.filled
         let segments = self.segments
         let strong = contrast == .increased
         let outer = gradient(f.map(\.p10).min(), f.map(\.p90).max())
         let inner = gradient(f.map(\.p25).min(), f.map(\.p75).max())
         let line = gradient(f.map(\.p50).min(), f.map(\.p50).max())
         let yd = yDomainMgdl
+        let settled = DayPatternMorph.yDomain(pattern, low: lowMgdl, high: highMgdl)
         Chart {
             RectangleMark(yStart: .value("Low", v(lowMgdl)), yEnd: .value("High", v(highMgdl)))
                 .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.07))
@@ -195,7 +306,7 @@ private struct DayPatternChart: View {
         .accessibilityValue(DayPatternText.spoken(pattern, unit: unit, low: lowMgdl, high: highMgdl))
         .accessibilityChartDescriptor(DayPatternAudioGraph(pattern: pattern, unit: unit, lowMgdl: lowMgdl,
                                                            highMgdl: highMgdl,
-                                                           yDomain: v(yd.lowerBound)...v(yd.upperBound)))
+                                                           yDomain: v(settled.lowerBound)...v(settled.upperBound)))
     }
 
     /// "12 am", "6 am", "12 pm": the axis keeps its labels short.
