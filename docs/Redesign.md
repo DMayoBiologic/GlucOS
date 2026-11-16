@@ -372,7 +372,11 @@ old, last 6.2." Follower: prefixed with the person's name.
   transparent navigation bar. On it: range pill and streak, the 96 pt value with unit, the needle
   (80 pt), delta and trend words, the range rail with forecast ghost marker, the forecast note, and the
   freshness meter with age. New readings play the arrival choreography; range changes sweep; crossing
-  into low/back to range plays haptics.
+  into low/back to range plays haptics. The value uses the Live Activity's `.readingChange`: its digits
+  roll over to each new reading on `.arrival`, its colour cross-fades across a range edge on `.sweep`,
+  and the trend row's `TrendArrow` turns rather than swapping glyphs (the needle already swings). Each
+  plays once per change; under Reduce Motion the number just changes; VoiceOver reads only the new
+  reading. The collapsed title's value and arrow do the same.
 - **Collapsing header.** Scrolling up shrinks the stage; once its value scrolls under the navigation
   bar, the bar's title becomes the value and trend arrow in the range colour (iOS 18
   `onScrollGeometryChange`), so the reading is never off screen.
