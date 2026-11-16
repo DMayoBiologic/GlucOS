@@ -2723,3 +2723,99 @@ measures an extra correction on top of what was drawn, not a replacement for it.
 weeks with `scripts/adaptive-range.py --grid`, and only take a 3-hour window if it wins on held-out
 days with width no worse; if coverage reaches 80% on its own, try the narrow-only version again
 first.
+
+## 43. Forecasts after back-to-back meals (16 Nov 2026)
+
+The question: when a second meal is logged while the first is still being absorbed (within 90
+minutes of it), do forecasts after the second meal run high or low, and would combining the two
+meals' absorption (slowing or queueing the second, or treating them as one meal) do better? **There
+is only one such pair in the history, so nothing can be tested on meals the fit hasn't seen. On that
+pair the forecast ran low, delaying or slowing the second meal made it worse at 60 and 90 minutes
+(a 30-minute wait was level to slightly better at 15–45), and the versions that helped change the
+first meal's curve too, which §15 already turned down. Nothing
+shipped; no app or relay code changed.**
+
+**What ships today.** Every meal's carbs go on their own copy of the standard curve (ten-minute
+delay, three hours) from the time they're logged, and the forecast adds the copies together. A
+second meal neither waits for the first nor changes how fast it's absorbed.
+
+**The data.** All 17 meals with carbs logged 7–16 Nov. Pairs under 90 minutes apart:
+
+| Pair | Gap | Counted |
+|---|---|---|
+| 12 Nov 14:09 sushi (53.9 g, 7 U), then 15:23 green juice (16.6 g); 4 U at 14:43 | 74 min | Yes |
+| 13 Nov 09:58 and 10:10 eggs and hash brown | 12 min | No: the same meal logged twice (§38) |
+
+The next closest gaps are 197 minutes (11 Nov breakfast then pancakes, 16 Nov pie then sausage
+roll), after the first meal's three hours ten minutes on the curve, so the model already sees them
+as separate meals. Stored forecasts after those two pull opposite ways: after the sausage roll the
+60-minute point ran 39 mg/dL high (11 forecasts, 55% inside the range), after the juice 17 mg/dL low
+(7 forecasts, 86% inside).
+
+**The test.** Forecasts every 5 minutes for the 2 hours after the juice (25 forecasts), replayed
+with the engine's maths (20-minute trend, 30-minute fade, 60% gain, carbs at 2.8 mg/dL per gram,
+rapid insulin at 19.2 mg/dL per unit) and scored against the readings up to the 19:08 burrito bowl
+(`scripts/stacked-meals.py`, export query at its top). Mean miss, with the bias in brackets
+(negative is the forecast below what happened). In the first hour after a log the engine draws
+the trend alone unless its fresh-model check allows the model (`freshModel`); after the juice the
+apps drew the model (7 of the 8 stored forecasts), so every origin is replayed with it, and the
+script also prints the first hour (12 origins) and the rest (13) apart. "Both over 4 h" and
+"merged" come out best in both parts; a 30-minute wait is a little better than what ships after the
+first hour (33.8 against 34.0 at 60 minutes) and worse within it (38.3 against 35.4).
+
+Mean miss (mg/dL), all 25 origins:
+
+| Model of the two meals | 30 min | 60 min | 90 min |
+|---|---|---|---|
+| No change | 19.8 (−12.5) | 33.5 (−20.3) | 49.0 (−13.6) |
+| What ships: two curves added | 18.2 (−12.8) | 34.7 (−26.6) | 53.0 (−28.8) |
+| Second meal absorbed over 4 h / 5 h | 18.7 / 19.3 | 36.8 / 38.7 | 57.8 / 60.4 |
+| Second meal waits 30 / 60 / 90 min | 17.9 / 19.2 / 20.6 | 36.0 / 40.5 / 44.5 | 56.5 / 63.1 / 69.4 |
+| Second queued until the first is 80% absorbed (+49 min) | 18.7 | 39.0 | 60.6 |
+| Merged into one 70.5 g meal from the first log, stretched by the gap | 16.2 (−11.9) | 32.2 (−21.2) | 50.8 (−18.2) |
+| Both meals absorbed over 4 h | 15.7 (−11.4) | 31.6 (−18.9) | 50.6 (−13.6) |
+| Both meals absorbed over 5 h | 16.1 | 36.4 | 57.9 |
+
+- **Making the second meal wait or last longer is worse at 60 and 90 minutes.** Only the 30-minute
+  wait is level or a little better earlier on (17.9 against 18.2 at 30 minutes), and longer waits
+  are worse everywhere. The forecast was
+  already low: glucose went from 104 at the juice down to 82, then up to 158 two and a half hours
+  later, a rise of 76 mg/dL against the 46 that 16.6 g is worth. Pushing the juice's carbs later
+  moves more of them past the drawn points and lowers the line further.
+- **What helped is a longer curve for the first meal.** "Both over 4 h" and "merged" are 7–9%
+  better at 60 minutes, because they keep more of the sushi's carbs for the second rise. That's
+  the slow-meal question §15 tested on all meals, where a longer curve didn't win; here it's one
+  meal, one afternoon, so a stacking rule fitted to it would be fitting the sushi, not stacking.
+- Even the best version misses by more than no change at 90 minutes, and none passes the tuner's
+  rule (§2: 3% better, and better in both halves), which needs at least two events to split.
+
+**Low warnings.** Glucose stayed above 82 for the 2 hours after the juice, and no replayed
+forecast in any version went under 70 within 30 minutes, so there's nothing to compare. Every
+delaying version would only lower the forecast after a stacked meal and so could make a predicted
+low sooner, not later; had any shipped, predicted alerts would have read the forecast without it,
+as in §37.
+
+**Dosing.** Not touched: the carb curve is shared with carbs on board and the effect learner, so a
+forecast-only change would have gone in `GlucoseForecaster`'s `modelRate`; nothing here changes the
+bolus calculator, insulin on board or the curves themselves.
+
+Rerun once five or more meals are logged within 90 minutes of an earlier one (not counting the
+same meal logged twice or low treatments, §37). To find them:
+
+```sql
+-- Leaves out low treatments (logged under 70 mg/dL) and repeat logs of the same food within
+-- 20 minutes before pairing, so neither hides a real pair.
+with m0 as (select to_timestamp((payload->>'timestamp')::float) t, payload->>'food' food, (payload->>'carbs')::float carbs
+            from glucos.logbook where kind = 'meal' and not deleted and coalesce((payload->>'carbs')::float, 0) > 0),
+m1 as (select m0.*, (select mgdl from glucos.readings r where r.at <= m0.t order by r.at desc limit 1) at_log,
+         lag(t) over (partition by food order by t) same_food_before from m0),
+m as (select * from m1 where coalesce(at_log, 100) >= 70
+        and (same_food_before is null or t - same_food_before > interval '20 min'))
+select * from (select t at time zone 'Australia/Perth' perth, food, carbs,
+  round(extract(epoch from t - lag(t) over (order by t)) / 60) gap_min from m) x
+where gap_min < 90 order by perth;
+```
+
+Then score forecasts across all of them with each meal held out in turn, starting with "both over
+4 h" and "merged", and keep the delaying versions out unless the forecast after stacked meals turns
+out to run high.
