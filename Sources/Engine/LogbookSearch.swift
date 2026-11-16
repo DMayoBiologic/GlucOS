@@ -6,7 +6,7 @@ import Foundation
 
 /// The Logbook's quick filter chips. One at a time, on top of whatever the search says.
 enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
-    case meals, insulin, lows, notes, sites, moments, alerts
+    case meals, insulin, lows, highs, notes, sites, moments, alerts
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .meals: return "Meals"
         case .insulin: return "Insulin"
         case .lows: return "Lows"
+        case .highs: return "Highs"
         case .notes: return "Notes"
         case .sites: return "Sites"
         case .moments: return "Moments"
@@ -28,6 +29,8 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .meals: if case .meal = entry { return true } else { return false }
         case .insulin: if case .dose = entry { return true } else { return false }
         case .lows: return lowIDs.contains(entry.id)
+        // Insulin marked as a correction: what was logged about a high.
+        case .highs: if case .dose(let d) = entry { return d.purpose == .correction } else { return false }
         case .notes: return !entry.searchNote.isEmpty
         case .sites: if case .siteChange = entry { return true } else { return false }
         case .moments: if case .context = entry { return true } else { return false }
@@ -35,11 +38,13 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         }
     }
 
-    /// Whether an alert row belongs under this chip: every alert under Alerts, low ones under Lows.
+    /// Whether an alert row belongs under this chip: every alert under Alerts, low ones under Lows,
+    /// high ones under Highs.
     func matches(_ alert: AlertLogRow) -> Bool {
         switch self {
         case .alerts: return true
         case .lows: return alert.isLow
+        case .highs: return alert.isHigh
         default: return false
         }
     }

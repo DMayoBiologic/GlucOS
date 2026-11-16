@@ -53,7 +53,7 @@ struct PhoneInsightsRow: View {
 }
 
 /// How things have been going: time in range over 24 hours to 14 days, each of the last seven
-/// days side by side, this week against last, lows and when they start, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
+/// days side by side, this week against last, lows and when they start, time above range and the longest high, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
 struct PhoneInsightsView: View {
     @EnvironmentObject var store: GlucoseStore
 
@@ -64,9 +64,10 @@ struct PhoneInsightsView: View {
                 PhoneDaysCard().dsEntrance(1)
                 PhoneWeekInReviewCard().dsEntrance(2)
                 PhoneLowsCard().dsEntrance(3)
-                PhoneDayPatternCard().dsEntrance(4)
-                PhoneMorningCard(outlook: store.outlook).dsEntrance(5)
-                PhoneForecastAccuracyCard(outlook: store.outlook).dsEntrance(6)
+                PhoneHighsCard().dsEntrance(4)
+                PhoneDayPatternCard().dsEntrance(5)
+                PhoneMorningCard(outlook: store.outlook).dsEntrance(6)
+                PhoneForecastAccuracyCard(outlook: store.outlook).dsEntrance(7)
                 Text("Mornings and forecast accuracy appear once GlucOS has enough wake-ups and forecasts to report on.")
                     .dsFont(.caption)
                     .foregroundStyle(.tertiary)
@@ -114,6 +115,25 @@ struct PhoneLowsCard: View {
             .dsCard(.standard, padding: DS.Space.lg)
         if let navigator {
             card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .lows)), in: navigator.zoom)
+        } else {
+            card
+        }
+    }
+}
+
+/// Highs over the last 7, 14 or 30 days: time above range, how many, and the longest (`HighsCardView`).
+/// Tapping it zooms the card into the Logbook on Highs over the same days; Back shrinks it home.
+struct PhoneHighsCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @Environment(\.phoneNavigator) private var navigator
+
+    var body: some View {
+        let card = HighsCardView(readings: store.archive, unit: store.snapshot.unit,
+                                 highMgdl: store.snapshot.highMgdl,
+                                 openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
+            .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .highs)), in: navigator.zoom)
         } else {
             card
         }

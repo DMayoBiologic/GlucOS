@@ -138,6 +138,23 @@ final class LogbookSearchTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy { !LogbookFilter.meals.matches($0) })
     }
 
+    func testHighsAreHighAlertsAndCorrections() {
+        var correction = InsulinDose(timestamp: day(18, hour: 21), units: 2, kind: .rapid, name: "NovoRapid", note: "")
+        correction.purpose = .correction
+        var forFood = InsulinDose(timestamp: day(18, hour: 12), units: 4, kind: .rapid, name: "NovoRapid", note: "")
+        forFood.purpose = .meal
+        let ids: Set<UUID> = []
+        XCTAssertTrue(LogbookFilter.highs.matches(.dose(correction), lowIDs: ids))
+        XCTAssertFalse(LogbookFilter.highs.matches(.dose(forFood), lowIDs: ids))
+        XCTAssertFalse(LogbookFilter.highs.matches(dose(2, at: day(18)), lowIDs: ids))
+        XCTAssertFalse(LogbookFilter.highs.matches(meal("Pizza", at: day(18)), lowIDs: ids))
+        let rows = AlertLog.rows([AlertRecord(kind: .low, firedAt: day(18, hour: 3)),
+                                  AlertRecord(kind: .veryHigh, firedAt: day(18, hour: 21))])
+        XCTAssertEqual(rows.filter(LogbookFilter.highs.matches).map(\.isHigh), [true])
+        XCTAssertEqual(LogbookFilter.available(entries: [.dose(correction)], alerts: []), [.insulin, .highs])
+        XCTAssertEqual(LogbookFilter.available(entries: [], alerts: rows), [.lows, .highs, .alerts])
+    }
+
     func testNotesAreEntriesWithANote() {
         let ids: Set<UUID> = []
         XCTAssertTrue(LogbookFilter.notes.matches(meal("Pizza", at: day(18), note: "felt off"), lowIDs: ids))

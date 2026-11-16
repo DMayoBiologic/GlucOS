@@ -288,7 +288,9 @@ struct PhoneLogbookView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.sm) {
                 chip("All", systemImage: nil, tint: Palette.brand, selected: kind == nil) { kind = nil }
-                ForEach(kinds) { k in
+                // The chip a card opened with stays offered even when it has nothing to show, so
+                // the empty list says what it's filtered by (the Mac's bar does the same).
+                ForEach(LogbookFilter.allCases.filter { kinds.contains($0) || $0 == kind }) { k in
                     chip(k.title, systemImage: k.symbol, tint: k.tint, selected: kind == k) {
                         kind = kind == k ? nil : k
                     }

@@ -93,6 +93,7 @@ extension LogbookFilter {
         case .meals: return "fork.knife"
         case .insulin: return "syringe"
         case .lows: return "arrow.down.circle"
+        case .highs: return "arrow.up.circle"
         case .notes: return "text.alignleft"
         case .sites: return "bandage"
         case .moments: return "tag"
@@ -105,6 +106,8 @@ extension LogbookFilter {
         case .meals: return Palette.food
         case .insulin: return Palette.insulin
         case .lows: return Tone.critical.color
+        // The text shade: the chip label is amber on a faint wash until picked.
+        case .highs: return GlucoseRange.high.textTint
         case .notes: return Palette.brand
         case .sites: return Palette.site
         case .moments: return Palette.context
