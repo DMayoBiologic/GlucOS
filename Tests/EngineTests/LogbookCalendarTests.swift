@@ -30,11 +30,11 @@ final class LogbookCalendarTests: XCTestCase {
         XCTAssertEqual(monday.leadingBlanks, 1)
         XCTAssertEqual(monday.cells.count, 30)
         XCTAssertEqual(monday.weekdays.count, 7)
-        XCTAssertEqual(monday.weekdays.first, "M")
+        XCTAssertEqual(monday.weekdays.first?.first, "M")
         let sunday = LogbookCalendar.month(referenceNow, counts: [:], now: referenceNow,
                                            calendar: cal(firstWeekday: 1), locale: en)
         XCTAssertEqual(sunday.leadingBlanks, 2)
-        XCTAssertEqual(sunday.weekdays.first, "S")
+        XCTAssertEqual(sunday.weekdays.first?.first, "S")
         XCTAssertTrue(sunday.title.contains("2026"))
     }
 
