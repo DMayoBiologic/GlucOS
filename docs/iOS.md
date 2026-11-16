@@ -42,6 +42,22 @@ Two more App Shortcuts (Siri, Spotlight, Shortcuts, the Action button), in
   docs/AlertActions.md), filled in from your "Treat a low" usual. **It never logs anything by
   itself**: you check it and tap Log.
 
+### Control Center controls
+
+Two controls for Control Center, the Lock Screen's bottom buttons and the Action button (iOS 18),
+in `Sources/iOSWidget/GlucoseControls.swift`, with their taps in `Sources/iOSIntents/ControlIntents.swift`:
+
+- **Glucose** shows the latest reading, trend and age, "6.1 ↗ · 2m", the same line as the inline Lock
+  Screen widget (`ControlGlance`, tests in `WidgetGlanceTests`). Once the reading is older than 6
+  minutes it says **"Stale 6.1 · 12m"** with a clock symbol and no trend; past 30 minutes it shows no
+  number, "No reading for 45m". VoiceOver reads the widgets' spoken reading, then "Opens Today in
+  GlucOS". A tap opens the app on Today (out of Settings or Sharing; an open log sheet stays). The
+  app reloads it with the Glucose widgets (`WidgetReload.Group.glucose.controlKinds`, through
+  `ControlCenter.reloadControls`), so its age is as of the app's last fetch.
+- **Log treatment** opens the same low treatment sheet as the inline button, the alert's button and
+  the Siri shortcut (`.treating(.low)`). **It never logs anything by itself**. It's a fixed button,
+  so it's never reloaded.
+
 The **Your Usual** Home Screen widget (medium) shows the same "Your usual" entries as the log sheet,
 up to three. A tap opens the log sheet filled in from that entry, the same as tapping its tile there;
 nothing is logged until you tap Log, after the logged-twice check (docs/UsualEntries.md).

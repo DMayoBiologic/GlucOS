@@ -361,6 +361,10 @@ final class GlucoseStore: ObservableObject {
         widgetSignature = signature
         for group in WidgetReload.Group.allCases where groups.contains(group) {
             for kind in group.kinds { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
+            #if os(iOS)
+            // The Control Center / Lock Screen Glucose control (iOS 18), reloaded with its group.
+            for kind in group.controlKinds { ControlCenter.shared.reloadControls(ofKind: kind) }
+            #endif
         }
     }
 

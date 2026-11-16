@@ -82,6 +82,35 @@ final class WidgetGlanceTests: XCTestCase {
         XCTAssertEqual(AccessoryGlance.inline(.empty, at: referenceNow), "No reading yet")
     }
 
+    func testControlSaysStaleAndDropsTheTrend() {
+        XCTAssertEqual(ControlGlance.title(snapshot(minutesOld: 2), at: referenceNow), "6.1 ↗ · 2m")
+        XCTAssertEqual(ControlGlance.symbol(snapshot(minutesOld: 2), at: referenceNow), "drop.fill")
+        let stale = ControlGlance.title(snapshot(minutesOld: 12), at: referenceNow)
+        XCTAssertEqual(stale, "Stale 6.1 · 12m")
+        XCTAssertFalse(stale.contains("↗"))
+        XCTAssertEqual(ControlGlance.symbol(snapshot(minutesOld: 12), at: referenceNow), "clock.badge.exclamationmark")
+        XCTAssertEqual(ControlGlance.title(snapshot(minutesOld: 45), at: referenceNow), "No reading for 45m")
+        XCTAssertEqual(ControlGlance.symbol(.empty, at: referenceNow), "drop.degreesign.slash")
+    }
+
+    func testControlVoiceOverNeverReadsTrendWhileStale() {
+        let fresh = ControlGlance.spoken(snapshot(minutesOld: 2), at: referenceNow)
+        XCTAssertTrue(fresh.hasPrefix("Glucose 6.1"))
+        XCTAssertTrue(fresh.hasSuffix("Opens Today in GlucOS."))
+        let stale = ControlGlance.spoken(snapshot(minutesOld: 12), at: referenceNow)
+        XCTAssertTrue(stale.hasPrefix("Stale."))
+        XCTAssertFalse(stale.lowercased().contains("rising"))
+        XCTAssertTrue(ControlGlance.treatmentSpoken.contains("Nothing is logged"))
+    }
+
+    func testOnlyTheGlucoseGroupReloadsTheControl() {
+        XCTAssertEqual(WidgetReload.Group.glucose.controlKinds, [WidgetReload.ControlKind.glucose])
+        XCTAssertTrue(WidgetReload.Group.insights.controlKinds.isEmpty)
+        XCTAssertTrue(WidgetReload.Group.usual.controlKinds.isEmpty)
+        let all = WidgetReload.Group.allCases.flatMap(\.kinds)
+        XCTAssertFalse(all.contains(WidgetReload.ControlKind.glucose), "controls reload through ControlCenter, not WidgetCenter")
+    }
+
     func testCircularCaptionIsTheAgeOnceNotFresh() {
         XCTAssertNil(AccessoryGlance.circularCaption(snapshot(minutesOld: 2), at: referenceNow))
         XCTAssertEqual(AccessoryGlance.circularCaption(snapshot(minutesOld: 12), at: referenceNow), "12m")

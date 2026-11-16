@@ -34,6 +34,8 @@ final class PhoneLogRouter: ObservableObject {
     /// The open sheet saved something: the log bar's plus bounces once as the sheet closes
     /// (docs/Redesign.md §7.1). Cleared by the bar when it plays it.
     var savedSinceOpen = false
+    /// Set by the Glucose control (Control Center, iOS 18): the home screen goes back to Today.
+    @Published var todayRequest: UUID?
 
     func open(_ start: PhoneLogPart? = nil) {
         savedSinceOpen = false
@@ -56,6 +58,19 @@ final class PhoneLogRouter: ObservableObject {
     func logLowTreatment(at time: Date) {
         savedSinceOpen = false
         request = PhoneLogRequest(target: .lowTreatment(at: time))
+    }
+
+    /// Today, from the Glucose control. Leaves an open log sheet alone.
+    func showToday() {
+        todayRequest = UUID()
+    }
+
+    /// What a Control Center control asked for (`ControlActions`). Neither logs anything.
+    func openControl(_ target: ControlActions.Target) {
+        switch target {
+        case .today: showToday()
+        case .lowTreatment: treat(.low)
+        }
     }
 
     /// The log sheet filled in from a usual entry: the Your usual widget's buttons.
