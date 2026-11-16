@@ -38,6 +38,9 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   - **Time in Range** (small, medium): five-range breakdown, average, GMI and CV over the last 12h,
     24h, 7 or 14 days, from the locally kept history. Warns when the period has gaps in the data.
   - **Sensor** (small): time left on the current sensor and when it ends.
+  - **Your Usual** (medium): your usual meal for this time of day, usual correction while high, and
+    low treatment, up to three. A click opens the log window filled in from it, to check and log
+    there; nothing is logged from the widget.
 
   A reading older than 6 minutes is greyed and marked **Stale**, with no trend arrow; after 30 minutes
   the number is replaced by dashes and "Last 7.2 at 2:05 pm". The chart always runs to *now*, so missing
@@ -173,7 +176,7 @@ project.yml              XcodeGen spec — app + widget targets, Sparkle package
 Sources/Shared/          models, stats, shared snapshot store, chart (compiled into both targets)
 Sources/App/             menu bar app: LibreLinkUp client, Keychain, poll loop, alerts, Sparkle, views,
                          app delegate (glucos:// URLs, notification presentation), Assets.xcassets (app icon)
-Sources/Widget/          WidgetKit extension: Glucose, Time in Range and Sensor widgets, configuration + refresh intents
+Sources/Widget/          WidgetKit extension: Glucose, Time in Range, Sensor and Your Usual widgets, configuration + refresh intents
 Sources/Core/            alert rules (AlertPlanner) and the app ↔ relay protocol
 Sources/iOS/             iPhone app: cards, settings, Live Activity controller, relay client, background refresh
 Sources/iOSWidget/       iPhone widget extension: Live Activity (Lock Screen + Dynamic Island), Lock Screen widgets

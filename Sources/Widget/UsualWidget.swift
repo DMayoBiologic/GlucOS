@@ -2,10 +2,11 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-/// The Your usual widget (docs/UsualEntries.md): the entries the log sheet would offer now, up to
-/// three, as buttons. A button opens GlucOS on the log sheet filled in from that entry
-/// (`OpenUsualIntent`); nothing is logged from the widget, so `RepeatCheck`, the calculator and its
-/// confirm step all still run before Log. The app works the entries out (`GlucoseSnapshot.usuals`)
+/// The Your usual widget (docs/UsualEntries.md), on the iPhone Home Screen and the Mac desktop: the
+/// entries the log sheet would offer now, up to three, as buttons. A button opens GlucOS on the log
+/// sheet (iPhone, `OpenUsualIntent`) or the log window (Mac, `UsualGlance.openURL`) filled in from
+/// that entry; nothing is logged from the widget, so `RepeatCheck`, the calculator and its confirm
+/// step all still run before Log. The app works the entries out (`GlucoseSnapshot.usuals`)
 /// and reloads this kind only when they change (`WidgetReload.Group.usual`). Nothing moves here:
 /// widgets run no timers, and the system cross-fades between timeline entries.
 struct UsualWidget: Widget {
@@ -18,7 +19,11 @@ struct UsualWidget: Widget {
                 .widgetURL(URL(string: "glucos://log"))
         }
         .configurationDisplayName("Your Usual")
+        #if os(iOS)
         .description("Your usual meal, correction or low treatment, one tap from the log sheet. You check it and log it there.")
+        #else
+        .description("Your usual meal, correction or low treatment, one click from the log window. You check it and log it there.")
+        #endif
         .supportedFamilies([.systemMedium])
     }
 }
@@ -121,7 +126,7 @@ struct UsualWidgetButton: View {
     }
 
     var body: some View {
-        Button(intent: OpenUsualIntent(usualID: usual.id)) {
+        action {
             VStack(alignment: .leading, spacing: 3) {
                 Image(systemName: usual.systemImage)
                     .font(.system(size: 15, weight: .semibold))
@@ -145,9 +150,22 @@ struct UsualWidgetButton: View {
             .background(fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .buttonStyle(.plain)
         .accessibilityLabel(usual.spoken)
         .accessibilityHint("Opens GlucOS with it filled in. Check it, then log.")
+    }
+
+    /// iPhone: an App Intent that opens the app, handing the entry over through the app group.
+    /// Mac: the widget extension has no app group and only reads the app's folder, so an intent
+    /// can't reach the app; a link does, and AppDelegate opens the log window on the entry.
+    @ViewBuilder
+    private func action<Content: View>(@ViewBuilder label: () -> Content) -> some View {
+        #if os(iOS)
+        Button(intent: OpenUsualIntent(usualID: usual.id), label: label)
+            .buttonStyle(.plain)
+        #else
+        Link(destination: usual.openURL, label: label)
+            .buttonStyle(.plain)
+        #endif
     }
 }
 

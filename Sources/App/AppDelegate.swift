@@ -3,7 +3,8 @@ import os
 import UserNotifications
 
 /// App-level plumbing SwiftUI's `App` doesn't cover for a menu bar app:
-/// - `glucos://open` (widget taps) and re-opening the app from Finder/Spotlight show the popover; `glucos://dashboard` opens the dashboard.
+/// - `glucos://open` (widget taps) and re-opening the app from Finder/Spotlight show the popover; `glucos://dashboard` opens the dashboard;
+///   `glucos://log` and `glucos://log/usual/<id>` (the Your usual widget) open the log window.
 /// - Notifications still appear while GlucOS is the active app, and clicking one shows the popover
 ///   (the Meal / Correction buttons of "Was that dose for a meal?" answer without opening it).
 @MainActor
@@ -40,6 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "dashboard":
             // Opened by whoever can reach SwiftUI's openWindow (see MenuBarLabel).
             NotificationCenter.default.post(name: .glucosOpenDashboard, object: nil)
+        case "log":
+            // The Your usual widget: glucos://log/usual/<id> opens the log window filled in from
+            // that entry (if it's still offered), glucos://log on a new entry. Never logs.
+            LogWindowRequest.shared.target = UsualGlance.usualID(from: url).map { .usualID($0, at: Date()) } ?? .new
+            NotificationCenter.default.post(name: .glucosOpenLogWindow, object: nil)
         default:
             // glucos://open and anything unrecognised: show the reading.
             StatusItemPopover.show()

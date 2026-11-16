@@ -57,6 +57,26 @@ struct UsualGlance: Codable, Hashable, Identifiable {
     /// The most the widget shows, the same as the Mac popover's row.
     static let limit = 3
 
+    /// The Mac widget's button for this entry: `glucos://log/usual/<id>`. The Mac widget extension
+    /// is sandboxed with read-only access to the app's folder and no app group, so an App Intent
+    /// run there has no way to hand the entry to the app. A link opens GlucOS, which opens the log
+    /// window on it (AppDelegate). The iPhone widget uses `OpenUsualIntent` instead.
+    var openURL: URL {
+        var c = URLComponents()
+        c.scheme = "glucos"
+        c.host = "log"
+        c.path = "/usual/" + id
+        return c.url ?? URL(string: "glucos://log")!
+    }
+
+    /// The entry id in a `openURL` link, or nil for any other link.
+    static func usualID(from url: URL) -> String? {
+        guard url.scheme == "glucos", url.host == "log" else { return nil }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard parts.count == 2, parts[0] == "usual", !parts[1].isEmpty else { return nil }
+        return parts[1]
+    }
+
     /// The entries to draw at `now`. The widget runs no code between timeline entries, so it drops
     /// what the app would no longer offer: a correction once the reading it was worked out from goes
     /// stale (it's only offered on a fresh high), and a meal once its part of the day is over. The
@@ -142,7 +162,7 @@ enum WidgetReload {
         case glucose
         /// Time in Range and Sensor, which summarise hours or days and read the 90-day archive.
         case insights
-        /// Your usual (iPhone), which changes only with the logbook, the time of day and a high.
+        /// Your usual (iPhone and Mac), which changes only with the logbook, the time of day and a high.
         case usual
 
         var kinds: [String] {

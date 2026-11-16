@@ -26,7 +26,7 @@ chart range in the popover).
 
 ## On the iPhone Home Screen: the Your Usual widget
 
-Round 27. A medium Home Screen widget (`UsualWidget`, Sources/iOSWidget/UsualWidget.swift) shows
+Round 27. A medium Home Screen widget (`UsualWidget`, Sources/Widget/UsualWidget.swift) shows
 the entries the sheet would offer now, up to three, as buttons, with a **+** for anything else.
 
 - The app works the entries out on every publish (`GlucoseStore.refreshUsualGlance`) and writes them
@@ -42,6 +42,24 @@ the entries the sheet would offer now, up to three, as buttons, with a **+** for
   correction once its reading goes stale, a meal once its part of the day ends. Its timeline has an
   entry at each of those moments and nothing else. No animation: widgets run no timers.
 - VoiceOver reads each button in words (`spoken`), with a hint that it opens GlucOS to check and log.
+
+## On the Mac desktop: the same widget
+
+Round 28. The Mac widget extension draws the same `UsualWidget` (medium, registered in
+`GlucOSWidgetBundle`), from the same `GlucoseSnapshot.usuals`, which the Mac app now works out too.
+
+- **Why a link, not an App Intent.** macOS 14 widgets can run `Button(intent:)`, but the intent runs
+  in the widget extension, which is sandboxed with read-only access to `~/Library/Application
+  Support/GlucOS/` and no app group (ad-hoc builds have no provisioning profile). It has nowhere to
+  leave the id for the app. So each button is a `Link` to `glucos://log/usual/<id>`
+  (`UsualGlance.openURL`), and the **+** and the rest of the widget link to `glucos://log`.
+- `AppDelegate` turns the link into `LogSheetTarget.usualID(id, at:)` and opens the log window, as
+  the popover's Your usual row does. **Nothing is logged from the widget:** the window works the
+  entries out again, fills that one in only if it's still offered (`applyStartingUsual`), and Log
+  goes through `RepeatCheck`, the calculator and its confirm step. An id no longer offered opens a
+  new entry.
+- Same timeline and reload rules as the iPhone (`UsualGlance.visible`, `WidgetReload.Group.usual`).
+  No animation.
 
 ## What's offered
 
