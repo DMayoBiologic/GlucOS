@@ -491,6 +491,7 @@ struct DashboardView: View {
         switch chip.insightsCard {
         case .weekdays: return WeekdayWeekendText.title
         case .thisWeek: return WeekInReviewText.title
+        case .bestStreak: return InRangeStreaksText.title
         default: return chip.title
         }
     }

@@ -152,3 +152,10 @@ tested in LogbookLinkTests).
   (`WeekInReview.interval`). Both chips keep every entry and alert, so the period does the
   narrowing. Like Overnight they're listed only while the card has opened on them. On iPhone both
   weeks zoom from the card; on the Mac "‹ Insights" scrolls back to Week in review from either.
+- **Longest streak (round 42).** The Insights In-range streaks card is one button: it opens the
+  Logbook on a **Longest streak** chip over the longest run's days, local midnight of its first day
+  to midnight after its last (`LogbookLink.bestStreak`), labelled with those days ("23 Aug – 9 Sep").
+  The chip keeps every entry and alert, so the period does the narrowing. A run that takes in today
+  runs to tonight's midnight, so something logged after the last reading still shows. Listed only
+  while the card has opened on it; iPhone zoom and Mac "‹ Insights" work as for the other cards.
+  With no day at 70% yet the card has nothing to open, so it isn't a button.
