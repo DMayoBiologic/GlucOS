@@ -13,6 +13,12 @@ import Foundation
 // treatment, a site problem), the forecast uses the trend alone and only looks 30 minutes ahead.
 // It always assumes nothing new is eaten or dosed, and that background insulin holds glucose level.
 //
+// Carbs taken for a low (tagged as a hypo treatment, or 45 g or less logged while the reading was
+// under 70 mg/dL) are modelled on a fast curve of their own (`LowTreatment`): on this user's treated
+// lows glucose came back up within about 40 minutes and further than the standard three-hour meal
+// curve allows (docs/ForecastAccuracy.md §37). Predicted alerts still read the forecast as it would
+// be without that curve, so a logged treatment never makes a low warning later.
+//
 // After a logged wake-up, the user's usual post-wake change (`MorningPattern`, only once it has
 // been shown to improve their past forecasts) is added to the modelled rate the same way.
 //
@@ -84,6 +90,8 @@ enum ForecastLimitation: Hashable {
     /// forecasts after a logged meal (usually food that wasn't logged), so they're checked apart
     /// and drawn only as far as those checks hold (`ForecastCalibration.insulinOnly`).
     case insulinOnly
+    /// Carbs logged for a low are modelled on the fast low-treatment curve (`LowTreatment`).
+    case lowTreatment
 
     var message: String {
         switch self {
@@ -110,6 +118,8 @@ enum ForecastLimitation: Hashable {
             return "\(lead) In the last week, forecasts here \(failedAt) minutes ahead were further off than assuming glucose stays where it is. GlucOS keeps checking them and draws them again once they're closer."
         case .insulinOnly:
             return "Insulin is acting with no meal logged, so this follows the insulin alone. Forecasts like this are often thrown out by food that wasn't logged, so GlucOS checks them apart from forecasts after a meal and draws them only as far as your history shows they hold."
+        case .lowTreatment:
+            return "Includes the carbs logged for a low, which act faster than a meal: on your past lows glucose came back up within about 40 minutes. Low warnings don't count on it."
         }
     }
 
@@ -131,6 +141,7 @@ enum ForecastLimitation: Hashable {
                 ? "Drawn only \(shown) min ahead: recent \(failedAt)-min forecasts here lost to no change."
                 : "Hidden: recent \(failedAt)-min forecasts here lost to no change."
         case .insulinOnly: return "Insulin only: no meal logged, so drawn only as far as these have held."
+        case .lowTreatment: return "Includes the fast carbs logged for a low."
         }
     }
 
@@ -148,6 +159,7 @@ enum ForecastLimitation: Hashable {
         case .freshLog: return "freshLog"
         case .liveHorizon(let shown, _): return "liveHorizon:\(shown)"
         case .insulinOnly: return "insulinOnly"
+        case .lowTreatment: return "lowTreatment"
         }
     }
 
@@ -330,6 +342,9 @@ struct ForecastInputs {
     /// Times of doses marked as for a meal with no meal logged near them, worked out from every
     /// meal entry (repeats included) before `meals` was de-duplicated. Nil: worked out from `meals`.
     var unloggedMealTimes: [Date]? = nil
+    /// Whether carbs logged for a low go on the fast low-treatment curve (`LowTreatment`). Off for
+    /// the forecast predicted alerts read (`Outlook.alertForecast`), so they stay as they were.
+    var lowTreatmentCurve = true
     var now: Date
 
     init(readings: GlucoseSeries, doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
@@ -386,18 +401,30 @@ enum GlucoseForecaster {
         var limitations: [ForecastLimitation] = []
 
         let fast = input.doses.compactMap(TimedDose.init(fastPartOf:)).filter { $0.date <= t0 && $0.end > t0 }
-        let carbs = input.meals.filter { $0.carbs > 0 && $0.timestamp <= t0 }
+        let carbMeals = input.meals.filter { $0.carbs > 0 && $0.timestamp <= t0 }
+        let treatments = input.lowTreatmentCurve
+            ? Set(carbMeals.filter { LowTreatment.isTreatment($0, readings: input.readings, contexts: input.contexts) }.map(\.id))
+            : []
+        let carbs = carbMeals.filter { !treatments.contains($0.id) }
             .map { TimedCarbs(date: $0.timestamp, grams: $0.carbs) }
             .filter { $0.end > t0 }
+        let treatmentCarbs = carbMeals.filter { treatments.contains($0.id) }
+            .map { TimedCarbs(date: $0.timestamp, grams: $0.carbs, curve: LowTreatment.curve) }
+            .filter { $0.end > t0 }
         let insulinLeft = fast.reduce(0) { $0 + $1.remaining(at: t0) }
-        let carbsLeft = carbs.reduce(0) { $0 + $1.remaining(at: t0) }
+        let carbsLeft = (carbs + treatmentCarbs).reduce(0) { $0 + $1.remaining(at: t0) }
         let insulinMatters = insulinLeft >= InsulinActivity.tailUnits
         let carbsMatter = carbsLeft >= CarbActivity.tailGrams
 
         let foodReach = CarbAbsorptionCurve.standard.totalDuration
         let uncounted = input.meals.contains { $0.carbs <= 0 && $0.timestamp <= t0 && t0.timeIntervalSince($0.timestamp) < foodReach }
-            || input.contexts.contains { $0.tags.contains(.hypoTreatment) && $0.timestamp <= t0
-                                         && t0.timeIntervalSince($0.timestamp) < foodReach }
+            // A hypo treatment tag with no carbs logged beside it. With carbs beside it, the carbs
+            // are the treatment and go on the low-treatment curve.
+            || input.contexts.contains { c in
+                c.tags.contains(.hypoTreatment) && c.timestamp <= t0 && t0.timeIntervalSince(c.timestamp) < foodReach
+                    && !(input.lowTreatmentCurve && carbMeals.contains { treatments.contains($0.id)
+                        && abs($0.timestamp.timeIntervalSince(c.timestamp)) <= UsualEntries.hypoFoodGap })
+            }
             // A dose the user said was for a meal that isn't logged: food it can't count.
             || (input.unloggedMealTimes ?? DoseMealCheck.unloggedMealTimes(doses: input.doses, meals: input.meals))
                 .contains { $0 <= t0 && t0.timeIntervalSince($0) < foodReach }
@@ -423,8 +450,9 @@ enum GlucoseForecaster {
         }
 
         // In the first hour after a meal or dose, model it only once that has been shown to work.
+        // Low treatments don't count: their fast curve was checked on the first hour after them (§37).
         let latestLog = (input.doses.filter { $0.timestamp <= t0 && TimedDose(fastPartOf: $0) != nil }.map(\.timestamp)
-                         + input.meals.filter { $0.carbs > 0 && $0.timestamp <= t0 }.map(\.timestamp)).max()
+                         + carbMeals.filter { !treatments.contains($0.id) }.map(\.timestamp)).max()
         let fresh = latestLog.map { t0.timeIntervalSince($0) < freshLogWindow } ?? false
         if fresh, insulinMatters || carbsMatter, !limitations.contains(where: \.forcesTrendOnly),
            !(input.freshModel ?? (input.calibration?.freshModelAllowedHorizon.map { $0 > 0 } ?? false)) {
@@ -437,6 +465,7 @@ enum GlucoseForecaster {
         // food that wasn't logged throws these out far more often than forecasts after a meal.
         let insulinOnly = Self.basisFor(trendOnly) == .trendInsulinCarbs && !carbsMatter && !freshModel
         if insulinOnly { limitations.append(.insulinOnly) }
+        if !trendOnly, treatmentCarbs.contains(where: { $0.remaining(at: t0) > 0 }) { limitations.append(.lowTreatment) }
         // The usual post-wake change, while inside it. Not when the forecast can't trust the
         // logbook (it's learnt on top of what insulin and carbs explain).
         var morningWake: Date?
@@ -493,6 +522,7 @@ enum GlucoseForecaster {
             guard basis == .trendInsulinCarbs else { return 0 }
             let insulinPerMinute = fast.reduce(0) { $0 + $1.activityPerHour(at: t) } / 60
             let carbsPerMinute = carbs.reduce(0) { $0 + $1.ratePerHour(at: t) } / 60
+                + LowTreatment.effectScale * treatmentCarbs.reduce(0) { $0 + $1.ratePerHour(at: t) } / 60
             return (K ?? 0) * carbsPerMinute - (S ?? 0) * insulinPerMinute
         }
         func morningRate(at t: Date) -> Double {

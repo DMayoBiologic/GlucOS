@@ -41,7 +41,7 @@ final class GlucoseStore: ObservableObject {
                     guard let self else { return }
                     self.refreshOutlook()
                     self.publish()
-                    self.alerts.evaluatePrediction(self.snapshot, forecast: self.outlook.outlook?.glucoseForecast,
+                    self.alerts.evaluatePrediction(self.snapshot, forecast: self.outlook.outlook?.alertForecast,
                                                    settings: self.settings)
                 }
             refreshOutlook()
@@ -189,7 +189,7 @@ final class GlucoseStore: ObservableObject {
             publish()
         }
         alerts.evaluate(snapshot, settings: settings)
-        alerts.evaluatePrediction(snapshot, forecast: outlook.outlook?.glucoseForecast, settings: settings)
+        alerts.evaluatePrediction(snapshot, forecast: outlook.outlook?.alertForecast, settings: settings)
         await checkNotificationPermission()
     }
 
@@ -325,7 +325,7 @@ final class GlucoseStore: ObservableObject {
             self.refreshOutlook()
             self.publish()
             // A relearnt model can change the forecast, so check it now rather than at the next fetch.
-            self.alerts.evaluatePrediction(self.snapshot, forecast: self.outlook.outlook?.glucoseForecast,
+            self.alerts.evaluatePrediction(self.snapshot, forecast: self.outlook.outlook?.alertForecast,
                                            settings: self.settings)
         }
     }
