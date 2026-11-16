@@ -278,6 +278,22 @@ enum LogbookSearch {
         return s + "."
     }
 
+    // MARK: The Mac Logbook (docs/LogbookSearch.md, "On the Mac")
+
+    /// Whether the Mac Logbook looks past the toolbar's period. Any search does: the words, and the
+    /// day when one is named, decide what shows. So does "Search All Dates". A chip on its own keeps
+    /// to the toolbar's period, like the list does with nothing typed.
+    static func looksPastToolbarPeriod(_ query: LogbookQuery, allDates: Bool) -> Bool {
+        allDates || !query.isEmpty
+    }
+
+    /// Whether "Search All Dates" could find more when nothing matched: the day the search named
+    /// narrowed it (and there's something else to find by), or a chip was kept to the toolbar's period.
+    static func offersAllDates(_ query: LogbookQuery, filter: LogbookFilter?, allDates: Bool) -> Bool {
+        if query.period != nil { return !query.terms.isEmpty || filter != nil }
+        return filter != nil && !looksPastToolbarPeriod(query, allDates: allDates)
+    }
+
     private static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
 
     /// The word, then its singular when it looks like a plural, longest first: "pizzas" → "pizza",

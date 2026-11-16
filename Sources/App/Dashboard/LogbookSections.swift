@@ -3,46 +3,30 @@ import Charts
 
 // MARK: - Logbook
 
-/// Every logged dose, meal and site change in the selected range, with filtering, search, quick
-/// re-logging and undoable deletes.
+/// Every logged dose, meal and site change in the selected range, with quick filters, search
+/// ("pizza last week", the shared rules in docs/LogbookSearch.md) with the words it found picked out,
+/// quick re-logging and undoable deletes.
 struct LogbookSection: View {
     let data: DashboardData
+    /// Set by ⌘F anywhere in the dashboard: put the cursor in the search field, then cleared.
+    @Binding var focusSearch: Bool
     let open: (LogSheetTarget) -> Void
 
-    enum Filter: String, CaseIterable, Identifiable {
-        case all, insulin, food, site, context, alerts
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .all: return "All"
-            case .insulin: return "Insulin"
-            case .food: return "Food"
-            case .site: return "Sites"
-            case .context: return "Context"
-            case .alerts: return "Alerts"
-            }
-        }
-
-        func includes(_ e: LogEntry) -> Bool {
-            switch (self, e) {
-            case (.all, _), (.insulin, .dose), (.food, .meal), (.site, .siteChange), (.context, .context): return true
-            default: return false
-            }
-        }
-
-        func includes(_ row: LogbookTableRow) -> Bool {
-            switch row {
-            case .entry(let e): return includes(e)
-            case .alert: return self == .all || self == .alerts
-            }
-        }
+    init(data: DashboardData, focusSearch: Binding<Bool> = .constant(false), open: @escaping (LogSheetTarget) -> Void) {
+        self.data = data
+        self._focusSearch = focusSearch
+        self.open = open
     }
 
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
     @State private var selection = Set<UUID>()
-    @State private var filter: Filter = .all
+    /// The quick filter chip, if one is picked (All when nil).
+    @State private var filter: LogbookFilter?
     @State private var search = ""
+    /// "Search All Dates" was pressed: look past the toolbar's period until the search is cleared.
+    @State private var allDates = false
+    @FocusState private var searchFocused: Bool
     /// Low and high alerts show as quiet rows between the entries unless turned off.
     @AppStorage(AlertLogRow.showsKey) private var showsAlerts = true
     /// Entries that just arrived, tinted with their colour for a moment so the eye finds them.
@@ -51,10 +35,17 @@ struct LogbookSection: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let query = LogbookQuery.parse(search, now: Date())
+        let pastPeriod = LogbookSearch.looksPastToolbarPeriod(query, allDates: allDates)
+        let allAlerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
         let inRange = logbook.entries.filter { data.domain.contains($0.timestamp) }
-        let alerts: [AlertLogRow] = showsAlerts
-            ? AlertLog.rows(logbook.alerts).filter { data.domain.contains($0.timestamp) } : []
-        let entries = LogbookTableRow.merge(inRange, alerts).filter { filter.includes($0) && matches($0) }
+        let alertsInRange = allAlerts.filter { data.domain.contains($0.timestamp) }
+        let lowIDs = LogbookSearch.lowTreatmentIDs(logbook.entries)
+        let kinds = LogbookFilter.available(entries: logbook.entries, alerts: allAlerts)
+        let scope = pastPeriod ? LogbookTableRow.merge(logbook.entries, allAlerts)
+                               : LogbookTableRow.merge(inRange, alertsInRange)
+        let rows = scope.filter { $0.matches(filter, query, lowIDs: lowIDs) }
+        let terms = query.terms
         VStack(alignment: .leading, spacing: 0) {
             if settings.therapy == .notSet {
                 TherapySetupView()
@@ -63,17 +54,15 @@ struct LogbookSection: View {
                     .padding(padding)
                 DSDivider()
             }
-            if inRange.isEmpty && alerts.isEmpty {
-                if !showsAlerts && logbook.alerts.contains(where: { data.domain.contains($0.firedAt) }) {
+            if logbook.isEmpty && allAlerts.isEmpty {
+                if !showsAlerts && !logbook.alerts.isEmpty {
                     // Alerts are hidden: keep the way back to them.
                     alertsToggle
                         .padding(.horizontal, padding)
                         .padding(.top, DS.Space.md + 2)
                 }
-                EmptyStateView(systemImage: "book", title: "Nothing Logged in This Period",
-                               message: logbook.isEmpty
-                                   ? "Log insulin, food and site changes with the + button or ⌘L. Save the things you log often as presets for one-tap entry next time."
-                                   : "Pick a longer period in the toolbar to see older entries, or log something new.",
+                EmptyStateView(systemImage: "book", title: "Nothing Logged Yet",
+                               message: "Log insulin, food and site changes with the + button or ⌘L. Save the things you log often as presets for one-tap entry next time.",
                                actionTitle: "Log…", action: { open(.new) })
                     .frame(maxHeight: .infinity)
             } else {
@@ -81,30 +70,24 @@ struct LogbookSection: View {
                     .padding(.horizontal, padding)
                     .padding(.top, DS.Space.md + 2)
                     .padding(.bottom, DS.Space.sm + 2)
-                filterBar
+                searchBar(query, found: rows.count, searching: pastPeriod)
+                    .padding(.horizontal, padding)
+                    .padding(.bottom, DS.Space.sm)
+                filterBar(kinds)
                     .padding(.horizontal, padding)
                     .padding(.bottom, DS.Space.sm + 2)
                 DSDivider()
-                if entries.isEmpty {
-                    if search.trimmingCharacters(in: .whitespaces).isEmpty {
-                        // The filter, not a search, emptied the list: say so.
-                        EmptyStateView(systemImage: "line.3.horizontal.decrease.circle",
-                                       title: "No \(filter.title) in This Period",
-                                       message: "Choose another filter, or a longer period in the toolbar.",
-                                       actionTitle: "Show All", action: { filter = .all })
-                            .frame(maxHeight: .infinity)
-                    } else {
-                        EmptyStateView(systemImage: "magnifyingglass",
-                                       title: "No Results for \u{201C}\(search)\u{201D}",
-                                       message: "Check the spelling or try another word.",
-                                       actionTitle: "Clear Search", action: { search = "" })
-                            .frame(maxHeight: .infinity)
-                    }
+                if rows.isEmpty {
+                    emptyState(query, pastPeriod: pastPeriod)
+                        .frame(maxHeight: .infinity)
                 } else {
-                    table(entries)
+                    table(rows, terms: terms)
                 }
             }
         }
+        // ⌘F (a dashboard shortcut, so it also brings this section up) puts the cursor in the search.
+        .onAppear { takeFocusRequest() }
+        .onChange(of: focusSearch) { _, _ in takeFocusRequest() }
         // After a delete: what went and Undo, rising from the bottom edge (`LogbookUndoToast`).
         .overlay(alignment: .bottom) { LogbookUndoToast() }
         // Entries that arrive (logged, undone, synced from the iPhone) light up once.
@@ -113,11 +96,21 @@ struct LogbookSection: View {
         }
         // Rows hidden by the filter, search or range must not stay selected, or Delete would
         // remove entries the user can't see.
-        .onChange(of: Set(entries.map(\.id))) { _, visible in
+        .onChange(of: Set(rows.map(\.id))) { _, visible in
             selection.formIntersection(visible)
         }
+        .onChange(of: kinds) { _, now in
+            if let f = filter, !now.contains(f) { filter = nil }
+        }
+        .onChange(of: search) { _, now in
+            // "Search All Dates" lasts as long as the search it was pressed for.
+            if now.trimmingCharacters(in: .whitespaces).isEmpty, filter == nil { allDates = false }
+        }
+        .onChange(of: filter) { _, now in
+            if now == nil, search.trimmingCharacters(in: .whitespaces).isEmpty { allDates = false }
+        }
         .onChange(of: showsAlerts) { _, on in
-            if !on, filter == .alerts { filter = .all }
+            if !on, filter == .alerts { filter = nil }
         }
     }
 
@@ -133,17 +126,43 @@ struct LogbookSection: View {
         selection.filter { logbook.entry(id: $0) != nil }
     }
 
-    private var filterBar: some View {
+    /// The search field, what it understood ("Since last week ✕") and how much it found, then the
+    /// actions for the selected rows.
+    private func searchBar(_ query: LogbookQuery, found: Int, searching: Bool) -> some View {
         HStack(spacing: DS.Space.sm + 2) {
-            // The selection slides between filters (docs/Redesign.md §4.5), like the chart hours.
-            SlidingSegments(selection: $filter, options: Filter.allCases.filter(showsFilter)) { $0.title }
-                .fixedSize()
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("Show")
-            TextField("Search", text: $search, prompt: Text("Search food, insulin or notes"))
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 260)
-            alertsToggle
+            HStack(spacing: DS.Space.xs) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search", text: $search, prompt: Text("Food, insulin, notes, or a day (⌘F)"))
+                    .textFieldStyle(.plain)
+                    .autocorrectionDisabled()
+                    .focused($searchFocused)
+                    .onExitCommand { clearFilters() }
+                if !search.isEmpty {
+                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Clear the search")
+                        .accessibilityLabel("Clear the search")
+                }
+            }
+            .padding(.horizontal, DS.Space.sm)
+            .padding(.vertical, DS.Space.xs + 1)
+            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .frame(maxWidth: 320)
+            if let period = query.period {
+                scopeChip(period.label, help: "Search all dates") { search = query.withoutPeriod; allDates = true }
+                    .accessibilityLabel("\(period.label). Search all dates")
+            } else if searching {
+                scopeChip("All dates", help: "Back to the toolbar's period") { allDates = false; search = "" }
+                    .accessibilityLabel("All dates. Back to the toolbar's period")
+            }
+            if searching && found > 0 {
+                Text(found == 1 ? "1 found" : "\(found) found")
+                    .dsFont(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+            }
             Spacer()
             let chosen = selectedEntries
             if chosen.count == 1, let id = chosen.first, let entry = logbook.entry(id: id) {
@@ -158,28 +177,84 @@ struct LogbookSection: View {
             }
         }
         .controlSize(.small)
+        .dsAnimation(.quick, value: found)
     }
 
-    private func showsFilter(_ f: Filter) -> Bool {
-        // The selected option always stays, so the picker never loses its selection (e.g. after
-        // deleting the last site change, or a therapy change).
-        if f == filter { return true }
-        switch f {
-        case .site: return settings.therapy == .pump || !logbook.siteChanges.isEmpty
-        case .insulin: return settings.therapy.logsInsulin || !logbook.doses.isEmpty
-        case .alerts: return showsAlerts && !logbook.alerts.isEmpty
-        default: return true
+    /// The stretch of time being searched, with ✕ to widen it.
+    private func scopeChip(_ label: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: DS.Space.xs) {
+                Image(systemName: "calendar").imageScale(.small)
+                Text(label)
+                Image(systemName: "xmark").imageScale(.small).foregroundStyle(.secondary)
+            }
+            .dsFont(.label)
+            .padding(.horizontal, DS.Space.sm + 2)
+            .padding(.vertical, DS.Space.xs)
+            .foregroundStyle(Palette.brand)
+            .background(Palette.brand.opacity(0.14), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    /// All, then the quick filter chips that would show something (Meals, Insulin, Lows, Notes…).
+    private func filterBar(_ kinds: [LogbookFilter]) -> some View {
+        // The chosen chip always stays, so the picker never loses its selection.
+        let options: [LogbookFilter?] = [nil] + LogbookFilter.allCases.filter { kinds.contains($0) || $0 == filter }
+        return HStack(spacing: DS.Space.sm + 2) {
+            // The selection slides between filters (docs/Redesign.md §4.5), like the chart hours.
+            SlidingSegments(selection: $filter, options: options) { $0?.title ?? "All" }
+                .fixedSize()
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Show")
+            alertsToggle
+            Spacer()
+        }
+        .controlSize(.small)
+    }
+
+    /// Nothing to show: says what was searched, with Clear Filters, and Search All Dates when the
+    /// day or the toolbar's period was what narrowed it.
+    @ViewBuilder
+    private func emptyState(_ query: LogbookQuery, pastPeriod: Bool) -> some View {
+        let filtered = filter != nil || !query.isEmpty
+        if !filtered {
+            EmptyStateView(systemImage: "book", title: "Nothing Logged in This Period",
+                           message: "Pick a longer period in the toolbar, search for something, or log something new.",
+                           actionTitle: "Log…", action: { open(.new) })
+        } else {
+            VStack(spacing: DS.Space.md) {
+                EmptyStateView(systemImage: "magnifyingglass", title: "No Matches",
+                               message: pastPeriod
+                                   ? LogbookSearch.noMatchMessage(query, filter: filter)
+                                   : "Nothing in \(filter?.title ?? "the Logbook") in this period.",
+                               actionTitle: "Clear Filters", action: clearFilters)
+                if LogbookSearch.offersAllDates(query, filter: filter, allDates: allDates) {
+                    Button("Search All Dates") {
+                        search = query.withoutPeriod
+                        allDates = true
+                    }
+                    .dsFont(.label)
+                }
+            }
         }
     }
 
-    private func matches(_ row: LogbookTableRow) -> Bool {
-        let q = search.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { return true }
-        switch row {
-        case .entry(let e):
-            return [title(e), details(e), amount(e), site(e) ?? ""].contains { $0.localizedCaseInsensitiveContains(q) }
-        case .alert(let a):
-            return a.searchText.localizedCaseInsensitiveContains(q)
+    private func clearFilters() {
+        search = ""
+        filter = nil
+        allDates = false
+    }
+
+    /// The dashboard asked for the search field (⌘F): focus it, once it's on screen.
+    private func takeFocusRequest() {
+        guard focusSearch else { return }
+        focusSearch = false
+        Task { @MainActor in
+            await Task.yield()
+            searchFocused = true
         }
     }
 
@@ -221,7 +296,7 @@ struct LogbookSection: View {
         }
     }
 
-    private func table(_ entries: [LogbookTableRow]) -> some View {
+    private func table(_ entries: [LogbookTableRow], terms: [String]) -> some View {
         Table(entries, selection: $selection) {
             TableColumn("Time") { (r: LogbookTableRow) in
                 Text(r.timestamp.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))
@@ -229,14 +304,14 @@ struct LogbookSection: View {
                     .foregroundStyle(r.isAlert ? Color.secondary : Color.primary)
             }
             .width(min: 140, ideal: 170)
-            TableColumn("Entry") { (r: LogbookTableRow) in entryCell(r) }
+            TableColumn("Entry") { (r: LogbookTableRow) in entryCell(r, terms: terms) }
                 .width(min: 110, ideal: 140)
             TableColumn("Amount") { (r: LogbookTableRow) in
                 Text(r.entry.map { amount($0) } ?? "").monospacedDigit().fontWeight(.semibold)
             }
             .width(min: 60, ideal: 80)
-            TableColumn("Details") { (r: LogbookTableRow) in detailsCell(r) }
-            TableColumn("Site") { (r: LogbookTableRow) in siteCell(r) }
+            TableColumn("Details") { (r: LogbookTableRow) in detailsCell(r, terms: terms) }
+            TableColumn("Site") { (r: LogbookTableRow) in siteCell(r, terms: terms) }
                 .width(min: 90, ideal: 130)
             TableColumn("Glucose") { (r: LogbookTableRow) in glucoseCell(r) }
                 .width(min: 60, ideal: 70)
@@ -265,11 +340,13 @@ struct LogbookSection: View {
     }
 
     @ViewBuilder
-    private func entryCell(_ r: LogbookTableRow) -> some View {
+    private func entryCell(_ r: LogbookTableRow, terms: [String]) -> some View {
         switch r {
         case .entry(let e):
             let k = kind(e)
-            Label(title(e), systemImage: k.systemImage)
+            Label { Text(SearchHighlight.attributed(title(e), terms: terms, tint: k.color)) } icon: {
+                Image(systemName: k.systemImage)
+            }
                 .foregroundStyle(k.color)
                 .padding(.horizontal, DS.Space.xs + 2)
                 .padding(.vertical, 1)
@@ -278,7 +355,7 @@ struct LogbookSection: View {
         case .alert(let a):
             // Quiet: only the bell carries the range's colour.
             Label {
-                Text(a.title).foregroundStyle(.secondary)
+                Text(SearchHighlight.attributed(a.title, terms: terms, tint: a.tint)).foregroundStyle(.secondary)
             } icon: {
                 Image(systemName: a.systemImage).foregroundStyle(a.tint)
             }
@@ -287,18 +364,22 @@ struct LogbookSection: View {
     }
 
     @ViewBuilder
-    private func detailsCell(_ r: LogbookTableRow) -> some View {
+    private func detailsCell(_ r: LogbookTableRow, terms: [String]) -> some View {
         switch r {
-        case .entry(let e): Text(details(e)).foregroundStyle(.secondary).help(details(e))
-        case .alert(let a): Text(a.detail).foregroundStyle(.tertiary).help(a.detail)
+        case .entry(let e):
+            Text(SearchHighlight.attributed(details(e), terms: terms, tint: kind(e).color))
+                .foregroundStyle(.secondary).help(details(e))
+        case .alert(let a):
+            Text(SearchHighlight.attributed(a.detail, terms: terms, tint: a.tint))
+                .foregroundStyle(.tertiary).help(a.detail)
         }
     }
 
     @ViewBuilder
-    private func siteCell(_ r: LogbookTableRow) -> some View {
+    private func siteCell(_ r: LogbookTableRow, terms: [String]) -> some View {
         if let e = r.entry {
             let s = site(e)
-            Text(s ?? "–").foregroundStyle(s == nil ? Color.secondary : Color.primary)
+            Text(SearchHighlight.attributed(s ?? "–", terms: s == nil ? [] : terms, tint: kind(e).color)).foregroundStyle(s == nil ? Color.secondary : Color.primary)
         } else {
             Text("")
         }
@@ -922,6 +1003,17 @@ enum LogbookTableRow: Identifiable {
     }
 
     var isAlert: Bool { entry == nil }
+
+    /// Whether the row shows under the chosen chip (if any) and the search, by the rules the iPhone
+    /// Logbook uses (`LogbookSearch`).
+    func matches(_ filter: LogbookFilter?, _ query: LogbookQuery, lowIDs: Set<UUID>) -> Bool {
+        switch self {
+        case .entry(let e):
+            return (filter?.matches(e, lowIDs: lowIDs) ?? true) && LogbookSearch.matches(e, query, lowIDs: lowIDs)
+        case .alert(let a):
+            return (filter?.matches(a) ?? true) && LogbookSearch.matches(a, query)
+        }
+    }
 
     /// Entries and alert rows together, newest first.
     static func merge(_ entries: [LogEntry], _ alerts: [AlertLogRow]) -> [LogbookTableRow] {

@@ -174,4 +174,27 @@ final class LogbookSearchTests: XCTestCase {
         XCTAssertEqual(LogbookSearch.noMatchMessage(parse("yesterday"), filter: .lows), "Nothing in Lows yesterday.")
         XCTAssertEqual(LogbookSearch.noMatchMessage(parse(""), filter: .notes), "Nothing in Notes logged yet.")
     }
+
+    // MARK: The Mac Logbook
+
+    func testOnTheMacAnySearchLooksPastTheToolbarPeriodButAChipAloneDoesNot() {
+        XCTAssertFalse(LogbookSearch.looksPastToolbarPeriod(parse(""), allDates: false))
+        XCTAssertTrue(LogbookSearch.looksPastToolbarPeriod(parse("pizza"), allDates: false))
+        XCTAssertTrue(LogbookSearch.looksPastToolbarPeriod(parse("fri"), allDates: false))
+        XCTAssertTrue(LogbookSearch.looksPastToolbarPeriod(parse(""), allDates: true))
+    }
+
+    func testOnTheMacSearchAllDatesIsOfferedOnlyWhenItCouldFindMore() {
+        // The day narrowed it, and there are words (or a chip) to look for on other days.
+        XCTAssertTrue(LogbookSearch.offersAllDates(parse("pizza last week"), filter: nil, allDates: false))
+        XCTAssertTrue(LogbookSearch.offersAllDates(parse("yesterday"), filter: .lows, allDates: false))
+        // A day on its own: dropping it would just show everything.
+        XCTAssertFalse(LogbookSearch.offersAllDates(parse("yesterday"), filter: nil, allDates: false))
+        // Words alone already search every date.
+        XCTAssertFalse(LogbookSearch.offersAllDates(parse("pizza"), filter: .meals, allDates: false))
+        // A chip kept to the toolbar's period, until All Dates is on.
+        XCTAssertTrue(LogbookSearch.offersAllDates(parse(""), filter: .notes, allDates: false))
+        XCTAssertFalse(LogbookSearch.offersAllDates(parse(""), filter: .notes, allDates: true))
+        XCTAssertFalse(LogbookSearch.offersAllDates(parse(""), filter: nil, allDates: false))
+    }
 }

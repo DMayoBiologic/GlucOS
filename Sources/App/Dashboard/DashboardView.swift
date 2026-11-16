@@ -18,6 +18,8 @@ struct DashboardView: View {
     /// End of the period on screen. Nil follows the latest readings.
     @State private var periodEnd: Date?
     @State private var showShortcuts = false
+    /// ⌘F: the Logbook section takes this as "put the cursor in the search field" and clears it.
+    @State private var focusLogbookSearch = false
     /// Notices closed this session. Keyed by content, so a new problem shows again.
     @State private var dismissedNotices: Set<String> = []
     @State private var toast: DashboardToast?
@@ -141,7 +143,7 @@ struct DashboardView: View {
     private func sectionContent(_ data: DashboardData) -> some View {
         switch section {
         case .logbook:
-            LogbookSection(data: data) { logSheet = $0 }
+            LogbookSection(data: data, focusSearch: $focusLogbookSearch) { logSheet = $0 }
         case .outlook:
             OutlookSection { logSheet = .new }
         case .insights:
@@ -383,7 +385,7 @@ struct DashboardView: View {
         })
     }
 
-    /// ⌘1–⌘8 pick a section, ⌃1–⌃8 a range, ⌘/ or ⌘? lists the shortcuts. Invisible buttons, so the
+    /// ⌘1–⌘8 pick a section, ⌃1–⌃8 a range, ⌘F searches the Logbook, ⌘/ or ⌘? lists the shortcuts. Invisible buttons, so the
     /// shortcuts work from anywhere in the window.
     private var shortcutButtons: some View {
         ZStack {
@@ -395,6 +397,11 @@ struct DashboardView: View {
                 Button(r.title) { rangeBinding.wrappedValue = r }
                     .keyboardShortcut(KeyEquivalent(Character(String(i + 1))), modifiers: .control)
             }
+            Button("Search the Logbook") {
+                select(.logbook)
+                focusLogbookSearch = true
+            }
+            .keyboardShortcut("f", modifiers: .command)
             Button("Keyboard Shortcuts", action: showShortcutsHelp)
                 .keyboardShortcut("/", modifiers: .command)
             Button("Keyboard Shortcuts", action: showShortcutsHelp)
