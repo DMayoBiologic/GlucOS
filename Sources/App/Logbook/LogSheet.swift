@@ -52,6 +52,9 @@ struct LogSheet: View {
 
     /// Closes the host. Nil for a sheet, which uses `dismiss`.
     private let onClose: (() -> Void)?
+    /// Where it was opened from, when that wasn't the app itself (`LogOrigin`): what it logs is
+    /// highlighted once in the Logbook and on the popover chart.
+    private let origin: LogOrigin?
     /// Opened to add the meal a logged dose was for: no "bolus for it" step, the dose is in already.
     private let forLoggedDose: Bool
     /// Opened from "Log treatment" on an alert.
@@ -119,7 +122,7 @@ struct LogSheet: View {
     /// The ⌘? list.
     @State private var showsShortcutList = false
 
-    init(target: LogSheetTarget, onClose: (() -> Void)? = nil) {
+    init(target: LogSheetTarget, origin: LogOrigin? = nil, onClose: (() -> Void)? = nil) {
         let s = AppSettings.shared
         var editing: Part?
         var editingID: UUID?
@@ -194,6 +197,7 @@ struct LogSheet: View {
         }
 
         self.onClose = onClose
+        self.origin = origin
         switch target {
         case .meal, .lowTreatment: forLoggedDose = true
         default: forLoggedDose = false
@@ -1393,6 +1397,17 @@ struct LogSheet: View {
         let logsInsulin = includes(.insulin)
         let logsFood = includes(.food)
         let trimmedName = insulinName.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Opened from Siri, a control, an alert, a widget or the shortcut: the new entries get one
+        // highlight where they next appear (`LoggedElsewhere`). Before saving, so the Logbook and
+        // chart see it as the entries arrive.
+        if isNew {
+            var ids: [UUID] = []
+            if logsInsulin, units != nil { ids.append(doseID) }
+            if logsFood, carbs != nil { ids.append(mealID) }
+            if includes(.site) { ids.append(siteID) }
+            if !tags.isEmpty { ids.append(contextID) }
+            LoggedElsewhere.shared.record(ids, from: origin)
+        }
         if logsInsulin, let units {
             // An edited dose keeps its calculator record only while it's still the dose that was worked out.
             let existing = editing == .dose ? logbook.doses.first { $0.id == doseID } : nil
@@ -1547,7 +1562,7 @@ struct LogWindow: View {
     @ObservedObject private var request = LogWindowRequest.shared
 
     var body: some View {
-        LogSheet(target: request.target) {
+        LogSheet(target: request.target, origin: request.origin) {
             request.target = .new
             dismissWindow(id: Self.id)
         }
@@ -1561,7 +1576,19 @@ struct LogWindow: View {
 @MainActor
 final class LogWindowRequest: ObservableObject {
     static let shared = LogWindowRequest()
-    @Published var target: LogSheetTarget = .new
+    /// Setting a new target clears `origin`, so a later open from inside the app is never taken
+    /// for one from elsewhere. Set `origin` after it.
+    @Published var target: LogSheetTarget = .new {
+        didSet { origin = nil }
+    }
+    /// The widget, an alert or the keyboard shortcut, when one opened the window (`LogOrigin`).
+    @Published var origin: LogOrigin?
+
+    /// Opens on `target` from outside the app.
+    func open(_ target: LogSheetTarget, from origin: LogOrigin) {
+        self.target = target
+        self.origin = origin
+    }
 }
 
 // MARK: - Therapy setup

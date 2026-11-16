@@ -22,6 +22,9 @@ enum PhoneLogTarget {
 struct PhoneLogRequest: Identifiable {
     let id = UUID()
     let target: PhoneLogTarget
+    /// Siri, a control, an alert or a widget, when one opened the sheet: what it logs is
+    /// highlighted once where it next appears (`LoggedElsewhere`). Nil from inside the app.
+    var origin: LogOrigin? = nil
 }
 
 /// Opens the log sheet from anywhere: the + button, the Logbook card, `glucos://log` links (Lock
@@ -37,9 +40,9 @@ final class PhoneLogRouter: ObservableObject {
     /// Set by the Glucose control (Control Center, iOS 18): the home screen goes back to Today.
     @Published var todayRequest: UUID?
 
-    func open(_ start: PhoneLogPart? = nil) {
+    func open(_ start: PhoneLogPart? = nil, from origin: LogOrigin? = nil) {
         savedSinceOpen = false
-        request = PhoneLogRequest(target: .new(start: start))
+        request = PhoneLogRequest(target: .new(start: start), origin: origin)
     }
 
     /// The log sheet on food, at `time`.
@@ -49,9 +52,9 @@ final class PhoneLogRouter: ObservableObject {
     }
 
     /// The log sheet for "Log treatment" on an alert.
-    func treat(_ treatment: AlertTreatment) {
+    func treat(_ treatment: AlertTreatment, from origin: LogOrigin? = nil) {
         savedSinceOpen = false
-        request = PhoneLogRequest(target: .treating(treatment))
+        request = PhoneLogRequest(target: .treating(treatment), origin: origin)
     }
 
     /// The log sheet on a hypo treatment at `time`, for a low that's over.
@@ -69,14 +72,14 @@ final class PhoneLogRouter: ObservableObject {
     func openControl(_ target: ControlActions.Target) {
         switch target {
         case .today: showToday()
-        case .lowTreatment: treat(.low)
+        case .lowTreatment: treat(.low, from: .controlCenter)
         }
     }
 
     /// The log sheet filled in from a usual entry: the Your usual widget's buttons.
     func openUsual(_ id: String) {
         savedSinceOpen = false
-        request = PhoneLogRequest(target: .usual(id: id))
+        request = PhoneLogRequest(target: .usual(id: id), origin: .widget)
     }
 
     func edit(_ entry: LogEntry) {
@@ -95,13 +98,14 @@ final class PhoneLogRouter: ObservableObject {
     func handle(_ url: URL) -> Bool {
         guard url.scheme == "glucos", url.host == "log" else { return false }
         let fromPath = url.pathComponents.dropFirst().first
+        // The Lock Screen widget and the Dynamic Island are the links' only callers.
         if fromPath == "wake" {
-            PhoneWakeLogger.shared.quickLog()
+            PhoneWakeLogger.shared.quickLog(from: .widget)
             return true
         }
         let fromQuery = URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "part" }?.value
-        open((fromPath ?? fromQuery).flatMap(PhoneLogPart.init(rawValue:)))
+        open((fromPath ?? fromQuery).flatMap(PhoneLogPart.init(rawValue:)), from: .widget)
         return true
     }
 }

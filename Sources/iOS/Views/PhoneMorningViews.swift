@@ -46,18 +46,20 @@ final class PhoneWakeLogger: ObservableObject {
     }
 
     /// One tap: logs "Woke up" now, unless one was logged in the last few hours.
-    func quickLog(now: Date = Date()) {
+    /// `origin`: Siri or the widget, so the wake-up is highlighted once where it next appears.
+    func quickLog(now: Date = Date(), from origin: LogOrigin? = nil) {
         guard let logbook else { return }
         if let recent = WakeLog.recent(logbook.contexts, now: now) {
             show(Confirmation(entry: recent, alreadyLogged: true))
             return
         }
-        log(at: now)
+        log(at: now, from: origin)
     }
 
-    func log(at date: Date) {
+    func log(at date: Date, from origin: LogOrigin? = nil) {
         guard let logbook else { return }
         let e = WakeLog.entry(at: min(date, Date()))
+        LoggedElsewhere.shared.record([e.id], from: origin)
         logbook.save(.context(e))
         Haptics.play(.done)
         show(Confirmation(entry: e, alreadyLogged: false))

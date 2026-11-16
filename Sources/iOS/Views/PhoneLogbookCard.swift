@@ -103,7 +103,7 @@ struct PhoneLogbookCard: View {
 
     private func row(_ entry: LogEntry) -> some View {
         Button { router.edit(entry) } label: {
-            PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) })
+            PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) }, marksLoggedElsewhere: true)
                 .padding(.vertical, DS.Space.sm)
                 .contentShape(Rectangle())
         }
@@ -251,6 +251,12 @@ struct PhoneLogRow: View {
     var highlight: [String] = []
     /// How far the chevron has turned to point down, 0…1, as the row opens into its detail.
     var chevronTurn: Double = 0
+    /// Lights the row once, with "Logged from Siri" in place of its time for a moment, the first
+    /// time an entry logged from outside the Logbook appears (`LoggedElsewhere`). Today's Logbook
+    /// card and the Logbook; never the follower view or an opened row's copy.
+    var marksLoggedElsewhere = false
+    /// "Logged from Siri" while the highlight shows.
+    @State private var caption: String?
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -277,13 +283,29 @@ struct PhoneLogRow: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .loggedElsewhereRow(entry.id, tint: tint, title: entry.shortTitle, caption: $caption,
+                            enabled: marksLoggedElsewhere)
     }
 
+    /// The time, or for a moment the caption saying where it was logged from, cross-fading in the
+    /// same place so nothing else in the row moves.
     private var time: some View {
-        Text(ClockLabel.time(entry.timestamp))
-            .dsFont(.caption)
-            .monospacedDigit()
-            .foregroundStyle(.secondary)
+        ZStack(alignment: .trailing) {
+            Text(ClockLabel.time(entry.timestamp))
+                .dsFont(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .opacity(caption == nil ? 1 : 0)
+            if let caption {
+                Text(caption)
+                    .dsFont(.caption)
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+                    .transition(.opacity)
+                    // Already announced once, with the entry; the row reads as usual.
+                    .accessibilityHidden(true)
+            }
+        }
     }
 
     private var icon: String {

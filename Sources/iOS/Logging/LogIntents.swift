@@ -40,7 +40,7 @@ struct OpenLogIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        PhoneLogRouter.shared.open(part?.part)
+        PhoneLogRouter.shared.open(part?.part, from: .siri)
         return .result()
     }
 }
@@ -54,7 +54,7 @@ struct LogWakeIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        PhoneWakeLogger.shared.quickLog()
+        PhoneWakeLogger.shared.quickLog(from: .siri)
         return .result()
     }
 }

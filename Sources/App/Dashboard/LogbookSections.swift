@@ -49,6 +49,9 @@ struct LogbookSection: View {
     @AppStorage(AlertLogRow.showsKey) private var showsAlerts = true
     /// Entries that just arrived, tinted with their colour for a moment so the eye finds them.
     @State private var fresh: Set<UUID> = []
+    /// Entries this Mac logged from outside the Logbook (its widget, an alert, the keyboard
+    /// shortcut), with "Logged with your shortcut" in their Details for a moment (`LoggedElsewhere`).
+    @State private var elsewhere: [UUID: String] = [:]
     /// Each day's time in range for the Day column's bars, worked out once per data change.
     @State private var dayRanges = DayInRangeCache()
     /// Day bars that have drawn in, so each plays once.
@@ -122,7 +125,10 @@ struct LogbookSection: View {
             }
         }
         // ⌘F (a dashboard shortcut, so it also brings this section up) puts the cursor in the search.
-        .onAppear { takeFocusRequest(); takeLink(); takeReveal() }
+        .onAppear {
+            takeFocusRequest(); takeLink(); takeReveal()
+            takeLoggedElsewhere(logbook.entries.filter { data.domain.contains($0.timestamp) }.prefix(40).map(\.id))
+        }
         .onChange(of: focusSearch) { _, _ in takeFocusRequest() }
         .onChange(of: link) { _, _ in takeLink() }
         .onChange(of: reveal) { _, _ in takeReveal() }
@@ -130,7 +136,9 @@ struct LogbookSection: View {
         .overlay(alignment: .bottom) { LogbookUndoToast() }
         // Entries that arrive (logged, undone, synced from the iPhone) light up once.
         .onChange(of: logbook.entries.map(\.id)) { old, new in
-            markFresh(Set(new).subtracting(old))
+            let added = Set(new).subtracting(old)
+            markFresh(added)
+            takeLoggedElsewhere(new.filter(added.contains))
         }
         // Rows hidden by the filter, search or range must not stay selected, or Delete would
         // remove entries the user can't see.
@@ -347,6 +355,31 @@ struct LogbookSection: View {
         }
     }
 
+    /// Rows logged from elsewhere, lit once with their caption in place of the details, then back
+    /// to normal. VoiceOver hears it once for what was saved together. Fades only, so it's the same
+    /// under Reduce Motion.
+    private func takeLoggedElsewhere(_ ids: [UUID]) {
+        let found = ids.compactMap { id in LoggedElsewhere.shared.take(id, on: .logbook).map { (id: id, highlight: $0) } }
+        guard !found.isEmpty else { return }
+        let delay = found.map(\.highlight.delay).max() ?? 0
+        let foundIDs = found.map(\.id)
+        Task { @MainActor in
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            withAnimation(LoggedElsewhere.fade) {
+                for f in found { elsewhere[f.id] = f.highlight.origin.caption }
+            }
+            markFresh(Set(foundIDs))
+            if let first = found.first(where: { $0.highlight.announces }) {
+                LoggedElsewhere.announce(LoggedElsewhereMarks.spoken(first.highlight.origin,
+                                                                      entry: logbook.entry(id: first.id)?.shortTitle))
+            }
+            try? await Task.sleep(for: .seconds(LoggedElsewhere.hold))
+            withAnimation(LoggedElsewhere.fade) {
+                for id in foundIDs { elsewhere[id] = nil }
+            }
+        }
+    }
+
     private func totals(_ entries: [LogEntry]) -> some View {
         var bolus = 0.0, basal = 0.0, carbs = 0.0
         for e in entries {
@@ -526,8 +559,16 @@ struct LogbookSection: View {
     private func detailsCell(_ r: LogbookTableRow, terms: [String]) -> some View {
         switch r {
         case .entry(let e):
-            Text(SearchHighlight.attributed(details(e), terms: terms, tint: kind(e).color))
-                .foregroundStyle(.secondary).help(details(e))
+            if let caption = elsewhere[e.id] {
+                Text(caption)
+                    .foregroundStyle(kind(e).color)
+                    .transition(.opacity)
+                    .accessibilityHidden(true)
+            } else {
+                Text(SearchHighlight.attributed(details(e), terms: terms, tint: kind(e).color))
+                    .foregroundStyle(.secondary).help(details(e))
+                    .transition(.opacity)
+            }
         case .alert(let a):
             Text(SearchHighlight.attributed(a.detail, terms: terms, tint: a.tint))
                 .foregroundStyle(.tertiary).help(a.detail)
