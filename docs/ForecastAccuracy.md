@@ -2435,3 +2435,74 @@ from m order by 1;
 ```
 
 Low treatments (§37) show up in that list too; leave out any logged under 70.
+
+## 39. Adding the trend's acceleration (16 Nov 2026)
+
+The question: the trend is a straight line through the last 20 minutes, so it can't see glucose
+speeding up or easing off. If the forecast also carried on the curve of the last 15–20 minutes
+(the second derivative, damped), would it be closer at 15 and 30 minutes on days the test hadn't
+seen, especially around turning points, without making any low warning later? **Barely: under 1%
+closer held out, against the tuner's 3%, and it made one low warning a minute later and added a
+false alarm. Nothing shipped; no app code changed.**
+
+**What ships today.** The trend is the least-squares slope of the last 20 minutes of readings,
+counted at the tuned gain (about 60%) and faded to nothing over 30 minutes. Trend-only low warnings
+read that line carried to 30 minutes (§13, §30).
+
+**The test.** `scripts/acceleration-trend.py`, on every live reading from 11–16 Nov (6,967, one a
+minute, LinkUp graph points left out). A trend forecast every 5 minutes, scored at 15 and 30 minutes
+against the readings: 1,320 points over six Perth days, 298 of them at turning points (trend at
+least 0.5 mg/dL per minute and the trend 15 minutes later the other way). The candidate fits a
+quadratic to the last W minutes and adds k × acceleration × time to the slope as it fades, with the
+added part capped at `cap` minutes (counted from the middle of the trend window, which is where a
+least-squares slope sits). k (0–1), cap (5–30 minutes) and W (15 or 20) were picked on five days and
+scored on the sixth.
+
+| Held-out mean miss (mg/dL) | Points | No change, 15 / 30 | What ships | With acceleration |
+|---|---|---|---|---|
+| All | 1,320 | 16.0 / 25.4 | 15.5 / 25.0 | **15.4 / 24.8** |
+| Quiet (no meal in 3 h) | 990 | 15.9 / 25.3 | 15.5 / 24.7 | 15.5 / 24.6 |
+| Within 3 h of a meal | 330 | 16.1 / 25.8 | 15.6 / 25.9 | 15.3 / 25.5 |
+| Turning points | 298 | **17.7 / 26.3** | 26.1 / 34.6 | 25.2 / 33.5 |
+| Falling faster than 1 a minute | 263 | 17.9 / 29.9 | 17.2 / 27.9 | 17.0 / 27.6 |
+| Rising faster than 1 a minute | 249 | 21.5 / 32.1 | 21.3 / 33.5 | 20.8 / 32.6 |
+
+Every fold chose a light touch, W = 15 and k = 0.1 (four folds) or 0.3 with a 5-minute cap (two).
+It was never worse than what ships on any held-out day, and tied on 15 Nov, but the overall gain is
+0.6% at 15 minutes and 0.8% at 30, short of the tuner's rule (§2: 3% better, and better in both
+halves). Larger amounts lose quickly: k = 0.5 is 16.4 / 26.2 and k = 1 is 18.6 / 29.6, because the
+curve of 15 minutes of one-minute readings is mostly sensor noise (§22) and carrying it on doubles
+the miss when it's wrong.
+
+**Turning points.** This is where it helps most (3–4%), but it doesn't fix them. At a turning point
+the straight trend misses by 26 mg/dL at 15 minutes where "no change" misses by 18, and the
+acceleration term only takes one off that. The curve is too noisy to see the turn coming much
+before it shows in the slope itself. This matches §21's finding that "flat" forecasts are turning
+points and miss more: the honest fix is a wider range there, not a smarter line.
+
+**Low warnings.** Replayed minute by minute over the 90 minutes before each of the eight lows under
+70, a warning being the trend carried 30 minutes going under 70 (the predicted-alert gates aren't
+modelled, so read this as the forecast's side only):
+
+| Low (Perth) | What ships | k 0.1, cap 15 | k 0.3, cap 5 | k 0.5, cap 15, W 20 |
+|---|---|---|---|---|
+| 11 Nov 14:51 | 19 min | 19 | 19 | 17 |
+| 12 Nov 18:45 | 6 | 6 | 6 | 6 |
+| 12 Nov 23:39 | 4 | 5 | 5 | 5 |
+| 13 Nov 19:05 | 10 | 11 | 11 | 13 |
+| 15 Nov 17:16 | 14 | 14 | 14 | 14 |
+| 15 Nov 21:40 | 4 | 4 | 4 | 7 |
+| 16 Nov 00:52 | 5 | 5 | 5 | 5 |
+| 16 Nov 04:50 | 60 | **59** | **59** | 71 |
+| Warnings / false alarms | 18 / 7 | 20 / 8 | 19 / 7 | 31 / 19 |
+
+The held-out settings warn a minute sooner on two lows and a minute later on one (the 16 Nov
+overnight fall, as the fall eased before it carried on), and add a false alarm. The stronger
+setting warns sooner on three lows but later on another and nearly triples the false alarms. So it
+fails the rule that nothing may make a low warning later, as well as the accuracy rule.
+
+**Dosing.** Not touched: the trend feeds only the drawn forecast and predicted alerts, never insulin
+on board, the effect learner or the bolus calculator.
+
+Retest once there are three or more weeks of one-minute readings, and only with a less noisy curve
+(for example fitted over 5-minute means). Don't retry it on raw one-minute readings.
