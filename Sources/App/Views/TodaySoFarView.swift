@@ -2,9 +2,11 @@ import SwiftUI
 
 /// The "Today so far" card on the iPhone Today screen and the Mac dashboard: time in range, the
 /// average and lows since midnight, each beside the same hours on your usual day. Worked out off
-/// the main thread once per data change (`TodaySoFarCache`) and drawn still: nothing here animates
-/// or runs a timer (docs/Redesign.md power rules). The card hides itself until today has an hour of
-/// readings, so it never adds an empty box to the Today stack.
+/// the main thread once per data change (`TodaySoFarCache`). The three figures are `RollingFigure`s:
+/// they count up from zero when the card first shows and roll from the old figure to the new when a
+/// reading changes them; the headline cross-fades. Once per change, never looping, no timer
+/// (docs/Redesign.md power rules), and still under Reduce Motion. The card hides itself until today
+/// has an hour of readings, so it never adds an empty box to the Today stack.
 struct TodaySoFarView: View {
     let readings: [GlucoseReading]
     let unit: GlucoseUnit
@@ -39,15 +41,20 @@ struct TodaySoFarView: View {
             Text(TodaySoFarText.headline(t))
                 .dsFont(.headline)
                 .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+                .dsAnimation(.standard, value: TodaySoFarText.headline(t))
             DSAccessibleStack(verticalAlignment: .top, spacing: DS.Space.md) {
                 StatTile("In range", value: Format.percent(t.today.timeInRange),
-                         caption: TodaySoFarText.rangeCaption(t), tone: rangeTone(t))
+                         caption: TodaySoFarText.rangeCaption(t), tone: rangeTone(t),
+                         rolling: .init(t.today.timeInRange, order: 0) { Format.percent($0) })
                 StatTile("Average", value: unit.format(mgdl: t.today.meanMgdl), unit: unit.label,
                          caption: TodaySoFarText.meanCaption(t, unit: unit),
-                         tone: .glucose(GlucoseRange.classify(mgdl: t.today.meanMgdl, low: lowMgdl, high: highMgdl)))
+                         tone: .glucose(GlucoseRange.classify(mgdl: t.today.meanMgdl, low: lowMgdl, high: highMgdl)),
+                         rolling: .init(t.today.meanMgdl, order: 1) { unit.format(mgdl: $0) })
                 StatTile("Lows", value: TodaySoFarText.lowsValue(t.today.lows),
                          caption: TodaySoFarText.lowsCaption(t),
-                         tone: t.today.lows > 0 ? .glucose(.low) : .neutral)
+                         tone: t.today.lows > 0 ? .glucose(.low) : .neutral,
+                         rolling: .init(Double(t.today.lows), order: 2) { TodaySoFarText.lowsValue(Int($0.rounded())) })
             }
             .monospacedDigit()
             Text(TodaySoFarText.footnote(t))
@@ -57,6 +64,9 @@ struct TodaySoFarView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .dsCard(.standard, padding: padding)
+        // Count up the first time the card shows, on both the iPhone Today screen and the Mac
+        // Overview; after that the figures only roll when a new reading changes them.
+        .environment(\.figuresCountUp, true)
         // One stop for VoiceOver: the whole comparison in a few sentences.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(TodaySoFarText.title)
