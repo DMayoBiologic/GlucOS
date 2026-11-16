@@ -2010,3 +2010,84 @@ select s.d, s.c / 12 as hour, a.t as actual,
             from rest r2 where r2.c = s.c and r2.d < s.d) as projected
 from sofar s join actual a on a.d = s.d;
 ```
+
+
+## 34. Did any release since 1.0 make forecasts worse? (16 Nov 2026)
+
+The question: rounds 1 to 28 of the improvement loop shipped 1.0.0 to 1.23.0 in under a day. Did
+any of them make the 15, 30 or 60 minute forecast worse against no change, on the Mac, the
+iPhone or the relay (Lock Screen)? **No. No release since 1.0.0 changed a forecast that is drawn
+or scored, and the relay, the only sender with enough checks since then, is exactly as far ahead
+of no change as before (ratio 0.92 before, 0.93 since). The Mac and iPhone have too few checks
+per version to judge either way, and nothing in their code gives a reason to expect a change.
+Nothing shipped.**
+
+Nothing here touches dosing: insulin, carbs and the bolus calculator were not read or changed.
+
+**What changed in the forecast code.** Every commit from `v1.0.0` to `0ce7e75` (1.23.0) that
+touched `Sources/Engine`, `Sources/Core` or `supabase/functions/relay` was read. Only three reach
+the forecast at all:
+
+| Change | Shipped in | Effect on forecasts |
+|---|---|---|
+| Predicted lows look along the trend's full 30 min (#90, §13) | 1.1.0, relay 2.11.0 | Adds `lowLookahead`, read by low alerts only. The drawn and scored samples are built by the same loop with the same sums (`morningAdded` stops at the old horizon), so they are unchanged. |
+| Forecast accuracy per version (#95, §14) | 1.3.0, relay 2.12.0 | Records `app_version`. No forecast change. |
+| "Did you treat this low?" (#125) | 1.10.0 | Re-marks `afterLog` on settled forecasts when a log arrives late, so a few checks move out of the clean set. Changes what is scored, not what is forecast. |
+
+Back in range (#141, #145, #149) reads the forecast but doesn't change it; the relay's 2.13.0
+(snooze) and 2.14.0 (back in range) don't touch `core.ts`'s forecast path. #82, #85 and #86 shipped
+inside 1.0.0 itself and are the baseline here.
+
+**What the forecast log shows.** Clean checks (`afterLog` false) from `glucos.forecast_checks`,
+16 Nov 05:40 UTC. Ratio is the forecast's mean miss over no change's (under 1 = better than no
+change). Checks without a version are split at the 1.0.0 tag (15 Nov 16:45 UTC).
+
+| Sender | Versions | 15 min (n, ratio) | 30 min | 60 min |
+|---|---|---|---|---|
+| Mac | before 1.0 | 136, 0.93 | 118, 0.90 | 81, 0.97 |
+| Mac | 1.15–1.19 | 5, 1.00 | 4, 1.19 | 2, 1.43 |
+| iPhone | before 1.0 | 85, 1.04 | 75, 0.91 | 29, 1.21 |
+| iPhone | 1.0–1.18 | 8, 0.86 | 1 | 0 |
+| Relay | before 2.12 | 37, 0.92 | — | — |
+| Relay | 2.12–2.14 (untagged, 2.12, 2.13, 2.14) | 42 (4, 7, 23, 8), 0.93 (0.91, 0.79, 0.98, 1.06) | — | — |
+
+The relay scores 15 minutes only. Its per-version ratios drift from 0.79 to 1.06, but that is
+the hour, not the version: since 1.0 more than half its checks were overnight and flat, where no
+change is hard to beat. Split by how fast glucose was moving at the time, the relay is unchanged:
+
+| Relay, 15 min | Flat (< 0.5 mg/dL/min) | Slow (0.5–1) | Fast (≥ 1) |
+|---|---|---|---|
+| Before 1.0 | 5, 0.99 | 6, 0.89 | 26, 0.91 |
+| Since 1.0 | 23, 1.02 | 7, 0.96 | 13, 0.85 |
+
+Its tuned trend share hasn't moved either: the forecast's 15-minute step over trend × 15 is 0.37
+before and 0.36 since, so the tuner refits haven't drifted.
+
+**Why the Mac and iPhone can't be judged per version.** A version lived about 30 minutes during
+the loop, and each device logs one forecast per 15 minutes while it's awake, so most versions
+have 1 to 4 checks (the Mac was asleep from 00:00 to 10:50 Perth; the iPhone logs only when the
+app wakes). With 5 or fewer checks a ratio swings ±0.3 on one reading. Pooling every version
+since 1.0, the Mac's 15-minute ratio is 1.00 on 5 checks and the iPhone's is 0.86 on 8: neither is
+worse than before, and neither is evidence of anything. The Insights card's per-version line
+(`ForecastSinceUpdate`, 30 checks) correctly shows nothing yet for the same reason.
+
+**What would count as a regression next time.** Group by forecast code, not by version: the
+versions above share one forecast engine. Re-run when the Mac and iPhone each have 100 clean
+15-minute checks since 1.0 (about two waking days), or straight away if a release touches
+`GlucoseForecaster`, `ForecastTuner`, `ForecastCalibration`, `ForecastLedger.rangeScale` or the
+relay's `forecast`/`tuneTrend`. Flag it if any speed band's ratio rises by 0.10 or more on 30+
+checks in that band.
+
+SQL (Supabase; change the split date to the release being checked):
+
+```sql
+select fp.device,
+       case when fp.issued_at < '2026-11-15 16:45:36+00' then 'before' else 'since' end era,
+       case when abs(fc.trend_per_minute) < 0.5 then 'flat'
+            when abs(fc.trend_per_minute) < 1 then 'slow' else 'fast' end speed,
+       fp.minutes, count(*) checks,
+       round((avg(abs(actual - predicted)) / nullif(avg(abs(actual - fp.start_mgdl)), 0))::numeric, 2) ratio
+from glucos.forecast_points fp join glucos.forecast_checks fc on fc.id = fp.id
+where fp.minutes in (15, 30, 60) and not fp.after_log
+group by 1, 2, 3, 4 order by 1, 4, 3, 2;
+```
