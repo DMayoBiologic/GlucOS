@@ -3086,8 +3086,9 @@ unshrunk ones. Every one is worse at 15 and 30 minutes.)
   and the same settings are worse at 15 and 30. That's noise, not a bias.
 
 **Low warnings.** Of the 25 points that ended under 70 (16 / 6 / 3), the range bottom reached
-under 70 on 22 as shipped and on 22 with every rolling version at 15 and 30 minutes (one 60-minute
-point lost it with the 6-hour and 24-hour unshrunk versions), and the line was under 80 on 20 as
+under 70 on 22 as shipped. At 15 and 30 minutes every version keeps all of those (one, by horizon
+and 3 trends over 24 hours unshrunk, gains a 30-minute one); at 60 minutes the 6-hour and 24-hour
+versions with little or no shrinking lose the one there. The line was under 80 on 20 as
 shipped against 19 for the trend-split versions at 15 minutes. So no version catches a low that
 shipped missed, and the trend-split ones lose one. Nothing shipped, so low warnings (§13, §30) and
 "a low is possible" are exactly as before.
@@ -3096,7 +3097,7 @@ shipped missed, and the trend-split ones lose one. Nothing shipped, so low warni
 effects, and nothing here changes insulin on board, the effect learner or the bolus figure.
 
 **Caveats.** Six days, 144 points at 60 minutes. The shown points already carry the trend gain
-the tuner fits (§10) and the range widening (§9), which between them take out the steady part of
+the tuner fits and the range widening (§9), which between them take out the steady part of
 any bias; what's left is the meal-by-meal and low-by-low part no average can follow. Rerun at three
 weeks with the query below; only take a correction if a shrunk, all-history version by horizon
 is 3% better at 15 and 30 minutes and on most held-out days, with the low check unchanged.
