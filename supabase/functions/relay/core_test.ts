@@ -185,3 +185,22 @@ Deno.test("predicted lows look the trend's 30 minutes ahead past a 15-minute cal
   const fixed = forecast(new Series(readings, true), calibration, now, 15 * 60);
   assertEquals(fixed.ok && fixed.forecast.lowLookahead, undefined);
 });
+
+Deno.test("forecasts starting low widen only the upper side (§40)", async () => {
+  const { lowStartUpper, rangeScaleFrom } = await import("./core.ts");
+  assertEquals(lowStartUpper(70, 0), 1);
+  assertEquals(lowStartUpper(70, 15), 2.8);
+  assertEquals(lowStartUpper(70, 30), 3.3);
+  assertEquals(Math.round(lowStartUpper(70, 45) * 100) / 100, 3.45);
+  assertEquals(lowStartUpper(70, 90), 3.6);
+  assertEquals(lowStartUpper(80, 30), 1);
+  // The widening is taken out before the range scale learns from a point.
+  const shown = Array.from({ length: 40 }, (_, i) => ({
+    issuedAt: 1000 + i, trendPerMinute: 0,
+    points: [{ minutes: 30, mgdl: 70, lower: 50, upper: 130, actual: 130, scale: 1, upperScale: 3 }],
+  }));
+  const s = rangeScaleFrom(shown, 2000);
+  assertEquals(s?.overall, 2.5); // ratio 3, clamped at the maximum: learnt against the unwidened 20
+  const plain = rangeScaleFrom(shown.map((r) => ({ ...r, points: r.points.map((p) => ({ ...p, upperScale: null })) })), 2000);
+  assertEquals(plain?.overall, 1);
+});
