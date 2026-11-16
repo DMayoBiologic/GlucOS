@@ -2700,7 +2700,7 @@ lowest summed score among those, and its near neighbours (3 hours, 1.5× cap) sc
 - **Narrowing trades coverage for width almost one for one.** The last few hours' factor came out
   under 1 about 30% of the time, but the ranges are still short of 80% overall (76 / 73 / 77%),
   so a narrower range after a good spell mostly turned near-misses into misses. The narrow-only
-  versions lose 1–5 points of coverage for 2–10 mg/dL less width, with scores within 0.9 of
+  versions lose 1–5 points of coverage for 2–10 mg/dL less width, with scores within 2.2 of
   shipped either way (87.0 vs 87.3 at 15 minutes for 6 hours, 145.0 vs 145.9 at 30 for 3 hours),
   and they're better on only 1–2 days of 5.
 - **The best of the grid (3 hours, 0.85–1.5×)** reaches 77 / 77 / 81%, but it's 9–15% wider at
