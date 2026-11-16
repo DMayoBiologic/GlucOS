@@ -175,13 +175,18 @@ struct ReadingAge: View {
 
 // MARK: - Forecast note
 
-/// "≈ 6.8 in 30 min", or "Low ≈ 20 min" with an amber triangle when the forecast goes low. Times are
+/// "≈ 6.8 in 30 min", or "Low ≈ 20 min" with an amber triangle when the forecast goes low, or
+/// "Back in range ≈ 20 min" from a high when that's been allowed (`BackInRange`). Times are
 /// rounded to 5 minutes: a forecast is never more precise than that.
 struct ForecastNote: View {
     let unit: GlucoseUnit
     /// The forecast's headline point, minutes after the reading and its value.
     let headline: (minutes: Int, mgdl: Double)?
     var lowExpectedAt: Date? = nil
+    /// "Back in range ≈ 20 min" in place of the headline, already gated
+    /// (`GlucoseSnapshot.backInRange(at:)`, `GlucoseActivityState.backInRangeMinutes`). A low
+    /// expected always wins over it.
+    var backInRangeMinutes: Int? = nil
     let readingDate: Date
     /// Shorter text, for the Dynamic Island and small widgets.
     var compact: Bool = false
@@ -204,6 +209,16 @@ struct ForecastNote: View {
             }
             .lineLimit(wraps ? nil : 1)
             .accessibilityLabel("Low expected in about \(minutes) minutes")
+        } else if let backInRangeMinutes {
+            Label {
+                Text(compact ? BackInRangeText.compact(minutes: backInRangeMinutes)
+                             : BackInRangeText.short(minutes: backInRangeMinutes))
+                    .monospacedDigit()
+            } icon: {
+                Image(systemName: "arrow.down.to.line").foregroundStyle(Palette.stale)
+            }
+            .lineLimit(wraps ? nil : 1)
+            .accessibilityLabel(BackInRangeText.spoken(minutes: backInRangeMinutes))
         } else if let headline {
             Label {
                 Text("\(OutlookFormat.approx(headline.mgdl, unit: unit)) in \(headline.minutes) min")

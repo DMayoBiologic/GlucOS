@@ -5,8 +5,8 @@
 
 import {
   type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
-  type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
-  effectiveRangeScale, rangeScaleFrom, rangeWindow, type Sensor, type Trend, unitOf,
+  backInRangeCheck, backInRangeConfirmWithin, backInRangeLookAhead, type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
+  effectiveRangeScale, minutesBack, rangeScaleFrom, rangeWindow, type Sensor, type Trend, unitOf,
   type AlertSnoozes, ownerNotices, pruneSnoozes, snoozeAlert, snoozeLevel,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
@@ -23,7 +23,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.13.0";
+export const version = "2.14.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -574,7 +574,7 @@ export class RelayEngine {
         const result = processTick({
           stored, current: w.current, sensor: w.sensor, lastError: w.lastError, display: row.prefs.display,
           prefs: row.prefs.alerts, planner: w.planner, calibration: w.calibration, live: w.forecastLog?.live ?? null,
-          rangeScale: w.forecastLog?.rangeScale ?? null, now,
+          rangeScale: w.forecastLog?.rangeScale ?? null, backInRange: w.forecastLog?.backInRange ?? null, now,
         });
 
         // The owner's alerts: the same rules on the owner's own timers, minus what they snoozed.
@@ -623,7 +623,7 @@ export class RelayEngine {
           }
         }
         // Last, so keeping score never holds up an alert or a card.
-        await this.logForecast(w, result.forecast, fetched?.session ?? before.session, now);
+        await this.logForecast(w, result.forecast, fetched?.session ?? before.session, row.prefs.display, now);
         return "done";
       });
     } finally {
@@ -635,7 +635,8 @@ export class RelayEngine {
 
   /// Keeps the forecast this tick showed, at most one per 15 minutes, and scores the ones whose
   /// time has come. A failure is logged and left for the next tick.
-  private async logForecast(w: Work, result: ForecastResult, session: LibreSession | null, now: number) {
+  private async logForecast(w: Work, result: ForecastResult, session: LibreSession | null, display: Display,
+                            now: number) {
     const ledger = this.config.ledger;
     const libreUserId = session?.userId;
     if (!ledger || !libreUserId) return;
@@ -669,10 +670,35 @@ export class RelayEngine {
         log.live = liveHorizon(await ledger.livePoints(owner), now);
         // Widen the next forecasts from how the shown ones turned out (core.ts rangeScaleFrom).
         log.rangeScale = rangeScaleFrom(await ledger.shown(owner, now - rangeWindow), now);
+        await this.updateBackInRange(log, owner, display, now);
       }
     } catch (e) {
       console.error("forecast ledger", e);
     }
+  }
+
+  /// Re-scores the relay's own back-in-range estimates (core.ts backInRangeCheck) when a forecast
+  /// that could be checked appears, the range changes, or an hour has passed (for the ones still
+  /// out of range six hours on). Readings are read only around the forecasts that came back.
+  private async updateBackInRange(log: LedgerState, owner: string, display: Display, now: number) {
+    const ledger = this.config.ledger!;
+    // The relay's forecast reaches 30 minutes: settled once its last point has a reading.
+    const records = (await ledger.backInRangeRecords(owner, display.highMgdl, now - 40 * 60))
+      .filter((r) => minutesBack(r.startMgdl, r.points, display.highMgdl) !== null);
+    const key = `${records.length}:${records[records.length - 1]?.issuedAt ?? 0}:${display.lowMgdl}:${display.highMgdl}:` +
+      Math.floor(now / 3600);
+    if (log.backInRangeKey === key) return;
+    const readings = new Map<number, Reading>();
+    for (const r of records) {
+      for (const x of await ledger.readingsBetween(r.issuedAt, Math.min(now, r.issuedAt + backInRangeLookAhead + backInRangeConfirmWithin))) {
+        readings.set(x.t, x);
+      }
+    }
+    // The latest reading too, so a forecast that's still out of range six hours on counts as a miss.
+    for (const x of await ledger.readingsBetween(now - 3600, now)) readings.set(x.t, x);
+    const sorted = [...readings.values()].sort((a, b) => a.t - b.t);
+    log.backInRange = backInRangeCheck(records, sorted, display.lowMgdl, display.highMgdl, now);
+    log.backInRangeKey = key;
   }
 
   // MARK: Live Activity

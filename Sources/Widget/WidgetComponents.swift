@@ -286,22 +286,26 @@ struct WidgetSignalFooter: View {
         if let cur = s.current, entry.freshness.showsValue {
             let fresh = entry.freshness == .fresh
             let outlook = fresh ? s.currentOutlook(at: entry.date) : nil
+            let back = fresh ? s.backInRange(at: entry.date)?.minutes : nil
+            let noteKind = outlook?.lowExpectedAt != nil ? "low" : back != nil ? "back" : "forecast"
             HStack(spacing: 6) {
                 if let outlook {
                     ForecastNote(unit: s.unit,
                                  headline: OutlookFormat.headlineSample(outlook).map { (minutes: $0.minutes, mgdl: $0.sample.mgdl) },
-                                 lowExpectedAt: outlook.lowExpectedAt, readingDate: cur.timestamp, compact: true)
+                                 lowExpectedAt: outlook.lowExpectedAt,
+                                 backInRangeMinutes: back,
+                                 readingDate: cur.timestamp, compact: true)
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
                         .minimumScaleFactor(0.8)
-                        .id(outlook.lowExpectedAt == nil ? "forecast" : "low")
+                        .id(noteKind)
                         .transition(.opacity)
                 }
                 Spacer(minLength: 0)
                 FreshnessMeter(readingDate: cur.timestamp, stale: !fresh, tint: entry.tint, width: meterWidth)
                     .widgetAccentable()
             }
-            .dsAnimation(.standard, value: outlook?.lowExpectedAt == nil)
+            .dsAnimation(.standard, value: noteKind)
         }
     }
 }

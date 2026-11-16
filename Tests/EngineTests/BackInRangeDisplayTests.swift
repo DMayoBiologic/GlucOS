@@ -2,7 +2,8 @@ import XCTest
 @testable import GlucOSEngine
 
 /// Where "Back in range ≈ X min" may be shown (iPhone Today card, Mac popover, Mac menu bar
-/// tooltip): one rule, `GlucoseSnapshot.backInRange(at:)`, so the three never disagree.
+/// tooltip, Live Activity, widgets): one rule, `GlucoseSnapshot.backInRange(at:)`, so they never
+/// disagree.
 final class BackInRangeDisplayTests: XCTestCase {
     private let utc: Calendar = {
         var c = Calendar(identifier: .gregorian)
@@ -96,5 +97,73 @@ final class BackInRangeDisplayTests: XCTestCase {
                        "GlucOS: not connected")
         XCTAssertEqual(MenuBarGlance.toolTip(snapshot: GlucoseSnapshot(), hasCredentials: true, showForecast: true),
                        "GlucOS: waiting for a reading")
+    }
+
+    // MARK: Live Activity
+
+    func testLiveActivityCarriesTheGatedEstimate() throws {
+        let state = try XCTUnwrap(GlucoseActivityState.make(from: snapshot(), now: referenceNow))
+        let reading = try XCTUnwrap(snapshot().current).timestamp
+        XCTAssertEqual(try XCTUnwrap(state.backInRangeAt), reading.addingTimeInterval(23 * 60).timeIntervalSince1970,
+                       accuracy: 0.001)
+        XCTAssertEqual(state.backInRangeMinutes(stale: false), 25)
+        XCTAssertNil(state.backInRangeMinutes(stale: true), "a stale card says nothing ahead")
+        XCTAssertEqual(BackInRangeText.compact(minutes: 25), "In range ≈ 25 min")
+    }
+
+    func testLiveActivityLeavesItOutWhereTheTodayCardWould() throws {
+        for s in [snapshot(backMinutes: nil), snapshot(lowExpected: true), snapshot(mgdl: 150), snapshot(mgdl: 60)] {
+            let state = try XCTUnwrap(GlucoseActivityState.make(from: s, now: referenceNow))
+            XCTAssertNil(state.backInRangeAt)
+            XCTAssertNil(state.backInRangeMinutes(stale: false))
+        }
+        let stale = try XCTUnwrap(GlucoseActivityState.make(from: snapshot(), now: referenceNow.addingTimeInterval(10 * 60)))
+        XCTAssertNil(stale.backInRangeAt)
+    }
+
+    func testLiveActivityCardNeverShowsItForALowOrWithALowExpected() throws {
+        // A relay card is drawn by the same view: whatever it sends, the card checks again.
+        var state = try XCTUnwrap(GlucoseActivityState.make(from: snapshot(), now: referenceNow))
+        state.lowExpectedAt = state.readingAt + 30 * 60
+        XCTAssertNil(state.backInRangeMinutes(stale: false))
+        state.lowExpectedAt = nil
+        state.mgdl = 60
+        XCTAssertNil(state.backInRangeMinutes(stale: false))
+        state.mgdl = 230
+        state.backInRangeAt = state.readingAt - 60
+        XCTAssertNil(state.backInRangeMinutes(stale: false), "an estimate already passed")
+    }
+
+    func testLiveActivityStateDecodesWithoutTheField() throws {
+        // Relay cards from before 2.14.0 have no backInRangeAt.
+        let state = try XCTUnwrap(GlucoseActivityState.make(from: snapshot(backMinutes: nil), now: referenceNow))
+        let json = try JSONEncoder().encode(state)
+        XCTAssertFalse(String(decoding: json, as: UTF8.self).contains("backInRangeAt"))
+        XCTAssertEqual(try JSONDecoder().decode(GlucoseActivityState.self, from: json), state)
+    }
+
+    // MARK: Widgets
+
+    func testWidgetSpeechSaysItWhenShown() {
+        let text = WidgetSpeech.reading(snapshot(), state: .fresh, at: referenceNow)
+        XCTAssertTrue(text.hasSuffix("Back in range in about 25 minutes if nothing else changes."), text)
+        XCTAssertFalse(WidgetSpeech.reading(snapshot(lowExpected: true), state: .fresh, at: referenceNow).contains("Back in range"))
+        XCTAssertFalse(WidgetSpeech.reading(snapshot(backMinutes: nil), state: .fresh, at: referenceNow).contains("Back in range"))
+    }
+
+    func testWidgetsReloadWhenTheEstimateChangesAndOnlyThen() {
+        let a = snapshot()
+        func with(_ minutes: Double?) -> GlucoseSnapshot {
+            var b = a
+            b.outlook?.backInRangeAt = minutes.map { a.current!.timestamp.addingTimeInterval($0 * 60) }
+            return b
+        }
+        let groups = { (x: GlucoseSnapshot, y: GlucoseSnapshot) in
+            WidgetReload.groups(from: WidgetReload.signature(x), to: WidgetReload.signature(y))
+        }
+        XCTAssertEqual(groups(a, with(23)), [], "the same estimate")
+        XCTAssertEqual(groups(with(nil), a), [.glucose], "the estimate appearing")
+        XCTAssertEqual(groups(a, with(31)), [.glucose], "the estimate moving")
+        XCTAssertEqual(groups(a, with(nil)), [.glucose], "the estimate going")
     }
 }

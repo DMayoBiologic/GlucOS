@@ -9,7 +9,7 @@
 // to sync) means nothing is kept.
 
 import {
-  calibrationHorizons, type Calibration, type Forecast, isStandardTuning, type LiveCut, type LivePoint, liveHorizonWindow,
+  type BackInRangeCheck, type BackInRangeRecord, backInRangeWindow, calibrationHorizons, type Reading, type Calibration, type Forecast, isStandardTuning, type LiveCut, type LivePoint, liveHorizonWindow,
   rangeFactor, type RangeScale, type ShownForecast,
 } from "./core.ts";
 import { syntheticEmail } from "./libre.ts";
@@ -63,6 +63,10 @@ export interface LedgerState {
   /// How far the relay's own live checks let it draw the forecast, worked out when it scores
   /// (`liveHorizon`). Missing on old rows; null: no cut.
   live?: LiveCut | null;
+  /// How the relay's own back-in-range estimates have done (core.ts backInRangeCheck), and what it
+  /// was worked out from, so it's redone only when that changes. Missing: none is sent.
+  backInRange?: BackInRangeCheck | null;
+  backInRangeKey?: string | null;
 }
 
 export interface ForecastLedger {
@@ -76,6 +80,11 @@ export interface ForecastLedger {
   shown(owner: string, since: number): Promise<ShownForecast[]>;
   /// The owner's relay ledger points from the last `liveHorizonWindow`, for `liveHorizon`.
   livePoints(owner: string): Promise<LivePoint[]>;
+  /// The owner's relay forecasts from the last `backInRangeWindow` issued before `before` that
+  /// started above `highMgdl`, with their drawn points only.
+  backInRangeRecords(owner: string, highMgdl: number, before: number): Promise<BackInRangeRecord[]>;
+  /// Readings after `from` up to `to` (unix seconds), oldest first.
+  readingsBetween(from: number, to: number): Promise<Reading[]>;
 }
 
 /// The forecast as a ledger record, or null when it's within `ledgerSpacing` of the last one or
@@ -171,5 +180,27 @@ export class PostgresForecastLedger implements ForecastLedger {
       issuedAt: Number(r.issued), minutes: Number(r.minutes), mgdl: Number(r.mgdl), startMgdl: Number(r.start_mgdl),
       actual: r.actual === null ? null : Number(r.actual), afterLog: Boolean(r.after_log), shown: Boolean(r.shown),
     }));
+  }
+
+  async backInRangeRecords(owner: string, highMgdl: number, before: number): Promise<BackInRangeRecord[]> {
+    const rows = await this.sql`
+      select extract(epoch from issued_at)::float8 as issued_at, start_mgdl, points
+      from glucos.forecast_checks
+      where user_id = ${owner}::uuid and device = ${ledgerDevice} and start_mgdl > ${highMgdl}
+        and issued_at > now() - make_interval(secs => ${backInRangeWindow}) and issued_at <= to_timestamp(${before})
+      order by issued_at`;
+    return rows.map((r) => ({
+      issuedAt: Number(r.issued_at),
+      startMgdl: Number(r.start_mgdl),
+      points: ((r.points ?? []) as Record<string, unknown>[]).filter((p) => p.shown !== false)
+        .map((p) => ({ minutes: Number(p.minutes), mgdl: Number(p.mgdl) })),
+    }));
+  }
+
+  async readingsBetween(from: number, to: number): Promise<Reading[]> {
+    const rows = await this.sql`
+      select extract(epoch from at)::float8 as t, mgdl, trend from glucos.readings
+      where at > to_timestamp(${from}) and at <= to_timestamp(${to}) order by at`;
+    return rows.map((r) => ({ t: Number(r.t), mgdl: Number(r.mgdl), trend: Number(r.trend) as Reading["trend"] }));
   }
 }

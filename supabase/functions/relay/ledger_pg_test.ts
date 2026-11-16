@@ -102,6 +102,16 @@ Deno.test({
       assertEquals(live[0].mgdl, 110);
       assertEquals(live[0].issuedAt, start);
 
+      // What the back-in-range check is worked out from: forecasts that started above the high
+      // line, drawn points only, and the readings around them.
+      const above = await ledger.backInRangeRecords(user, 50, now);
+      assertEquals(above.map((r) => r.points.map((p) => p.minutes)), [[15, 30], [15, 30], [15]]);
+      assertEquals(above[0].issuedAt, start);
+      assertEquals(above[0].startMgdl, 100);
+      assertEquals(await ledger.backInRangeRecords(user, 1000, now), []);
+      assertEquals(await ledger.backInRangeRecords(user, 50, start), [above[0]]);
+      assertEquals((await ledger.readingsBetween(start, start + 600)).map((r) => [r.t - start, r.mgdl]), [[300, 105], [600, 110]]);
+
       // Interpolation between readings up to 20 minutes apart.
       const mid = await sql`select glucos.reading_at(to_timestamp(${start + 150})) as v`;
       assertAlmostEquals(Number(mid[0].v), 102.5, 1e-9);

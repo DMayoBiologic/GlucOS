@@ -31,6 +31,11 @@ struct GlucoseActivityState: Codable, Hashable {
     var insulinOnBoard: Double?
     /// When the forecast's central line first goes below the low threshold, seconds since 1970.
     var lowExpectedAt: Double?
+    /// From above range: when the forecast says glucose is back in range, seconds since 1970. Set
+    /// only while the sender's own checks of that estimate keep it within 15 minutes: the app's
+    /// from `GlucoseSnapshot.backInRange(at:)`, the relay's from its own ledger (core.ts
+    /// backInRangeCheck), so neither borrows the other's. Never with a low expected.
+    var backInRangeAt: Double?
     /// "phone" or "relay": who sent this update. Shown nowhere; handy when debugging.
     var source: String = "phone"
     /// A check-in on this card: on a follower's, theirs; on the owner's, who's waiting for an answer.
@@ -97,6 +102,14 @@ struct GlucoseActivityState: Codable, Hashable {
     var warmUpStart: Date { readingDate }
 
     var lowExpectedDate: Date? { lowExpectedAt.map { Date(timeIntervalSince1970: $0) } }
+
+    /// "Back in range ≈ X min", minutes from the reading, when the card may say it: a live
+    /// reading above range, no low expected, and an estimate after the reading. Never on a low.
+    func backInRangeMinutes(stale: Bool) -> Int? {
+        guard !stale, !isWarmingUp, lowExpectedAt == nil, mgdl > highMgdl,
+              let at = backInRangeAt, at > readingAt else { return nil }
+        return BackInRangeText.minutes(Date(timeIntervalSince1970: at), from: readingDate)
+    }
 
     /// Low now, or forecast to be: when a follower's card offers Check in.
     var offersCheckIn: Bool { range == .low || range == .urgentLow || lowExpectedAt != nil }
@@ -168,6 +181,8 @@ struct GlucoseActivityState: Codable, Hashable {
             state.forecastUpper = points.last.map { Int($0.upperMgdl.rounded()) }
             if o.showsInsulin { state.insulinOnBoard = o.insulinOnBoard }
             state.lowExpectedAt = o.lowExpectedAt?.timeIntervalSince1970
+            // The same gate as the Today card and the Mac (highs only, this device's own checks).
+            state.backInRangeAt = s.backInRange(at: now)?.date.timeIntervalSince1970
         }
         return state
     }

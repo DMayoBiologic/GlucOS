@@ -106,7 +106,11 @@ struct AccessoryGlucoseView: View {
                     TrendArrow(trend: trend, stale: freshness != .fresh).font(.system(size: 15, weight: .bold))
                     Text(s.unit.label).font(.caption2).foregroundStyle(.secondary)
                 }
-                if freshness == .fresh, let o = s.currentOutlook(at: entry.date), let h = OutlookFormat.headlineSample(o) {
+                if freshness == .fresh, let back = s.backInRange(at: entry.date) {
+                    // From a high, once this iPhone's checks allow it (`GlucoseSnapshot.backInRange`).
+                    Text(BackInRangeText.short(minutes: back.minutes)).font(.caption).monospacedDigit()
+                        .accessibilityLabel(BackInRangeText.spoken(minutes: back.minutes))
+                } else if freshness == .fresh, let o = s.currentOutlook(at: entry.date), let h = OutlookFormat.headlineSample(o) {
                     Text("\(OutlookFormat.approx(h.sample.mgdl, unit: s.unit)) in \(h.minutes) min").font(.caption)
                 } else if let range = s.range, freshness == .fresh {
                     Text(range.label).font(.caption)
