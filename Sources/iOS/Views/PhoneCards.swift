@@ -528,6 +528,9 @@ struct PhoneChartCard: View {
     private static let choices = [3, 6, 12, 24]
     /// What the chart is handed whatever span is picked, plus its lead past the left edge.
     private static let longest = Double(choices.max() ?? 24) + 0.25
+    /// When the forecast starts drawing in: this card's `dsEntrance(2)` waits 0.11 s and is most of
+    /// the way in about 0.3 s later.
+    private static let forecastDelay: TimeInterval = 0.4
 
     var body: some View {
         let s = store.snapshot
@@ -543,10 +546,14 @@ struct PhoneChartCard: View {
             }
             // The chart gets the longest span's readings and markers and shows `hours` of them,
             // so switching 3h / 6h / 12h / 24h glides the axis (the chart animates it itself).
-            GlucoseChart(readings: store.readings(lastHours: Self.longest), unit: s.unit, lowMgdl: s.lowMgdl,
-                         highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
-                         forecast: outlook?.forecast ?? [], events: events(hours: Self.longest),
-                         timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true)
+            // The forecast draws in from "Now" once the card has come in, and bends into each new
+            // one rather than jumping (as in the Mac popover). Under Reduce Motion it just changes.
+            ForecastMotion(forecast: outlook?.forecast ?? [], drawInDelay: Self.forecastDelay) { forecast, reveal in
+                GlucoseChart(readings: store.readings(lastHours: Self.longest), unit: s.unit, lowMgdl: s.lowMgdl,
+                             highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
+                             forecast: forecast, forecastReveal: reveal, events: events(hours: Self.longest),
+                             timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true)
+            }
                 .frame(height: 260)
             legend(outlook)
             ForecastCaveatLine(caveat: caveat(s, outlook: outlook))

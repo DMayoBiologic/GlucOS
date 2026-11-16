@@ -383,7 +383,10 @@ old, last 6.2." Follower: prefixed with the person's name.
   `onScrollGeometryChange`), so the reading is never off screen.
 - Below the stage, unchanged order: banners, follows, On board, Chart, Logbook, Insights row, Sensor.
 - **Chart card**: hour chips with a sliding selection; the chart's axes glide to the new span when
-  hours change (§4.1).
+  hours change (§4.1). The forecast draws in from "Now" once the card has come in (0.4 s,
+  `PhoneChartCard.forecastDelay`) and bends into each new forecast, with the same `ForecastMotion`
+  as the Mac popover (§8.2): `.sweep` draw-in, `.ambient` morph, once per appearance or forecast,
+  never looping. Under Reduce Motion it just changes. Widgets and follower cards are unchanged.
 - **Insights row → Insights**, **Logbook card → Logbook**: zoom transitions from the card.
 - **Bottom log bar**: unchanged position; the plus symbol bounces once when the sheet closes after a
   save.
