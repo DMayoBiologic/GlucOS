@@ -17,6 +17,7 @@ final class HapticRulesTests: XCTestCase {
         XCTAssertEqual(HapticEvent.newData.feel, .lightImpact(intensity: 0.8))
         XCTAssertEqual(HapticEvent.scrubRangeEdge.feel, .lightImpact(intensity: 0.9))
         XCTAssertEqual(HapticEvent.scrubLogged.feel, .lightImpact(intensity: 0.6))
+        XCTAssertEqual(HapticEvent.rangeCrossed.feel, .lightImpact(intensity: 0.7))
     }
 
     func testWarningsOutrankOutcomesOutrankAcknowledgements() {

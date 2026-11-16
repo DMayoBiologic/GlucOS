@@ -50,6 +50,13 @@ struct PopoverHero: View {
                     if let cur = s.current {
                         Group {
                             valueRow(cur, stale: stale, tint: tint, launch: launch)
+                                // Crossing into or out of the target range: one brief wash of the
+                                // new colour behind the reading, once per crossing and never while
+                                // hovering at the edge (`RangeCrossing`). No haptic on the Mac, and
+                                // no wash under Reduce Motion. Alerts are separate.
+                                .rangeCrossingCue(mgdl: cur.mgdl, at: cur.timestamp,
+                                                  lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
+                                                  live: !stale && launch == .live, tint: tint)
                             trendRow(cur, stale: stale)
                         }
                         .launchDim(launch, stale: stale)

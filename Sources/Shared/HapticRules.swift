@@ -22,8 +22,11 @@ enum HapticEvent: String, CaseIterable, Sendable {
     case scrubLogged
     /// A new reading, with the app open, crossed into a low.
     case enteredLow
-    /// A new reading came back into range.
+    /// A new reading came back into range (follower card).
     case backInRange
+    /// The live reading on Today crossed the high line, or came back into range from either side
+    /// (`RangeCrossing`, with hysteresis so it never repeats at the edge). Going low is `enteredLow`.
+    case rangeCrossed
     /// A low or high alert fired with the app open, and its banner slid in (docs/AlertActions.md).
     case alertBanner
     /// A follower's check-in came back "okay".
@@ -48,6 +51,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         case .undone, .newData: return .lightImpact(intensity: 0.8)
         case .scrubRangeEdge: return .lightImpact(intensity: 0.9)
         case .scrubLogged: return .lightImpact(intensity: 0.6)
+        case .rangeCrossed: return .lightImpact(intensity: 0.7)
         }
     }
 
@@ -56,7 +60,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
     var priority: Int {
         switch self {
         case .enteredLow, .alertBanner, .followerNeedsHelp: return 3
-        case .done, .backInRange, .followerOkay: return 2
+        case .done, .backInRange, .rangeCrossed, .followerOkay: return 2
         case .choice, .undone, .newData: return 1
         case .scrubRangeEdge, .scrubLogged: return 0
         }

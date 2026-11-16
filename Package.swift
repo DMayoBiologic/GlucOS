@@ -39,6 +39,7 @@ let package = Package(
                 "Shared/ForecastMorph.swift",
                 "Shared/PopoverStagger.swift",
                 "Shared/ReadingRoll.swift",
+                "Shared/RangeCrossing.swift",
                 "Shared/TrendTurn.swift",
                 "Shared/LaunchReading.swift",
                 "Shared/PullRefresh.swift",
