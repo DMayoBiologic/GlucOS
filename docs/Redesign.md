@@ -438,6 +438,7 @@ refreshes, dismissing a card and plain navigation stay silent.
 | Scrubbing the chart passes something logged | `scrubLogged` | light impact 0.6 | `GlucoseChart` (#107) |
 | A new reading crosses into a low | `enteredLow` | warning | Today hero, follower card |
 | A new reading comes back into range | `backInRange` | success | Today hero, follower card |
+| A low or high alert fires with the app open (its in-app banner slides in) | `alertBanner` | warning | `AlertBannerHost` |
 | A follower's check-in comes back "okay" | `followerOkay` | success | Check-in card |
 | A check-in comes back "needs help" or unanswered | `followerNeedsHelp` | warning | Check-in card |
 

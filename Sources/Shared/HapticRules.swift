@@ -24,6 +24,8 @@ enum HapticEvent: String, CaseIterable, Sendable {
     case enteredLow
     /// A new reading came back into range.
     case backInRange
+    /// A low or high alert fired with the app open, and its banner slid in (docs/AlertActions.md).
+    case alertBanner
     /// A follower's check-in came back "okay".
     case followerOkay
     /// A follower's check-in came back "needs help", or went unanswered.
@@ -42,7 +44,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         switch self {
         case .choice: return .selection
         case .done, .backInRange, .followerOkay: return .success
-        case .enteredLow, .followerNeedsHelp: return .warning
+        case .enteredLow, .alertBanner, .followerNeedsHelp: return .warning
         case .undone, .newData: return .lightImpact(intensity: 0.8)
         case .scrubRangeEdge: return .lightImpact(intensity: 0.9)
         case .scrubLogged: return .lightImpact(intensity: 0.6)
@@ -53,7 +55,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
     /// beats an acknowledgement, and a scrub tick gives way to anything.
     var priority: Int {
         switch self {
-        case .enteredLow, .followerNeedsHelp: return 3
+        case .enteredLow, .alertBanner, .followerNeedsHelp: return 3
         case .done, .backInRange, .followerOkay: return 2
         case .choice, .undone, .newData: return 1
         case .scrubRangeEdge, .scrubLogged: return 0
