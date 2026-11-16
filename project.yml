@@ -166,6 +166,7 @@ targets:
       - path: Sources/App/Views/TodaySoFarView.swift
       - path: Sources/App/Views/FlowComponents.swift
       - path: Sources/App/Views/AlertSnoozeChipView.swift
+      - path: Sources/App/Views/AlertBannerView.swift
       - path: Sources/App/Views/LowTreatButtonView.swift
       - path: Sources/App/Views/MenuBar/PopoverInsights.swift
       - path: Sources/App/Export/LogbookPDF.swift

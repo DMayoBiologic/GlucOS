@@ -28,6 +28,7 @@ let package = Package(
                 "Shared/OutlookSnapshot.swift",
                 "Core/AlertPlanner.swift",
                 "Core/AlertSnooze.swift",
+                "Core/AlertBanner.swift",
                 "Shared/GlucoseActivityState.swift",
                 "Shared/ClockLabel.swift",
                 "Shared/ChartSummary.swift",

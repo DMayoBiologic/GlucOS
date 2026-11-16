@@ -29,6 +29,8 @@ struct GlucOSApp: App {
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
+                // A low or high alert while the popover is open slides in at its top.
+                .alertBannerHost()
                 .environmentObject(store)
                 .environmentObject(store.outlook)
                 .environmentObject(store.settings)
@@ -43,6 +45,8 @@ struct GlucOSApp: App {
         // MenuBarExtra above is the app's primary scene.
         Window("GlucOS Dashboard", id: DashboardView.windowID) {
             DashboardView()
+                // A low or high alert while the dashboard is in front slides in here.
+                .alertBannerHost()
                 .environmentObject(store)
                 .environmentObject(store.outlook)
                 .environmentObject(store.settings)

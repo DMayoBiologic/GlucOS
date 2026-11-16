@@ -107,6 +107,37 @@ builds need nothing new.
 - It also quiets that alert while the treatment works: 15 minutes for a low (the usual recheck
   after fast carbs), 30 for a high. Never an urgent low.
 
+## In-app banner
+
+When one of your own low or high alerts fires while GlucOS is in front (iPhone: the app is open;
+Mac: the popover or the dashboard is open and GlucOS is the active app), it slides down from the top
+as a banner inside the app instead of the system banner (round 38). It shows the notification's own
+title and body ("Low glucose — 3.6 mmol/L", "Falling") and the same buttons as the notification:
+Log treatment and Snooze 30 min, or Log treatment alone for an urgent low.
+
+- **Same buttons, same effect.** They run exactly what the notification's buttons run
+  (`PhoneAlertActions.handle` on iPhone, so the snooze reaches the relay; `MacAlertActions.handle`
+  on the Mac) and are recorded in the Logbook the same way ("Tapped Log treatment", "Snoozed 30
+  min"). Log treatment still never logs by itself; urgent lows still can't be snoozed.
+- **Sound and haptic stay.** The notification is presented with `[.list, .sound]` rather than
+  `[.banner, .list, .sound]`, so it still plays its sound and still goes in Notification Center.
+  iPhone plays the `alertBanner` haptic (warning, through `Haptics`); the Mac a level-change
+  haptic on a Force Touch trackpad.
+- **Only when it would be seen.** iPhone: the app is active and a host view is on screen. Mac:
+  `NSApp.isActive` and a host's window is visible and not covered. Otherwise the system banner shows
+  as before. Rapid change, no data, sensor and connection alerts, check-ins and a follower's copy of
+  someone else's alert always keep the system banner.
+- **Dismissing.** Tap the banner, swipe it up, or the close button; VoiceOver's escape gesture and
+  a "Dismiss" action do the same. A newer alert replaces it. Left alone it goes after 10 minutes
+  (one timer, nothing polls); the notification stays in Notification Center.
+- **Motion.** Slides down once (`DSMotion.emphasized`) and out once; under Reduce Motion it
+  cross-fades instead. Nothing loops or pulses.
+- **VoiceOver.** Announced as it arrives: "Alert: Low glucose, 3.6 mmol/L. Falling. Log treatment or
+  Snooze 30 minutes at the top of the screen."
+- Where: rules and wording `Sources/Core/AlertBanner.swift` (tests `AlertBannerTests`); center, host
+  and view `Sources/App/Views/AlertBannerView.swift` (`AlertBannerCenter`, `.alertBannerHost()` on
+  `PhoneRootView`, the Mac popover and the dashboard); presentation in each app's `willPresent`.
+
 ## Log treatment in the app
 
 The same button, inline: under the reading on iPhone Today and in the Mac popover (round 34). An

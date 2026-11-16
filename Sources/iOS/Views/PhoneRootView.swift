@@ -32,6 +32,8 @@ struct PhoneRootView: View {
             }
         }
         .animation(.default, value: mode)
+        // A low or high alert firing while the app is open slides in here (docs/AlertActions.md).
+        .alertBannerHost()
         .alert(follows.notice ?? "", isPresented: Binding(get: { follows.notice != nil },
                                                           set: { if !$0 { follows.notice = nil } })) {
             Button("OK") { follows.notice = nil }

@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // "Snooze 30 min" and "Log treatment".
         UNUserNotificationCenter.current().setNotificationCategories(
             Set([DoseQuestion.notificationCategory] + AlertNotifications.categories))
+        // The in-app alert banner's buttons do what the notification's do.
+        AlertBannerCenter.shared.perform = { MacAlertActions.handle($0) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -62,10 +64,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Without this, macOS silently drops banners while the app is frontmost, which for a menu bar
     /// app is whenever the popover or Settings is open. A glucose alert must never be swallowed.
+    ///
+    /// A low or high alert while the popover or dashboard is in front slides in there as the in-app
+    /// banner instead (docs/AlertActions.md, "In-app banner"), keeping the sound and the list.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound])
+        let content = notification.request.content
+        let userInfo = content.userInfo
+        let title = content.title, body = content.body
+        let date = notification.date
+        Task { @MainActor in
+            let inApp = AlertBannerCenter.shared.present(title: title, body: body, userInfo: userInfo, at: date)
+            completionHandler(inApp ? [.list, .sound] : [.banner, .list, .sound])
+        }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
@@ -80,17 +92,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                action != UNNotificationDefaultActionIdentifier { return }
             if let tap = AlertNotifications.button(action: action, userInfo: userInfo) {
                 AlertLogRecorder.shared.tapped(tap, userInfo: userInfo, firedAt: date)
-                if let minutes = tap.snoozeMinutes { AlertSnoozeStore.shared.snooze(tap.kind, minutes: minutes) }
-                if case .treat(_, let treatment) = tap {
-                    // The quick-log window, opened by the menu bar label (it can reach openWindow).
-                    LogWindowRequest.shared.target = .treating(treatment)
-                    NotificationCenter.default.post(name: .glucosOpenLogWindow, object: nil)
-                }
+                MacAlertActions.handle(tap)
                 return
             }
             StatusItemPopover.show()
         }
         completionHandler()
+    }
+}
+
+/// "Snooze 30 min" and "Log treatment" on the Mac's low and high alerts, from the notification or
+/// the in-app banner (docs/AlertActions.md). The Mac's snoozes are its own.
+@MainActor
+enum MacAlertActions {
+    static func handle(_ tap: AlertNotifications.Tap) {
+        if let minutes = tap.snoozeMinutes { AlertSnoozeStore.shared.snooze(tap.kind, minutes: minutes) }
+        if case .treat(_, let treatment) = tap {
+            // The quick-log window, opened by the menu bar label (it can reach openWindow).
+            LogWindowRequest.shared.target = .treating(treatment)
+            NotificationCenter.default.post(name: .glucosOpenLogWindow, object: nil)
+        }
     }
 }
 

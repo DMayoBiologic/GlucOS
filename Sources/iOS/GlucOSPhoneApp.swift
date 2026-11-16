@@ -35,6 +35,11 @@ struct GlucOSPhoneApp: App {
         UsualActions.open = { PhoneLogRouter.shared.openUsual($0) }
         // And the Control Center controls: Glucose opens Today, Log treatment the low sheet.
         ControlActions.open = { PhoneLogRouter.shared.openControl($0) }
+        // The in-app alert banner's buttons do what the notification's do, Logbook sync included.
+        AlertBannerCenter.shared.perform = { tap in
+            await PhoneAlertActions.handle(tap)
+            await PhoneServices.shared?.logbookSync?.sync()
+        }
         // Likewise the Meal / Correction buttons after a dose with no food near it.
         DoseQuestion.shared.start(logbook: logbook)
         // Has to happen before launch finishes.
@@ -98,13 +103,18 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         Task { @MainActor in PhoneServices.shared?.deviceTokenFailed(error) }
     }
 
-    /// Show glucose alerts as banners even with the app open.
+    /// Show glucose alerts even with the app open. The user's own low and high alerts slide in as
+    /// the in-app banner instead of the system one (docs/AlertActions.md, "In-app banner"), keeping
+    /// the sound and the Notification Center entry; everything else gets the system banner.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound])
-        let userInfo = notification.request.content.userInfo
+        let content = notification.request.content
+        let userInfo = content.userInfo
+        let title = content.title, body = content.body
         let date = notification.date
         Task { @MainActor in
+            let inApp = AlertBannerCenter.shared.present(title: title, body: body, userInfo: userInfo, at: date)
+            completionHandler(inApp ? [.list, .sound] : [.banner, .list, .sound])
             // The user's own low or high alert goes in the logbook (docs/AlertLog.md).
             AlertLogRecorder.shared.arrived(userInfo: userInfo, at: date)
             await CheckInCoordinator.arrived(userInfo: userInfo)
