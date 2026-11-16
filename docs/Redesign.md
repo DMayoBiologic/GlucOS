@@ -404,6 +404,37 @@ old, last 6.2." Follower: prefixed with the person's name.
 | Log sheet | Choosing a moment bounces its icon once and its step settles in from just under the tiles (grows from its top edge out of a soft blur, `LogStepMorph`, `.emphasized`), then scrolls into view. Saving plays the success haptic and draws a checkmark ("Logged" / "Saved", spoken to VoiceOver) for 0.75 s, then the sheet closes; the checkmark only follows the confirm steps (calculator dose, "Already logged?", the logged-twice notice). Under Reduce Motion steps fade, the check appears drawn and holds 0.5 s. Nothing loops. |
 | Sensor scan | The scan ring pulses during NFC reads (system NFC sheet aside); result value rolls in. |
 
+### 7.3 Haptics
+
+One shared helper plays every iPhone haptic: `Haptics.play(_:)` for a button's action and
+`.haptic(trigger:)` for a value that changed (Sources/Shared/HapticFeedback.swift). Each haptic is a
+`HapticEvent` named by what it means (Sources/Shared/HapticRules.swift), so the same moment feels
+the same on every screen. Haptics are for moments that mean something: first loads, routine
+refreshes, dismissing a card and plain navigation stay silent.
+
+| Moment | Event | Feel | Where |
+| --- | --- | --- | --- |
+| Picking a chip, tile, stepper value, chart hours, setup step | `choice` | selection | Log sheet, Logbook filters, chart hours, Setup, sharing |
+| Log saved, Log Again, a question answered (low, dose), export ready, check-in sent, signed in | `done` | success | Log sheet `finishSaving()`, Logbook, low and dose questions, Export, Follow |
+| Undo (deleted-entry toast, low and dose question cards) | `undone` | light impact 0.8 | `PhoneUndoToast`, question cards |
+| Pull to refresh brought new readings (nothing on no change or failure) | `newData` | light impact 0.8 | `phonePullToRefresh` (#124) |
+| Scrubbing the chart crosses the low or high line | `scrubRangeEdge` | light impact 0.9 | `GlucoseChart` (#107) |
+| Scrubbing the chart passes something logged | `scrubLogged` | light impact 0.6 | `GlucoseChart` (#107) |
+| A new reading crosses into a low | `enteredLow` | warning | Today hero, follower card |
+| A new reading comes back into range | `backInRange` | success | Today hero, follower card |
+| A follower's check-in comes back "okay" | `followerOkay` | success | Check-in card |
+| A check-in comes back "needs help" or unanswered | `followerNeedsHelp` | warning | Check-in card |
+
+No double buzz: every haptic passes `HapticGate`. Within 0.4 s of the last one, a new one only plays
+if it ranks higher (warnings, then outcomes, then acknowledgements, then scrub ticks), so a pull that
+brings a reading crossing into a low plays the warning, not the warning and a tap. Ticks after ticks
+(`choice`, scrub) only need 0.06 s, so stepping or scrubbing quickly still ticks each time.
+
+System Haptics: only the system feedback styles are used (`.sensoryFeedback` and the UIKit feedback
+generators), never Core Haptics or a vibrate, so turning off System Haptics in Settings › Sounds &
+Haptics silences all of them. `HapticRulesTests` fails if any iPhone code plays a haptic around the
+helper.
+
 ## 8. Mac app
 
 ### 8.1 Menu bar
@@ -514,6 +545,7 @@ Widgets in accented or vibrant rendering modes drop the field and keep the rail 
 | 9 | Mac popover finished to §8.2: the shared `FreshnessMeter` under the age row in place of the live dot and hand-drawn hairline (fills live, amber once stale), and the cards assembling under the hero with `dsEntrance` on opening | #84 | merged |
 | 10 | Remaining screens (§7.2, §8.3, §8.4): the target range editor in Settings (iPhone and Mac), Mac onboarding and iPhone Setup redrawn as the range rail (same log scale and segment colours), with a marker at the latest fresh reading and a line saying what it would count as; iPhone Settings rows that a toggle reveals slide in, and section jumps scroll with `.standard` under Reduce Motion rules; Mac Outlook and Insights pages assemble with `dsEntrance`; Mac Logbook filter on `SlidingSegments`; follower check-in status pushes in with a haptic for "okay" and "needs help" | #88 | merged |
 | 11 | Mac menu bar item to §8.1: range colour, symbol trend arrow, optional last-hour sparkline, popover stale treatment, one roll per reading; drawn only when what it shows changes | #96 | merged |
+| 12 | iPhone haptics to §7.3: one shared `Haptics` helper and `HapticEvent` table, the same feel for the same moment (undo everywhere, question answers), a gate against double buzzes, System Haptics respected | round 29 | in review |
 
 Every part of this design is now built.
 

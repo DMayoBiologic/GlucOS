@@ -40,7 +40,7 @@ struct PhoneUndoToast: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button {
                 logbook.undoDelete()
-                Haptics.success()
+                Haptics.play(.undone)
             } label: {
                 Text("Undo")
                     .dsFont(.headline)

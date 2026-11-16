@@ -136,7 +136,7 @@ struct PhoneSetupView: View {
 
     private func go(_ delta: Int) {
         guard let next = Step(rawValue: step.rawValue + delta) else { return }
-        Haptics.tap()
+        Haptics.play(.choice)
         guard forward == (delta > 0) else {
             // The outgoing step has to be drawn once with the new direction before it leaves,
             // or it would slide out the old way.

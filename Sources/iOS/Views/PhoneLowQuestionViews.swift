@@ -29,7 +29,7 @@ struct PhoneLowStrip: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
                 Spacer(minLength: DS.Space.xs)
-                Button("Undo") { question.undo(logbook: logbook); Haptics.tap() }
+                Button("Undo") { question.undo(logbook: logbook); Haptics.play(.undone) }
                     .dsFont(.headline)
             }
             .padding(.bottom, DS.Space.sm)
@@ -62,7 +62,7 @@ struct PhoneLowStrip: View {
                     if let usual {
                         Button {
                             question.logUsual(usual, for: low, logbook: logbook, now: now)
-                            Haptics.success()
+                            Haptics.play(.done)
                         } label: {
                             Text(usual.detail.isEmpty ? "Yes" : usual.detail)
                                 .dsFont(.headline)
@@ -95,7 +95,7 @@ struct PhoneLowStrip: View {
                     }
                     Button {
                         question.answer(.notTreated, for: low, logbook: logbook, now: now)
-                        Haptics.tap()
+                        Haptics.play(.done)
                     } label: {
                         Text("No").dsFont(.headline)
                     }

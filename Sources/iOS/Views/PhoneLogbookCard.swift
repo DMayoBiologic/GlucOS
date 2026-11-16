@@ -111,7 +111,7 @@ struct PhoneLogbookCard: View {
         .accessibilityHint("Edit")
         .contextMenu {
             Button("Edit", systemImage: "pencil") { router.edit(entry) }
-            Button("Log Again Now", systemImage: "arrow.clockwise") { logbook.duplicate(entry); Haptics.success() }
+            Button("Log Again Now", systemImage: "arrow.clockwise") { logbook.duplicate(entry); Haptics.play(.done) }
             Button("Delete", systemImage: "trash", role: .destructive) { logbook.delete(ids: [entry.id]) }
         }
     }

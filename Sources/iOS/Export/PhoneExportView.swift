@@ -152,7 +152,7 @@ struct PhoneExportView: View {
             }.value
             working = false
             if let result {
-                Haptics.success()
+                Haptics.play(.done)
                 file = ExportFile(url: result)
             } else {
                 problem = "Couldn't make the file. Check this iPhone has some free space, then try again."

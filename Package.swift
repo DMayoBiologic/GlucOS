@@ -37,6 +37,7 @@ let package = Package(
                 "Shared/PopoverStagger.swift",
                 "Shared/ReadingRoll.swift",
                 "Shared/PullRefresh.swift",
+                "Shared/HapticRules.swift",
                 "Shared/MenuBarGlance.swift",
                 "Shared/WidgetGlance.swift",
                 "Core/RelayProtocol.swift",

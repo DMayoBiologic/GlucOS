@@ -326,7 +326,7 @@ struct AddFollowView: View {
         Task {
             do {
                 try await follows.add(token: token)
-                Haptics.success()
+                Haptics.play(.done)
                 dismiss()
             } catch {
                 self.error = error.localizedDescription
@@ -515,7 +515,7 @@ private struct FollowPicker: View {
             }
             .padding(.vertical, DS.Space.xxs)
         }
-        .sensoryFeedback(.selection, trigger: selection)
+        .haptic(.choice, trigger: selection)
     }
 
     private func chip(_ f: Follow) -> some View {
