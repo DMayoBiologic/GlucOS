@@ -158,6 +158,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Taking your Logbook to the clinic.** Export it from the Logbook: pick the days, then share a PDF summary or a CSV. It's made on the phone, works offline and never includes follower data (docs/LogbookExport.md).
 - **The forecast draws in.** On Today, the forecast line draws out from Now when you open the app and bends smoothly into each new forecast, as on the Mac. With Reduce Motion on, it just changes.
 - **Your usual day moves.** In Insights, the bands of Your usual day draw in when the card appears and glide when you switch between 14 and 30 days. With Reduce Motion on, they just change.
+- **Today so far moves.** On Today, the Today so far card counts up when it first shows, and its figures roll as new readings come in. With Reduce Motion on, they just change.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
