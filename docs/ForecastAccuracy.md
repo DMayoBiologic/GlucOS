@@ -1246,3 +1246,82 @@ To rerun (estimate from stored points, actual from live readings):
 minutes). Re-run around 3 December. If the share within 15 minutes stays under 7 in 10, try
 requiring that as well as the median. If the relay reaches 5 checks under the same bar, the Lock
 Screen could show it too.
+
+## 25. "Peak ≈ 11.2 around 1:40 pm" after a meal (16 Nov 2026)
+
+The idea: after a logged meal, say how high glucose is expected to go and when, from the forecast,
+and show it only while that has been close on past meals (the same kind of gate as §24). **It
+isn't close. On the logged meals so far the forecast's peak was typically 2.7 mmol/L (49 mg/dL)
+too low and 21 minutes early, and most of the time the drawn forecast is still rising at its last
+point, so it has no peak to give. Nothing is shown; no app code changed.**
+
+**The data.** Every meal in the logbook with forecasts after it, 12 Nov to 16 Nov (Perth): 8 meals
+after merging the eggs logged on both devices, 62 forecasts from the Mac, iPhone and relay issued
+in the 2 hours after a meal (each forecast belongs to the latest meal before it). The estimate is
+the highest point of the drawn forecast (stored points, starting reading at 0) and its time. The
+actual peak is the highest live reading (LinkUp's graph points left out, §23) from the forecast
+to 3 hours after the meal, or to the next meal if that comes first.
+
+**What the forecasts said:**
+
+| Forecast's highest point | Forecasts | Meals | Typical height miss | Typical time miss |
+|---|---|---|---|---|
+| Still rising at its last drawn point | 30 | 7 | 31 mg/dL (1.7 mmol/L) | 32 min |
+| Turns over inside what's drawn | 7 | 3 | **49 mg/dL (2.7 mmol/L)** | **21 min** |
+| Already falling or flat (peak is now) | 22 | 6 | 4 mg/dL | 2 min |
+| Nothing drawn | 3 | 1 | | |
+
+Only the middle row is a real peak estimate: the first has no peak (the line hasn't turned yet,
+and the actual peak was a median 26 mg/dL above its end), and the third just says the peak has
+passed, which the reading already shows. All seven real estimates were low, none high:
+
+- Green juice (Mac, 16:26–16:56 on 12 Nov): 5.8, 6.9, 8.3 against an actual 8.8, 21 min early each time.
+- Burrito bowl (iPhone, 19:17 on 12 Nov): 8.7 at 30 min against 14.8 two hours on. The rise went
+  on for over two hours (§15).
+- Hamburger (Mac, 18:25–18:55 on 14 Nov): 10.2, 9.1, 10.6 against 12.9, 9–24 min early.
+
+**Held out by meal.** With the bar set at a typical miss of 1 mmol/L (18 mg/dL) in height and
+15 minutes in time, at least 5 checks, the gate was decided on the other meals and applied to the
+held-out one. It never opened: two folds have only 4 checks, and the third's typical height miss
+is 45 mg/dL. So the estimate would have been hidden on every meal.
+
+**Why, and what would change it.** The forecast's carb effect is learnt as one figure per gram on a
+standard 3-hour curve (§1, §15), and it's drawn only as far as it beats "no change" (60 minutes
+after most meals). Peaks after these meals came about 2 to 3 hours after eating, so the
+forecast's line is usually cut off before it turns, and when it does turn early it's the curve
+timing showing, not the meal. A slower curve for slow meals lost on held-out meals (§15), and the
+food data has carbs only, so there's nothing yet to tell a juice from a burrito bowl. The carb
+effect itself is dosing-adjacent maths and was left alone.
+
+Re-run when there are 10 or more meals whose forecast turns over inside what's drawn. If the
+typical miss comes under 1 mmol/L and 15 minutes on held-out meals, build it the way §24's
+estimate was built: highest point of the drawn central line, only when it turns over inside
+the drawn points, each device gated on its own settled checks.
+
+To rerun (one row per forecast; `kind` gives the table's rows, "turns over" are the real
+estimates, and `meal_at` groups them for the held-out folds):
+
+    with rd as (select r.at, r.mgdl from glucos.readings r where not (r.trend = 0 and exists (
+        select 1 from glucos.readings o where o.at <> r.at and abs(extract(epoch from o.at - r.at)) < 30))),
+    m0 as (select to_timestamp((payload->>'timestamp')::float) t, (payload->>'carbs')::float carbs,
+      payload->>'food' food from glucos.logbook where not deleted and kind = 'meal'),
+    -- the same meal logged on both devices: same food and carbs within 20 minutes
+    m as (select * from m0 where not exists (select 1 from m0 p where p.t < m0.t
+      and p.t > m0.t - interval '20 minutes' and p.carbs = m0.carbs and p.food = m0.food)),
+    f as (select f.*, m.t mt, m.food, (select min(n.t) from m n where n.t > m.t) nt from glucos.forecast_checks f
+      join m on f.issued_at between m.t and m.t + interval '2 hours'
+      where not exists (select 1 from m n where n.t > m.t and n.t <= f.issued_at)),
+    w as (select f.*, least(f.mt + interval '3 hours', coalesce(f.nt, 'infinity')) wend from f),
+    pts as (select w.id, 0 mm, w.start_mgdl v from w union all
+      select w.id, (e->>'minutes')::int, (e->>'mgdl')::float from w, jsonb_array_elements(w.points) e
+      where coalesce((e->>'shown')::bool, true)),
+    est as (select distinct on (id) id, mm est_min, v est_peak,
+      (select max(mm) from pts p2 where p2.id = pts.id) horizon from pts order by id, v desc, mm),
+    act as (select w.id, a.at pat, a.mgdl peak from w cross join lateral (select at, mgdl from rd
+      where rd.at between w.issued_at and w.wend order by mgdl desc, at limit 1) a
+      where w.wend < now())  -- only windows that have closed
+    select w.mt meal_at, w.food, w.device, w.issued_at, est.*, act.peak,
+      extract(epoch from act.pat - w.issued_at) / 60 act_min,
+      case when est.horizon = 0 then 'nothing drawn' when est.est_min = 0 then 'falling or flat'
+        when est.est_min = est.horizon then 'still rising' else 'turns over' end kind
+    from w join est using (id) join act using (id) order by w.issued_at;
