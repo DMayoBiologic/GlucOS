@@ -193,4 +193,16 @@ final class WidgetGlanceTests: XCTestCase {
         XCTAssertEqual(g.detail, u.detail)
         XCTAssertEqual(g.spoken, u.spokenLabel)
     }
+
+    func testMacWidgetLinkRoundTrips() {
+        for id in ["meal-breakfast", "correction", "low"] {
+            let g = UsualGlance(id: id, kind: .meal, title: id, detail: "", systemImage: "fork.knife", spoken: id)
+            XCTAssertEqual(g.openURL.absoluteString, "glucos://log/usual/\(id)")
+            XCTAssertEqual(UsualGlance.usualID(from: g.openURL), id)
+        }
+        // Other links open the log window (or the popover) as before, never an entry.
+        for s in ["glucos://log", "glucos://log/food", "glucos://open", "glucos://log/usual", "glucos://log/usual/", "other://log/usual/low"] {
+            XCTAssertNil(UsualGlance.usualID(from: URL(string: s)!), s)
+        }
+    }
 }

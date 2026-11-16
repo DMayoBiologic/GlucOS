@@ -331,9 +331,7 @@ final class GlucoseStore: ObservableObject {
 
     private func publish() {
         refreshTodayGlance()
-        #if os(iOS)
         refreshUsualGlance()
-        #endif
         SharedStore.save(snapshot)
         reloadChangedWidgets()
         onPublish?(snapshot)
@@ -376,15 +374,14 @@ final class GlucoseStore: ObservableObject {
             .glance(unit: settings.unit, now: now)
     }
 
-    #if os(iOS)
-    /// The "Your usual" entries for the iPhone's Your usual widget, worked out on every publish (a
-    /// reading, a logbook change, a settings change), the same way the log sheet works them out.
-    /// The widget only opens the log sheet on one; the sheet works them out again when it opens.
+    /// The "Your usual" entries for the Your usual widget (iPhone Home Screen, Mac desktop), worked
+    /// out on every publish (a reading, a logbook change, a settings change), the same way the log
+    /// sheet works them out. The widget only opens the log sheet or window on one; it works them out
+    /// again when it opens.
     private func refreshUsualGlance(now: Date = Date()) {
         guard let logbook else { return }
         snapshot.usuals = logbook.usualEntries(store: self, settings: settings, now: now).map { UsualGlance($0, now: now) }
     }
-    #endif
 
     #if os(macOS)
     // MARK: Derived for the menu bar

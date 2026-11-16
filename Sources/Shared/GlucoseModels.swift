@@ -306,8 +306,8 @@ struct GlucoseSnapshot: Codable {
     /// Today so far against your usual day, worked out by the app for the large widget. Nil until
     /// today has an hour of readings.
     var today: TodayGlance?
-    /// The "Your usual" entries for now, worked out by the iPhone app for the Your usual widget
-    /// (docs/UsualEntries.md). Nil on the Mac, or before the logbook has loaded.
+    /// The "Your usual" entries for now, worked out by the app for the Your usual widget on the
+    /// iPhone and the Mac (docs/UsualEntries.md). Nil before the logbook has loaded.
     var usuals: [UsualGlance]?
 
     static let staleAfter: TimeInterval = 6 * 60

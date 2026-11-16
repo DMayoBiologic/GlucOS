@@ -15,6 +15,9 @@ enum LogSheetTarget: Identifiable {
     /// A "Your usual" entry picked in the menu bar popover (docs/UsualEntries.md): a new entry,
     /// filled in from it as if its chip had been clicked here. Logged only with Log.
     case usual(UsualEntry)
+    /// A "Your usual" button on the desktop widget, which only knows the entry's id. Looked up when
+    /// the sheet appears; a new entry if it's no longer offered. `at` makes each click a new request.
+    case usualID(String, at: Date)
 
     var id: String {
         switch self {
@@ -23,6 +26,7 @@ enum LogSheetTarget: Identifiable {
         case .treating(let t): return "treating-\(t.rawValue)"
         case .lowTreatment(let at): return "low-\(at.timeIntervalSince1970)"
         case .usual(let u): return "usual-\(u.id)-\(u.lastLogged.timeIntervalSince1970)"
+        case .usualID(let id, let at): return "usual-\(id)-tap-\(at.timeIntervalSince1970)"
         case .edit(let e): return e.id.uuidString
         }
     }
@@ -52,8 +56,9 @@ struct LogSheet: View {
     private let forLoggedDose: Bool
     /// Opened from "I'm treating it" on an alert.
     private let treating: AlertTreatment?
-    /// The usual entry picked in the popover, filled in once the sheet appears.
-    private let startingUsual: UsualEntry?
+    /// The id of the usual entry picked in the popover or on the widget, filled in once the sheet
+    /// appears.
+    private let startingUsualID: String?
 
     /// Set when editing: only that part is shown.
     private let editing: Part?
@@ -194,7 +199,11 @@ struct LogSheet: View {
         default: forLoggedDose = false
         }
         if case .treating(let t) = target { treating = t } else { treating = nil }
-        if case .usual(let u) = target { startingUsual = u } else { startingUsual = nil }
+        switch target {
+        case .usual(let u): startingUsualID = u.id
+        case .usualID(let id, _): startingUsualID = id
+        default: startingUsualID = nil
+        }
         self.editing = editing
         self.editingID = editingID
         self.doseID = doseID
@@ -1298,12 +1307,13 @@ struct LogSheet: View {
         apply(u)
     }
 
-    /// Opened from a "Your usual" chip in the popover: filled in from that entry, if the sheet
-    /// still offers it (worked out again now, so a correction that stopped applying because
-    /// glucose came down isn't filled in). Nothing is logged until Log, after `RepeatCheck`.
+    /// Opened from a "Your usual" chip in the popover or a button on the desktop widget: filled in
+    /// from that entry, if the sheet still offers it (worked out again now, so a correction that
+    /// stopped applying because glucose came down isn't filled in). Nothing is logged until Log,
+    /// after `RepeatCheck`.
     private func applyStartingUsual() {
-        guard isNew, appliedUsual == nil, let picked = startingUsual,
-              let u = usuals.first(where: { $0.id == picked.id }) else { return }
+        guard isNew, appliedUsual == nil, let picked = startingUsualID,
+              let u = usuals.first(where: { $0.id == picked }) else { return }
         apply(u)
     }
 

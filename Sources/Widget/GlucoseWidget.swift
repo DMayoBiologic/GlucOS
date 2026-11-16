@@ -8,6 +8,7 @@ struct GlucOSWidgetBundle: WidgetBundle {
         GlucoseWidget()
         TimeInRangeWidget()
         SensorWidget()
+        UsualWidget()
     }
 }
 #endif
