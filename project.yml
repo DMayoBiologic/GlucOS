@@ -164,6 +164,7 @@ targets:
       - path: Sources/App/Views/LowsCardView.swift
       - path: Sources/App/Views/HighsCardView.swift
       - path: Sources/App/Views/OvernightCardView.swift
+      - path: Sources/App/Views/WeekdayWeekendCardView.swift
       - path: Sources/App/Views/TodaySoFarView.swift
       - path: Sources/App/Views/FlowComponents.swift
       - path: Sources/App/Views/AlertSnoozeChipView.swift

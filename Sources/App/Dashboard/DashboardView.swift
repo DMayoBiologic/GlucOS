@@ -168,7 +168,7 @@ struct DashboardView: View {
         case .logbook:
             LogbookSection(data: data, focusSearch: $focusLogbookSearch, link: $logbookLink, reveal: $revealEntry,
                            backToInsights: cameFromCard.map { card -> () -> Void in { backToInsights(card) } },
-                           backCardTitle: cameFromCard?.title ?? LogbookFilter.lows.title) { logSheet = $0 }
+                           backCardTitle: cameFromCard.map(Self.cardTitle) ?? LogbookFilter.lows.title) { logSheet = $0 }
         case .outlook:
             OutlookSection { logSheet = .new }
         case .insights:
@@ -483,6 +483,11 @@ struct DashboardView: View {
         cameFromCard = nil
         revealEntry = id
         select(.logbook)
+    }
+
+    /// The Insights card a chip came from, for the Logbook's back button: "Lows", "Weekdays and weekends".
+    private static func cardTitle(_ chip: LogbookFilter) -> String {
+        chip.insightsCard == .weekdays ? WeekdayWeekendText.title : chip.title
     }
 
     /// Back from that Logbook: cross-fade to Insights, scrolled to the card it came from.

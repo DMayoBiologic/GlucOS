@@ -95,6 +95,8 @@ extension LogbookFilter {
         case .lows: return "arrow.down.circle"
         case .highs: return "arrow.up.circle"
         case .overnight: return "moon"
+        case .weekdays: return "briefcase"
+        case .weekends: return "sun.max"
         case .notes: return "text.alignleft"
         case .sites: return "bandage"
         case .moments: return "tag"
@@ -109,7 +111,7 @@ extension LogbookFilter {
         case .lows: return Tone.critical.color
         // The text shade: the chip label is amber on a faint wash until picked.
         case .highs: return GlucoseRange.high.textTint
-        case .overnight: return Palette.brand
+        case .overnight, .weekdays, .weekends: return Palette.brand
         case .notes: return Palette.brand
         case .sites: return Palette.site
         case .moments: return Palette.context
