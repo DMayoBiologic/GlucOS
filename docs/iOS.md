@@ -199,6 +199,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Log treatment from Today.** During a low, or when one is predicted, Today shows a Log treatment button that opens the log sheet filled in with your usual low treatment. It never logs by itself.
 - **Highs have their own Insights card.** It shows your time above range, how many highs you had and the longest one, and tapping it opens the Logbook on Highs over the same days.
 - **What you logged last shows under the chart.** A quiet line such as "Meal 1 h 40 m ago · 45 g" appears on Today, and tapping it opens that entry in the Logbook. It hides when nothing was logged in the last 12 hours.
+- **Nights have their own Insights card.** The Overnight card shows your time in range from midnight to 6 am, overnight lows and the usual change across the night, and tapping it opens the Logbook on those nights.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
