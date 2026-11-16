@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 /// First-run setup: what GlucOS is, signing in to LibreLinkUp, target range, alerts and how the
 /// user takes insulin. Opens by itself the first time GlucOS runs without an account, and from
@@ -31,6 +32,7 @@ struct OnboardingView: View {
 
     @State private var step: Step = .welcome
     @State private var forward = true
+    @Namespace private var dots
 
     // Account step
     @State private var email = ""
@@ -40,8 +42,15 @@ struct OnboardingView: View {
     @State private var problem: ConnectionProblem?
     @State private var connected = false
 
+    @FocusState private var focus: Field?
+    private enum Field { case email, password }
+
     // Alerts step
     @State private var notificationsAllowed: Bool?
+
+    // Done step
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var loginNote: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -55,12 +64,12 @@ struct OnboardingView: View {
                 // ZStack so the outgoing and incoming steps overlap during the slide rather than
                 // stacking in the scroll view.
                 ZStack(alignment: .topLeading) {
+                    // Steps push horizontally (docs/Redesign.md §8.4): the next one slides in from the
+                    // right and pushes the current one off to the left; Back reverses it.
                     content
                         .frame(maxWidth: Self.contentWidth, alignment: .topLeading)
                         .id(step)
-                        .transition(reduceMotion ? .opacity : .asymmetric(
-                            insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
-                            removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity)))
+                        .transition(reduceMotion ? .opacity : .push(from: forward ? .trailing : .leading))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 28)
@@ -97,18 +106,44 @@ struct OnboardingView: View {
 
     // MARK: Chrome
 
+    /// One dot per step: the current one stretches into a capsule that slides along as you move
+    /// (docs/Redesign.md §8.4), steps behind you stay filled, and a filled dot takes you back.
     private var progress: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             ForEach(Step.allCases, id: \.self) { s in
-                Capsule()
-                    .fill(s.rawValue <= step.rawValue ? AnyShapeStyle(Palette.brandGradient) : AnyShapeStyle(Color.primary.opacity(0.1)))
-                    .frame(height: 4)
-                    .help(s.title)
+                let current = s == step
+                let passed = s.rawValue < step.rawValue
+                Button {
+                    if passed && step != .done { go(s.rawValue - step.rawValue) }
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(passed ? AnyShapeStyle(Palette.brand.opacity(0.55)) : AnyShapeStyle(Color.primary.opacity(0.14)))
+                            .frame(width: 7, height: 7)
+                            .opacity(current ? 0 : 1)
+                        if current {
+                            Capsule()
+                                .fill(Palette.brandGradient)
+                                .frame(width: 26, height: 7)
+                                .matchedGeometryEffect(id: "current", in: dots)
+                        }
+                    }
+                    .frame(width: current ? 26 : 7, height: 7)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!passed || step == .done)
+                .help(passed ? "Back to \(s.title)" : s.title)
+                .accessibilityLabel(passed ? "Back to \(s.title)"
+                                           : current ? "Step \(step.rawValue + 1) of \(Step.allCases.count): \(step.title)"
+                                                     : "\(s.title), not reached yet")
+                .accessibilityAddTraits(current ? [.isSelected] : [])
             }
         }
-        .animation(.smooth(duration: 0.3), value: step)
-        .accessibilityElement()
-        .accessibilityLabel("Step \(step.rawValue + 1) of \(Step.allCases.count): \(step.title)")
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Setup progress")
     }
 
     private var navigation: some View {
@@ -144,8 +179,13 @@ struct OnboardingView: View {
 
     private func go(_ delta: Int) {
         guard let next = Step(rawValue: step.rawValue + delta) else { return }
+        // Set the direction first and move on the next run-loop turn, so the step leaving takes
+        // the same direction as the one arriving (otherwise Back after Continue slides the old
+        // step the wrong way).
         forward = delta > 0
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { step = next }
+        DispatchQueue.main.async {
+            DS.animate(.emphasized, reduceMotion: reduceMotion) { step = next }
+        }
     }
 
     private func finish() {
@@ -225,8 +265,11 @@ struct OnboardingView: View {
                     TextField("Email", text: $email, prompt: Text("Follower account email"))
                         .textContentType(.username)
                         .autocorrectionDisabled()
+                        .focused($focus, equals: .email)
+                        .onSubmit { focus = .password }
                     SecureField("Password", text: $password, prompt: Text("Password"))
                         .textContentType(.password)
+                        .focused($focus, equals: .password)
                         .onSubmit {
                             if !email.trimmingCharacters(in: .whitespaces).isEmpty && !password.isEmpty { signIn() }
                         }
@@ -253,13 +296,18 @@ struct OnboardingView: View {
                 FlowPanel {
                     FollowerAccountHelp()
                 }
-                Text("Your password is stored in the macOS Keychain and only ever sent to Abbott.")
+                Text("Your password is stored in the macOS Keychain. It goes to Abbott to sign in, and to the GlucOS sync server when it signs your logbook in to sync with your iPhone. The sync server doesn't keep it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .animation(.smooth(duration: 0.2), value: problem)
         .animation(.smooth(duration: 0.2), value: connected)
+        .task {
+            // Straight into typing, at the field that's still empty.
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if !connected && focus == nil { focus = email.isEmpty ? .email : .password }
+        }
     }
 
     private var connectedCard: some View {
@@ -310,7 +358,8 @@ struct OnboardingView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 220)
-            TargetRangeEditor(settings: settings)
+            TargetRangeEditor(settings: settings,
+                              readingMgdl: store.snapshot.isStale() ? nil : store.snapshot.current?.mgdl)
                 .glassCard()
             Text("Urgent low (below \(settings.unit.format(mgdl: 54, withUnit: true))) and very high (above \(settings.unit.format(mgdl: 250, withUnit: true))) are fixed. You can change all of this later in Settings → Glucose.")
                 .font(.callout)
@@ -328,6 +377,7 @@ struct OnboardingView: View {
                     .font(.headline)
                 if settings.alertsEnabled {
                     Toggle("Also alert when above \(settings.unit.format(mgdl: settings.highMgdl, withUnit: true))", isOn: $settings.alertOnHigh)
+                    Toggle("Predicted lows, up to \(settings.predictiveAlertMinutes) minutes ahead", isOn: $settings.alertOnPredictedLow)
                     Toggle("Rising or falling quickly", isOn: $settings.alertOnRapidChange)
                     Toggle("No data for more than 6 minutes", isOn: $settings.alertOnStale)
                     Toggle("Sensor expiring within 24 hours", isOn: $settings.alertOnSensorExpiry)
@@ -385,7 +435,7 @@ struct OnboardingView: View {
     private var therapy: some View {
         VStack(alignment: .leading, spacing: 18) {
             TherapySetupView()
-            Text("Optional. GlucOS only records what you log and never suggests a dose.")
+            Text("Optional. GlucOS records what you log. Only the bolus calculator suggests a dose, and only from settings you confirm.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -406,6 +456,42 @@ struct OnboardingView: View {
                 feature("gearshape.fill", Palette.stale, "Change anything later",
                         "Settings (⌘,) has your account, target range, alerts and logging options.")
             }
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Open GlucOS when you log in", isOn: Binding(get: { launchAtLogin }, set: { setLaunchAtLogin($0) }))
+                    .toggleStyle(.switch)
+                    .font(.headline)
+                Text(loginNote ?? "Recommended, so readings and alerts carry on after a restart.")
+                    .font(.callout)
+                    .foregroundStyle(loginNote == nil ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(Tone.warning.textColor))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .glassCard()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            if launchAtLogin { loginNote = nil }
+        }
+    }
+
+    /// Same rules as Settings → General → Launch at login.
+    private func setLaunchAtLogin(_ on: Bool) {
+        let service = SMAppService.mainApp
+        do {
+            if on {
+                if service.status == .requiresApproval {
+                    SMAppService.openSystemSettingsLoginItems()
+                    loginNote = "Allow GlucOS in System Settings → General → Login Items to finish turning this on."
+                } else if service.status != .enabled {
+                    try service.register()
+                    loginNote = nil
+                }
+            } else if service.status != .notRegistered {
+                try service.unregister()
+                loginNote = nil
+            }
+        } catch {
+            loginNote = error.localizedDescription
+        }
+        launchAtLogin = service.status == .enabled
     }
 }

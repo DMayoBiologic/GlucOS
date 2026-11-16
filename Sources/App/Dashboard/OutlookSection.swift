@@ -44,6 +44,8 @@ struct OutlookSection: View {
                                  hours: 3, interactive: true, forecast: current?.forecast ?? [])
                         .frame(height: layout.chartHeight(reserving: 420, minimum: 220, maximum: 380))
                     legend(current)
+                    // Why it's trend-only, shorter or wider. No forecast at all has its own banner below.
+                    ForecastCaveatLine(caveat: current?.caveat.flatMap { $0.kind == .hidden ? nil : $0 })
                 }
                 if let current, !current.forecast.isEmpty {
                     ForecastTiles(outlook: current, snapshot: snapshot, now: now)
@@ -58,27 +60,34 @@ struct OutlookSection: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if let o = outlook, !o.limitations.isEmpty, current != nil {
-                    LimitationList(limitations: o.limitations)
+                if let o = outlook, o.limitations.contains(where: { $0.code != current?.caveat?.source }), current != nil {
+                    // The caveat line already says the first of these.
+                    LimitationList(limitations: o.limitations.filter { $0.code != current?.caveat?.source })
                 }
             }
             .dashboardCard()
+            .dsEntrance(0)
 
             CardGrid(minColumnWidth: 360, maxColumns: 2, spacing: layout.gutter) {
                 if let o = outlook {
                     InsulinActivityCard(insulin: o.insulin, carbs: o.carbs, now: now, onLog: onLog)
                 }
-                AccuracyCard(calibration: model.calibration, tuning: model.tuning, unit: unit)
+                AccuracyCard(calibration: model.calibration, tuning: model.tuning,
+                             rangeScale: outlookStore.ledger.rangeScale, unit: unit)
             }
+            .dsEntrance(1)
 
             ShownForecastsCard(ledger: outlookStore.ledger, unit: unit)
+                .dsEntrance(2)
 
             CardGrid(minColumnWidth: 360, maxColumns: 2, spacing: layout.gutter) {
                 LearntEffectsCard(profile: model.profile, unit: unit)
                 RecurringPatternsCard(patterns: model.patterns, hasHistory: hasPatternHistory(now: now))
             }
+            .dsEntrance(3)
 
             MorningCard(pattern: model.morning, unit: unit)
+                .dsEntrance(4)
 
             HistoryNote(text: "Forecasts assume nothing new is eaten or dosed, and that background insulin (long-acting or a pump's basal) holds glucose level. Timing uses typical curves for each insulin type. GlucOS never suggests a dose.")
             Disclaimer()
@@ -257,6 +266,7 @@ private struct ActivityChart: View {
 private struct AccuracyCard: View {
     let calibration: ForecastCalibration?
     let tuning: ForecastTuningResult
+    let rangeScale: ForecastRangeScale
     let unit: GlucoseUnit
 
     var body: some View {
@@ -305,6 +315,12 @@ private struct AccuracyCard: View {
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let line = ForecastAccuracyText.rangeLine(rangeScale) {
+                Label(line, systemImage: "arrow.left.and.right")
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .dashboardCard()
     }
@@ -320,6 +336,11 @@ private struct ShownForecastsCard: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             SectionHeader("Forecasts You Were Shown", systemImage: "checkmark.seal",
                           subtitle: "Each forecast on this \(ForecastLedgerStore.device) checked against the reading that followed (last 7 days)")
+            if let card = ledger.scorecard {
+                ForecastScorecardView(card: card, unit: unit, sinceUpdate: ledger.sinceUpdate, showsHeader: false)
+                Divider()
+                Text("Every checked horizon").dsFont(.headline)
+            }
             if week.all.isEmpty {
                 EmptyStateView(systemImage: "checkmark.seal", title: "Checking Has Started",
                                message: "GlucOS now keeps each forecast it shows and checks it against your readings. The first results appear here 15 minutes after a forecast.")
@@ -328,6 +349,7 @@ private struct ShownForecastsCard: View {
                     GridRow {
                         Text("Ahead").foregroundStyle(.secondary)
                         Text("Nothing logged").foregroundStyle(.secondary)
+                        Text("No change").foregroundStyle(.secondary)
                         Text("All").foregroundStyle(.secondary)
                         Text("Inside range").foregroundStyle(.secondary)
                         Text("Checks").foregroundStyle(.secondary)
@@ -338,6 +360,8 @@ private struct ShownForecastsCard: View {
                             Text("\(h.minutes) min")
                             Text(week.clean(at: h.minutes).map { "±\(unit.format(mgdl: $0.meanAbsoluteError))" } ?? "–")
                                 .fontWeight(.semibold)
+                            Text(week.clean(at: h.minutes).map { "±\(unit.format(mgdl: $0.naiveError))" } ?? "–")
+                                .foregroundStyle(.secondary)
                             Text("±\(unit.format(mgdl: h.meanAbsoluteError))").foregroundStyle(.secondary)
                             Text("\(Int((h.insideRange * 100).rounded()))%").foregroundStyle(.secondary)
                             Text("\(h.checks)").foregroundStyle(.secondary)
@@ -350,7 +374,7 @@ private struct ShownForecastsCard: View {
                     Text(line).dsFont(.callout).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Text("\"Nothing logged\" leaves out forecasts where food, insulin or an event came afterwards, because a forecast assumes nothing new happens. The range aims to hold about 8 in 10 readings.")
+            Text("\"Nothing logged\" leaves out forecasts where food, insulin or an event came afterwards, because a forecast assumes nothing new happens. \"No change\" is assuming glucose stayed where it was, on the same forecasts. The range aims to hold about 8 in 10 readings.")
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

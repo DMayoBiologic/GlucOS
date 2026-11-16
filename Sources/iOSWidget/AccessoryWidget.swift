@@ -54,9 +54,12 @@ struct AccessoryGlucoseView: View {
         guard freshness.showsValue, let c = s.current else { return "––" }
         return s.unit.format(mgdl: c.mgdl)
     }
-    private var symbol: String {
-        guard freshness == .fresh, let c = s.current else { return "clock.badge.exclamationmark" }
-        return c.trend.systemImage
+    private var trend: Trend { s.current?.trend ?? .unknown }
+    /// Lock Screen accessories are drawn monochrome, so the tone only times the figure's change
+    /// (`readingChange`); the colour itself is the system's.
+    private var tone: Tone {
+        guard freshness == .fresh, let range = s.range else { return .stale }
+        return .glucose(range)
     }
     private var age: String {
         s.current.map { Format.age($0.age(at: entry.date)) } ?? "No data"
@@ -67,13 +70,26 @@ struct AccessoryGlucoseView: View {
         case .accessoryCircular:
             ZStack {
                 AccessoryWidgetBackground()
+                // The ring empties over the reading's life (docs/Redesign.md §9), live, with no
+                // timeline reload: a full ring is a fresh reading.
+                if freshness == .fresh, let c = s.current {
+                    ProgressView(timerInterval: c.timestamp...c.timestamp.addingTimeInterval(GlucoseSnapshot.staleAfter),
+                                 countsDown: true) {
+                        EmptyView()
+                    } currentValueLabel: {
+                        EmptyView()
+                    }
+                    .progressViewStyle(.circular)
+                    .labelsHidden()
+                }
                 VStack(spacing: 0) {
                     Text(value)
                         .font(.system(size: 20, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .minimumScaleFactor(0.5)
                         .strikethrough(freshness == .stale)
-                    Image(systemName: symbol).font(.system(size: 11, weight: .bold))
+                        .readingChange(mgdl: s.current?.mgdl ?? 0, tone: tone)
+                    TrendArrow(trend: trend, stale: freshness != .fresh).font(.system(size: 11, weight: .bold))
                 }
                 .padding(4)
             }
@@ -86,15 +102,40 @@ struct AccessoryGlucoseView: View {
                         .font(.system(size: 26, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .strikethrough(freshness == .stale)
-                    Image(systemName: symbol).font(.system(size: 15, weight: .bold))
+                        .readingChange(mgdl: s.current?.mgdl ?? 0, tone: tone)
+                    TrendArrow(trend: trend, stale: freshness != .fresh).font(.system(size: 15, weight: .bold))
                     Text(s.unit.label).font(.caption2).foregroundStyle(.secondary)
                 }
-                if freshness == .fresh, let o = s.currentOutlook(at: entry.date), let h = OutlookFormat.headlineSample(o) {
+                if freshness == .fresh, let back = s.backInRange(at: entry.date) {
+                    // From a high, once this iPhone's checks allow it (`GlucoseSnapshot.backInRange`).
+                    Text(BackInRangeText.short(minutes: back.minutes)).font(.caption).monospacedDigit()
+                        .accessibilityLabel(BackInRangeText.spoken(minutes: back.minutes))
+                } else if freshness == .fresh, let o = s.currentOutlook(at: entry.date), let h = OutlookFormat.headlineSample(o) {
                     Text("\(OutlookFormat.approx(h.sample.mgdl, unit: s.unit)) in \(h.minutes) min").font(.caption)
                 } else if let range = s.range, freshness == .fresh {
                     Text(range.label).font(.caption)
                 }
-                Text(freshness == .fresh ? age : "Stale · \(age)").font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if let c = s.current, freshness.showsValue {
+                        RangeRail(mgdl: c.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: freshness != .fresh,
+                                  thickness: 3, monochrome: true, unit: s.unit)
+                            .frame(maxWidth: 64)
+                    }
+                    if let c = s.current, freshness.showsValue {
+                        // The age ticks live between timeline reloads (§9 "age timer"). Stale says
+                        // so in words too, since the Lock Screen has no colour to carry it.
+                        HStack(spacing: 3) {
+                            if freshness != .fresh { Text("Stale") }
+                            ReadingAge(readingDate: c.timestamp, stale: freshness != .fresh, timerWidth: 34)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    } else {
+                        Text(age).font(.caption2).foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .widgetAccentable()

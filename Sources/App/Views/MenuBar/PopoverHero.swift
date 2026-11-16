@@ -7,6 +7,7 @@ import SwiftUI
 /// so an old number can never pass for a live one.
 struct PopoverHero: View {
     @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var onCopy: () -> Void
@@ -25,6 +26,17 @@ struct PopoverHero: View {
     }
 
     var body: some View {
+        // Drawn once more at the moment the reading goes stale, so an open popover fades the number
+        // to grey and strikes it through right then rather than at the next refresh.
+        TimelineView(.explicit(staleMoments)) { _ in hero }
+    }
+
+    private var staleMoments: [Date] {
+        s.current.map { [$0.timestamp.addingTimeInterval(GlucoseSnapshot.staleAfter + 1)] } ?? []
+    }
+
+    @ViewBuilder
+    private var hero: some View {
         let stale = s.isStale()
         let tone = s.displayTone()
         let tint = tone.color
@@ -45,6 +57,9 @@ struct PopoverHero: View {
                 }
             }
             if let cur = s.current {
+                RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
+                          forecastMgdl: stale || !settings.showForecast ? nil : s.currentOutlook().flatMap(OutlookFormat.headlineSample)?.sample.mgdl,
+                          thickness: 5, unit: s.unit)
                 FreshnessRow(reading: cur)
             }
         }
@@ -52,6 +67,11 @@ struct PopoverHero: View {
         .padding(.top, 14)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Losing the signal or getting it back: the trend line, needle and rail fade over with the
+        // number (whose own fade and strike come from `.staleStrike`). The first reading after
+        // waiting fades in. Only fades remain under Reduce Motion.
+        .dsAnimation(.sweep, value: stale)
+        .dsAnimation(.standard, value: s.current == nil)
         // One element for VoiceOver: the whole reading in a sentence, with the card's actions.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
@@ -60,8 +80,18 @@ struct PopoverHero: View {
         .accessibilityAction(named: "Refresh", onRefresh)
         .accessibilityAction(named: "Open Dashboard", onOpenDashboard)
         // Stale is `Tone.stale`: a grey surface, so an old reading never sits on a reassuring colour.
-        .background { DSSurface(style: .hero(tone), radius: PopoverLayout.heroRadius) }
-        .overlay { rippleRing(tint) }
+        .background {
+            // The range field behind the reading. Still here (the popover is open for seconds), so
+            // it only sweeps to a new colour when the range changes.
+            ZStack {
+                DSSurface(style: .hero(tone), radius: PopoverLayout.heroRadius)
+                RangeField(tone: tone, intensity: 0.8, range: stale ? nil : s.range)
+                    .clipShape(shape)
+            }
+        }
+        // An urgent low gets a rim as well as its colour, so it reads without colour vision.
+        .urgentRim(!stale && s.range == .urgentLow, in: shape)
+        .readingRipple(trigger: ripple, in: shape, tint: tint)
         .dsShadow(.medium, tint: stale ? nil : tint)
         .contentShape(shape)
         .contextMenu {
@@ -78,36 +108,11 @@ struct PopoverHero: View {
         }
     }
 
-    /// New-reading ripple: one expanding, fading outline.
-    private func rippleRing(_ tint: Color) -> some View {
-        shape
-            .strokeBorder(tint, lineWidth: 2)
-            .keyframeAnimator(initialValue: Ripple(), trigger: ripple) { content, value in
-                content.scaleEffect(value.scale).opacity(value.opacity)
-            } keyframes: { _ in
-                KeyframeTrack(\.scale) {
-                    LinearKeyframe(1, duration: 0.01)
-                    CubicKeyframe(1.035, duration: 0.9)
-                }
-                KeyframeTrack(\.opacity) {
-                    LinearKeyframe(0.6, duration: 0.01)
-                    CubicKeyframe(0, duration: 0.9)
-                }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-
-    private struct Ripple {
-        var scale: CGFloat = 1
-        var opacity: Double = 0
-    }
-
     // MARK: Rows
 
     private func statusRow(stale: Bool) -> some View {
         HStack(spacing: 6) {
-            if let range = s.range { RangeBadge(range: range, stale: stale) }
+            if let range = s.range { RangeBadgeSwap(range: range, stale: stale) }
             if let streak = s.rangeStreak(), streak.duration >= 5 * 60 {
                 Text("for \(streak.isOpenEnded ? "over " : "")\(PopoverFormat.streak(streak.duration))")
                     .dsFont(.label)
@@ -130,18 +135,15 @@ struct PopoverHero: View {
                 .font(.system(size: (54 * (1 + (textScale.scale - 1) * 0.5)).rounded(), weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(numberStyle(tint)))
+                // A new reading rolls the digits over to it, up or down with the change, like the
+                // iPhone and the Live Activity. Crossing a range edge moves the figure and its colour
+                // together on the slower colour fade. Once per change, never while the popover just
+                // sits open; under Reduce Motion the number just changes. VoiceOver reads the card's
+                // label, which is always the new reading, never a figure part-way through the roll.
+                .readingChange(mgdl: cur.mgdl, tone: s.displayTone(), instantUnderReduceMotion: true)
                 // A stale value is crossed through lightly, so it can't be read as current even in
-                // a quick glance or a screenshot.
-                .overlay(alignment: .center) {
-                    if stale {
-                        Capsule()
-                            .fill(Color.secondary.opacity(0.7))
-                            .frame(height: 3)
-                            .rotationEffect(.degrees(-8))
-                            .padding(.horizontal, -2)
-                    }
-                }
-                .contentTransition(.numericText(value: cur.mgdl))
+                // a quick glance or a screenshot. The line draws across as the data goes stale.
+                .staleStrike(stale)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(s.unit.label)
@@ -158,14 +160,19 @@ struct PopoverHero: View {
                 .foregroundStyle(.secondary)
         } else {
             HStack(spacing: 6) {
+                // The words cross-fade when the trend turns (the dial's needle swings with them).
                 Text(cur.trend.description)
                     .fontWeight(.semibold).dsFont(.callout)
+                    .contentTransition(.opacity)
+                    .dsAnimation(.sweep, value: cur.trend)
                 if let d = s.deltaMgdl {
                     Text(s.unit.formatDelta(mgdl: d))
                         .fontWeight(.medium).dsFont(.callout)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
-                        .contentTransition(.numericText(value: d))
+                        // Rolls with the reading; just changes under Reduce Motion.
+                        .contentTransition(reduceMotion ? .identity : .numericText(value: d))
+                        .dsAnimation(.arrival, value: d)
                         .help("Change since the previous reading")
                 }
             }
@@ -187,22 +194,26 @@ struct PopoverHero: View {
     }
 }
 
-/// "Updated 32s ago · 3:41 pm" over a hairline meter that fills as the reading ages toward stale.
-/// Ticks every second on its own, so the rest of the popover doesn't re-render with it.
+/// "Updated 32s ago · 3:41 pm" over the shared `FreshnessMeter`, which fills from the reading to
+/// the moment it goes stale (docs/Redesign.md §5.4, §8.2) and is drawn full and amber once stale.
+/// The label ticks every second on its own, so the rest of the popover doesn't re-render with it.
 private struct FreshnessRow: View {
     let reading: GlucoseReading
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let age = reading.age(at: context.date)
-            let progress = min(1, max(0.02, age / GlucoseSnapshot.staleAfter))
             let stale = age > GlucoseSnapshot.staleAfter
             let nearlyStale = !stale && age > GlucoseSnapshot.staleAfter * 0.66
             let warning = Tone.warning
             let color: Color = stale || nearlyStale ? warning.textColor : .secondary
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
-                    if stale { Image(systemName: "exclamationmark.triangle.fill").imageScale(.small) }
+                    if stale {
+                        Image(systemName: "exclamationmark.triangle.fill").imageScale(.small)
+                    } else {
+                        Image(systemName: "clock").imageScale(.small)
+                    }
                     Text(stale ? "Last reading \(PopoverFormat.ageAgo(age))" : "Updated \(PopoverFormat.ageAgo(age))")
                         .monospacedDigit()
                     Spacer(minLength: 4)
@@ -212,18 +223,12 @@ private struct FreshnessRow: View {
                 .dsFont(.label)
                 .foregroundStyle(color)
 
-                GeometryReader { geo in
-                    Capsule()
-                        .fill(Color.primary.opacity(0.08))
-                        .overlay(alignment: .leading) {
-                            Capsule()
-                                .fill(stale ? warning.color : (nearlyStale ? warning.color.opacity(0.8) : Color.secondary.opacity(0.55)))
-                                .frame(width: geo.size.width * progress)
-                        }
-                }
-                .frame(height: 3)
-                .help("Readings older than \(Int(GlucoseSnapshot.staleAfter / 60)) minutes are treated as stale")
+                FreshnessMeter(readingDate: reading.timestamp, stale: stale,
+                               tint: nearlyStale ? warning.color.opacity(0.8) : Palette.neutral,
+                               width: nil)
+                    .help("Readings older than \(Int(GlucoseSnapshot.staleAfter / 60)) minutes are treated as stale")
             }
+            .dsAnimation(.ambient, value: stale)
         }
     }
 }

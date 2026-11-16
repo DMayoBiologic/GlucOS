@@ -9,9 +9,25 @@ final class ForecastLedgerStore: ObservableObject {
     /// whether accuracy is improving.
     @Published private(set) var lastWeek: LiveAccuracy = .empty
     @Published private(set) var weeksBefore: LiveAccuracy = .empty
+    /// The Insights card: the last 7 days at 15, 30 and 60 minutes against no change. Nil until
+    /// there are enough checks.
+    @Published private(set) var scorecard: ForecastScorecard?
+    /// The same figures for only the forecasts this version showed. Nil until it has shown one.
+    @Published private(set) var sinceUpdate: ForecastSinceUpdate?
+    /// How much wider to draw the range, from how the forecasts shown here did.
+    @Published private(set) var rangeScale: ForecastRangeScale = .unchanged
+    /// How far ahead the forecast may be drawn, from how this device's forecasts did against no change.
+    @Published private(set) var liveHorizon: ForecastLiveHorizon = .unlimited
+    /// How this device's "back in range" estimates have done, which decides whether one is shown.
+    @Published private(set) var backInRange: BackInRangeCheck = .none
 
     private(set) var ledger: ForecastLedger
     private var lastScored = Date.distantPast
+    /// What the back-in-range check was last worked out from, so it's redone only when that changes.
+    private var backInRangeKey: (settled: Int, low: Double, high: Double)?
+
+    /// The installed version ("1.2.0"), kept on each recorded forecast.
+    static let appVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
 
     static let device: String = {
         #if os(macOS)
@@ -31,9 +47,9 @@ final class ForecastLedgerStore: ObservableObject {
 
     /// Records the forecast being shown now (at most one per 15 minutes) and scores earlier ones.
     func update(forecast: GlucoseForecast?, tuned: Bool, archive: [GlucoseReading], current: GlucoseReading?,
-                logTimes: @autoclosure () -> [Date], now: Date = Date()) {
+                logTimes: @autoclosure () -> [Date], low: Double = 70, high: Double = 180, now: Date = Date()) {
         var changed = false
-        if let forecast { changed = ledger.note(forecast, device: Self.device, tuned: tuned, now: now) }
+        if let forecast { changed = ledger.note(forecast, device: Self.device, tuned: tuned, appVersion: Self.appVersion, now: now) }
         // Scoring needs only a minute's resolution.
         if changed || now.timeIntervalSince(lastScored) >= 60 {
             lastScored = now
@@ -48,6 +64,19 @@ final class ForecastLedgerStore: ObservableObject {
             save()
             summarise()
         }
+        updateBackInRange(archive: archive, low: low, high: high, now: now)
+    }
+
+    /// Re-scores the back-in-range estimates when a forecast settles or the range changes.
+    private func updateBackInRange(archive: [GlucoseReading], low: Double, high: Double, now: Date) {
+        let settled = ledger.records.lazy.filter(\.settled).count
+        if let k = backInRangeKey, k.settled == settled, k.low == low, k.high == high { return }
+        backInRangeKey = (settled, low, high)
+        let from = now.addingTimeInterval(-BackInRange.window)
+        let readings = GlucoseSeries(archive.filter { $0.timestamp >= from })
+        let check = BackInRange.check(records: ledger.records, readings: readings, device: Self.device,
+                                      low: low, high: high, now: now)
+        if check != backInRange { backInRange = check }
     }
 
     /// Settled forecasts not yet uploaded.
@@ -60,8 +89,24 @@ final class ForecastLedgerStore: ObservableObject {
 
     private func summarise(now: Date = Date()) {
         let weekAgo = now.addingTimeInterval(-7 * 86_400)
-        lastWeek = ledger.accuracy(from: weekAgo, to: now.addingTimeInterval(3600))
-        weeksBefore = ledger.accuracy(from: now.addingTimeInterval(-28 * 86_400), to: weekAgo)
+        // This device's own forecasts: what was shown here.
+        lastWeek = ledger.accuracy(from: weekAgo, to: now.addingTimeInterval(3600), device: Self.device)
+        weeksBefore = ledger.accuracy(from: now.addingTimeInterval(-28 * 86_400), to: weekAgo, device: Self.device)
+        let card = ForecastScorecard(lastWeek)
+        if card != scorecard { scorecard = card }
+        var since: ForecastSinceUpdate?
+        if let version = Self.appVersion {
+            let first = ledger.firstRecord(device: Self.device, appVersion: version)
+            let mine = ledger.accuracy(from: max(weekAgo, first ?? weekAgo), to: now.addingTimeInterval(3600),
+                                       device: Self.device, appVersion: version)
+            since = ForecastSinceUpdate(accuracy: mine, version: version, since: first,
+                                        coversWeek: first.map { $0 <= weekAgo } ?? false)
+        }
+        if since != sinceUpdate { sinceUpdate = since }
+        let scale = ledger.rangeScale(now: now)
+        if scale != rangeScale { rangeScale = scale }
+        let horizon = ledger.liveHorizon(device: Self.device, now: now)
+        if horizon != liveHorizon { liveHorizon = horizon }
     }
 
     private static func load() -> ForecastLedger {

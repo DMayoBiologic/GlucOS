@@ -25,6 +25,7 @@ interface Fixture {
   ticks: FixtureTick[];
   expected: Record<string, unknown>[];
   calibration?: { minutes: number; samples: number; lower: number; upper: number; mae: number; naive: number }[];
+  tuning?: { trendFade: number; trendWindow: number; trendGain: number };
 }
 
 const fixture = JSON.parse(await Deno.readTextFile(new URL("./testdata/parity.json", import.meta.url))) as {
@@ -66,7 +67,9 @@ for (const sc of fixture.scenarios) {
     const problems: string[] = [];
 
     sc.ticks.forEach((t, i) => {
-      if (t.learn && stored.length > 24) calibration = learnCalibration(stored, t.now);
+      // The apps widen from their own ledgers only, so parity leaves out the replay's widening
+      // (checked on its own below), as it leaves out the relay ledger's.
+      if (t.learn && stored.length > 24) calibration = { ...learnCalibration(stored, t.now)!, rangeScale: null };
       let lastError: string | null = null;
       if (t.error !== undefined) {
         lastError = t.error;
@@ -108,6 +111,11 @@ for (const sc of fixture.scenarios) {
         naive: s.naiveError,
       })), `${sc.name}.calibration`, problems);
     }
+    if (sc.tuning) {
+      const t = (calibration as Calibration | null)?.tuning;
+      close(sc.tuning, t && { trendFade: t.trendFade, trendWindow: t.trendWindow, trendGain: t.trendGain },
+        `${sc.name}.tuning`, problems);
+    }
     assertEquals(problems.slice(0, 15), []);
   });
 }
@@ -121,4 +129,59 @@ Deno.test("formatting matches printf, ties included", () => {
   assertEquals(fixed(-0.25, 1), "-0.2");
   assertEquals(formatGlucose("mmol", 65, true), "3.6 mmol/L");
   assertEquals(formatGlucose("mgdl", 65, true), "65 mg/dL");
+});
+
+// MARK: Live horizon (ForecastLiveHorizonTests.swift)
+
+Deno.test("live horizon: cut when clearly worse, back only when clearly better", async () => {
+  const { liveHorizon } = await import("./core.ts");
+  const now = 1_790_000_000;
+  const pts = (n: number, errors: Record<number, number>, moved = 20, hiddenLatest: number[] = []) => {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      for (const [m, e] of Object.entries(errors)) {
+        const minutes = Number(m);
+        out.push({ issuedAt: now - (n - i) * 900, minutes, mgdl: 100 + moved - e, startMgdl: 100, actual: 100 + moved,
+                   afterLog: false, shown: !(i === n - 1 && hiddenLatest.includes(minutes)) });
+      }
+    }
+    return out;
+  };
+  assertEquals(liveHorizon(pts(40, { 15: 20.3, 30: 15 }), now), null);
+  assertEquals(liveHorizon(pts(40, { 15: 10, 30: 22 }), now), { shownMinutes: 15, failedAt: 30 });
+  assertEquals(liveHorizon(pts(40, { 15: 25 }), now), { shownMinutes: 0, failedAt: 15 });
+  assertEquals(liveHorizon(pts(29, { 15: 40 }), now), null);
+  // Level with no change: stays cut if it was cut, stays drawn if it was drawn.
+  assertEquals(liveHorizon(pts(40, { 15: 10, 30: 19.6 }, 20, [30]), now), { shownMinutes: 15, failedAt: 30 });
+  assertEquals(liveHorizon(pts(40, { 15: 10, 30: 19.6 }), now), null);
+  assertEquals(liveHorizon(pts(40, { 15: 10, 30: 18 }, 20, [30]), now), null);
+  // Too few checks while cut: stays cut.
+  assertEquals(liveHorizon(pts(5, { 15: 10, 30: 1 }, 20, [30]), now), { shownMinutes: 15, failedAt: 30 });
+  // Points after a log, or older than a week, don't count.
+  assertEquals(liveHorizon(pts(40, { 15: 25 }).map((p) => ({ ...p, afterLog: true })), now), null);
+  assertEquals(liveHorizon(pts(40, { 15: 25 }), now + 8 * 86_400), null);
+});
+
+Deno.test("predicted lows look the trend's 30 minutes ahead past a 15-minute calibrated horizon (§13)", async () => {
+  const { forecast, evaluatePrediction, makeSnapshot, Series, defaultAlertPreferences, newPlanner } = await import("./core.ts");
+  const now = 1_790_000_000;
+  // 95 falling 2 a minute: the fading trend passes 70 at about 20 minutes, not within 15.
+  const readings: Reading[] = [];
+  for (let m = 20; m >= 0; m--) readings.push({ t: now - m * 60, mgdl: 95 + 2 * m, trend: 2 });
+  const stat = (minutes: number, beats: boolean) => ({ minutes, samples: 100, meanAbsoluteError: beats ? 5 : 30,
+                                                       naiveError: 20, bias: 0, lower: -8, upper: 8 });
+  const calibration: Calibration = { trend: [stat(15, true), stat(30, false)], origins: 100, computedAt: now };
+  const res = forecast(new Series(readings, true), calibration, now);
+  if (!res.ok) throw new Error("no forecast");
+  assertEquals(Math.round((res.forecast.samples.at(-1)!.t - now) / 60), 15);
+  assertEquals(res.forecast.lowLookahead?.length, 3);
+  const snap = makeSnapshot(readings, readings.at(-1)!, null, { unit: "mgdl", lowMgdl: 70, highMgdl: 180 }, null);
+  const prefs = defaultAlertPreferences();
+  assertEquals(prefs.predictiveMinutes, 30);
+  assertEquals(evaluatePrediction(newPlanner(), snap, res.forecast, prefs, now)?.kind, "predictedLow");
+  assertEquals(evaluatePrediction(newPlanner(), snap, res.forecast, prefs, now, "drawn"), null);
+  assertEquals(evaluatePrediction(newPlanner(), snap, res.forecast, { ...prefs, predictiveMinutes: 15 }, now), null);
+  // Replays and the backtest (a fixed horizon) don't get one.
+  const fixed = forecast(new Series(readings, true), calibration, now, 15 * 60);
+  assertEquals(fixed.ok && fixed.forecast.lowLookahead, undefined);
 });

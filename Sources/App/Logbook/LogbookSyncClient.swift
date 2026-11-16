@@ -149,6 +149,8 @@ struct ForecastUpload: Encodable, Equatable {
         let upper: Double
         let actual: Double?
         let after_log: Bool
+        /// Sent only as false: a point past the drawn horizon, kept to go on scoring it.
+        let shown: Bool?
     }
     let id: UUID
     let issued: Double
@@ -161,6 +163,8 @@ struct ForecastUpload: Encodable, Equatable {
     let calibrated: Bool
     let tuned: Bool
     let morning: Bool
+    /// The app version that showed it. Left out for records from before versions were kept.
+    let app_version: String?
 
     init(_ r: ForecastRecord) {
         id = r.id
@@ -170,10 +174,12 @@ struct ForecastUpload: Encodable, Equatable {
         start_mgdl = r.startMgdl
         trend = r.trendPerMinute
         points = r.points.map { Point(minutes: $0.minutes, mgdl: $0.mgdl, lower: $0.lower, upper: $0.upper,
-                                      actual: $0.actual, after_log: $0.afterLog) }
+                                      actual: $0.actual, after_log: $0.afterLog,
+                                      shown: $0.wasShown ? nil : false) }
         limitations = r.limitations
         calibrated = r.calibrated
         tuned = r.tuned
         morning = r.morning
+        app_version = r.appVersion
     }
 }

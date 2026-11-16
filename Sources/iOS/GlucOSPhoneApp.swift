@@ -29,6 +29,10 @@ struct GlucOSPhoneApp: App {
         services.logbookSync = sync
         services.follows = follows
         _services = StateObject(wrappedValue: services)
+        // Before any check-in button can run: they may be what launched the app.
+        CheckInCoordinator.install(services: services, follows: follows)
+        // Likewise the Meal / Correction buttons after a dose with no food near it.
+        DoseQuestion.shared.start(logbook: logbook)
         // Has to happen before launch finishes.
         BackgroundRefresh.register()
     }
@@ -90,5 +94,37 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.banner, .list, .sound])
+        let userInfo = notification.request.content.userInfo
+        let date = notification.date
+        Task { @MainActor in
+            // The user's own low or high alert goes in the logbook (docs/AlertLog.md).
+            AlertLogRecorder.shared.arrived(userInfo: userInfo, at: date)
+            await CheckInCoordinator.arrived(userInfo: userInfo)
+        }
+    }
+
+    /// Buttons on a notification: "Snooze 30 min" and "I'm treating it" on alerts, check-ins ("I'm
+    /// okay", "I need help", "Check in") and "Was that dose for a meal?" (Meal, Correction).
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
+        let action = response.actionIdentifier
+        let userInfo = response.notification.request.content.userInfo
+        let date = response.notification.date
+        Task { @MainActor in
+            if let tap = AlertNotifications.button(action: action, userInfo: userInfo) {
+                AlertLogRecorder.shared.tapped(tap, userInfo: userInfo, firedAt: date)
+                await PhoneAlertActions.handle(tap)
+                // While iOS keeps the app awake, so the Mac's Logbook shows the tap too.
+                await PhoneServices.shared?.logbookSync?.sync()
+            } else if DoseQuestion.shared.handle(action: action, userInfo: userInfo) {
+                // Send the answer now, while iOS keeps the app awake, so the Mac stops asking too.
+                if action != UNNotificationDefaultActionIdentifier {
+                    await PhoneServices.shared?.logbookSync?.sync()
+                }
+            } else {
+                await CheckInCoordinator.handle(action: action, userInfo: userInfo)
+            }
+            completionHandler()
+        }
     }
 }

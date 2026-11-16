@@ -32,7 +32,10 @@ final class AppSettings: ObservableObject {
     @Published var alertCooldownMinutes: Int { didSet { d.set(alertCooldownMinutes, forKey: "alertCooldown") } }
     @Published var sensorLifetimeDays: Int { didSet { d.set(sensorLifetimeDays, forKey: "sensorLifetimeDays") } }
     @Published var showDeltaInMenuBar: Bool { didSet { d.set(showDeltaInMenuBar, forKey: "showDelta") } }
+    /// The menu bar reading in its range colour. On unless turned off (urgent lows are always coloured).
     @Published var colorMenuBarIcon: Bool { didSet { d.set(colorMenuBarIcon, forKey: "colorMenuBarIcon") } }
+    /// A tiny sparkline of the last hour after the menu bar reading.
+    @Published var showMenuBarSparkline: Bool { didSet { d.set(showMenuBarSparkline, forKey: "menuBarSparkline") } }
     /// Hours of history in the popover chart (3, 6 or 12).
     @Published var chartHours: Int { didSet { d.set(chartHours, forKey: "chartHours") } }
 
@@ -49,6 +52,15 @@ final class AppSettings: ObservableObject {
     @Published var bolusInsulinName: String { didSet { d.set(bolusInsulinName, forKey: "bolusInsulinName") } }
     /// Long-acting insulin (injections only).
     @Published var basalInsulinName: String { didSet { d.set(basalInsulinName, forKey: "basalInsulinName") } }
+
+    /// Open the log window from any app with `globalLogShortcut` (Settings → Logging). Off until
+    /// the user turns it on: a system-wide shortcut takes that key combination from every app.
+    @Published var globalLogShortcutEnabled: Bool { didSet { d.set(globalLogShortcutEnabled, forKey: "globalLogShortcutEnabled") } }
+    @Published var globalLogShortcut: LogHotKey {
+        didSet { d.set(try? JSONEncoder().encode(globalLogShortcut), forKey: "globalLogShortcut") }
+    }
+    /// The "open from anywhere" shortcut while it's on, for the ⌘? lists.
+    var activeGlobalLogShortcut: LogHotKey? { globalLogShortcutEnabled ? globalLogShortcut : nil }
 
     /// First-run setup finished (or skipped). Existing installs with an account count as done.
     @Published var onboardingCompleted: Bool { didSet { d.set(onboardingCompleted, forKey: "onboardingCompleted") } }
@@ -78,19 +90,23 @@ final class AppSettings: ObservableObject {
         alertOnSensorExpiry = d.object(forKey: "alertSensor") as? Bool ?? true
         alertOnPredictedLow = d.object(forKey: "alertPredictedLow") as? Bool ?? true
         alertOnPredictedHigh = d.object(forKey: "alertPredictedHigh") as? Bool ?? true
-        let lead = d.object(forKey: "predictiveAlertMinutes") as? Int ?? 20
-        predictiveAlertMinutes = [10, 15, 20, 30].contains(lead) ? lead : 20
+        let lead = d.object(forKey: "predictiveAlertMinutes") as? Int ?? 30
+        predictiveAlertMinutes = [10, 15, 20, 30].contains(lead) ? lead : 30
         showForecast = d.object(forKey: "showForecast") as? Bool ?? true
         alertCooldownMinutes = d.object(forKey: "alertCooldown") as? Int ?? 15
         sensorLifetimeDays = d.object(forKey: "sensorLifetimeDays") as? Int ?? 15   // Libre 2 Plus
         showDeltaInMenuBar = d.object(forKey: "showDelta") as? Bool ?? false
-        colorMenuBarIcon = d.object(forKey: "colorMenuBarIcon") as? Bool ?? false
+        colorMenuBarIcon = d.object(forKey: "colorMenuBarIcon") as? Bool ?? true
+        showMenuBarSparkline = d.object(forKey: "menuBarSparkline") as? Bool ?? false
         let hours = d.object(forKey: "chartHours") as? Int ?? 12
         chartHours = [3, 6, 12, 24].contains(hours) ? hours : 12
         therapy = TherapyType(rawValue: d.string(forKey: "therapy") ?? "") ?? .notSet
         bolusInsulinKind = InsulinKind(rawValue: d.string(forKey: "bolusInsulinKind") ?? "") ?? .rapid
         bolusInsulinName = d.string(forKey: "bolusInsulinName") ?? ""
         basalInsulinName = d.string(forKey: "basalInsulinName") ?? ""
+        globalLogShortcutEnabled = d.bool(forKey: "globalLogShortcutEnabled")
+        globalLogShortcut = d.data(forKey: "globalLogShortcut")
+            .flatMap { try? JSONDecoder().decode(LogHotKey.self, from: $0) } ?? .suggested
         let savedEmail = d.string(forKey: "email") ?? ""
         onboardingCompleted = d.object(forKey: "onboardingCompleted") as? Bool ?? !savedEmail.isEmpty
     }

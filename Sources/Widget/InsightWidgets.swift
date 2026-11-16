@@ -67,8 +67,10 @@ struct TimeInRangeWidgetView: View {
                 coverageNote(sum)
             } else {
                 HStack {
-                    WidgetStat(title: "Below", value: Format.percent(sum.below), dot: GlucoseRange.low.tint, valueSize: 12)
-                    WidgetStat(title: "Above", value: Format.percent(sum.above), dot: GlucoseRange.high.tint, valueSize: 12)
+                    WidgetStat(title: "Below", value: Format.percent(sum.below), dot: GlucoseRange.low.tint, valueSize: 12,
+                               numeric: sum.below)
+                    WidgetStat(title: "Above", value: Format.percent(sum.above), dot: GlucoseRange.high.tint, valueSize: 12,
+                               numeric: sum.above)
                 }
             }
         }
@@ -93,11 +95,11 @@ struct TimeInRangeWidgetView: View {
                     coverageNote(sum)
                 } else {
                     HStack(spacing: 10) {
-                        miniFact("Avg", unit.format(mgdl: sum.meanMgdl))
+                        miniFact("Avg", unit.format(mgdl: sum.meanMgdl), numeric: sum.meanMgdl)
                         if entry.period == .last14Days {
-                            miniFact("GMI", String(format: "%.1f%%", sum.gmiPercent))
+                            miniFact("GMI", String(format: "%.1f%%", sum.gmiPercent), numeric: sum.gmiPercent)
                         } else {
-                            miniFact("CV", Format.percent(sum.cv))
+                            miniFact("CV", Format.percent(sum.cv), numeric: sum.cv)
                         }
                     }
                 }
@@ -121,19 +123,24 @@ struct TimeInRangeWidgetView: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .frame(width: 44, height: 4)
+            // Between two timelines the bar grows or shrinks to its new share and the figure rolls,
+            // like the ring beside it. Held still under Reduce Motion.
+            .dsAnimation(.emphasized, value: fraction)
             Text(Format.percent(fraction))
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .monospacedDigit()
+                .contentTransition(.numericText(value: fraction))
                 .frame(width: 34, alignment: .trailing)
         }
         .lineLimit(1)
         .accessibilityElement(children: .combine)
     }
 
-    private func miniFact(_ title: String, _ value: String) -> some View {
+    private func miniFact(_ title: String, _ value: String, numeric: Double) -> some View {
         HStack(spacing: 3) {
             Text(title).foregroundStyle(.secondary)
             Text(value).fontWeight(.bold).monospacedDigit()
+                .contentTransition(.numericText(value: numeric))
         }
         .font(.system(size: 10.5))
         .lineLimit(1)
@@ -181,6 +188,8 @@ struct SensorWidgetView: View {
                         Text(left >= 1 ? "\(Int(left.rounded(.down)))" : "\(max(0, Int(left * 24)))")
                             .font(.system(size: 30, weight: .bold, design: .rounded))
                             .monospacedDigit()
+                            // Counts down a day (or, on the last day, an hour) at a time.
+                            .contentTransition(.numericText(countsDown: true))
                         Text(left >= 1 ? (Int(left) == 1 ? "day left" : "days left") : (Int(left * 24) == 1 ? "hour left" : "hours left"))
                             .font(.system(size: 9.5, weight: .semibold))
                             .foregroundStyle(.secondary)

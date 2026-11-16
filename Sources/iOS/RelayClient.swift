@@ -69,7 +69,7 @@ struct RelayClient {
     let baseURL: URL
     let secret: String
 
-    enum RelayError: LocalizedError {
+    enum RelayError: LocalizedError, RetryableError {
         case unauthorized
         case http(Int)
         case badResponse
@@ -83,6 +83,11 @@ struct RelayClient {
             case .badResponse: return "The relay's reply wasn't understood."
             case .refused(let message): return message
             }
+        }
+
+        var isTransient: Bool {
+            if case .http(let code) = self { return Self.isGatewayHiccup(code) }
+            return false
         }
     }
 
@@ -105,6 +110,7 @@ struct RelayClient {
         var req = URLRequest(url: baseURL.appendingPathComponent("v1/claim"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        FunctionRegion.pin(&req)
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["email": email, "password": password])
         guard let (data, resp) = try? await session.data(for: req) else { return .unavailable }
         switch (resp as? HTTPURLResponse)?.statusCode ?? 0 {
@@ -117,12 +123,33 @@ struct RelayClient {
     }
 
     func register(_ registration: RelayRegistration) async throws -> RelayStatus {
-        try await call("v1/register", method: "POST", body: try JSONEncoder().encode(registration))
+        // The whole state every time, so sending it twice is harmless.
+        let body = try JSONEncoder().encode(registration)
+        return try await RelayRetry.run { try await call("v1/register", method: "POST", body: body) }
     }
 
-    func status() async throws -> RelayStatus { try await call("v1/status", method: "GET") }
+    func status() async throws -> RelayStatus { try await RelayRetry.run { try await call("v1/status", method: "GET") } }
+
+    /// The relay's readings since `since`, to fill in this phone's history.
+    func history(since: Date) async throws -> [GlucoseReading] {
+        let query = [URLQueryItem(name: "since", value: String(Int(since.timeIntervalSince1970)))]
+        let h: RelayHistory = try await RelayRetry.run { try await call("v1/history", method: "GET", query: query) }
+        return h.glucoseReadings
+    }
 
     func sendTest() async throws -> RelayStatus { try await call("v1/test", method: "POST") }
+
+    /// Answers every follower waiting on a check-in.
+    func answerCheckIns(_ answer: CheckInAnswer.Answer) async throws -> RelayStatus {
+        try await call("v1/checkins/answer", method: "POST", body: try JSONEncoder().encode(CheckInAnswer(answer: answer)))
+    }
+
+    /// Quiets the relay's pushes of one alert for a while ("Snooze 30 min", "I'm treating it").
+    /// Sending it twice is harmless: the relay keeps the later end.
+    func snoozeAlerts(_ request: AlertSnoozeRequest) async throws -> RelayStatus {
+        let body = try JSONEncoder().encode(request)
+        return try await RelayRetry.run { try await call("v1/alerts/snooze", method: "POST", body: body) }
+    }
 
     // MARK: Sharing (ShareProtocol.swift)
 
@@ -136,11 +163,22 @@ struct RelayClient {
         try await call("v1/shares/revoke", method: "POST", body: try JSONEncoder().encode(RevokeShare(id: id)))
     }
 
-    private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil) async throws -> T {
-        var req = URLRequest(url: baseURL.appendingPathComponent(path))
+    func updateShare(_ request: UpdateShare) async throws -> [ShareInfo] {
+        try await call("v1/shares/update", method: "POST", body: try JSONEncoder().encode(request))
+    }
+
+    private func call<T: Decodable>(_ path: String, method: String, body: Data? = nil,
+                                    query: [URLQueryItem] = []) async throws -> T {
+        var url = baseURL.appendingPathComponent(path)
+        if !query.isEmpty, var c = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            c.queryItems = query
+            url = c.url ?? url
+        }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+        FunctionRegion.pin(&req)
         if let body {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")

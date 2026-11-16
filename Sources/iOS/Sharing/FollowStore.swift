@@ -1,5 +1,6 @@
 import ActivityKit
 import Foundation
+import UserNotifications
 
 /// Someone's live readings this phone follows, from a share link they sent.
 struct Follow: Codable, Hashable, Identifiable {
@@ -42,11 +43,21 @@ final class FollowStore: ObservableObject {
 
     @Published private(set) var follows: [Follow] = []
     @Published private(set) var snapshots: [String: ShareSnapshot] = [:]
+    /// The follower view's readings and logbook for each follow (`detail(since:)`), topped up on
+    /// each refresh. Kept in memory only: the first open after a launch fetches the 14 days again.
+    @Published private(set) var details: [String: FollowDetail] = [:]
     /// Shares the owner stopped (or that expired): shown as ended until removed.
     @Published private(set) var ended: Set<String> = []
     @Published private(set) var errors: [String: String] = [:]
     /// The outcome of opening a share link, for an alert.
     @Published var notice: String?
+    /// Each follow's latest check-in (Check in on their card), while it's current.
+    @Published private(set) var checkIns: [String: CheckInState] = [:]
+    @Published private(set) var checkingIn: Set<String> = []
+    /// This person's own name, so the people they check in on know who's asking.
+    @Published var myName: String {
+        didSet { defaults.set(myName, forKey: "followerName") }
+    }
 
     private let defaults = UserDefaults.standard
     private var tracked = Set<String>()
@@ -69,6 +80,7 @@ final class FollowStore: ObservableObject {
     }
 
     init() {
+        myName = UserDefaults.standard.string(forKey: "followerName") ?? ""
         if let data = defaults.data(forKey: "follows"), let saved = try? JSONDecoder().decode([Follow].self, from: data) {
             follows = saved
         }
@@ -102,6 +114,8 @@ final class FollowStore: ObservableObject {
         pendingUnfollows.removeAll { $0 == follow.id }
         snapshots[follow.id] = snapshot
         save()
+        // Their alerts need notifications. Asks only the first time; a no-op once answered.
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
         await register(follow.id)
         await showActivity(for: follow, canStart: true)
         return follow
@@ -124,6 +138,7 @@ final class FollowStore: ObservableObject {
         if !pendingUnfollows.contains(follow.id) { pendingUnfollows.append(follow.id) }
         follows.removeAll { $0.id == follow.id }
         snapshots[follow.id] = nil
+        details[follow.id] = nil
         errors[follow.id] = nil
         ended.remove(follow.id)
         save()
@@ -205,16 +220,18 @@ final class FollowStore: ObservableObject {
         for follow in follows {
             guard let client = client(follow.id) else { continue }
             do {
-                let s = try await client.snapshot()
+                let s = try await client.snapshot(installation: installation)
                 // Removed, or switched off the Lock Screen, while that was loading: use what's current.
                 guard let i = follows.firstIndex(where: { $0.id == follow.id }) else { continue }
                 snapshots[follow.id] = s
+                checkIns[follow.id] = s.checkIn
                 errors[follow.id] = nil
                 if follows[i].label != s.label {
                     follows[i].label = s.label
                     save()
                 }
                 await showActivity(for: follows[i], canStart: canStart)
+                await refreshDetail(follow.id, client: client)
             } catch ShareClient.ShareError.ended {
                 guard follows.contains(where: { $0.id == follow.id }) else { continue }
                 ended.insert(follow.id)
@@ -224,6 +241,16 @@ final class FollowStore: ObservableObject {
                 errors[follow.id] = error.localizedDescription
             }
         }
+    }
+
+    /// Tops up `details` for one follow. A failure keeps what's there; the snapshot's own error
+    /// already says when the server can't be reached.
+    private func refreshDetail(_ id: String, client: ShareClient) async {
+        let since = details[id]?.history.since
+        guard let d = try? await client.detail(since: since), follows.contains(where: { $0.id == id }) else { return }
+        var detail = details[id] ?? FollowDetail()
+        detail.apply(d)
+        details[id] = detail
     }
 
     // MARK: Lock Screen
@@ -236,9 +263,14 @@ final class FollowStore: ObservableObject {
 
     private func showActivity(for follow: Follow, canStart: Bool) async {
         guard follow.liveActivity, !ended.contains(follow.id), ActivityAuthorizationInfo().areActivitiesEnabled,
-              let card = snapshots[follow.id]?.card else { return }
+              var card = snapshots[follow.id]?.card else { return }
+        card.checkIn = checkIns[follow.id]
         let content = ActivityContent(state: card, staleDate: card.staleDate,
                                       relevanceScore: card.range == .inRange ? 40 : 90)
+        // Cards iOS ended at its 8-hour limit linger, frozen, for up to 4 hours: take them off.
+        for ended in GlucoseActivity.activities where ended.attributes.followID == follow.id && ended.activityState == .ended {
+            await ended.end(nil, dismissalPolicy: .immediate)
+        }
         let running = activities(for: follow.id)
         for extra in running.dropLast() { await extra.end(nil, dismissalPolicy: .immediate) }
         if let a = running.last {
@@ -298,7 +330,32 @@ final class FollowStore: ObservableObject {
                 var r = FollowRegistration(installation: self.installation)
                 r.endedActivityID = id
                 await self.send(r, to: followID)
+                if state == .ended { await activity.end(nil, dismissalPolicy: .immediate) }
             }
+        }
+    }
+
+    // MARK: Check-ins
+
+    /// Asks the person behind `followID` whether they're okay (the Check in button on their card,
+    /// on their low alerts, or in the app). Their Lock Screen card here shows it straight away.
+    func checkIn(_ followID: String) async throws {
+        guard let client = client(followID) else { throw ShareClient.ShareError.ended }
+        checkingIn.insert(followID)
+        defer { checkingIn.remove(followID) }
+        let state: CheckInState
+        do {
+            state = try await client.checkIn(CheckInRequest(installation: installation, name: myName))
+        } catch ShareClient.ShareError.refused(_) {
+            // Not registered as a follower yet (a fresh install, or a lost registration): register, then ask.
+            await register(followID)
+            state = try await client.checkIn(CheckInRequest(installation: installation, name: myName))
+        }
+        checkIns[followID] = state
+        for a in activities(for: followID) {
+            var content = a.content.state
+            content.checkIn = state
+            await a.update(ActivityContent(state: content, staleDate: a.content.staleDate, relevanceScore: 100))
         }
     }
 

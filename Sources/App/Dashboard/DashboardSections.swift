@@ -47,6 +47,7 @@ struct PatternsSection: View {
                 // A new identity per style, so switching crossfades instead of swapping.
                 .id(style)
                 .transition(.opacity)
+                .chartWipe(data.periodKey)
                 .frame(height: chartHeight)
 
                 Text(style == 0
@@ -246,6 +247,7 @@ struct DaysSection: View {
                     SectionHeader("Time in Range by Day",
                                   subtitle: "\(days.count) days, \(Format.percent(average)) in range on an average day")
                     DailyRangeChart(days: days)
+                        .chartWipe(data.periodKey)
                         .frame(height: 150)
                 }
                 .dsCard(.standard)

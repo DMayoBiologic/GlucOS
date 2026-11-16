@@ -23,8 +23,16 @@ final class LogbookStore: ObservableObject {
     @Published private(set) var foods: [SavedFood] = []
     /// The bolus calculator settings, shared by the user's devices. Nil until set up.
     @Published private(set) var bolusSettings: BolusSettings?
+    /// "No" and dismissals for "Did you treat this low?" (`LowTreatmentCheck`). Synced.
+    @Published private(set) var lowAnswers: [LowAnswer] = []
+    /// Low and high alerts that went off, and what was tapped on them (`AlertLog`). Synced, and
+    /// shown in the Logbook, but never entries: nothing that reads `entries` sees them.
+    @Published private(set) var alerts: [AlertRecord] = []
     /// The entries removed by the last delete, kept in memory so it can be undone.
     @Published private(set) var lastDeleted: [LogEntry] = []
+    /// When each entry in `lastDeleted` was deleted, as pushed, so sync can tell this device's own
+    /// tombstone coming back from a newer change made elsewhere (`LogbookUndo`).
+    private var deletedAt: [UUID: Double] = [:]
 
     /// Set by the menu bar popover to have the dashboard open the log sheet.
     @Published var logSheetRequested = false
@@ -33,6 +41,9 @@ final class LogbookStore: ObservableObject {
     private(set) var syncState = LogbookSyncState()
     /// Fires after every change made on this device (not ones pulled from another).
     let localChanges = PassthroughSubject<Void, Never>()
+    /// A dose newly logged on this device (not an edit, and not one pulled from another device),
+    /// so only the device it was logged on schedules "Was it for a meal?" (`DoseQuestion`).
+    let newLocalDose = PassthroughSubject<InsulinDose, Never>()
 
     private struct File: Codable {
         var version = 1
@@ -43,6 +54,8 @@ final class LogbookStore: ObservableObject {
         var presets: [LogPreset]? = []
         var foods: [SavedFood]? = []
         var bolusSettings: BolusSettings?
+        var lowAnswers: [LowAnswer]? = []
+        var alerts: [AlertRecord]? = []
     }
 
     private static var url: URL? {
@@ -79,6 +92,9 @@ final class LogbookStore: ObservableObject {
         presets = file.presets ?? []
         foods = file.foods ?? []
         bolusSettings = file.bolusSettings
+        lowAnswers = file.lowAnswers ?? []
+        alerts = file.alerts ?? []
+        pruneExpiredAlerts()
     }
 
     var isEmpty: Bool { doses.isEmpty && meals.isEmpty && siteChanges.isEmpty && contexts.isEmpty }
@@ -108,10 +124,79 @@ final class LogbookStore: ObservableObject {
             // an insulin the user deleted.
             let before = doses.first { $0.id == d.id }
             entry = .dose(rememberInsulin(of: d, addIfMissing: before.map { InsulinLibrary.key($0.name) != InsulinLibrary.key(d.name) } ?? true))
+            upsert(entry)
+            touch(entry.id, kind: entry.recordKind)
+            persist()
+            if before == nil, case .dose(let saved) = entry { newLocalDose.send(saved) }
+            return
         }
         upsert(entry)
         touch(entry.id, kind: entry.recordKind)
         persist()
+    }
+
+    // MARK: Alerts
+
+    /// Notes a low or high alert that just went off on this device. Syncs like any edit.
+    func alertFired(_ kind: AlertNotice.Kind, at time: Date = Date()) {
+        guard let r = AlertLog.fired(kind, at: time, in: alerts) else { return }
+        alerts.append(r)
+        touch(r.id, kind: .alert)
+        pruneAlerts(now: Date())
+        persist()
+    }
+
+    /// Notes a button tapped on an alert that went off at `firedAt`.
+    func alertAnswered(_ kind: AlertNotice.Kind, _ response: AlertRecord.Response, snoozeMinutes: Int?,
+                       firedAt: Date, now: Date = Date()) {
+        guard let r = AlertLog.responded(kind, response, snoozeMinutes: snoozeMinutes, firedAt: firedAt, at: now,
+                                         in: alerts) else { return }
+        if let i = alerts.firstIndex(where: { $0.id == r.id }) { alerts[i] = r } else { alerts.append(r) }
+        touch(r.id, kind: .alert)
+        pruneAlerts(now: now)
+        persist()
+    }
+
+    /// Lets go of alert records older than 90 days, on every device they synced to.
+    func pruneExpiredAlerts(now: Date = Date()) {
+        guard !AlertLog.expired(alerts, now: now).isEmpty else { return }
+        pruneAlerts(now: now)
+        persist()
+    }
+
+    private func pruneAlerts(now: Date) {
+        let old = AlertLog.expired(alerts, now: now)
+        guard !old.isEmpty else { return }
+        for r in old { touch(r.id, kind: .alert, deleted: true) }
+        alerts.removeAll { r in old.contains { $0.id == r.id } }
+    }
+
+    /// Records "No" or a dismissal for "Did you treat this low?". Syncs like any edit.
+    func answerLow(_ low: LowEpisode, _ answer: LowAnswer.Answer, now: Date = Date()) {
+        guard let end = low.end, !lowAnswers.contains(where: { $0.covers(low) }) else { return }
+        let a = LowAnswer(lowStart: low.start, lowEnd: end, answer: answer, answeredAt: now)
+        lowAnswers.append(a)
+        // Only the last 90 days are kept: older lows are never asked about.
+        let cutoff = now.addingTimeInterval(-90 * 86_400)
+        for old in lowAnswers where old.answeredAt < cutoff { touch(old.id, kind: .lowAnswer, deleted: true) }
+        lowAnswers.removeAll { $0.answeredAt < cutoff }
+        touch(a.id, kind: .lowAnswer)
+        persist()
+    }
+
+    /// Takes back a low answer (Undo).
+    func removeLowAnswer(id: UUID) {
+        guard lowAnswers.contains(where: { $0.id == id }) else { return }
+        lowAnswers.removeAll { $0.id == id }
+        touch(id, kind: .lowAnswer, deleted: true)
+        persist()
+    }
+
+    /// Records the answer to "Was it for a meal?" (or clears it, for Undo). Syncs like any edit.
+    func setPurpose(_ purpose: DosePurpose?, forDose id: UUID) {
+        guard var d = doses.first(where: { $0.id == id }), d.purpose != purpose else { return }
+        d.purpose = purpose
+        save(.dose(d))
     }
 
     private func upsert(_ entry: LogEntry) {
@@ -133,7 +218,10 @@ final class LogbookStore: ObservableObject {
         meals.removeAll { ids.contains($0.id) }
         siteChanges.removeAll { ids.contains($0.id) }
         contexts.removeAll { ids.contains($0.id) }
-        for e in removed { touch(e.id, kind: e.recordKind, deleted: true) }
+        for e in removed {
+            touch(e.id, kind: e.recordKind, deleted: true)
+            deletedAt[e.id] = syncState.pending[e.id]?.modified
+        }
         persist()
     }
 
@@ -142,20 +230,26 @@ final class LogbookStore: ObservableObject {
         let restore = lastDeleted
         guard !restore.isEmpty else { return }
         lastDeleted = []
+        deletedAt = [:]
         for e in restore {
             upsert(e)
+            // A fresh edit time, later than the delete's tombstone, so the server takes the entry
+            // back and the other devices get it again (rather than it vanishing on the Mac).
             touch(e.id, kind: e.recordKind)
         }
         persist()
     }
 
     /// Forgets the undo buffer, e.g. once its banner has been dismissed.
-    func clearUndo() { lastDeleted = [] }
+    func clearUndo() {
+        lastDeleted = []
+        deletedAt = [:]
+    }
 
     /// A copy of `entry` at `time` with a fresh id ("Log again now").
     func duplicate(_ entry: LogEntry, at time: Date = Date()) {
         switch entry {
-        case .dose(var d): d.id = UUID(); d.timestamp = time; d.calculation = nil; save(.dose(d))
+        case .dose(var d): d.id = UUID(); d.timestamp = time; d.calculation = nil; d.purpose = nil; save(.dose(d))
         case .meal(var m): m.id = UUID(); m.timestamp = time; save(.meal(m))
         case .siteChange(var s): s.id = UUID(); s.timestamp = time; save(.siteChange(s))
         case .context(var c): c.id = UUID(); c.timestamp = time; save(.context(c))
@@ -384,7 +478,7 @@ final class LogbookStore: ObservableObject {
 
     var contents: LogbookContents {
         LogbookContents(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets,
-                        foods: foods, bolusSettings: bolusSettings)
+                        foods: foods, bolusSettings: bolusSettings, lowAnswers: lowAnswers, alerts: alerts)
     }
 
     private func touch(_ id: UUID, kind: LogbookRecordKind, deleted: Bool = false) {
@@ -412,13 +506,21 @@ final class LogbookStore: ObservableObject {
             if c.presets != presets { presets = c.presets }
             if c.foods != foods { foods = c.foods }
             if c.bolusSettings != bolusSettings { bolusSettings = c.bolusSettings }
-            // An entry deleted elsewhere can't be undone here any more.
-            let ids = Set(records.filter(\.deleted).map(\.id))
-            if !ids.isEmpty { lastDeleted.removeAll { ids.contains($0.id) } }
+            if c.lowAnswers != lowAnswers { lowAnswers = c.lowAnswers }
+            if c.alerts != alerts { alerts = c.alerts }
+            // Another device may have sent records this one would already have let go.
+            pruneAlerts(now: Date())
             persist(notify: false)
             discoverInsulins()
         } else {
             persistSyncState()
+        }
+        // An entry changed or deleted elsewhere after it was deleted here can't be undone any
+        // more. Our own tombstone coming back from the server leaves Undo alone.
+        let gone = LogbookUndo.superseded(by: records, deletedAt: deletedAt)
+        if !gone.isEmpty {
+            lastDeleted.removeAll { gone.contains($0.id) }
+            for id in gone { deletedAt[id] = nil }
         }
     }
 
@@ -439,7 +541,7 @@ final class LogbookStore: ObservableObject {
         if notify { localChanges.send() }
         guard let url = Self.url else { return }
         let file = File(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets,
-                        foods: foods, bolusSettings: bolusSettings)
+                        foods: foods, bolusSettings: bolusSettings, lowAnswers: lowAnswers, alerts: alerts)
         Self.writeQueue.async {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .secondsSince1970

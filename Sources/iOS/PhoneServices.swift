@@ -30,7 +30,9 @@ final class PhoneServices: ObservableObject {
         }
     }
     @Published private(set) var relayStatus: RelayStatus?
+    /// Shown in the banner and Settings only once the relay has stayed unreachable (`RelayHealth`).
     @Published private(set) var relayError: String?
+    private var relayHealth = RelayHealth()
     @Published private(set) var isSyncingRelay = false
     @Published private(set) var pushRegistrationError: String?
 
@@ -79,10 +81,19 @@ final class PhoneServices: ObservableObject {
             }
         }
         liveActivity.onActivityEnded = { [weak self] id in
-            var r = RelayRegistration()
-            r.endedActivityID = id
-            Task { @MainActor in await self?.send(r) }
+            Task { @MainActor in
+                guard let self else { return }
+                var r = RelayRegistration()
+                r.endedActivityID = id
+                // Name the card that stays in the same request, so the relay moves to it at once.
+                if let current = self.liveActivity.currentRegistration, current.id != id {
+                    r.activityID = current.id
+                    r.activityToken = current.token
+                }
+                await self.send(r)
+            }
         }
+        liveActivity.relayActivityID = { [weak self] in self?.relayStatus?.activityID }
         liveActivity.startObserving()
 
         // Account, units, thresholds and alert switches go to the relay when they change.
@@ -103,6 +114,11 @@ final class PhoneServices: ObservableObject {
             logbookSync?.start()
             follows?.start()
             Task {
+                // Alerts the relay pushed while the app was closed go in the logbook.
+                await AlertLogRecorder.shared.collectDelivered()
+                // The relay's readings first, so the forecast drawn on opening is worked out from
+                // one-minute readings rather than LibreLinkUp's 15-minute graph.
+                await fillHistoryFromRelay()
                 await store.refresh()
                 await showLiveActivity(canStart: true)
                 await syncRelay()
@@ -120,8 +136,10 @@ final class PhoneServices: ObservableObject {
 
     /// A background app refresh: fetch once, update the card, and alert if the relay isn't.
     func backgroundRefresh() async {
+        await AlertLogRecorder.shared.collectDelivered()
         // The logbook first, so the forecast on the Lock Screen counts what was logged on the Mac.
         await logbookSync?.sync()
+        await fillHistoryFromRelay()
         await store.refresh()
         await showLiveActivity(canStart: false)
         await syncRelay()
@@ -147,8 +165,57 @@ final class PhoneServices: ObservableObject {
             return
         }
         let readings = store.readings(lastHours: GlucoseActivityState.historyHours + 0.5)
-        guard let state = GlucoseActivityState.make(from: store.snapshot, readings: readings) else { return }
+        // A new sensor warming up: a countdown to its first reading rather than the old sensor's
+        // last one, crossed out.
+        let warmUp = store.snapshot.warmUp()
+        guard var state = warmUp.map({ GlucoseActivityState.makeWarmUp($0, snapshot: store.snapshot) })
+                ?? GlucoseActivityState.make(from: store.snapshot, readings: readings) else { return }
+        // Who's checking in, from the relay; while its status is unknown, whatever the card shows.
+        state.checkIn = relaySettings.isConfigured
+            ? (relayStatus.map { $0.checkIn } ?? liveActivity.currentCheckIn)
+            : nil
         await liveActivity.show(state, wantsPushUpdates: relaySettings.isConfigured, canStart: canStart)
+    }
+
+    // MARK: Check-ins
+
+    /// People waiting for this person to say they're okay.
+    var waitingCheckIn: CheckInState? {
+        guard let c = relayStatus?.checkIn, c.isWaiting else { return nil }
+        return c
+    }
+
+    /// Answers everyone checking in (from the notification, the Lock Screen card or the app).
+    func answerCheckIn(_ answer: CheckInAnswer.Answer) async throws {
+        guard let client = relaySettings.client else { throw RelayClient.RelayError.unauthorized }
+        do {
+            apply(try await client.answerCheckIns(answer))
+        } catch {
+            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "checkin.answer", error: error)
+            throw error
+        }
+        // Off the card now, not on the relay's next tick.
+        await liveActivity.setCheckIn(relayStatus?.checkIn)
+        await showLiveActivity(canStart: false)
+    }
+
+    /// Quiets the relay's pushes of `kind` for `minutes`, as this phone already has for its own
+    /// alerts. Without a relay (or on a follower-only phone) there's nothing to send.
+    func snoozeRelayAlerts(_ kind: AlertNotice.Kind, minutes: Int) async throws {
+        guard let client = relaySettings.client else { return }
+        do {
+            apply(try await client.snoozeAlerts(AlertSnoozeRequest(kind: kind.rawValue, minutes: minutes)))
+        } catch {
+            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "alerts.snooze", error: error)
+            throw error
+        }
+    }
+
+    /// A check-in notification arrived: the card and the app should show it now.
+    func checkInArrived() async {
+        await refreshRelayStatus()
+        await liveActivity.setCheckIn(relayStatus?.checkIn)
+        await showLiveActivity(canStart: false)
     }
 
     // MARK: Relay
@@ -158,6 +225,7 @@ final class PhoneServices: ObservableObject {
         await claimRelayIfOwner()
         guard relaySettings.isConfigured else {
             relayStatus = nil
+            relayHealth = RelayHealth()
             relayError = nil
             return
         }
@@ -167,6 +235,12 @@ final class PhoneServices: ObservableObject {
         r.pushToStartToken = pushToStartToken
         r.liveActivityEnabled = liveActivityEnabled
         r.apnsEnvironment = apnsEnvironment
+        // The card on the Lock Screen now, every time: a token upload lost to a timeout would
+        // otherwise leave the relay updating an older card (or starting a second one).
+        if liveActivityEnabled, let current = liveActivity.currentRegistration {
+            r.activityID = current.id
+            r.activityToken = current.token
+        }
         r.display = .init(unit: s.unit.rawValue, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl)
         r.alerts = s.alertPreferences
         if s.hasCredentials {
@@ -175,7 +249,8 @@ final class PhoneServices: ObservableObject {
         } else {
             r.signedOut = true
         }
-        guard force || r != lastRegistration || relayStatus == nil else { return }
+        let relayOnOtherCard = r.activityID != nil && relayStatus?.activityID != r.activityID
+        guard force || r != lastRegistration || relayStatus == nil || relayOnOtherCard else { return }
         if await send(r) { lastRegistration = r }
     }
 
@@ -212,21 +287,62 @@ final class PhoneServices: ObservableObject {
             apply(try await client.register(r))
             return true
         } catch {
-            relayError = error.localizedDescription
-            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "register", error: error)
-            relayStatus = nil
+            failed(error, step: "register")
             return false
         }
     }
+
+    /// The last relay reading already in this phone's history.
+    private var relayHistoryThrough: Date? {
+        get { (UserDefaults.standard.object(forKey: "relayHistoryThrough") as? Double).map(Date.init(timeIntervalSince1970:)) }
+        set { UserDefaults.standard.set(newValue?.timeIntervalSince1970, forKey: "relayHistoryThrough") }
+    }
+    private var lastHistoryFill = Date.distantPast
+
+    /// Fills in this phone's history with the relay's one-minute readings since it last did.
+    ///
+    /// The phone is only open now and then, so without these its history is mostly LibreLinkUp's
+    /// 15-minute graph. The forecast's replay then can't tell how much of a one-minute trend
+    /// carries on (it fitted 90–100% here against the Mac's 55%), so the 15-minute forecast drawn
+    /// on opening followed the trend too far and did no better than assuming no change. Quietly
+    /// does nothing without the relay, and a failure only waits for the next open.
+    func fillHistoryFromRelay(now: Date = Date()) async {
+        guard let client = relaySettings.client, now.timeIntervalSince(lastHistoryFill) >= 60 else { return }
+        lastHistoryFill = now
+        // A little overlap, for readings the relay stored late.
+        let since = relayHistoryThrough.map { $0.addingTimeInterval(-15 * 60) }
+            ?? now.addingTimeInterval(-Self.relayHistoryDays * 86_400)
+        do {
+            let readings = try await client.history(since: since)
+            store.mergeHistory(readings, now: now)
+            if let last = readings.last?.timestamp { relayHistoryThrough = last }
+        } catch {
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "history", error: error, context: [:])
+        }
+    }
+
+    /// The forecast's replay looks back 30 days.
+    nonisolated static let relayHistoryDays: Double = 30
 
     func refreshRelayStatus() async {
         guard let client = relaySettings.client else { return }
         lastStatusCheck = Date()
         do { apply(try await client.status()) } catch {
-            relayError = error.localizedDescription
-            Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: "status", error: error)
-            relayStatus = nil
+            failed(error, step: "status")
         }
+    }
+
+    /// A call failed even after the client's retries. A network failure keeps the last status: it
+    /// still says whether the relay was fetching, and `isDeliveringAlerts` lets it lapse after 5
+    /// minutes, so the phone takes over alerts by itself if the relay really has gone quiet.
+    private func failed(_ error: Error, step: String) {
+        if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+        let transient = relayHealth.failed(error, message: error.localizedDescription)
+        relayError = relayHealth.visibleError
+        Diagnostics.shared.report(feature: Self.relayDiagnosticFeature, step: step, error: error,
+                                  context: ["consecutive": String(relayHealth.consecutiveFailures)])
+        if !transient { relayStatus = nil }
     }
 
     /// Keeps the relay's status fresh while the app is fetching, at most once a minute.
@@ -246,6 +362,7 @@ final class PhoneServices: ObservableObject {
         // While the relay is fetching and can reach this phone it sends the alerts, even when the
         // app is closed, and `deliversLocally` stands down so they don't arrive twice.
         relayStatus = status
+        relayHealth.succeeded()
         relayError = nil
         lastStatusCheck = Date()
     }

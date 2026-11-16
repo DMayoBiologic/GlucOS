@@ -21,6 +21,9 @@ export interface LibreSession {
   token: string;
   expires: number;
   accountId: string;
+  /// The LibreLinkUp user id. Missing on sessions saved before the relay kept it; `fetch` logs
+  /// in again once to learn it, because the relay's forecast ledger needs it (ledger.ts).
+  userId?: string;
 }
 
 export interface FetchResult {
@@ -51,6 +54,12 @@ export function baseURL(region: string | null | undefined): string {
 async function sha256Hex(s: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/// The Supabase user's (never mailed) email for a LibreLinkUp user id: how the `account` function
+/// names the user it signs the apps in as, and how the relay finds that same user.
+export async function syntheticEmail(lluUserId: string): Promise<string> {
+  return `llu-${(await sha256Hex(`glucos:llu:${lluUserId}`)).slice(0, 40)}@users.glucos.invalid`;
 }
 
 export async function sessionKey(a: Account): Promise<string> {
@@ -88,7 +97,7 @@ export class LibreLinkUpFetcher implements GlucoseFetcher {
 
   async fetch(account: Account, session: LibreSession | null) {
     const key = await sessionKey(account);
-    let s = session && session.key === key && session.expires > Date.now() / 1000 + 300 ? session : null;
+    let s = session && session.key === key && session.expires > Date.now() / 1000 + 300 && session.userId ? session : null;
     if (!s) s = await this.login(account, key, baseURL(account.region), false);
     try {
       return { result: await this.data(account, s), session: s };

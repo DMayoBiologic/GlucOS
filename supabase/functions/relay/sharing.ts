@@ -8,6 +8,8 @@
 
 import postgres from "npm:postgres@3.4.5";
 import type { CardState } from "./core.ts";
+import { type CheckIn, type CheckInAnswer, checkInAnswerShownFor, checkInOpenFor, checkInPingGap, isCurrent, isOpen,
+  type OwnerTarget } from "./checkins.ts";
 
 type SQL = ReturnType<typeof postgres>;
 
@@ -27,6 +29,8 @@ export interface Share {
   expiresAt: number | null;
   lastViewedAt: number | null;
   followers: number;
+  /// Followers also see the owner's recent logbook (the share function's /v1/detail).
+  showsLogbook: boolean;
 }
 
 export interface Follower {
@@ -70,7 +74,9 @@ export interface FollowRegistration {
 }
 
 export interface ShareStore {
-  createShare(label: string, tokenHash: string, expiresAt: number | null): Promise<Share>;
+  createShare(label: string, tokenHash: string, expiresAt: number | null, showsLogbook?: boolean): Promise<Share>;
+  /// Turns a live share's logbook on or off for its followers. False when there's no such live share.
+  setShowsLogbook(id: string, on: boolean, now: number): Promise<boolean>;
   /// Live shares, newest first.
   listShares(now: number): Promise<Share[]>;
   /// Ends a share and forgets its followers, returning them so their Lock Screen cards can be
@@ -92,6 +98,31 @@ export interface ShareStore {
   clearFollowerDeviceToken(id: string, token: string): Promise<void>;
   /// The relay's latest card, for the web view and for a follower starting its card.
   latestCard(): Promise<{ card: CardState; at: number } | null>;
+
+  // Check-ins (checkins.ts)
+
+  /// The follower this phone is, on this share.
+  followerByInstallation(shareId: string, installation: string, now: number): Promise<Follower | null>;
+  /// Opens a check-in for `f`, or asks again in its open one. `ping`: notify the owner (a new
+  /// check-in, or the last notification was `checkInPingGap` ago).
+  askCheckIn(f: Follower, name: string, now: number): Promise<{ checkIn: CheckIn; ping: boolean }>;
+  /// Answers every open check-in, returning them with where to tell each follower.
+  answerCheckIns(answer: CheckInAnswer, now: number): Promise<AnsweredCheckIn[]>;
+  /// Each follower's latest check-in that's still current (`isCurrent`).
+  checkIns(now: number): Promise<CheckIn[]>;
+  /// The reminder went out for these.
+  markReminded(ids: string[], now: number): Promise<void>;
+  /// The owner's device token and latest card, from the relay row.
+  ownerTarget(): Promise<OwnerTarget>;
+}
+
+export interface AnsweredCheckIn {
+  checkIn: CheckIn;
+  /// The follower phone's APNs token, if it gave one.
+  deviceToken: string | null;
+  sandbox: boolean;
+  /// The share's label: the owner's name, as the follower sees it.
+  label: string;
 }
 
 // MARK: - Tokens
@@ -140,24 +171,24 @@ function followerOf(r: Record<string, unknown>): Follower {
 
 const shareOf = (r: Record<string, unknown>): Share => ({
   id: String(r.id), label: String(r.label), createdAt: Number(r.created_at), expiresAt: epoch(r.expires_at),
-  lastViewedAt: epoch(r.last_viewed_at), followers: Number(r.followers ?? 0),
+  lastViewedAt: epoch(r.last_viewed_at), followers: Number(r.followers ?? 0), showsLogbook: r.shows_logbook !== false,
 });
 
 export class PostgresShareStore implements ShareStore {
   constructor(private readonly sql: SQL) {}
 
-  async createShare(label: string, tokenHash: string, expiresAt: number | null): Promise<Share> {
+  async createShare(label: string, tokenHash: string, expiresAt: number | null, showsLogbook = true): Promise<Share> {
     const rows = await this.sql`
-      insert into glucos.shares (token_hash, label, expires_at)
-      values (${tokenHash}, ${label}, ${expiresAt === null ? null : this.sql`to_timestamp(${expiresAt})`})
-      returning id, label, extract(epoch from created_at)::float8 as created_at,
+      insert into glucos.shares (token_hash, label, expires_at, shows_logbook)
+      values (${tokenHash}, ${label}, ${expiresAt === null ? null : this.sql`to_timestamp(${expiresAt})`}, ${showsLogbook})
+      returning id, label, shows_logbook, extract(epoch from created_at)::float8 as created_at,
                 extract(epoch from expires_at)::float8 as expires_at, null::float8 as last_viewed_at, 0 as followers`;
     return shareOf(rows[0]);
   }
 
   async listShares(now: number): Promise<Share[]> {
     const rows = await this.sql`
-      select s.id, s.label, extract(epoch from s.created_at)::float8 as created_at,
+      select s.id, s.label, s.shows_logbook, extract(epoch from s.created_at)::float8 as created_at,
              extract(epoch from s.expires_at)::float8 as expires_at,
              extract(epoch from s.last_viewed_at)::float8 as last_viewed_at,
              (select count(*) from glucos.followers f where f.share_id = s.id)::int as followers
@@ -165,6 +196,15 @@ export class PostgresShareStore implements ShareStore {
       where s.revoked_at is null and (s.expires_at is null or s.expires_at > to_timestamp(${now}))
       order by s.created_at desc`;
     return rows.map(shareOf);
+  }
+
+  async setShowsLogbook(id: string, on: boolean, now: number): Promise<boolean> {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
+    const rows = await this.sql`
+      update glucos.shares set shows_logbook = ${on}
+      where id = ${id}::uuid and revoked_at is null and (expires_at is null or expires_at > to_timestamp(${now}))
+      returning id`;
+    return rows.length > 0;
   }
 
   async revokeShare(id: string, now: number): Promise<Follower[] | null> {
@@ -186,7 +226,7 @@ export class PostgresShareStore implements ShareStore {
       update glucos.shares s set last_viewed_at = to_timestamp(${now})
       where s.token_hash = ${tokenHash} and s.revoked_at is null
         and (s.expires_at is null or s.expires_at > to_timestamp(${now}))
-      returning s.id, s.label, extract(epoch from s.created_at)::float8 as created_at,
+      returning s.id, s.label, s.shows_logbook, extract(epoch from s.created_at)::float8 as created_at,
                 extract(epoch from s.expires_at)::float8 as expires_at,
                 extract(epoch from s.last_viewed_at)::float8 as last_viewed_at,
                 (select count(*) from glucos.followers f where f.share_id = s.id)::int as followers`;
@@ -264,6 +304,94 @@ export class PostgresShareStore implements ShareStore {
     const v = rows[0]?.latest as { card?: CardState; at?: number } | null | undefined;
     return v?.card && typeof v.at === "number" ? { card: v.card, at: v.at } : null;
   }
+
+  // MARK: Check-ins
+
+  async followerByInstallation(shareId: string, installation: string, now: number): Promise<Follower | null> {
+    const rows = await this.sql`
+      select f.*, s.label,
+             (s.revoked_at is null and (s.expires_at is null or s.expires_at > to_timestamp(${now}))) as active
+      from glucos.followers f join glucos.shares s on s.id = f.share_id
+      where f.share_id = ${shareId}::uuid and f.installation = ${installation}`;
+    return rows.length ? followerOf(rows[0]) : null;
+  }
+
+  async askCheckIn(f: Follower, name: string, now: number): Promise<{ checkIn: CheckIn; ping: boolean }> {
+    return await this.sql.begin(async (sql) => {
+      // Old ones are no use to anyone. Pruned here, where a check-in is written anyway, so the
+      // owner's status read stays a read.
+      await sql`delete from glucos.check_ins where asked_at < ${now - 7 * 86_400}`;
+      // One open check-in per follower, however fast they tap.
+      await sql`select id from glucos.followers where id = ${f.id}::uuid for update`;
+      const open = await sql`
+        select * from glucos.check_ins
+        where follower_id = ${f.id}::uuid and answer is null and asked_at > ${now - checkInOpenFor}
+        order by asked_at desc limit 1`;
+      if (open.length) {
+        const c = checkInOf(open[0]);
+        const ping = now - c.lastAskedAt >= checkInPingGap;
+        const rows = await sql`
+          update glucos.check_ins set
+            name = case when ${name} = '' then name else ${name} end,
+            last_asked_at = case when ${ping} then ${now} else last_asked_at end
+          where id = ${c.id}::uuid returning *`;
+        return { checkIn: checkInOf(rows[0]), ping };
+      }
+      const rows = await sql`
+        insert into glucos.check_ins (follower_id, share_id, name, asked_at, last_asked_at)
+        values (${f.id}::uuid, ${f.shareId}::uuid, ${name}, ${now}, ${now}) returning *`;
+      return { checkIn: checkInOf(rows[0]), ping: true };
+    }) as { checkIn: CheckIn; ping: boolean };
+  }
+
+  async answerCheckIns(answer: CheckInAnswer, now: number): Promise<AnsweredCheckIn[]> {
+    const rows = await this.sql`
+      with done as (
+        update glucos.check_ins set answer = ${answer}, answered_at = ${now}
+        where answer is null and asked_at > ${now - checkInOpenFor}
+        returning *
+      )
+      select done.*, f.device_token as follower_device_token, f.sandbox as follower_sandbox, s.label as share_label
+      from done join glucos.followers f on f.id = done.follower_id join glucos.shares s on s.id = done.share_id`;
+    return rows.map((r) => ({
+      checkIn: checkInOf(r), deviceToken: (r.follower_device_token as string | null) ?? null,
+      sandbox: r.follower_sandbox === true, label: String(r.share_label ?? ""),
+    }));
+  }
+
+  async checkIns(now: number): Promise<CheckIn[]> {
+    const keep = Math.max(checkInOpenFor, checkInAnswerShownFor);
+    const rows = await this.sql`
+      select distinct on (follower_id) * from glucos.check_ins
+      where asked_at > ${now - keep} or answered_at > ${now - checkInAnswerShownFor}
+      order by follower_id, asked_at desc`;
+    return rows.map(checkInOf).filter((c) => isCurrent(c, now));
+  }
+
+  async markReminded(ids: string[], now: number): Promise<void> {
+    if (!ids.length) return;
+    await this.sql`update glucos.check_ins set reminded_at = ${now} where id = any(${ids}::uuid[]) and reminded_at is null`;
+  }
+
+  async ownerTarget(): Promise<OwnerTarget> {
+    const rows = await this.sql`
+      select prefs->>'deviceToken' as token, coalesce((prefs->>'sandbox')::boolean, false) as sandbox,
+             work->'latestCard'->'card' as card
+      from glucos.relay where id = 1`;
+    const r = rows[0];
+    return {
+      deviceToken: (r?.token as string | null) ?? null, sandbox: r?.sandbox === true,
+      card: (r?.card as CardState | null) ?? null,
+    };
+  }
+}
+
+function checkInOf(r: Record<string, unknown>): CheckIn {
+  return {
+    id: String(r.id), followerId: String(r.follower_id), shareId: String(r.share_id), name: String(r.name ?? ""),
+    askedAt: Number(r.asked_at), lastAskedAt: Number(r.last_asked_at), remindedAt: epoch(r.reminded_at),
+    answer: r.answer === "okay" || r.answer === "help" ? r.answer : null, answeredAt: epoch(r.answered_at),
+  };
 }
 
 async function saveFollower(sql: SQL, f: Follower) {
@@ -325,13 +453,24 @@ export class MemoryShareStore implements ShareStore {
     return this.rows.filter((f) => f.shareId === id).length;
   }
   private view(s: Share): Share {
-    return { id: s.id, label: s.label, createdAt: s.createdAt, expiresAt: s.expiresAt, lastViewedAt: s.lastViewedAt, followers: this.count(s.id) };
+    return {
+      id: s.id, label: s.label, createdAt: s.createdAt, expiresAt: s.expiresAt, lastViewedAt: s.lastViewedAt,
+      followers: this.count(s.id), showsLogbook: s.showsLogbook,
+    };
   }
 
-  createShare(label: string, tokenHash: string, expiresAt: number | null) {
-    const s = { id: crypto.randomUUID(), label, createdAt: Date.now() / 1000, expiresAt, lastViewedAt: null, followers: 0, tokenHash, revokedAt: null };
+  createShare(label: string, tokenHash: string, expiresAt: number | null, showsLogbook = true) {
+    const s = {
+      id: crypto.randomUUID(), label, createdAt: Date.now() / 1000, expiresAt, lastViewedAt: null, followers: 0,
+      showsLogbook, tokenHash, revokedAt: null,
+    };
     this.shares.push(s);
     return Promise.resolve(this.view(s));
+  }
+  setShowsLogbook(id: string, on: boolean, now: number) {
+    const s = this.shares.find((x) => x.id === id && this.live(x, now));
+    if (s) s.showsLogbook = on;
+    return Promise.resolve(!!s);
   }
   listShares(now: number) {
     return Promise.resolve(this.shares.filter((s) => this.live(s, now)).reverse().map((s) => this.view(s)));
@@ -399,5 +538,55 @@ export class MemoryShareStore implements ShareStore {
   }
   latestCard() {
     return Promise.resolve(this.latest);
+  }
+
+  checkInRows: CheckIn[] = [];
+  owner: OwnerTarget = { deviceToken: null, sandbox: false, card: null };
+
+  followerByInstallation(shareId: string, installation: string, now: number) {
+    return this.followers(now).then((all) => all.find((f) => f.shareId === shareId && f.installation === installation) ?? null);
+  }
+  askCheckIn(f: Follower, name: string, now: number) {
+    const open = this.checkInRows.filter((c) => c.followerId === f.id && isOpen(c, now)).sort((a, b) => b.askedAt - a.askedAt)[0];
+    if (open) {
+      const ping = now - open.lastAskedAt >= checkInPingGap;
+      if (name) open.name = name;
+      if (ping) open.lastAskedAt = now;
+      return Promise.resolve({ checkIn: structuredClone(open), ping });
+    }
+    const c: CheckIn = {
+      id: crypto.randomUUID(), followerId: f.id, shareId: f.shareId, name, askedAt: now, lastAskedAt: now,
+      remindedAt: null, answer: null, answeredAt: null,
+    };
+    this.checkInRows.push(c);
+    return Promise.resolve({ checkIn: structuredClone(c), ping: true });
+  }
+  answerCheckIns(answer: CheckInAnswer, now: number) {
+    const out: AnsweredCheckIn[] = [];
+    for (const c of this.checkInRows.filter((x) => isOpen(x, now))) {
+      c.answer = answer;
+      c.answeredAt = now;
+      const f = this.rows.find((x) => x.id === c.followerId);
+      if (!f) continue;
+      const s = this.shares.find((x) => x.id === c.shareId);
+      out.push({ checkIn: structuredClone(c), deviceToken: f.deviceToken, sandbox: f.sandbox, label: s?.label ?? "" });
+    }
+    return Promise.resolve(out);
+  }
+  checkIns(now: number) {
+    const latest = new Map<string, CheckIn>();
+    for (const c of this.checkInRows) {
+      if (!this.rows.some((f) => f.id === c.followerId)) continue;
+      const seen = latest.get(c.followerId);
+      if (!seen || c.askedAt > seen.askedAt) latest.set(c.followerId, c);
+    }
+    return Promise.resolve([...latest.values()].filter((c) => isCurrent(c, now)).map((c) => structuredClone(c)));
+  }
+  markReminded(ids: string[], now: number) {
+    for (const c of this.checkInRows) if (ids.includes(c.id) && c.remindedAt === null) c.remindedAt = now;
+    return Promise.resolve();
+  }
+  ownerTarget() {
+    return Promise.resolve(structuredClone(this.owner));
   }
 }

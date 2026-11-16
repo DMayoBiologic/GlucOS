@@ -152,8 +152,38 @@ struct InsulinDose: Codable, Identifiable, Hashable {
     var note: String = ""
     /// The bolus calculator's working, when the user logged this dose from a suggestion.
     var calculation: BolusCalculation? = nil
+    /// What the dose was for, when the user said. GlucOS asks once after a fast-acting dose with
+    /// no food logged near it (`DoseMealCheck`). Nil when nobody asked or it hasn't been answered.
+    var purpose: DosePurpose? = nil
 
     var displayName: String { name.isEmpty ? kind.title : name }
+}
+
+/// What a fast-acting dose was for, from the user's answer to "Was it for a meal?".
+enum DosePurpose: String, Codable, CaseIterable, Hashable {
+    /// Taken for food that isn't in the logbook. The forecast and the learners treat it like food
+    /// logged without carbs: something they can't count, so they don't expect the insulin's full drop.
+    case meal
+    /// Taken to bring a high down, with no food. Read as GlucOS reads any dose with no food near it.
+    case correction
+    /// The question was dismissed. Read like no answer, but never asked again.
+    case unsure
+
+    /// An answer a newer version wrote that this one doesn't know reads as dismissed, so the dose
+    /// (and the whole logbook file) still decodes.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = DosePurpose(rawValue: raw) ?? .unsure
+    }
+
+    /// Shown with the dose in the logbook. Nil when there's nothing to add.
+    var label: String? {
+        switch self {
+        case .meal: return "For a meal"
+        case .correction: return "Correction"
+        case .unsure: return nil
+        }
+    }
 }
 
 struct MealEntry: Codable, Identifiable, Hashable {
@@ -310,6 +340,19 @@ enum LogEntry: Identifiable, Hashable {
         case .meal(let m): return m.timestamp
         case .siteChange(let s): return s.timestamp
         case .context(let c): return c.timestamp
+        }
+    }
+
+    /// One line saying what the entry is: "4 u NovoRapid", "45 g · Toast", "New site: Abdomen",
+    /// "Woke up". The iPhone Logbook's row title, and what an Undo toast names on both apps.
+    var shortTitle: String {
+        switch self {
+        case .dose(let d): return "\(LogFormat.units(d.units)) \(d.displayName)"
+        case .meal(let m):
+            if m.carbs > 0 { return m.food.isEmpty ? "\(LogFormat.grams(m.carbs)) carbs" : "\(LogFormat.grams(m.carbs)) · \(m.food)" }
+            return m.food.isEmpty ? "Food" : m.food
+        case .siteChange(let s): return "New site: \(s.site.title)"
+        case .context(let c): return c.sortedTags.map(\.title).joined(separator: ", ")
         }
     }
 }

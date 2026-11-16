@@ -12,13 +12,20 @@ LibreLinkUp account they already use.
   foreground and during its background refreshes. What's waiting to go up is in
   `logbook-sync.json` next to the logbook.
 - **Records.** One row per entry in `glucos.logbook`: its id, kind (`insulin`, `dose`, `meal`, `siteChange`,
-  `context`, `preset`), the entry as JSON (the same encoding as `logbook.json`), when it was last
+  `context`, `preset`, `food`, `bolusSettings`, `lowAnswer`, `alert`), the entry as JSON (the same encoding as `logbook.json`), when it was last
   changed, and a server change counter (`rev`). Devices pull everything above the last counter they
   saw, and everything from the start every 12 hours.
 - **Conflicts.** The later edit wins, by the editing device's clock (the server caps it at five
   minutes ahead of its own). A delete is an edit that leaves a tombstone, so it reaches the other
   devices and an older copy can't bring the entry back. Logic: `Sources/App/Logbook/LogbookSync.swift`,
   with the server's half in `logbook_push`.
+- **Undo.** Undoing a delete saves the entries again with a fresh edit time, later than the
+  delete's tombstone, so the server takes them back and the other devices pull them again (a
+  deleted-then-undone entry reappears on the Mac rather than staying gone). This device's own
+  tombstone coming back on the next pull leaves Undo available; only a change made elsewhere after
+  the delete ends it (`LogbookUndo`). On iPhone and Mac the Undo toast stays up 5 seconds after the
+  last delete (20 under VoiceOver); on the Mac, ⌘Z undoes and holding the pointer over the toast
+  keeps it up.
 - **First sync.** A device's existing entries are uploaded as older than anything already on the
   server: entries the server lacks are added, and a delete made elsewhere still wins.
 - **Sign-in.** The `account` edge function checks the LibreLinkUp login with Abbott once, finds or

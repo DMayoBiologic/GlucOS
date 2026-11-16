@@ -11,6 +11,15 @@ struct OutlookModel: Hashable {
     var morning: MorningPattern = .empty
     /// The trend timing tuned to this user's history, and how much it helped.
     var tuning: ForecastTuningResult = .untuned
+    /// How much wider the likely range is drawn, from how the forecasts shown on this device
+    /// actually did (`ForecastLedger.rangeScale`). Set by the app from its forecast log.
+    var rangeScale: ForecastRangeScale = .unchanged
+    /// How far ahead the forecast may be drawn, from how this device's own forecasts did against
+    /// no change (`ForecastLedger.liveHorizon`). Set by the app from its forecast log.
+    var liveHorizon: ForecastLiveHorizon = .unlimited
+    /// How this device's "back in range in about X min" estimates have done (`BackInRange.check`),
+    /// which decides whether one is shown. Set by the app from its forecast log.
+    var backInRange: BackInRangeCheck = .none
 
     static let empty = OutlookModel(profile: .empty, calibration: nil, patterns: [], learnedAt: .distantPast)
 }
@@ -30,6 +39,15 @@ struct Outlook {
         return nil
     }
 
+    /// What goes in the forecast log: the drawn forecast with its cut-off part, or, when live
+    /// checks cut it back to nothing, the forecast that wasn't drawn.
+    var forecastToLog: GlucoseForecast? {
+        switch forecast {
+        case .success(let f): return f
+        case .failure(let e): return e.unshown
+        }
+    }
+
     var limitations: [ForecastLimitation] {
         switch forecast {
         case .success(let f): return f.limitations
@@ -37,8 +55,9 @@ struct Outlook {
         }
     }
 
-    /// The compact form written into the shared snapshot for the widget and popover.
-    func snapshot(lowMgdl: Double) -> OutlookSnapshot {
+    /// The compact form written into the shared snapshot for the widget and popover. With
+    /// `highMgdl`, a forecast that comes back down into range says when (`BackInRange`).
+    func snapshot(lowMgdl: Double, highMgdl: Double? = nil) -> OutlookSnapshot {
         let f = glucoseForecast
         var s = OutlookSnapshot(issuedAt: f?.issuedAt ?? at, basis: f?.basis ?? .trend)
         s.forecast = f?.samples ?? []
@@ -47,7 +66,9 @@ struct Outlook {
         s.carbsOnBoard = carbs.mealCount > 0 ? carbs.onBoard : nil
         s.lowExpectedAt = f?.firstBelow(lowMgdl)
         s.lowPossibleAt = f?.firstRangeBelow(lowMgdl)
+        if let f, let highMgdl { s.backInRangeAt = BackInRange.estimate(f, high: highMgdl, check: model.backInRange) }
         if case .failure(let e) = forecast { s.unavailableReason = e.reason.message }
+        s.caveat = ForecastCaveat.pick(forecast)
         s.morning = f?.morning.map {
             MorningAdjustmentSnapshot(wokeAt: $0.wokeAt, addedMgdl: $0.addedMgdl, confidence: $0.confidence ?? .low)
         }
@@ -59,6 +80,7 @@ enum OutlookEngine {
     /// The slow part: effect profile, forecast accuracy and recurring patterns.
     static func learn(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
                       low: Double, high: Double, now: Date = Date(), calendar: Calendar = .current) -> OutlookModel {
+        let meals = LogCleanup.mealsWithoutRepeats(meals)
         let profile = EffectProfileLearner.learn(readings: readings, doses: doses, meals: meals, contexts: contexts,
                                                  low: low, now: now, calendar: calendar)
         // Each replayed forecast uses a profile fitted without the stretch it's checked against.
@@ -80,12 +102,18 @@ enum OutlookEngine {
     /// The quick part, run on every new reading. `readings` only needs the last hour or so.
     static func outlook(readings: [GlucoseReading], doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent],
                         model: OutlookModel, now: Date = Date()) -> Outlook {
+        // Doses marked as for a meal are matched against every meal entry, repeats included.
+        let unloggedMeals = DoseMealCheck.unloggedMealTimes(doses: doses, meals: meals)
+        let meals = LogCleanup.mealsWithoutRepeats(meals)
         let series = GlucoseSeries(readings)
-        let input = ForecastInputs(readings: series, doses: doses, meals: meals, contexts: contexts,
+        var input = ForecastInputs(readings: series, doses: doses, meals: meals, contexts: contexts,
                                    profile: model.profile, calibration: model.calibration,
                                    morning: model.morning.isUsable ? model.morning : nil,
-                                   tuning: model.tuning.tuning, now: now)
+                                   tuning: model.tuning.tuning, rangeScale: model.rangeScale, now: now)
+        input.unloggedMealTimes = unloggedMeals
+        input.liveHorizon = model.liveHorizon
         let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
+            + unloggedMeals
         return Outlook(at: now,
                        forecast: GlucoseForecaster.forecast(input),
                        insulin: InsulinActivity.compute(doses: doses, at: now),

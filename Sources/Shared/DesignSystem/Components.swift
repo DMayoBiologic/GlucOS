@@ -196,13 +196,26 @@ struct StatTile<Footer: View>: View {
     /// groups them.
     var boxed = false
     var help: String?
+    /// The number behind `value` and how to write it, so the figure rolls (`RollingFigure`):
+    /// counting up on a screen with `figuresCountUp` on, and rolling to a new value anywhere.
+    var rolling: Rolling?
     @ViewBuilder var footer: () -> Footer
 
+    struct Rolling {
+        let value: Double
+        let text: (Double) -> String
+        init(_ value: Double, text: @escaping (Double) -> String) {
+            self.value = value
+            self.text = text
+        }
+    }
+
     init(_ title: String, value: String, unit: String? = nil, caption: String? = nil, tone: Tone = .neutral,
-         large: Bool = false, boxed: Bool = false, help: String? = nil,
+         large: Bool = false, boxed: Bool = false, help: String? = nil, rolling: Rolling? = nil,
          @ViewBuilder footer: @escaping () -> Footer) {
         self.title = title
         self.value = value
+        self.rolling = rolling
         self.unit = unit
         self.caption = caption
         self.tone = tone
@@ -224,13 +237,18 @@ struct StatTile<Footer: View>: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
-                Text(value)
-                    .dsFont(large ? .metricValueLarge : .metricValue)
-                    .foregroundStyle(valueStyle)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .contentTransition(.numericText())
-                    .layoutPriority(1)
+                Group {
+                    if let rolling {
+                        RollingFigure(rolling.value, text: rolling.text)
+                    } else {
+                        Text(value).contentTransition(.numericText())
+                    }
+                }
+                .dsFont(large ? .metricValueLarge : .metricValue)
+                .foregroundStyle(valueStyle)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .layoutPriority(1)
                 if let unit {
                     Text(unit)
                         .dsFont(.unit)
@@ -263,9 +281,9 @@ struct StatTile<Footer: View>: View {
 
 extension StatTile where Footer == EmptyView {
     init(_ title: String, value: String, unit: String? = nil, caption: String? = nil, tone: Tone = .neutral,
-         large: Bool = false, boxed: Bool = false, help: String? = nil) {
+         large: Bool = false, boxed: Bool = false, help: String? = nil, rolling: Rolling? = nil) {
         self.init(title, value: value, unit: unit, caption: caption, tone: tone, large: large, boxed: boxed,
-                  help: help) { EmptyView() }
+                  help: help, rolling: rolling) { EmptyView() }
     }
 }
 

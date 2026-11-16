@@ -31,8 +31,21 @@ struct GlucoseActivityState: Codable, Hashable {
     var insulinOnBoard: Double?
     /// When the forecast's central line first goes below the low threshold, seconds since 1970.
     var lowExpectedAt: Double?
+    /// From above range: when the forecast says glucose is back in range, seconds since 1970. Set
+    /// only while the sender's own checks of that estimate keep it within 15 minutes: the app's
+    /// from `GlucoseSnapshot.backInRange(at:)`, the relay's from its own ledger (core.ts
+    /// backInRangeCheck), so neither borrows the other's. Never with a low expected.
+    var backInRangeAt: Double?
     /// "phone" or "relay": who sent this update. Shown nowhere; handy when debugging.
     var source: String = "phone"
+    /// A check-in on this card: on a follower's, theirs; on the owner's, who's waiting for an answer.
+    /// Added by the relay (and by the app from what the relay says); never by `make`.
+    var checkIn: CheckInState?
+    /// While a new sensor warms up: when its first reading is due, seconds since 1970. The card
+    /// shows a countdown instead of a reading (`makeWarmUp`); then `mgdl` and `history` are
+    /// placeholders. Only the app sets it; the relay's cards never have it, so its first reading
+    /// replaces the countdown.
+    var warmUpEndsAt: Double?
 
     static let historyStep: TimeInterval = 5 * 60
     /// How much history the card's sparkline covers.
@@ -48,7 +61,11 @@ struct GlucoseActivityState: Codable, Hashable {
     var range: GlucoseRange { GlucoseRange.classify(mgdl: mgdl, low: lowMgdl, high: highMgdl) }
 
     /// When the card should turn grey: the same 6 minutes as everywhere else.
-    var staleDate: Date { readingDate.addingTimeInterval(GlucoseSnapshot.staleAfter) }
+    /// During a warm-up, once the first reading is well overdue instead.
+    var staleDate: Date {
+        if let warmUpEnd { return warmUpEnd.addingTimeInterval(SensorWarmUp.grace) }
+        return readingDate.addingTimeInterval(GlucoseSnapshot.staleAfter)
+    }
     func isStale(at now: Date = Date()) -> Bool { now > staleDate }
 
     var valueText: String { glucoseUnit.format(mgdl: mgdl) }
@@ -71,13 +88,46 @@ struct GlucoseActivityState: Codable, Hashable {
         }
     }
 
-    /// The forecast's last point, in minutes from the reading, with its value.
+    /// The forecast point the card names: 30 minutes ahead when the forecast reaches that far
+    /// (further out is too uncertain to headline on a glance), else its last point.
     var forecastHeadline: (minutes: Int, mgdl: Double)? {
+        if forecast.count >= 6 { return (30, Double(forecast[5])) }
         guard let last = forecast.last else { return nil }
         return (forecast.count * 5, Double(last))
     }
 
+    var warmUpEnd: Date? { warmUpEndsAt.map { Date(timeIntervalSince1970: $0) } }
+    var isWarmingUp: Bool { warmUpEndsAt != nil }
+    /// The warm-up's start, for the countdown ring (the reading time holds it on a warm-up card).
+    var warmUpStart: Date { readingDate }
+
+    var lowExpectedDate: Date? { lowExpectedAt.map { Date(timeIntervalSince1970: $0) } }
+
+    /// "Back in range ≈ X min", minutes from the reading, when the card may say it: a live
+    /// reading above range, no low expected, and an estimate after the reading. Never on a low.
+    func backInRangeMinutes(stale: Bool) -> Int? {
+        guard !stale, !isWarmingUp, lowExpectedAt == nil, mgdl > highMgdl,
+              let at = backInRangeAt, at > readingAt else { return nil }
+        return BackInRangeText.minutes(Date(timeIntervalSince1970: at), from: readingDate)
+    }
+
+    /// Low now, or forecast to be: when a follower's card offers Check in.
+    var offersCheckIn: Bool { range == .low || range == .urgentLow || lowExpectedAt != nil }
+
     // MARK: Building
+
+    /// The card for a sensor warming up: a countdown to its first reading. The placeholder reading
+    /// sits mid-range so anything that doesn't know about warm-ups still draws something calm.
+    static func makeWarmUp(_ warmUp: SensorWarmUp, snapshot s: GlucoseSnapshot,
+                           source: String = "phone") -> GlucoseActivityState {
+        var state = GlucoseActivityState(mgdl: (s.lowMgdl + s.highMgdl) / 2, trend: Trend.unknown.rawValue,
+                                         readingAt: warmUp.startedAt.timeIntervalSince1970,
+                                         deltaMgdl: nil, unit: s.unit.rawValue,
+                                         lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, history: [],
+                                         source: source)
+        state.warmUpEndsAt = warmUp.endsAt.timeIntervalSince1970
+        return state
+    }
 
     /// The state for a snapshot, or nil when there's no reading. `readings` is everything known
     /// (the snapshot's history is used when it's empty); only the last few hours are kept.
@@ -131,7 +181,61 @@ struct GlucoseActivityState: Codable, Hashable {
             state.forecastUpper = points.last.map { Int($0.upperMgdl.rounded()) }
             if o.showsInsulin { state.insulinOnBoard = o.insulinOnBoard }
             state.lowExpectedAt = o.lowExpectedAt?.timeIntervalSince1970
+            // The same gate as the Today card and the Mac (highs only, this device's own checks).
+            state.backInRangeAt = s.backInRange(at: now)?.date.timeIntervalSince1970
         }
         return state
+    }
+}
+
+/// A check-in, as a Live Activity shows it (supabase/functions/relay/checkins.ts `CheckInCard`).
+/// A follower taps Check in when the person they follow is low; that person answers "I'm okay" or
+/// "I need help".
+struct CheckInState: Codable, Hashable {
+    enum Status: String, Codable {
+        /// Waiting for an answer.
+        case asked
+        /// Still waiting after 5 minutes: the owner has been asked again.
+        case noAnswer
+        case okay
+        case help
+    }
+
+    var status: Status
+    /// Seconds since 1970.
+    var askedAt: Double
+    var answeredAt: Double?
+    /// On the owner's card: who's asking (the first of them, when they gave a name).
+    var who: String?
+    /// On the owner's card: how many people are waiting.
+    var count: Int?
+
+    init(status: Status, askedAt: Double, answeredAt: Double? = nil, who: String? = nil, count: Int? = nil) {
+        self.status = status
+        self.askedAt = askedAt
+        self.answeredAt = answeredAt
+        self.who = who
+        self.count = count
+    }
+
+    // A status a newer relay adds shows as waiting rather than breaking the whole card.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = (try? c.decode(Status.self, forKey: .status)) ?? .asked
+        askedAt = try c.decode(Double.self, forKey: .askedAt)
+        answeredAt = try c.decodeIfPresent(Double.self, forKey: .answeredAt)
+        who = try c.decodeIfPresent(String.self, forKey: .who)
+        count = try c.decodeIfPresent(Int.self, forKey: .count)
+    }
+
+    var askedDate: Date { Date(timeIntervalSince1970: askedAt) }
+    var answeredDate: Date? { answeredAt.map { Date(timeIntervalSince1970: $0) } }
+    var isWaiting: Bool { status == .asked || status == .noAnswer }
+
+    /// "Sam", "Sam and 1 other", or "Someone" on the owner's card.
+    var askers: String {
+        let name = who.flatMap { $0.isEmpty ? nil : $0 } ?? "Someone"
+        let others = max(0, (count ?? 1) - 1)
+        return others == 0 ? name : "\(name) and \(others) other\(others == 1 ? "" : "s")"
     }
 }

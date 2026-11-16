@@ -141,14 +141,35 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Don't force-quit GlucOS** (swiping it away in the app switcher). iOS won't wake a force-quit
   app, so when the relay starts the next 8-hour Lock Screen card the phone can't hand back its new
   push token, and the card stops updating until you open GlucOS again. Alerts are unaffected.
+- **Low and high alerts have two buttons.** *Snooze 30 min* quiets your own alerts (followers still
+  get every one), and *I'm treating it* opens the log sheet on your usual low treatment or a
+  correction. Urgent lows can't be snoozed. See [AlertActions.md](AlertActions.md).
+- **Pull down on Today to refresh.** A ring fills as your readings arrive and you feel a light tap when there's something new. Under Reduce Motion you get the standard system indicator.
+- **Your alerts are in the Logbook.** Each low or high alert gets a quiet row showing when it went off and what you did about it. Use the filter to hide these rows. They never count as treatments.
+- **Search the Logbook by day.** Try "pizza last week" or "fri" in the search box. The Meals, Insulin, Lows and Notes chips narrow the list, and what matched is highlighted.
+- **Open an entry in the Logbook.** Tap an entry in the full Logbook to see everything about it where it sits, with Edit, Log Again and Delete. Tap it again, tap outside or drag down to close.
+- **A new sensor counts down its warm-up.** For the sensor's first hour, Today and the Live Activity show a ring that fills and "Readings start in about N min" in place of the old sensor's last reading. The first reading cross-fades in when it arrives. Signed in with no readings at all, Today says what to do next and offers Check Again.
+- **"Back in range ≈ 20 min".** When you're high, Today shows roughly when you'll be back in range. It only appears while your own past estimates have usually been within 15 minutes, and it is never shown for lows. The Live Activity and the Lock Screen and Home Screen widgets show it too, under the same rule. While the app is closed the Lock Screen card comes from the relay, which only shows it once its own estimates have passed the same check.
+- **The reading rolls, it doesn't jump.** On Today the number rolls to each new value, its colour fades when you cross a range edge, and the trend arrow turns. Under Reduce Motion the number just changes.
+- **Taking your Logbook to the clinic.** Export it from the Logbook: pick the days, then share a PDF summary or a CSV. It's made on the phone, works offline and never includes follower data (docs/LogbookExport.md).
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
 - **The relay's forecast is trend-only.** The phone and the Mac forecast with the synced
-  logbook; the relay still forecasts from the recent trend.
+  logbook; the relay forecasts from the recent trend, at the strength and timing it has learnt
+  from its own readings (docs/ForecastAccuracy.md §6).
 - **The relay gets your LibreLinkUp login.** The app sends it over HTTPS (with the relay secret).
   It's kept encrypted in Supabase Vault. Signing out on the phone asks the relay to delete it; if
   the relay can't be reached then, the login stays in Vault until it can.
+- **New readings move, they don't jump.** On the Live Activity, Dynamic Island and Lock Screen
+  widgets the number counts over, the range colour cross-fades and the trend arrow turns. With
+  Reduce Motion on, the number just fades in place. Nothing loops, so it costs no extra battery.
+- **Press and drag the chart** to read any reading and its time. A light tick marks crossing your
+  low or high line and passing anything you logged; let go and the readout glides back to now.
+- **Stale readings look stale everywhere.** When data stops, the number fades to grey and a strike
+  line draws across it on the app, widgets and Lock Screen; VoiceOver says the reading is stale.
+- **Saving a log entry** gives a success tap and a brief checkmark before the sheet closes, so you
+  know it went in. A warning such as the logged-twice check always stops you first.
 - **Two followers, one account.** The Mac and the relay each poll LibreLinkUp once a minute.
 - **Without the relay** the app still works while it's open, and the Lock Screen card updates
   whenever iOS gives it background time.

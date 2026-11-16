@@ -6,7 +6,14 @@ typealias PhoneLogPart = LogPart
 /// What the iPhone log sheet opens for.
 enum PhoneLogTarget {
     case new(start: PhoneLogPart?)
+    /// Food at an earlier time: the meal a dose was for ("Was it for a meal?" → Meal → Add Food).
+    case meal(at: Date)
     case edit(LogEntry)
+    /// "I'm treating it" on a low or high alert (docs/AlertActions.md): a hypo treatment, filled
+    /// from the "Treat a low" usual when there is one, or a correction dose.
+    case treating(AlertTreatment)
+    /// A hypo treatment at an earlier time: "Did you treat this low?" → Something else.
+    case lowTreatment(at: Date)
 }
 
 struct PhoneLogRequest: Identifiable {
@@ -21,13 +28,41 @@ final class PhoneLogRouter: ObservableObject {
     static let shared = PhoneLogRouter()
 
     @Published var request: PhoneLogRequest?
+    /// The open sheet saved something: the log bar's plus bounces once as the sheet closes
+    /// (docs/Redesign.md §7.1). Cleared by the bar when it plays it.
+    var savedSinceOpen = false
 
     func open(_ start: PhoneLogPart? = nil) {
+        savedSinceOpen = false
         request = PhoneLogRequest(target: .new(start: start))
     }
 
+    /// The log sheet on food, at `time`.
+    func logMeal(at time: Date) {
+        savedSinceOpen = false
+        request = PhoneLogRequest(target: .meal(at: time))
+    }
+
+    /// The log sheet for "I'm treating it" on an alert.
+    func treat(_ treatment: AlertTreatment) {
+        savedSinceOpen = false
+        request = PhoneLogRequest(target: .treating(treatment))
+    }
+
+    /// The log sheet on a hypo treatment at `time`, for a low that's over.
+    func logLowTreatment(at time: Date) {
+        savedSinceOpen = false
+        request = PhoneLogRequest(target: .lowTreatment(at: time))
+    }
+
     func edit(_ entry: LogEntry) {
+        savedSinceOpen = false
         request = PhoneLogRequest(target: .edit(entry))
+    }
+
+    /// Called by the log sheet when it saves, just before it closes.
+    func noteSaved() {
+        savedSinceOpen = true
     }
 
     /// `glucos://log`, `glucos://log/food`, `glucos://log?part=insulin`; `glucos://log/wake` logs a

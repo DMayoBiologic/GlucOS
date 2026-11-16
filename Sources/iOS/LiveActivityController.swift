@@ -19,6 +19,8 @@ final class LiveActivityController: ObservableObject {
     var onActivityToken: ((_ activityID: String, _ token: String) -> Void)?
     var onPushToStartToken: ((String) -> Void)?
     var onActivityEnded: ((_ activityID: String) -> Void)?
+    /// The activity the relay last said it's updating (`RelayStatus.activityID`), if any.
+    var relayActivityID: (@MainActor () -> String?)?
 
     /// This controller looks after the owner's own card only. Cards following someone else's
     /// share (`followID` set) belong to `FollowStore`.
@@ -26,9 +28,17 @@ final class LiveActivityController: ObservableObject {
     private var ownActivities: [GlucoseActivity] { GlucoseActivity.activities.filter(LiveActivityController.isOwn) }
 
     private var tracked = Set<String>()
+    /// The latest update token of each running activity, so the relay can be told again about the
+    /// current one when an earlier upload was lost (`currentRegistration`).
+    private var tokens: [String: String] = [:]
     private var observers: [Task<Void, Never>] = []
     private var lastSent: GlucoseActivityState?
     private var requesting = false
+    /// The card that came into being most recently: one this app requested, or one the relay
+    /// started by push while the app was watching. It's the one to keep, even over the card the
+    /// relay's last status names, since that status can predate it (the relay's 8-hour rotation
+    /// starts the next card before the phone hears about it).
+    private var newestStarted: String?
 
     func startObserving() {
         guard observers.isEmpty else { return }
@@ -45,14 +55,61 @@ final class LiveActivityController: ObservableObject {
         // Activities the relay starts by push arrive here, even with the app in the background.
         observers.append(Task { [weak self] in
             for await activity in GlucoseActivity.activityUpdates where LiveActivityController.isOwn(activity) {
-                self?.track(activity)
+                guard let self else { return }
+                if !self.tracked.contains(activity.id) { self.newestStarted = activity.id }
+                self.track(activity)
             }
         })
         ownActivities.forEach(track)
+        Task { await endDuplicates() }
     }
 
+    nonisolated private static func isRunning(_ a: GlucoseActivity) -> Bool {
+        a.activityState == .active || a.activityState == .stale
+    }
+
+    /// The card to keep when there are several: the one the relay says it's updating, else the one
+    /// showing the newest reading (the one being updated). On a tie, the later one.
     private var current: GlucoseActivity? {
-        ownActivities.last { $0.activityState == .active || $0.activityState == .stale }
+        let running = ownActivities.filter(LiveActivityController.isRunning)
+        if let newest = newestStarted, let fresh = running.first(where: { $0.id == newest }) {
+            return fresh
+        }
+        if let relayID = relayActivityID?(), let accepted = running.first(where: { $0.id == relayID }) {
+            return accepted
+        }
+        return running.enumerated()
+            .max { ($0.element.content.state.readingAt, $0.offset) < ($1.element.content.state.readingAt, $1.offset) }?
+            .element
+    }
+
+    /// The current activity and its update token, for the relay. Sent with every relay sync, so a
+    /// registration lost to a timeout heals instead of leaving the relay on an older card.
+    var currentRegistration: (id: String, token: String)? {
+        guard let a = current, let token = tokens[a.id] ?? a.pushToken?.hexString else { return nil }
+        return (a.id, token)
+    }
+
+    /// Only ever one GlucOS card. A second one turns up when the relay starts the next card while
+    /// the old one is still showing, or when a start went out twice: end all but the newest. Each
+    /// ended one reports itself through `onActivityEnded`, so the relay retires its token too.
+    private func endDuplicates() async {
+        await dismissEnded()
+        guard let keep = current else { return }
+        for extra in ownActivities where LiveActivityController.isRunning(extra) && extra.id != keep.id {
+            track(extra)
+            await extra.end(nil, dismissalPolicy: .immediate)
+        }
+        refreshRunning()
+    }
+
+    /// A card iOS has ended (its 8-hour limit) stays on the Lock Screen for up to 4 more hours,
+    /// frozen on its last reading, beside the card that replaced it. Nothing updates it any more,
+    /// so it goes now.
+    private func dismissEnded() async {
+        for ended in ownActivities where ended.activityState == .ended {
+            await ended.end(nil, dismissalPolicy: .immediate)
+        }
     }
 
     private func track(_ activity: GlucoseActivity) {
@@ -60,7 +117,11 @@ final class LiveActivityController: ObservableObject {
         let id = activity.id
         Task { [weak self] in
             for await token in activity.pushTokenUpdates {
-                self?.onActivityToken?(id, token.hexString)
+                guard let self else { return }
+                self.tokens[id] = token.hexString
+                // An activity that's on its way out mustn't become the relay's card again.
+                guard self.current?.id == id else { continue }
+                self.onActivityToken?(id, token.hexString)
             }
         }
         Task { [weak self] in
@@ -68,12 +129,18 @@ final class LiveActivityController: ObservableObject {
                 guard let self else { return }
                 if state == .ended || state == .dismissed {
                     self.tracked.remove(id)
+                    self.tokens[id] = nil
+                    if self.newestStarted == id { self.newestStarted = nil }
                     self.onActivityEnded?(id)
                 }
+                // Ended but still showing a frozen reading: take it off the Lock Screen.
+                if state == .ended { await activity.end(nil, dismissalPolicy: .immediate) }
                 self.refreshRunning()
             }
         }
         refreshRunning()
+        // A card the relay just started: the older one it replaces goes.
+        Task { [weak self] in await self?.endDuplicates() }
     }
 
     private func refreshRunning() {
@@ -85,13 +152,9 @@ final class LiveActivityController: ObservableObject {
     func show(_ state: GlucoseActivityState, wantsPushUpdates: Bool, canStart: Bool) async {
         guard systemEnabled else { return }
         let content = ActivityContent(state: state, staleDate: state.staleDate,
-                                      relevanceScore: state.range == .inRange ? 50 : 100)
-        // Only ever one GlucOS card.
-        let all = ownActivities.filter { $0.activityState == .active || $0.activityState == .stale }
-        for extra in all.dropLast() {
-            await extra.end(nil, dismissalPolicy: .immediate)
-        }
-        if let activity = all.last {
+                                      relevanceScore: state.isWarmingUp || state.range == .inRange ? 50 : 100)
+        await endDuplicates()
+        if let activity = current {
             guard state != lastSent || activity.activityState == .stale else { return }
             await activity.update(content)
             lastSent = state
@@ -112,10 +175,24 @@ final class LiveActivityController: ObservableObject {
             }
             lastSent = state
             lastError = nil
+            newestStarted = activity.id
             track(activity)
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    /// The check-in the owner's card shows now (the relay puts it there).
+    var currentCheckIn: CheckInState? { current?.content.state.checkIn }
+
+    /// Puts `checkIn` on the card as it is, without waiting for a new reading.
+    func setCheckIn(_ checkIn: CheckInState?) async {
+        guard let activity = current, activity.content.state.checkIn != checkIn else { return }
+        var state = activity.content.state
+        state.checkIn = checkIn
+        await activity.update(ActivityContent(state: state, staleDate: activity.content.staleDate,
+                                              relevanceScore: activity.content.relevanceScore))
+        lastSent = state
     }
 
     /// Ends the owner's Live Activity (the switch was turned off, or the account signed out).

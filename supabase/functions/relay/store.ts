@@ -36,6 +36,15 @@ export function hydrate(stored: Partial<RelayRow> & Record<string, unknown>): Re
   };
 }
 
+// deno-lint-ignore no-explicit-any
+function rowOf(r: Record<string, any>): RelayRow {
+  return hydrate({
+    prefs: r.prefs, accountGeneration: Number(r.account_generation), activity: r.activity ?? null,
+    pendingStart: r.pending_start, startAttempts: r.start_attempts, lastStartAttempt: r.last_start_attempt ?? null,
+    work: r.work,
+  } as Partial<RelayRow> & Record<string, unknown>);
+}
+
 async function readSecret(sql: SQL, name: string): Promise<string | null> {
   const rows = await sql`select decrypted_secret from vault.decrypted_secrets where name = ${name} limit 1`;
   return rows.length ? (rows[0].decrypted_secret as string) : null;
@@ -54,57 +63,16 @@ async function writeSecret(sql: SQL, name: string, value: string | null) {
 export class PostgresStore implements Store {
   constructor(private readonly sql: SQL) {}
 
-  transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-    return this.sql.begin(async (sql) => {
+  transaction<T>(fn: (tx: Tx) => Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
+    if (options.readOnly === true) return this.read(fn);
+    return this.sql.begin("read write", async (sql) => {
       const rows = await sql`
-        select prefs, account_generation, activity, pending_start, start_attempts, last_start_attempt, work
+        select prefs, account_generation, activity, pending_start, start_attempts, last_start_attempt, work,
+               exists(select 1 from vault.secrets where name = ${accountSecret}) as has_account
         from glucos.relay where id = 1 for update`;
       if (!rows.length) throw new Error("glucos.relay has no row; run the migrations");
-      const r = rows[0];
-      const row = hydrate({
-        prefs: r.prefs, accountGeneration: Number(r.account_generation), activity: r.activity ?? null,
-        pendingStart: r.pending_start, startAttempts: r.start_attempts, lastStartAttempt: r.last_start_attempt ?? null,
-        work: r.work,
-      } as Partial<RelayRow> & Record<string, unknown>);
-
-      const tx: Tx = {
-        row,
-        account: async () => {
-          const v = await readSecret(sql as unknown as SQL, accountSecret);
-          return v ? (JSON.parse(v) as Account) : null;
-        },
-        setAccount: (a) => writeSecret(sql as unknown as SQL, accountSecret, a ? JSON.stringify(a) : null),
-        libreSession: async () => {
-          const v = await readSecret(sql as unknown as SQL, sessionSecret);
-          return v ? (JSON.parse(v) as LibreSession) : null;
-        },
-        setLibreSession: (s) => writeSecret(sql as unknown as SQL, sessionSecret, s ? JSON.stringify(s) : null),
-        readings: async (since) => {
-          const rs = await sql`
-            select extract(epoch from at)::float8 as t, mgdl, trend from glucos.readings
-            where at >= to_timestamp(${since}) order by at`;
-          return rs.map((x) => ({ t: Number(x.t), mgdl: Number(x.mgdl), trend: Number(x.trend) as Trend }));
-        },
-        addReadings: async (incoming: Reading[]) => {
-          if (!incoming.length) return;
-          await sql`
-            insert into glucos.readings (at, mgdl, trend)
-            select to_timestamp(u.t), u.m, u.tr
-            from unnest(${incoming.map((r) => r.t)}::float8[], ${incoming.map((r) => r.mgdl)}::float8[],
-                        ${incoming.map((r) => r.trend)}::int2[]) as u(t, m, tr)
-            on conflict (at) do update set mgdl = excluded.mgdl, trend = excluded.trend`;
-        },
-        clearReadings: async () => {
-          await sql`delete from glucos.readings`;
-        },
-        pruneReadings: async (before) => {
-          await sql`delete from glucos.readings where at < to_timestamp(${before})`;
-        },
-        ownsLease: async (lease) => {
-          const rs = await sql`select tick_lease_until::text = ${lease} as ok from glucos.relay where id = 1`;
-          return rs.length > 0 && rs[0].ok === true;
-        },
-      };
+      const row = rowOf(rows[0]);
+      const tx = this.tx(sql as unknown as SQL, row, rows[0].has_account === true);
 
       const result = await fn(tx);
       await sql`
@@ -120,6 +88,64 @@ export class PostgresStore implements Store {
         where id = 1`;
       return result;
     }) as Promise<T>;
+  }
+
+  /// A status read: the row and whether an account is stored, in one statement and one round trip.
+  /// No transaction (BEGIN and COMMIT were two more trips across regions) and no Vault decryption.
+  private async read<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+    const rows = await this.sql`
+      select prefs, account_generation, activity, pending_start, start_attempts, last_start_attempt, work,
+             exists(select 1 from vault.secrets where name = ${accountSecret}) as has_account
+      from glucos.relay where id = 1`;
+    if (!rows.length) throw new Error("glucos.relay has no row; run the migrations");
+    return await fn(this.tx(this.sql, rowOf(rows[0]), rows[0].has_account === true));
+  }
+
+  private tx(sql: SQL, row: RelayRow, storedAccount: boolean): Tx {
+    let hasAccount = storedAccount;
+    const tx: Tx = {
+      row,
+      hasAccount: () => Promise.resolve(hasAccount),
+      account: async () => {
+        const v = await readSecret(sql, accountSecret);
+        return v ? (JSON.parse(v) as Account) : null;
+      },
+      setAccount: async (a) => {
+        await writeSecret(sql, accountSecret, a ? JSON.stringify(a) : null);
+        hasAccount = a !== null;
+      },
+      libreSession: async () => {
+        const v = await readSecret(sql, sessionSecret);
+        return v ? (JSON.parse(v) as LibreSession) : null;
+      },
+      setLibreSession: (s) => writeSecret(sql, sessionSecret, s ? JSON.stringify(s) : null),
+      readings: async (since) => {
+        const rs = await sql`
+          select extract(epoch from at)::float8 as t, mgdl, trend from glucos.readings
+          where at >= to_timestamp(${since}) order by at`;
+        return rs.map((x) => ({ t: Number(x.t), mgdl: Number(x.mgdl), trend: Number(x.trend) as Trend }));
+      },
+      addReadings: async (incoming: Reading[]) => {
+        if (!incoming.length) return;
+        await sql`
+          insert into glucos.readings (at, mgdl, trend)
+          select to_timestamp(u.t), u.m, u.tr
+          from unnest(${incoming.map((r) => r.t)}::float8[], ${incoming.map((r) => r.mgdl)}::float8[],
+                      ${incoming.map((r) => r.trend)}::int2[]) as u(t, m, tr)
+          on conflict (at) do update set mgdl = excluded.mgdl, trend = excluded.trend`;
+      },
+      clearReadings: async () => {
+        await sql`delete from glucos.readings`;
+      },
+      pruneReadings: async (before) => {
+        await sql`delete from glucos.readings where at < to_timestamp(${before})`;
+      },
+      ownsLease: async (lease) => {
+        const rs = await sql`select tick_lease_until::text = ${lease} as ok from glucos.relay where id = 1`;
+        return rs.length > 0 && rs[0].ok === true;
+      },
+    };
+    return tx;
   }
 
   /// The lease's expiry as text is its token: exact to the microsecond, unlike a JS Date.

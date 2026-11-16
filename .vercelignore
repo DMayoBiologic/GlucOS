@@ -1,0 +1,2 @@
+# Tests for the share page stay in the repo, not on the site.
+web/**/*_test.js

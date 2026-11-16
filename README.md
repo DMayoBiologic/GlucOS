@@ -52,6 +52,12 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   readings with ← → (Home/End jump to the ends). The 3h / 6h / 12h control sets the range.
 - **Keyboard** in the popover: ⌘L log, ⌘R refresh, ⌘D dashboard, ⌘, settings, ⌘C copy the reading,
   ⌘1 / ⌘2 / ⌘3 chart range, ⌘Q quit. Hold ⌘ to see them. Right-click the reading for the same actions.
+  In the log sheet, use the arrow keys and Return to pick the moment, and ⌘? to list every shortcut. You can also
+  turn on a shortcut that opens logging from any app (**Settings → Logging**, off by default; see docs/KeyboardLogging.md).
+- **Back in range ≈ X min**: when you're high, this shows under the popover forecast and in the menu bar item's tooltip.
+  It only appears while this Mac's past estimates have usually been within 15 minutes, and never during lows.
+- **Motion**: when the popover opens, its sections fade in one after another, and charts glide rather than jump. Turn on
+  Reduce Motion (System Settings → Accessibility → Display) to switch all of this off.
 - **Dashboard** (⌘D in the popover, or the expand button on the chart): a resizable window with
   - an interactive chart from 3 hours to 30 days: hover for any reading (with its 15-minute change),
     drag across it to select a stretch and see its average, time in range and change, pinch or
@@ -89,6 +95,12 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   how soon glucose starts falling after a bolus taken without food, when it stops falling, and how
   far it fell per unit, overall and by body area; the rise after meals, with and without insulin;
   glucose by day of infusion-site wear (pump); and injection-site rotation (injections).
+  **Your usual day** shows a time-of-day pattern over the last 14 or 30 days: the middle line,
+  the middle half and 8 in 10 readings shaded, with a spoken summary and audio graph for VoiceOver.
+  **Today so far** (on the dashboard Overview and the iPhone Today screen) puts today's time in
+  range, average and lows since midnight beside the same hours on your usual day.
+  **Week in review** puts the last 7 days beside the 7 before (time in range, average, lows) and
+  names the best and hardest part of the day this week; it shows this week alone until last week has readings.
   These are observations, not advice. GlucOS never suggests or calculates a dose, and the
   "drop per unit" is not a correction factor. Talk to your care team before changing anything.
 - **Logging** (⌘L, from the popover or dashboard) opens a quick-log window that asks **What's

@@ -52,13 +52,17 @@ final class AlertManager {
     var deliversLocally: @MainActor () -> Bool = { true }
 
     func evaluate(_ s: GlucoseSnapshot, settings: AppSettings, now: Date = Date()) {
-        for notice in planner.evaluate(s, prefs: settings.alertPreferences, now: now) { deliver(notice) }
+        // Each reading also lets go of alert records past 90 days, so a Mac that never quits keeps
+        // to the limit too. Cheap: nothing is written unless one has expired.
+        AlertLogRecorder.shared.logbook?.pruneExpiredAlerts(now: now)
+        let due = planner.evaluate(s, prefs: settings.alertPreferences, now: now)
+        for notice in planner.unsnoozed(due, snoozes: AlertSnoozeStore.shared.snoozes, now: now) { deliver(notice) }
     }
 
     /// Heads-up alerts from the forecast. See `AlertPlanner.evaluatePrediction`.
     func evaluatePrediction(_ s: GlucoseSnapshot, forecast: GlucoseForecast?, settings: AppSettings, now: Date = Date()) {
         if let notice = planner.evaluatePrediction(s, forecast: forecast, prefs: settings.alertPreferences, now: now) {
-            deliver(notice)
+            for n in planner.unsnoozed([notice], snoozes: AlertSnoozeStore.shared.snoozes, now: now) { deliver(n) }
         }
     }
 
@@ -70,7 +74,151 @@ final class AlertManager {
         content.sound = notice.critical ? .defaultCritical : .default
         content.interruptionLevel = notice.critical ? .timeSensitive : .active
         content.threadIdentifier = "glucos.alerts"
+        // "Snooze 30 min" and "I'm treating it" (urgent lows: only the second). See AlertSnooze.swift.
+        if let category = notice.kind.actionCategory { content.categoryIdentifier = category }
+        content.userInfo = ["kind": notice.kind.rawValue]
         let req = UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(req)
+        // Only an alert that was actually shown goes in the logbook.
+        let kind = notice.kind, time = Date()
+        UNUserNotificationCenter.current().add(req) { error in
+            guard error == nil else { return }
+            Task { @MainActor in
+                guard await AlertManager.notificationsAllowed() == true else { return }
+                AlertLogRecorder.shared.fired(kind, at: time)
+            }
+        }
+    }
+}
+
+// MARK: - Alerts in the Logbook
+
+/// Keeps a logbook record of each low or high alert this device shows, and of the button tapped on
+/// it (`AlertLog`, docs/AlertLog.md). Records only: nothing here logs a treatment.
+@MainActor
+final class AlertLogRecorder {
+    static let shared = AlertLogRecorder()
+    /// Set once at launch by each app.
+    weak var logbook: LogbookStore?
+
+    /// A local alert just shown by this device.
+    func fired(_ kind: AlertNotice.Kind, at time: Date = Date()) {
+        logbook?.alertFired(kind, at: time)
+    }
+
+    /// The user's own alert, local or pushed, as the notification arrived. A follower's copy of
+    /// someone else's alert (it names the share it's from) is never theirs to record.
+    func arrived(userInfo: [AnyHashable: Any], at time: Date) {
+        guard let kind = Self.ownKind(userInfo) else { return }
+        logbook?.alertFired(kind, at: time)
+    }
+
+    /// A button tapped on one of the user's own alerts that arrived at `firedAt`.
+    func tapped(_ tap: AlertNotifications.Tap, userInfo: [AnyHashable: Any], firedAt: Date) {
+        guard Self.ownKind(userInfo) != nil else { return }
+        let response: AlertRecord.Response
+        switch tap {
+        case .snooze: response = .snoozed
+        case .treat: response = .treating
+        }
+        logbook?.alertAnswered(tap.kind, response, snoozeMinutes: tap.snoozeMinutes, firedAt: firedAt)
+    }
+
+    /// The user's own alerts still in Notification Center, which arrived as pushes while GlucOS
+    /// wasn't running. Already recorded ones are skipped.
+    func collectDelivered() async {
+        logbook?.pruneExpiredAlerts()
+        let shown = await UNUserNotificationCenter.current().deliveredNotifications()
+        for n in shown { arrived(userInfo: n.request.content.userInfo, at: n.date) }
+    }
+
+    private static func ownKind(_ userInfo: [AnyHashable: Any]) -> AlertNotice.Kind? {
+        guard userInfo["followID"] == nil, let raw = userInfo["kind"] as? String,
+              let kind = AlertNotice.Kind(rawValue: raw), AlertLog.isLogged(kind) else { return nil }
+        return kind
+    }
+}
+
+// MARK: - Snooze and "I'm treating it"
+
+/// This device's alert snoozes, kept across launches. Read at delivery by `AlertManager`; the
+/// iPhone also sends each one to the relay for its push alerts.
+@MainActor
+final class AlertSnoozeStore: ObservableObject {
+    static let shared = AlertSnoozeStore()
+    private static let key = "alertSnoozes"
+    private let defaults: UserDefaults
+
+    @Published private(set) var snoozes: AlertSnoozes
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        snoozes = defaults.data(forKey: Self.key).flatMap { try? JSONDecoder().decode(AlertSnoozes.self, from: $0) }
+            ?? AlertSnoozes()
+    }
+
+    /// False for an alert that can't be snoozed (urgent lows).
+    @discardableResult
+    func snooze(_ kind: AlertNotice.Kind, minutes: Int, now: Date = Date()) -> Bool {
+        var s = snoozes
+        s.prune(now: now)
+        guard s.snooze(kind, minutes: minutes, now: now) else { return false }
+        snoozes = s
+        defaults.set(try? JSONEncoder().encode(s), forKey: Self.key)
+        return true
+    }
+}
+
+/// The buttons on low and high alerts, for both apps and for the relay's pushes (which carry the
+/// same category and `kind`).
+enum AlertNotifications {
+    /// A tapped alert button.
+    enum Tap: Equatable {
+        case snooze(AlertNotice.Kind)
+        case treat(AlertNotice.Kind, AlertTreatment)
+
+        var kind: AlertNotice.Kind {
+            switch self {
+            case .snooze(let k), .treat(let k, _): return k
+            }
+        }
+
+        /// How long the tap quiets this alert for: nothing for an urgent low.
+        var snoozeMinutes: Int? {
+            guard kind.snoozeLevel != nil else { return nil }
+            switch self {
+            case .snooze: return AlertSnoozes.snoozeMinutes
+            case .treat(_, let t): return AlertSnoozes.treatingMinutes(t)
+            }
+        }
+    }
+
+    static var categories: [UNNotificationCategory] {
+        // Snoozing needs no unlocking (it only quiets this device's own alerts); treating opens the
+        // log sheet, so it brings the app forward.
+        let snooze = UNNotificationAction(identifier: AlertSnoozes.snoozeAction,
+                                          title: "Snooze \(AlertSnoozes.snoozeMinutes) min", options: [],
+                                          icon: UNNotificationActionIcon(systemImageName: "zzz"))
+        let treat = UNNotificationAction(identifier: AlertSnoozes.treatAction, title: "I'm treating it",
+                                         options: [.foreground],
+                                         icon: UNNotificationActionIcon(systemImageName: "cross.case.fill"))
+        return [
+            UNNotificationCategory(identifier: AlertSnoozes.snoozeAndTreatCategory, actions: [treat, snooze],
+                                   intentIdentifiers: []),
+            // Urgent lows are never snoozable.
+            UNNotificationCategory(identifier: AlertSnoozes.treatOnlyCategory, actions: [treat], intentIdentifiers: []),
+        ]
+    }
+
+    /// The alert button behind a notification response, if it was one.
+    static func button(action: String, userInfo: [AnyHashable: Any]) -> Tap? {
+        guard let raw = userInfo["kind"] as? String, let kind = AlertNotice.Kind(rawValue: raw) else { return nil }
+        switch action {
+        case AlertSnoozes.snoozeAction:
+            return kind.snoozeLevel == nil ? nil : .snooze(kind)
+        case AlertSnoozes.treatAction:
+            return kind.treatment.map { .treat(kind, $0) }
+        default:
+            return nil
+        }
     }
 }

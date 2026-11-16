@@ -8,6 +8,8 @@
 //
 // Times are seconds since 1970 throughout, like the Swift code's `timeIntervalSince1970`.
 
+import type { CheckInCard } from "./checkins.ts";
+
 // MARK: - Models
 
 export type Trend = 0 | 1 | 2 | 3 | 4 | 5;
@@ -47,7 +49,7 @@ export interface AlertPreferences {
 
 export const defaultAlertPreferences = (): AlertPreferences => ({
   enabled: true, high: true, rapidChange: true, stale: true, sensorExpiry: true,
-  predictedLow: true, predictedHigh: true, predictiveMinutes: 20, cooldownMinutes: 15,
+  predictedLow: true, predictedHigh: true, predictiveMinutes: 30, cooldownMinutes: 15,
 });
 
 export const staleAfter = 6 * 60;
@@ -264,11 +266,32 @@ export interface HorizonStats {
   upper: number;
 }
 
+/// The forecast's trend timing and strength (ForecastTuning in GlucoseForecaster.swift), tuned
+/// to the user's history by `tuneTrend`. Standard values are Loop's.
+export interface Tuning {
+  trendFade: number;
+  trendWindow: number;
+  /// How much of the recent trend is carried forward, 0–1.
+  trendGain: number;
+}
+
+export const standardTuning: Tuning = { trendFade: 30 * 60, trendWindow: 20 * 60, trendGain: 1 };
+export const isStandardTuning = (t: Tuning) =>
+  t.trendFade === standardTuning.trendFade && t.trendWindow === standardTuning.trendWindow &&
+  t.trendGain === standardTuning.trendGain;
+
 /// The relay has no logbook, so only the trend basis is ever learnt.
 export interface Calibration {
   trend: HorizonStats[];
   origins: number;
   computedAt: number;
+  /// The timing the figures were measured with and the forecast uses. Missing on rows saved
+  /// before tuning existed: standard.
+  tuning?: Tuning;
+  /// How much wider the range needed to be to hold 4 in 5 readings in the same replay, worked out
+  /// the way the ledger's is (`replayRangeScale`). Stands in until the relay's own ledger has
+  /// enough scored forecasts. Missing on rows saved before it existed, null with too few.
+  rangeScale?: RangeScale | null;
 }
 
 export const calibrationHorizons = [15, 30, 45, 60, 90, 120, 150, 180];
@@ -319,6 +342,111 @@ export function interpolateBand(stats: HorizonStats[], minutes: number): { lower
   return widen(last.lower * f, last.upper * f);
 }
 
+// MARK: - Range widening
+
+// A port of ForecastLedger.rangeScale (Sources/Engine/ForecastLedger.swift): how much wider the
+// relay's range needs to be to have held 4 in 5 of the readings that followed the forecasts it
+// showed, from its own ledger (device "relay"). A steady figure per checked horizon over 14 days,
+// a separate figure for forecasts that started with glucose moving fast, and a correction from
+// the last 12 hours alone so a bad day widens the range that day. Widen-only.
+
+/// One scored relay forecast, as kept in glucos.forecast_checks.
+export interface ShownForecast {
+  issuedAt: number;
+  trendPerMinute: number;
+  points: {
+    minutes: number; mgdl: number; lower: number; upper: number;
+    actual?: number | null; afterLog?: boolean;
+    /// How much the point's range was widened when shown.
+    scale?: number | null;
+  }[];
+}
+
+export interface RangeScale {
+  /// The steady widening by minutes ahead, for horizons with enough points of their own.
+  byHorizon: Record<number, number>;
+  /// The steady widening across all horizons.
+  overall: number;
+  /// Extra widening when the forecast starts from glucose moving at least `fastTrendPerMinute`.
+  fastTrend: number;
+  /// Extra widening while the last 12 hours missed more than the last two weeks.
+  recent: number;
+  checks: number;
+  recentChecks: number;
+}
+
+export const rangeWindow = 14 * 86_400;
+export const recentRangeWindow = 12 * 3600;
+const minimumForRange = 40, minimumForHorizon = 25, minimumRecent = 20;
+export const rangeMaximum = 2.5, rangeTotalMaximum = 4, fastTrendPerMinute = 1.5;
+
+const clampScale = (x: number) => Math.min(rangeMaximum, Math.max(1, x));
+
+/// The steady widening `minutes` ahead: interpolated between horizons that have their own
+/// figure, held flat outside them, the overall figure without any.
+function steadyFactor(s: RangeScale, minutes: number): number {
+  const pts = Object.entries(s.byHorizon).map(([m, v]) => [Number(m), v] as const).sort((a, b) => a[0] - b[0]);
+  if (pts.length === 0) return clampScale(s.overall);
+  if (minutes <= pts[0][0]) return clampScale(pts[0][1]);
+  const last = pts[pts.length - 1];
+  if (minutes >= last[0]) return clampScale(last[1]);
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [am, av] = pts[i], [bm, bv] = pts[i + 1];
+    if (minutes <= bm) return clampScale(av + (bv - av) * ((minutes - am) / (bm - am)));
+  }
+  return clampScale(last[1]);
+}
+
+/// The widening `minutes` ahead of a forecast starting from `trendPerMinute`. 1 without a scale.
+export function rangeFactor(s: RangeScale | null | undefined, minutes: number, trendPerMinute: number): number {
+  if (!s) return 1;
+  const fast = Math.abs(trendPerMinute) >= fastTrendPerMinute ? s.fastTrend : 1;
+  return Math.min(rangeTotalMaximum, steadyFactor(s, minutes) * clampScale(fast) * clampScale(s.recent));
+}
+
+interface RangeMiss { minutes: number; ratio: number; fast: boolean; recent: boolean }
+
+export function rangeScaleFrom(shown: ShownForecast[], now: number): RangeScale | null {
+  const steady: RangeMiss[] = [], fast: RangeMiss[] = [], recent: RangeMiss[] = [];
+  for (const r of shown) {
+    if (r.issuedAt < now - rangeWindow || r.issuedAt > now) continue;
+    const isFast = Math.abs(r.trendPerMinute) >= fastTrendPerMinute;
+    const isRecent = r.issuedAt >= now - recentRangeWindow;
+    for (const p of r.points) {
+      if (p.afterLog || typeof p.actual !== "number") continue;
+      const k = Math.max(1, p.scale ?? 1);
+      let above = (p.upper - p.mgdl) / k, below = (p.mgdl - p.lower) / k;
+      const cutHigh = p.upper >= sensorHigh + 0.5, cutLow = p.lower <= sensorLow - 0.5;
+      if (cutHigh && cutLow) continue;
+      if (cutHigh) above = below;
+      if (cutLow) below = above;
+      if (!(above > 0.5 && below > 0.5)) continue;
+      const e = p.actual - p.mgdl;
+      const m: RangeMiss = { minutes: p.minutes, ratio: e >= 0 ? e / above : -e / below, fast: isFast, recent: isRecent };
+      (isFast ? fast : steady).push(m);
+      if (isRecent) recent.push(m);
+    }
+  }
+  if (steady.length < minimumForRange) return null;
+  const needed = (xs: number[]) => clampScale(quantile([...xs].sort((a, b) => a - b), 0.8));
+  const byHorizon: Record<number, number> = {};
+  const groups = new Map<number, number[]>();
+  for (const m of steady) groups.set(m.minutes, [...(groups.get(m.minutes) ?? []), m.ratio]);
+  for (const [m, xs] of groups) if (xs.length >= minimumForHorizon) byHorizon[m] = needed(xs);
+  const scale: RangeScale = {
+    byHorizon, overall: needed(steady.map((m) => m.ratio)), fastTrend: 1, recent: 1,
+    checks: steady.length + fast.length, recentChecks: 0,
+  };
+  if (fast.length >= minimumForHorizon) {
+    scale.fastTrend = needed(fast.map((m) => m.ratio / steadyFactor(scale, m.minutes)));
+  }
+  if (recent.length >= minimumRecent) {
+    scale.recent = needed(recent.map((m) => m.ratio / (steadyFactor(scale, m.minutes) * (m.fast ? scale.fastTrend : 1))));
+    scale.recentChecks = recent.length;
+  }
+  return scale;
+}
+
 // MARK: - Forecast
 
 export interface ForecastSample {
@@ -334,9 +462,20 @@ export interface Forecast {
   basis: "trend";
   trendPerMinute: number;
   samples: ForecastSample[];
+  /// The part past the drawn horizon that the live checks cut off (GlucoseForecast.unshown):
+  /// never drawn or shared, kept in the ledger so those horizons go on being scored, and read only
+  /// by predicted lows.
+  unshown?: ForecastSample[];
+  /// The trend carried on past the calibrated horizon to the trend's full 30 minutes
+  /// (GlucoseForecast.lowLookahead): never drawn, shared or scored, read only by predicted lows.
+  lowLookahead?: ForecastSample[];
+  /// Set when the live checks cut the forecast short (ForecastLimitation.liveHorizon).
+  liveCut?: LiveCut;
 }
 
-export type ForecastResult = { ok: true; forecast: Forecast } | { ok: false; reason: string };
+/// When the live checks cut the forecast back to nothing, `unshown` is the forecast that wasn't
+/// drawn, for the ledger only (ForecastFailure.unshown).
+export type ForecastResult = { ok: true; forecast: Forecast } | { ok: false; reason: string; unshown?: Forecast };
 
 const unavailable = {
   noReading: "No reading yet.",
@@ -347,14 +486,12 @@ const unavailable = {
 };
 
 const step = 5 * 60;
-const trendFade = 30 * 60;
-const trendWindow = 20 * 60;
 const maxTrendPerMinute = 4;
 const trendHorizon = 30 * 60;
 const sensorLow = 40, sensorHigh = 400;
 
-export function trendAt(series: Series, at: number): number | null {
-  const recent = series.slice(at - trendWindow, at);
+export function trendAt(series: Series, at: number, window = standardTuning.trendWindow): number | null {
+  const recent = series.slice(at - Math.max(window, 10 * 60), at);
   if (recent.length === 0) return null;
   const first = recent[0], last = recent[recent.length - 1];
   if (last.t - first.t < 9 * 60) return null;
@@ -363,14 +500,17 @@ export function trendAt(series: Series, at: number): number | null {
   return Math.min(Math.max(s, -maxTrendPerMinute), maxTrendPerMinute);
 }
 
-/// The relay's forecast: the recent trend fading to level over half an hour (no insulin or carbs,
-/// since the logbook lives on the Mac).
-export function forecast(series: Series, calibration: Calibration | null, now: number, maxHorizon?: number): ForecastResult {
+/// The relay's forecast: the recent trend, at the strength it has earned, fading to level over
+/// half an hour or the tuned time (no insulin or carbs, since the logbook lives on the Mac).
+export function forecast(series: Series, calibration: Calibration | null, now: number, maxHorizon?: number,
+                         tuning: Tuning = calibration?.tuning ?? standardTuning,
+                         live: LiveCut | null = null,
+                         rangeScale: RangeScale | null = null): ForecastResult {
   const latest = series.last;
   if (!latest) return { ok: false, reason: unavailable.noReading };
   if (now - latest.t > staleAfter) return { ok: false, reason: unavailable.stale };
   if (!(latest.mgdl >= sensorLow && latest.mgdl <= sensorHigh)) return { ok: false, reason: unavailable.outOfSensorRange };
-  const trend = trendAt(series, latest.t);
+  const trend = trendAt(series, latest.t, tuning.trendWindow);
   if (trend === null) return { ok: false, reason: unavailable.notEnoughRecentReadings };
 
   const t0 = latest.t;
@@ -386,18 +526,41 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
     }
   }
 
-  const band = (minutes: number) => (stats ? interpolateBand(stats, minutes) : null) ?? defaultBand(minutes);
+  // How far it's drawn: the relay's own live checks can cut it shorter, never longer. The rest is
+  // still worked out, for the ledger to score.
+  let shownHorizon = horizon;
+  const cut = maxHorizon === undefined && live && live.failedAt * 60 <= horizon ? live : null;
+  if (cut) shownHorizon = cut.shownMinutes * 60;
+
+  // Widened from the relay's own shown forecasts, or its replay until it has enough of those
+  // (effectiveRangeScale), never in a replay itself.
+  const widen = (minutes: number) => (maxHorizon === undefined ? rangeFactor(rangeScale, minutes, trend) : 1);
+  const band = (minutes: number) => {
+    const b = (stats ? interpolateBand(stats, minutes) : null) ?? defaultBand(minutes);
+    const k = widen(minutes);
+    return { lower: b.lower * k, upper: b.upper * k };
+  };
   const samples: ForecastSample[] = [{ t: t0, mgdl: latest.mgdl, lowerMgdl: latest.mgdl, upperMgdl: latest.mgdl }];
+  // Predicted lows look the trend's full 30 minutes ahead even when the calibrated horizon is
+  // shorter (docs/ForecastAccuracy.md §13): the rest is worked out for them alone.
+  const lookahead: ForecastSample[] = [];
   let g = latest.mgdl;
   let minute = 0;
   const totalMinutes = horizon / 60;
-  while (minute < totalMinutes) {
+  const lookMinutes = maxHorizon === undefined ? Math.max(totalMinutes, trendHorizon / 60) : totalMinutes;
+  const fade = Math.max(60, tuning.trendFade);
+  const gain = Math.min(1, Math.max(0, tuning.trendGain));
+  while (minute < lookMinutes) {
     const mid = minute + 0.5;
-    const w = Math.max(0, 1 - (mid * 60) / trendFade);
-    g += w * trend;
+    const w = Math.max(0, 1 - (mid * 60) / fade);
+    g += w * gain * trend;
     minute += 1;
     if (Math.trunc(minute) % (step / 60) === 0) {
       const central = Math.min(Math.max(g, sensorLow - 1), sensorHigh + 1);
+      if (minute > totalMinutes) {
+        lookahead.push({ t: t0 + minute * 60, mgdl: central, lowerMgdl: central, upperMgdl: central });
+        continue;
+      }
       const b = band(minute);
       samples.push({
         t: t0 + minute * 60, mgdl: central,
@@ -406,26 +569,109 @@ export function forecast(series: Series, calibration: Calibration | null, now: n
       });
     }
   }
-  return { ok: true, forecast: { issuedAt: t0, startMgdl: latest.mgdl, basis: "trend", trendPerMinute: trend, samples } };
+  const f: Forecast = { issuedAt: t0, startMgdl: latest.mgdl, basis: "trend", trendPerMinute: trend, samples };
+  if (lookahead.length) f.lowLookahead = lookahead;
+  if (!cut) return { ok: true, forecast: f };
+  const drawn = { ...f, samples: samples.filter((s) => s.t <= t0 + shownHorizon),
+                  unshown: samples.filter((s) => s.t > t0 + shownHorizon), liveCut: cut };
+  if (shownHorizon <= 0) return { ok: false, reason: unavailable.notAccurateEnough, unshown: drawn };
+  return { ok: true, forecast: drawn };
 }
 
-/// Replays the stored readings to see how good the forecast has been (see ForecastBacktest.swift).
-export function learnCalibration(readings: Reading[], now: number, days = 30): Calibration | null {
+// MARK: - Live horizon (ForecastLedger.liveHorizon)
+
+/// How far the forecast is drawn (the checked horizon before `failedAt`, or 0), after the first
+/// checked horizon that lost to no change.
+export interface LiveCut {
+  shownMinutes: number;
+  failedAt: number;
+}
+
+/// One point of the relay's own ledger. `actual` is null until scored.
+export interface LivePoint {
+  issuedAt: number;
+  minutes: number;
+  mgdl: number;
+  startMgdl: number;
+  actual: number | null;
+  afterLog: boolean;
+  shown: boolean;
+}
+
+export const liveHorizonWindow = 7 * 86_400;
+export const liveMinimumChecks = 30;
+/// A drawn horizon is cut once its error reaches this share of no change's...
+export const liveCutRatio = 1.05;
+/// ...and drawn again once it's back to this share. In between it stays as it is.
+export const liveRestoreRatio = requiredImprovement;
+
+/// How far ahead the relay may draw its forecast, from how its own forecasts in the last week did
+/// against no change on points with nothing logged in between (ForecastLedger.liveHorizon): a drawn
+/// horizon is cut when clearly worse, a cut one comes back once clearly better and stays cut while
+/// it has too few checks, and everything past the first cut goes with it. Null: no cut.
+export function liveHorizon(points: LivePoint[], now: number): LiveCut | null {
+  const mine = points.filter((p) => p.issuedAt >= now - liveHorizonWindow && p.issuedAt <= now);
+  let shown = 0;
+  for (const h of [...calibrationHorizons].sort((a, b) => a - b)) {
+    const at = mine.filter((p) => p.minutes === h);
+    const latest = at.reduce<LivePoint | null>((a, p) => (!a || p.issuedAt > a.issuedAt ? p : a), null);
+    const cutNow = latest !== null && !latest.shown;
+    const clean = at.filter((p) => !p.afterLog && p.actual !== null);
+    let isCut: boolean;
+    if (clean.length >= liveMinimumChecks) {
+      const mae = clean.reduce((s, p) => s + Math.abs(p.actual! - p.mgdl), 0) / clean.length;
+      const nc = clean.reduce((s, p) => s + Math.abs(p.actual! - p.startMgdl), 0) / clean.length;
+      const ratio = nc > 0 ? mae / nc : (mae > 0 ? Infinity : 1);
+      isCut = cutNow ? ratio > liveRestoreRatio : ratio >= liveCutRatio;
+    } else {
+      isCut = cutNow;
+    }
+    if (isCut) return { shownMinutes: shown, failedAt: h };
+    shown = h;
+  }
+  return null;
+}
+
+/// One replayed forecast point compared with what happened (ForecastBacktest.Check).
+export interface Check {
+  origin: number;
+  minutes: number;
+  /// actual − forecast, mg/dL.
+  residual: number;
+  /// actual − starting reading: the error of assuming no change.
+  naive: number;
+  /// The trend came from live readings, one at least every 5 minutes.
+  dense: boolean;
+  /// The forecast's own value and starting trend, for `replayRangeScale`.
+  mgdl: number;
+  trendPerMinute: number;
+}
+
+/// Origins are at least this far apart, as often as the apps log their forecasts.
+export const backtestSpacing = 15 * 60;
+const denseSpacing = 5 * 60;
+
+/// Replays a forecast every 15 minutes over the last `days` (ForecastBacktest.checks). Stretches
+/// filled in from the 15-minute history are left out when live readings are most of what there is.
+export function backtestChecks(readings: Reading[], now: number, days: number, tuning: Tuning): { checks: Check[]; origins: number } {
   const series = new Series(readings);
   const start = now - days * 86_400;
   const maxH = Math.max(...calibrationHorizons) * 60;
-  const residuals = new Map<number, number[]>();
-  const naive = new Map<number, number[]>();
-  let origins = 0;
+  const out: Check[] = [];
+  let origins = 0, denseOrigins = 0;
   let lastOrigin = -Infinity;
   for (const r of series.readings) {
     if (!(r.t >= start && r.t + 15 * 60 <= now)) continue;
-    if (r.t - lastOrigin < 30 * 60) continue;
-    const res = forecast(series.upTo(r.t), null, r.t, maxH);
+    if (r.t - lastOrigin < backtestSpacing) continue;
+    // The forecast only looks at the last few readings, so the last hour is enough.
+    const recent = new Series(series.slice(r.t - 3600, r.t), true);
+    const res = forecast(recent, null, r.t, maxH, tuning);
     if (!res.ok) continue;
     const f = res.forecast;
     lastOrigin = r.t;
     origins += 1;
+    const dense = recent.slice(r.t - tuning.trendWindow, r.t).length >= Math.trunc(tuning.trendWindow / denseSpacing);
+    if (dense) denseOrigins += 1;
     for (const h of calibrationHorizons) {
       const target = r.t + h * 60;
       if (target > now) continue;
@@ -433,28 +679,242 @@ export function learnCalibration(readings: Reading[], now: number, days = 30): C
       if (actual === null) continue;
       const p = f.samples.find((s) => Math.abs(s.t - target) < 30);
       if (!p) continue;
-      if (!residuals.has(h)) residuals.set(h, []);
-      if (!naive.has(h)) naive.set(h, []);
-      residuals.get(h)!.push(actual - p.mgdl);
-      naive.get(h)!.push(actual - f.startMgdl);
+      out.push({ origin: r.t, minutes: h, residual: actual - p.mgdl, naive: actual - f.startMgdl, dense,
+                 mgdl: p.mgdl, trendPerMinute: f.trendPerMinute });
     }
   }
+  if (denseOrigins * 2 >= origins && denseOrigins > 0) return { checks: out.filter((c) => c.dense), origins: denseOrigins };
+  return { checks: out, origins };
+}
+
+// MARK: - Tuning (ForecastTuner.swift)
+
+const tunerFades = [15, 20, 30, 45].map((m) => m * 60);
+const tunerWindows = [15, 20].map((m) => m * 60);
+const tunerCandidates: Tuning[] = tunerFades.flatMap((f) => tunerWindows.map((w) => ({ trendFade: f, trendWindow: w, trendGain: 1 })));
+/// The trend forecast is shown 30 minutes ahead, so it's judged there.
+const tunerHorizons = new Set([15, 30]);
+export const tunerMinimumChecks = 120;
+const tunerRequiredImprovement = 0.97;
+
+type Keyed = Map<string, { origin: number; minutes: number; value: number }>;
+const keyOf = (origin: number, minutes: number) => `${origin}:${minutes}`;
+
+function median(values: number[]): number {
+  return quantile([...values].sort((a, b) => a - b), 0.5);
+}
+
+/// The share of the trend that carried on: a least-squares slope of what happened on the trend's
+/// part of each forecast, fitted on each half of the history and the larger taken, rounded to 5%.
+/// Null with too few points, or when it's within 5% of all of it.
+export function fittedGain(withTrend: Keyed, withoutTrend: Keyed): number | null {
+  const keys = [...withTrend.keys()].filter((k) => withoutTrend.has(k));
+  if (keys.length < tunerMinimumChecks) return null;
+  const mid = median(keys.map((k) => withTrend.get(k)!.origin));
+  const xy = [0, 0], xx = [0, 0];
+  for (const k of keys) {
+    const half = withTrend.get(k)!.origin < mid ? 0 : 1;
+    const r0 = withoutTrend.get(k)!.value;
+    const part = r0 - withTrend.get(k)!.value;
+    xy[half] += r0 * part;
+    xx[half] += part * part;
+  }
+  if (!(xx[0] > 0 && xx[1] > 0)) return null;
+  const gain = Math.max(xy[0] / xx[0], xy[1] / xx[1]);
+  const rounded = Math.round(Math.min(1, Math.max(0.25, gain)) * 20) / 20;
+  return rounded < 0.95 ? rounded : null;
+}
+
+/// The candidate's error as a share of the baseline's on the points both made, each horizon
+/// counting equally. Null unless there are enough points, it's at least `required` of the
+/// baseline, and it's no worse in either half of the history.
+export function tuningRatio(theirs: Keyed, base: Keyed, required = tunerRequiredImprovement): number | null {
+  const shared = [...base.keys()].filter((k) => tunerHorizons.has(base.get(k)!.minutes) && theirs.has(k));
+  if (shared.length < tunerMinimumChecks) return null;
+  const per = new Map<number, { sum: number; n: number }>();
+  for (const k of shared) {
+    const b = base.get(k)!;
+    const e = per.get(b.minutes) ?? { sum: 0, n: 0 };
+    e.sum += b.value;
+    e.n += 1;
+    per.set(b.minutes, e);
+  }
+  const weight = (m: number) => {
+    const e = per.get(m);
+    return e && e.sum > 0 ? e.n / e.sum : 0;
+  };
+  const mid = median(shared.map((k) => base.get(k)!.origin));
+  const sums = [0, 0], baseSums = [0, 0], counts = [0, 0];
+  for (const k of shared) {
+    const b = base.get(k)!;
+    const half = b.origin < mid ? 0 : 1;
+    const w = weight(b.minutes);
+    sums[half] += theirs.get(k)!.value * w;
+    baseSums[half] += b.value * w;
+    counts[half] += 1;
+  }
+  const total = baseSums[0] + baseSums[1];
+  if (!(counts[0] > 0 && counts[1] > 0) || !(total > 0)) return null;
+  const ratio = (sums[0] + sums[1]) / total;
+  if (!(ratio <= required && sums[0] <= baseSums[0] && sums[1] <= baseSums[1] && ratio < 1)) return null;
+  return ratio;
+}
+
+/// Picks the trend's strength and then its timing from the user's history (ForecastTuner.tune):
+/// standard unless the replay clearly says otherwise.
+export function tuneTrend(readings: Reading[], now: number, days = 30): Tuning {
+  const run = (t: Tuning, abs: boolean): Keyed => {
+    const out: Keyed = new Map();
+    for (const c of backtestChecks(readings, now, days, t).checks) {
+      if (!tunerHorizons.has(c.minutes)) continue;
+      out.set(keyOf(c.origin, c.minutes), { origin: c.origin, minutes: c.minutes, value: abs ? Math.abs(c.residual) : c.residual });
+    }
+    return out;
+  };
+  const standard = run(standardTuning, true);
+  if (standard.size < tunerMinimumChecks) return standardTuning;
+  let base = { tuning: standardTuning, errors: standard };
+  const gain = fittedGain(run(standardTuning, false), run({ ...standardTuning, trendGain: 0 }, false));
+  if (gain !== null) {
+    const candidate = { ...standardTuning, trendGain: gain };
+    const theirs = run(candidate, true);
+    if (tuningRatio(theirs, standard, 1) !== null) base = { tuning: candidate, errors: theirs };
+  }
+  let chosen = base.tuning;
+  let bestRatio = 1;
+  for (const timing of tunerCandidates) {
+    if (isStandardTuning(timing)) continue;
+    const candidate = { ...timing, trendGain: base.tuning.trendGain };
+    const ratio = tuningRatio(run(candidate, true), base.errors);
+    if (ratio !== null && ratio < bestRatio) {
+      bestRatio = ratio;
+      chosen = candidate;
+    }
+  }
+  return chosen;
+}
+
+/// Tunes the trend, then replays the stored readings with it to see how good the forecast has
+/// been (OutlookEngine.learn with no logbook).
+export function learnCalibration(readings: Reading[], now: number, days = 30): Calibration | null {
+  const tuning = tuneTrend(readings, now, days);
+  const { checks, origins } = backtestChecks(readings, now, days, tuning);
   if (origins === 0) return null;
   const trend: HorizonStats[] = [];
   for (const h of calibrationHorizons) {
-    const res = residuals.get(h);
-    if (!res || res.length === 0) continue;
+    const cs = checks.filter((c) => c.minutes === h);
+    if (cs.length === 0) continue;
+    const res = cs.map((c) => c.residual);
     const sorted = [...res].sort((a, b) => a - b);
-    const nv = naive.get(h) ?? [];
     trend.push({
       minutes: h, samples: res.length,
       meanAbsoluteError: res.reduce((a, b) => a + Math.abs(b), 0) / res.length,
-      naiveError: nv.length === 0 ? Infinity : nv.reduce((a, b) => a + Math.abs(b), 0) / nv.length,
+      naiveError: cs.reduce((a, c) => a + Math.abs(c.naive), 0) / cs.length,
       bias: res.reduce((a, b) => a + b, 0) / res.length,
       lower: quantile(sorted, 0.1), upper: quantile(sorted, 0.9),
     });
   }
-  return { trend, origins, computedAt: now };
+  return { trend, origins, computedAt: now, tuning, rangeScale: replayRangeScale(checks, trend, now) };
+}
+
+/// The range widening the replay says the relay's forecast needs (`rangeScaleFrom`), from the
+/// replayed forecasts at the horizons the relay draws, each with the range `forecast` would have
+/// drawn around it from `stats`. The relay replays every 15 minutes over its one-minute readings,
+/// so this is there from the first day and after any gap in the ledger, and its last-12-hours and
+/// fast-trend parts react the same day. Null with too few points.
+export function replayRangeScale(checks: Check[], stats: HorizonStats[], now: number): RangeScale | null {
+  const byOrigin = new Map<number, ShownForecast>();
+  for (const c of checks) {
+    if (c.minutes * 60 > trendHorizon) continue;
+    const b = interpolateBand(stats, c.minutes) ?? defaultBand(c.minutes);
+    const lower = Math.max(sensorLow - 1, c.mgdl + b.lower), upper = Math.min(sensorHigh + 1, c.mgdl + b.upper);
+    const shown = byOrigin.get(c.origin) ?? { issuedAt: c.origin, trendPerMinute: c.trendPerMinute, points: [] };
+    shown.points.push({ minutes: c.minutes, mgdl: c.mgdl, lower, upper, actual: c.mgdl + c.residual });
+    byOrigin.set(c.origin, shown);
+  }
+  return rangeScaleFrom([...byOrigin.values()], now);
+}
+
+// MARK: - Back in range (Sources/Engine/BackInRange.swift)
+
+/// How the relay's own "back in range" estimates have done (BackInRangeCheck). Its forecasts are
+/// its own, so it never borrows the apps' checks: until its own ledger has enough, it sends none.
+export interface BackInRangeCheck {
+  checks: number;
+  /// Median |estimate − actual|, minutes. Null with no checks.
+  medianMissMinutes: number | null;
+  /// Share of checks within `backInRangeMaxMiss`, 0...1.
+  withinTolerance: number | null;
+}
+
+export const backInRangeMaxMiss = 15;
+export const backInRangeMinimumChecks = 5;
+export const backInRangeWindow = 30 * 86_400;
+export const backInRangeLookAhead = 6 * 3600;
+export const backInRangeConfirmWithin = 20 * 60;
+
+export const backInRangeShows = (c: BackInRangeCheck | null | undefined): boolean =>
+  !!c && c.checks >= backInRangeMinimumChecks && c.medianMissMinutes !== null && c.medianMissMinutes <= backInRangeMaxMiss;
+
+/// Minutes until a line starting at `start` (above `high`) first comes back to `high`, linear
+/// between `points` (minutes ahead, in order). Null when it starts in range or doesn't come back.
+export function minutesBack(start: number, points: { minutes: number; mgdl: number }[], high: number): number | null {
+  if (!(start > high)) return null;
+  let m0 = 0, v0 = start;
+  for (const p of points) {
+    if (p.mgdl <= high) {
+      const drop = v0 - p.mgdl;
+      return drop > 0 ? m0 + ((v0 - high) / drop) * (p.minutes - m0) : p.minutes;
+    }
+    m0 = p.minutes;
+    v0 = p.mgdl;
+  }
+  return null;
+}
+
+/// Minutes from `start` until glucose was back in range: the first in-range reading whose next
+/// reading (within 20 minutes) is too, looked for up to 6 hours. Null when not seen or the readings
+/// stop first. `readings` oldest first.
+export function actualMinutesBack(readings: Reading[], start: number, low: number, high: number): number | null {
+  const r = readings.filter((x) => x.t > start && x.t <= start + backInRangeLookAhead + backInRangeConfirmWithin);
+  for (let i = 0; i + 1 < r.length; i++) {
+    const a = r[i], b = r[i + 1];
+    if (a.t - start > backInRangeLookAhead) break;
+    const inA = a.mgdl >= low && a.mgdl <= high, inB = b.mgdl >= low && b.mgdl <= high;
+    if (inA && inB && b.t - a.t <= backInRangeConfirmWithin) return (a.t - start) / 60;
+  }
+  return null;
+}
+
+/// One settled relay forecast, as the back-in-range check reads it.
+export interface BackInRangeRecord {
+  issuedAt: number;
+  startMgdl: number;
+  /// The drawn points only.
+  points: { minutes: number; mgdl: number }[];
+}
+
+/// Scores the relay's settled forecasts from the last 30 days that started above range and came
+/// back within their drawn points (BackInRange.check). `readings` oldest first.
+export function backInRangeCheck(records: BackInRangeRecord[], readings: Reading[], low: number, high: number,
+                                 now: number): BackInRangeCheck {
+  const misses: number[] = [];
+  const last = readings[readings.length - 1];
+  for (const r of records) {
+    if (r.issuedAt < now - backInRangeWindow || r.startMgdl <= high) continue;
+    const points = [...r.points].sort((a, b) => a.minutes - b.minutes);
+    const estimate = minutesBack(r.startMgdl, points, high);
+    if (estimate === null) continue;
+    const actual = actualMinutesBack(readings, r.issuedAt, low, high);
+    if (actual !== null) misses.push(Math.abs(estimate - actual));
+    else if (last && last.t >= r.issuedAt + backInRangeLookAhead) misses.push(backInRangeLookAhead / 60 - estimate);
+  }
+  if (!misses.length) return { checks: 0, medianMissMinutes: null, withinTolerance: null };
+  return {
+    checks: misses.length,
+    medianMissMinutes: median(misses),
+    withinTolerance: misses.filter((m) => m <= backInRangeMaxMiss).length / misses.length,
+  };
 }
 
 // MARK: - Outlook snapshot
@@ -463,12 +923,23 @@ export interface OutlookSnapshot {
   issuedAt: number;
   forecast: ForecastSample[];
   lowExpectedAt: number | null;
+  /// From above range: when the forecast's central line comes back down to the high threshold,
+  /// only while the relay's own checks of that keep it within 15 minutes. Null otherwise.
+  backInRangeAt: number | null;
 }
 
-export function outlookSnapshot(result: ForecastResult, now: number, lowMgdl: number): OutlookSnapshot {
-  if (!result.ok) return { issuedAt: now, forecast: [], lowExpectedAt: null };
+export function outlookSnapshot(result: ForecastResult, now: number, lowMgdl: number, highMgdl = Infinity,
+                                check: BackInRangeCheck | null = null): OutlookSnapshot {
+  if (!result.ok) return { issuedAt: now, forecast: [], lowExpectedAt: null, backInRangeAt: null };
   const f = result.forecast;
-  return { issuedAt: f.issuedAt, forecast: f.samples, lowExpectedAt: f.samples.find((s) => s.mgdl < lowMgdl)?.t ?? null };
+  const lowExpectedAt = f.samples.find((s) => s.mgdl < lowMgdl)?.t ?? null;
+  let backInRangeAt: number | null = null;
+  if (lowExpectedAt === null && backInRangeShows(check)) {
+    const points = f.samples.map((s) => ({ minutes: (s.t - f.issuedAt) / 60, mgdl: s.mgdl })).filter((p) => p.minutes > 0.01);
+    const m = minutesBack(f.startMgdl, points, highMgdl);
+    if (m !== null) backInRangeAt = f.issuedAt + m * 60;
+  }
+  return { issuedAt: f.issuedAt, forecast: f.samples, lowExpectedAt, backInRangeAt };
 }
 
 // MARK: - Alerts
@@ -563,11 +1034,95 @@ export function evaluateAlerts(p: PlannerState, s: Snapshot, prefs: AlertPrefere
   return out;
 }
 
+// MARK: - Snooze and "I'm treating it" (Sources/Core/AlertSnooze.swift, docs/AlertActions.md)
+
+export type SnoozeLevel = "low" | "high" | "veryHigh";
+export type AlertTreatment = "low" | "high";
+/// When each level's snooze ends, seconds since 1970. Only quiets the owner's own pushes.
+export interface AlertSnoozes {
+  low?: number;
+  high?: number;
+  veryHigh?: number;
+}
+
+export const snoozeMinutes = 30;
+export const snoozeMaximumMinutes = 60;
+export const snoozeAndTreatCategory = "glucos.alert";
+export const treatOnlyCategory = "glucos.alert.urgent";
+
+/// Urgent lows are never snoozable (null), nor are alerts without buttons.
+export function snoozeLevel(k: AlertKind): SnoozeLevel | null {
+  switch (k) {
+    case "low": case "predictedLow": return "low";
+    case "high": case "predictedHigh": return "high";
+    case "veryHigh": case "predictedVeryHigh": return "veryHigh";
+    default: return null;
+  }
+}
+
+export function alertTreatment(k: AlertKind): AlertTreatment | null {
+  switch (k) {
+    case "urgentLow": case "predictedUrgentLow": case "low": case "predictedLow": return "low";
+    case "high": case "predictedHigh": case "veryHigh": case "predictedVeryHigh": return "high";
+    default: return null;
+  }
+}
+
+/// The notification category the iPhone app registers with this alert's buttons.
+export function alertCategory(k: AlertKind): string | null {
+  if (alertTreatment(k) === null) return null;
+  return snoozeLevel(k) === null ? treatOnlyCategory : snoozeAndTreatCategory;
+}
+
+/// A very-high snooze quiets highs too; a high snooze lets a very high through.
+export function silences(s: AlertSnoozes | null | undefined, k: AlertKind, now: number): boolean {
+  const level = snoozeLevel(k);
+  if (!s || level === null) return false;
+  const covering: SnoozeLevel[] = level === "high" ? ["high", "veryHigh"] : [level];
+  return covering.some((l) => (s[l] ?? 0) > now);
+}
+
+/// Snoozes `k`'s level for `minutes` (at most snoozeMaximumMinutes), keeping a longer one. False
+/// for an alert that can't be snoozed.
+export function snoozeAlert(s: AlertSnoozes, k: AlertKind, minutes: number, now: number): boolean {
+  const level = snoozeLevel(k);
+  if (level === null || !(minutes > 0)) return false;
+  const end = now + Math.min(Math.trunc(minutes), snoozeMaximumMinutes) * 60;
+  s[level] = Math.max(s[level] ?? 0, end);
+  return true;
+}
+
+export function pruneSnoozes(s: AlertSnoozes, now: number) {
+  for (const l of ["low", "high", "veryHigh"] as SnoozeLevel[]) if ((s[l] ?? 0) <= now) delete s[l];
+}
+
+/// The owner's alerts this tick, from the owner's own planner, minus the snoozed ones. A snoozed
+/// alert's repeat timer is cleared, so it fires on the first tick after the snooze if still due.
+/// Followers keep the shared planner (`processTick`), so their alerts and check-ins never change.
+export function ownerNotices(p: PlannerState, snoozes: AlertSnoozes | null | undefined, tick: TickResult,
+                             prefs: AlertPreferences, now: number): AlertNotice[] {
+  const due = evaluateAlerts(p, tick.snapshot, prefs, now);
+  const pre = evaluatePrediction(p, tick.snapshot, tick.forecast.ok ? tick.forecast.forecast : null, prefs, now);
+  if (pre) due.push(pre);
+  return due.filter((n) => {
+    if (!silences(snoozes, n.kind, now)) return true;
+    delete p.lastFired[n.kind];
+    return false;
+  });
+}
+
 const urgentLowMgdl = 54;
 const veryHighMgdl = 250;
 const minimumFall = -0.3;
 const minimumRise = 0.3;
 const highLeadFactor = 1.5;
+/// Highs look no further than they did at the old 20-minute default (§13 moved it to 30 for lows).
+const highLeadMaximum = 30 * 60;
+
+/// How far ahead predicted lows look (PredictiveAlertRules.lowLookahead). `drawn`: only the drawn
+/// forecast, as before §13; `trend`: also its cut-off part and the trend's full 30 minutes.
+export type LowLookahead = "drawn" | "trend";
+export const lowLookahead: LowLookahead = "trend";
 
 interface Excursion {
   kind: "urgentLow" | "low" | "high" | "veryHigh";
@@ -575,11 +1130,13 @@ interface Excursion {
   thresholdMgdl: number;
 }
 
-function predictedExcursion(f: Forecast, prefs: AlertPreferences, low: number, high: number, now: number): Excursion | null {
+function predictedExcursion(f: Forecast, prefs: AlertPreferences, low: number, high: number, now: number,
+                            look: LowLookahead): Excursion | null {
   if (now - f.issuedAt > staleAfter) return null;
   const start = f.startMgdl;
   const lead = prefs.predictiveMinutes * 60;
-  const below = (thr: number, within: number) => f.samples.find((s) => s.t - f.issuedAt <= within && s.mgdl < thr);
+  const lowSamples = look === "trend" ? [...f.samples, ...(f.unshown ?? []), ...(f.lowLookahead ?? [])] : f.samples;
+  const below = (thr: number, within: number) => lowSamples.find((s) => s.t - f.issuedAt <= within && s.mgdl < thr);
   const above = (thr: number, within: number) => f.samples.find((s) => s.t - f.issuedAt <= within && s.mgdl > thr);
   if (prefs.predictedLow && f.trendPerMinute <= minimumFall) {
     let s;
@@ -587,7 +1144,7 @@ function predictedExcursion(f: Forecast, prefs: AlertPreferences, low: number, h
     if (start >= low && (s = below(low, lead))) return { kind: "low", expectedAt: s.t, thresholdMgdl: low };
   }
   if (prefs.predictedHigh && f.trendPerMinute >= minimumRise) {
-    const hl = lead * highLeadFactor;
+    const hl = Math.min(lead * highLeadFactor, highLeadMaximum);
     let s;
     if (start <= veryHighMgdl && (s = above(veryHighMgdl, hl))) return { kind: "veryHigh", expectedAt: s.t, thresholdMgdl: veryHighMgdl };
     if (prefs.high && start <= high && (s = above(high, hl))) return { kind: "high", expectedAt: s.t, thresholdMgdl: high };
@@ -605,14 +1162,14 @@ function clearPredictions(p: PlannerState, now: number) {
 }
 
 export function evaluatePrediction(p: PlannerState, s: Snapshot, f: Forecast | null, prefs: AlertPreferences,
-                                   now: number): AlertNotice | null {
+                                   now: number, look: LowLookahead = lowLookahead): AlertNotice | null {
   if (!prefs.enabled || !(prefs.predictedLow || prefs.predictedHigh)) return null;
   const r = s.current;
   if (!r || isStale(s, now) || !f) {
     clearPredictions(p, now);
     return null;
   }
-  const d = predictedExcursion(f, prefs, s.lowMgdl, s.highMgdl, now);
+  const d = predictedExcursion(f, prefs, s.lowMgdl, s.highMgdl, now, look);
   if (!d) {
     clearPredictions(p, now);
     return null;
@@ -670,7 +1227,12 @@ export interface CardState {
   forecastUpper?: number;
   insulinOnBoard?: number;
   lowExpectedAt?: number;
+  /// From above range: when the forecast says glucose is back in range, while the sender's own
+  /// checks of that estimate keep it within 15 minutes. Never on a low or a low expected.
+  backInRangeAt?: number;
   source: string;
+  /// A check-in on this card (checkins.ts). Never set by `makeCard`: the relay adds it per card.
+  checkIn?: CheckInCard;
 }
 
 const cardStep = 5 * 60;
@@ -730,6 +1292,9 @@ export function makeCard(s: Snapshot, readings: Reading[], source: string, now: 
       card.forecastUpper = roundHalfAway(last.upperMgdl);
     }
     if (o.lowExpectedAt !== null) card.lowExpectedAt = o.lowExpectedAt;
+    else if (o.backInRangeAt !== null && current.mgdl > s.highMgdl && o.backInRangeAt > current.t) {
+      card.backInRangeAt = o.backInRangeAt;
+    }
   }
   return card;
 }
@@ -755,6 +1320,12 @@ export interface TickResult {
   card: CardState | null;
 }
 
+/// The widening the relay draws with: its own ledger's once that has enough scored forecasts, the
+/// replay's until then.
+export function effectiveRangeScale(ledger: RangeScale | null | undefined, calibration: Calibration | null | undefined): RangeScale | null {
+  return ledger ?? calibration?.rangeScale ?? null;
+}
+
 /// What the relay does with the readings after each fetch: forecast, alerts, then the card.
 /// `stored` already includes this fetch's readings. Mutates `planner`.
 export function processTick(args: {
@@ -766,13 +1337,20 @@ export function processTick(args: {
   prefs: AlertPreferences;
   planner: PlannerState;
   calibration: Calibration | null;
+  /// The relay's range widening from its own ledger. Missing: the replay's (Calibration.rangeScale).
+  rangeScale?: RangeScale | null;
+  /// How far its own live checks let the relay draw the forecast (liveHorizon). Missing: no cut.
+  live?: LiveCut | null;
+  /// How the relay's own back-in-range estimates have done. Missing: none is sent.
+  backInRange?: BackInRangeCheck | null;
   now: number;
 }): TickResult {
   const { stored, now } = args;
   const snapshot = makeSnapshot(stored, args.current, args.sensor, args.display, args.lastError);
   const recent = stored.filter((r) => now - r.t <= 3600);
-  const result = forecast(new Series(recent), args.calibration, now);
-  if (snapshot.current) snapshot.outlook = outlookSnapshot(result, now, snapshot.lowMgdl);
+  const result = forecast(new Series(recent), args.calibration, now, undefined,
+    args.calibration?.tuning ?? standardTuning, args.live ?? null, effectiveRangeScale(args.rangeScale, args.calibration));
+  if (snapshot.current) snapshot.outlook = outlookSnapshot(result, now, snapshot.lowMgdl, snapshot.highMgdl, args.backInRange ?? null);
   const notices = evaluateAlerts(args.planner, snapshot, args.prefs, now);
   const p = evaluatePrediction(args.planner, snapshot, result.ok ? result.forecast : null, args.prefs, now);
   if (p) notices.push(p);

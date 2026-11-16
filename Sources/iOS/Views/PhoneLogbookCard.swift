@@ -7,6 +7,7 @@ struct PhoneLogbookCard: View {
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var sync: LogbookSyncService
     @EnvironmentObject var router: PhoneLogRouter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let window: TimeInterval = 24 * 3600
     private static let maxRows = 8
@@ -21,18 +22,14 @@ struct PhoneLogbookCard: View {
 
     private func content(recent: [LogEntry], now: Date) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Eyebrow(title: "Logbook", systemImage: "list.bullet.rectangle", trailing: "Last 24 hours")
-            if !logbook.lastDeleted.isEmpty {
-                HStack {
-                    Label(logbook.lastDeleted.count == 1 ? "Entry deleted" : "\(logbook.lastDeleted.count) entries deleted",
-                          systemImage: "trash")
-                        .dsFont(.callout)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Undo") { logbook.undoDelete(); Haptics.tap() }
-                        .dsFont(.headline)
+            HStack(alignment: .firstTextBaseline) {
+                Eyebrow(title: "Logbook", systemImage: "list.bullet.rectangle", trailing: "Last 24 hours")
+                if !logbook.isEmpty {
+                    NavigationLink(value: PhoneRoute.logbook) {
+                        Text("See All").dsFont(.label)
+                    }
+                    .accessibilityLabel("See the whole logbook")
                 }
-                .transition(.opacity)
             }
             if recent.isEmpty {
                 Text(logbook.isEmpty
@@ -52,22 +49,37 @@ struct PhoneLogbookCard: View {
                             .padding(.bottom, DS.Space.xxs)
                             .accessibilityAddTraits(.isHeader)
                         ForEach(Array(group.entries.enumerated()), id: \.element.id) { index, entry in
-                            if index > 0 { Divider().padding(.leading, 28) }
-                            row(entry)
+                            VStack(spacing: 0) {
+                                if index > 0 { Divider().padding(.leading, 28) }
+                                row(entry)
+                            }
+                            // New entries slide down into place; deletes fold away.
+                            .transition(Self.rowTransition(reduceMotion: reduceMotion))
                         }
                     }
                 }
                 if recent.count > Self.maxRows {
-                    Text("and \(recent.count - Self.maxRows) more")
+                    NavigationLink(value: PhoneRoute.logbook) {
+                        HStack(spacing: DS.Space.xs) {
+                            Text("\(recent.count - Self.maxRows) more in the last 24 hours")
+                            Image(systemName: "chevron.right").imageScale(.small)
+                        }
                         .dsFont(.caption)
-                        .foregroundStyle(.tertiary)
+                    }
+                    .padding(.top, DS.Space.xxs)
                 }
             }
             syncLine
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .dsCard(.standard, padding: DS.Space.lg)
-        .animation(DSMotion.quick.animation, value: logbook.lastDeleted.count)
+        // Rows in and out (an undo, a sync from the Mac, a new entry). Instant under Reduce Motion.
+        .dsAnimation(.standard, value: recent.prefix(Self.maxRows).map(\.id))
+    }
+
+    static func rowTransition(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .identity : .asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
+                                               removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
     }
 
     private struct DayGroup {
@@ -121,6 +133,11 @@ struct PhoneLogbookCard: View {
 struct PhoneLogBar: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var router: PhoneLogRouter
+    /// Taps per button, so each icon gives one small bounce when pressed.
+    @State private var taps: [String: Int] = [:]
+    /// Saves, so the plus bounces once as the sheet closes after one (docs/Redesign.md §7.1).
+    @State private var saves = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Item: Identifiable {
         let id: String
@@ -144,12 +161,26 @@ struct PhoneLogBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // "4 u at 9:12 am. Was it for a meal?" after a bolus with no food near it, once per dose.
+            PhoneDoseStrip()
+            // "You went low at 9:12 pm… Did you treat it?" once a low with nothing logged is over.
+            PhoneLowStrip()
             // "Woke up at 6:41?" in the morning, until it's logged or dismissed.
             PhoneWakeStrip()
             HStack(spacing: DS.Space.sm) {
                 ForEach(items) { item in
-                    Button { router.open(item.part) } label: {
-                        Label(item.title, systemImage: item.systemImage)
+                    Button {
+                        // Counted only with motion allowed, so nothing bounces under Reduce Motion.
+                        if !reduceMotion { taps[item.id, default: 0] += 1 }
+                        router.open(item.part)
+                    } label: {
+                        Label {
+                            Text(item.title)
+                        } icon: {
+                            Image(systemName: item.systemImage)
+                                // One trigger: a tap, or (for the plus) a save.
+                                .symbolEffect(.bounce, value: taps[item.id, default: 0] + (item.part == nil ? saves : 0))
+                        }
                             .labelStyle(LogBarLabelStyle())
                             .foregroundStyle(item.tint)
                             .frame(maxWidth: .infinity)
@@ -159,7 +190,18 @@ struct PhoneLogBar: View {
                     }
                     .buttonStyle(PressScaleStyle())
                     .accessibilityLabel(item.part == nil ? "Log something else" : "Log \(item.title)")
+                    .accessibilityShowsLargeContentViewer()
                 }
+            }
+        }
+        .onChange(of: router.request == nil) { _, closed in
+            guard closed, router.savedSinceOpen else { return }
+            router.savedSinceOpen = false
+            guard !reduceMotion else { return }
+            Task { @MainActor in
+                // After the sheet has slid away, so the bounce is seen.
+                try? await Task.sleep(for: .milliseconds(380))
+                saves += 1
             }
         }
         .padding(.horizontal, DS.Space.lg)
@@ -178,16 +220,38 @@ struct PhoneLogBar: View {
 
 private struct LogBarLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: DS.Space.xs + 2) {
-            configuration.icon.font(.system(size: 15, weight: .semibold))
-            configuration.title.dsFont(.headline).lineLimit(1).minimumScaleFactor(0.8)
+        LogBarLabel(icon: configuration.icon, title: configuration.title)
+    }
+}
+
+/// At the accessibility sizes the icon sits over the word, so three buttons still fit across a
+/// small phone; touch and hold shows the large content viewer.
+private struct LogBarLabel<Icon: View, Title: View>: View {
+    let icon: Icon
+    let title: Title
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let layout = typeSize.dsLargeText ? AnyLayout(VStackLayout(spacing: DS.Space.xxs))
+                                          : AnyLayout(HStackLayout(spacing: DS.Space.xs + 2))
+        layout {
+            icon.font(.system(size: 15, weight: .semibold))
+            title.dsFont(.headline).lineLimit(1)
+                .minimumScaleFactor(typeSize.dsLargeText ? 0.6 : 0.8)
         }
     }
 }
 
-private struct PhoneLogRow: View {
+struct PhoneLogRow: View {
     let entry: LogEntry
     let site: InjectionSite?
+    /// Off where the row can't be opened (someone else's logbook).
+    var showsChevron = true
+    /// The Logbook search's words, picked out where they appear in the row.
+    var highlight: [String] = []
+    /// How far the chevron has turned to point down, 0…1, as the row opens into its detail.
+    var chevronTurn: Double = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
@@ -195,19 +259,31 @@ private struct PhoneLogRow: View {
                 .foregroundStyle(tint)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 0) {
-                Text(title).dsFont(.callout)
-                if let detail { Text(detail).dsFont(.caption).foregroundStyle(.secondary) }
+                Text(SearchHighlight.attributed(title, terms: highlight, tint: tint)).dsFont(.callout)
+                if let detail {
+                    Text(SearchHighlight.attributed(detail, terms: highlight, tint: tint))
+                        .dsFont(.caption).foregroundStyle(.secondary)
+                }
+                // The time goes under the entry at the accessibility sizes, so the title keeps the width.
+                if typeSize.dsLargeText { time }
             }
             Spacer(minLength: DS.Space.sm)
-            Text(ClockLabel.time(entry.timestamp))
-                .dsFont(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-            Image(systemName: "chevron.right")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.tertiary)
+            if !typeSize.dsLargeText { time }
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(90 * LogbookRowExpand.clamped(chevronTurn)))
+            }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var time: some View {
+        Text(ClockLabel.time(entry.timestamp))
+            .dsFont(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
     }
 
     private var icon: String {
@@ -228,35 +304,15 @@ private struct PhoneLogRow: View {
         }
     }
 
-    private var title: String {
-        switch entry {
-        case .dose(let d): return "\(LogFormat.units(d.units)) \(d.displayName)"
-        case .meal(let m):
-            if m.carbs > 0 { return m.food.isEmpty ? "\(LogFormat.grams(m.carbs)) carbs" : "\(LogFormat.grams(m.carbs)) · \(m.food)" }
-            return m.food.isEmpty ? "Food" : m.food
-        case .siteChange(let s): return "New site: \(s.site.title)"
-        case .context(let c): return c.sortedTags.map(\.title).joined(separator: ", ")
-        }
-    }
+    private var title: String { entry.phoneTitle }
 
     private var detail: String? {
         var parts: [String] = []
         if case .dose = entry, let site { parts.append(site.title) }
-        let note: String
-        switch entry {
-        case .dose(let d): note = d.note
-        case .meal(let m): note = m.note
-        case .siteChange(let s): note = s.note
-        case .context(let c): note = c.note
-        }
+        if case .dose(let d) = entry, let purpose = d.purpose?.label { parts.append(purpose) }
+        let note = entry.phoneNote
         if !note.isEmpty { parts.append(note) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
-private extension LogEntry {
-    var dose: InsulinDose? {
-        if case .dose(let d) = self { return d }
-        return nil
-    }
-}

@@ -60,9 +60,11 @@ struct PhoneWelcomeView: View {
                 choice(title: "I wear a sensor",
                        detail: "Sign in with your LibreLinkUp follower account to see your readings, log insulin and food, get alerts, and share live with family.",
                        systemImage: "sensor.tag.radiowaves.forward.fill") { mode = .sensor }
+                    .dsEntrance(1)
                 choice(title: "I'm following someone",
                        detail: "No sensor or account needed. Open the GlucOS link someone sent you to see their glucose live, on your Lock Screen, with their alerts.",
                        systemImage: "person.2.wave.2.fill") { mode = .follower }
+                    .dsEntrance(2)
 
                 Text("Not a medical device. Confirm readings and alerts with the sensor app before acting.")
                     .dsFont(.caption)
@@ -111,23 +113,45 @@ struct PhoneHomeView: View {
     @EnvironmentObject var follows: FollowStore
     @EnvironmentObject var router: PhoneLogRouter
     @State private var showsSettings = false
+    @State private var settingsAnchor: PhoneSettingsView.Jump?
     @State private var showsSharing = false
+    /// The stage has scrolled under the navigation bar, so the bar shows the reading instead.
+    @State private var stageHidden = false
+    @Namespace private var routes
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(PhoneSetupView.pendingKey) private var setupPending = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: DS.Space.lg) {
-                    PhoneBanners(showsSettings: $showsSettings)
-                    PhoneHeroCard()
-                    ForEach(follows.follows) { PhoneFollowingCard(follow: $0) }
-                    PhoneOnBoardCard()
-                    PhoneChartCard()
-                    PhoneMorningCard(outlook: store.outlook)
-                    PhoneForecastAccuracyCard(outlook: store.outlook)
+                    PhoneBanners { anchor in
+                        settingsAnchor = anchor
+                        showsSettings = true
+                    }
+                    // Someone's asking if they're okay: above everything, until they answer.
+                    PhoneCheckInBanner()
+                    // Cards assemble top to bottom on launch rather than popping in at once.
+                    PhoneHeroCard().dsEntrance(0)
+                    ForEach(follows.follows) { PhoneFollowingCard(follow: $0).dsEntrance(1) }
+                    PhoneOnBoardCard().dsEntrance(1)
+                    PhoneChartCard().dsEntrance(2)
                     PhoneLogbookCard()
-                    PhoneGlanceCard()
+                        .matchedTransitionSource(id: PhoneRoute.logbook, in: routes)
+                        .dsEntrance(3)
+                    // Today against the same hours on a usual day; hidden until today has an
+                    // hour of readings. Below the logbook, so logging stays near the top.
+                    TodaySoFarView(readings: store.archive, unit: store.snapshot.unit,
+                                   lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                   padding: DS.Space.lg)
+                        .dsEntrance(4)
+                    // Time in range, mornings and forecast accuracy live one tap away, so the
+                    // logbook isn't pushed below three cards of statistics.
+                    PhoneInsightsRow()
+                        .matchedTransitionSource(id: PhoneRoute.insights, in: routes)
+                        .dsEntrance(5)
                     if let sensor = store.snapshot.sensor {
-                        PhoneSensorCard(sensor: sensor)
+                        PhoneSensorCard(sensor: sensor).dsEntrance(6)
                     }
                     Text("Not a medical device. Confirm readings and alerts with your sensor app before acting.")
                         .dsFont(.caption)
@@ -140,37 +164,87 @@ struct PhoneHomeView: View {
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
-            .background { PhoneBackdrop(tone: store.snapshot.displayTone()) }
-            .refreshable { await store.refresh() }
+            .background {
+                PhoneBackdrop(tone: store.snapshot.displayTone(),
+                              rapid: !store.snapshot.isStale() && (store.snapshot.current?.trend.isRapid ?? false),
+                              range: store.snapshot.isStale() ? nil : store.snapshot.range)
+            }
+            // Once the stage's value has scrolled under the bar, the bar's title becomes the reading.
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top > 190
+            } action: { _, hidden in
+                DS.animate(.standard, reduceMotion: reduceMotion) { stageHidden = hidden }
+            }
+            // The same fetches as opening the app (relay readings, then LibreLinkUp), never extra
+            // polling: a pull joins a fetch in flight and skips one that has just finished.
+            .phonePullToRefresh(steps: services.relaySettings.isConfigured ? 2 : 1,
+                                tint: store.snapshot.displayTone().color) { stepDone in
+                let before = store.pullMarker
+                if services.relaySettings.isConfigured {
+                    await services.fillHistoryFromRelay()
+                    stepDone()
+                }
+                let failed = await store.refreshForPull()
+                stepDone()
+                return PullRefresh.outcome(before: before, after: store.pullMarker, failed: failed)
+            }
+            // After a logbook delete: Undo, just above the log bar.
+            .overlay(alignment: .bottom) { PhoneUndoToast() }
             // The one place to start logging. A bar under the content rather than a button over
             // it, so it never covers a logbook row.
             .safeAreaInset(edge: .bottom, spacing: 0) { PhoneLogBar() }
             .navigationTitle("GlucOS")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    if stageHidden, store.snapshot.current != nil, store.snapshot.warmUp() == nil {
+                        PhoneTitleReading()
+                            .transition(DS.Transition.swap(reduceMotion: reduceMotion))
+                    } else {
+                        Text("GlucOS").font(.headline)
+                            .transition(.opacity)
+                    }
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showsSharing = true } label: { Image(systemName: "person.2.wave.2") }
                         .accessibilityLabel("Share live readings")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showsSettings = true } label: { Image(systemName: "gearshape") }
+                    Button { settingsAnchor = nil; showsSettings = true } label: { Image(systemName: "gearshape") }
                         .accessibilityLabel("Settings")
                 }
             }
-            .sheet(isPresented: $showsSettings) {
-                NavigationStack { PhoneSettingsView() }
+            .navigationDestination(for: PhoneRoute.self) { route in
+                // The card grows into its screen.
+                Group {
+                    switch route {
+                    case .logbook: PhoneLogbookView()
+                    case .insights: PhoneInsightsView()
+                    }
+                }
+                .navigationTransition(.zoom(sourceID: route, in: routes))
             }
-            .sheet(isPresented: $showsSharing) {
-                NavigationStack { PhoneSharingView() }
-            }
-            .onChange(of: router.request?.id) { _, id in
-                // A log link arriving while Settings or Sharing is open: show the log sheet instead.
-                if id != nil { showsSettings = false; showsSharing = false }
-            }
-            .sheet(item: $router.request) { request in
-                PhoneLogSheet(target: request.target)
-                    .presentationDragIndicator(.visible)
-            }
+            .navigationDestination(for: FollowRoute.self) { FollowRouteView(route: $0) }
+        }
+        // One countdown for the undo toast, whichever screen it's showing on.
+        .phoneUndoCountdown()
+        // On the stack rather than its root, so the log sheet also opens over a pushed screen
+        // (editing a row in the full logbook).
+        .sheet(isPresented: $showsSettings) {
+            NavigationStack { PhoneSettingsView(scrollTo: settingsAnchor) }
+        }
+        .sheet(isPresented: $showsSharing) {
+            NavigationStack { PhoneSharingView() }
+        }
+        .onChange(of: router.request?.id) { _, id in
+            // A log link arriving while Settings or Sharing is open: show the log sheet instead.
+            if id != nil { showsSettings = false; showsSharing = false }
+        }
+        // Right after the first sign-in: range, alerts and insulin, then home.
+        .sheet(isPresented: $setupPending) { PhoneSetupView() }
+        .sheet(item: $router.request) { request in
+            PhoneLogSheet(target: request.target)
+                .presentationDragIndicator(.visible)
         }
     }
 }
@@ -179,15 +253,56 @@ struct PhoneHomeView: View {
 /// top, like the glow behind the Mac popover's hero.
 struct PhoneBackdrop: View {
     let tone: Tone
+    /// The trend is rapid: the field drifts a little faster.
+    var rapid: Bool = false
+    /// The current range, so a range change sweeps the new colour in from the side it came from
+    /// (docs/Redesign.md §4.2). Nil when stale or on screens that aren't about the reading.
+    var range: GlucoseRange? = nil
 
     var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemGroupedBackground)
-            AmbientGlow(tint: tone.color, intensity: 0.45)
-                .frame(height: 360)
-                .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
+            // The range field the stage sits on (docs/Redesign.md §5.1), fading into the page.
+            RangeField(tone: tone, rapid: rapid, live: true, range: range)
+                .frame(height: 520)
+                .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.45),
+                                             .init(color: .clear, location: 1)],
+                                     startPoint: .top, endPoint: .bottom))
         }
         .ignoresSafeArea()
+    }
+}
+
+/// The reading in the navigation bar while the stage is scrolled away: value and arrow in the
+/// range's colour, grey when stale.
+private struct PhoneTitleReading: View {
+    @EnvironmentObject var store: GlucoseStore
+
+    var body: some View {
+        let s = store.snapshot
+        let stale = s.isStale()
+        let tone = s.displayTone()
+        HStack(spacing: DS.Space.xs) {
+            if let cur = s.current {
+                // The octagon marks an urgent low here too, not just the colour.
+                if !stale, s.range == .urgentLow {
+                    Image(systemName: "exclamationmark.octagon.fill").font(.subheadline.weight(.bold))
+                }
+                // Rolls and cross-fades like the stage's figure; just changes under Reduce Motion.
+                Text(s.unit.format(mgdl: cur.mgdl))
+                    .font(.system(.headline, design: .rounded).weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
+                    .readingChange(mgdl: cur.mgdl, tone: tone, instantUnderReduceMotion: true)
+                    .staleStrike(stale, thickness: 2)
+                TrendArrow(trend: cur.trend, stale: stale)
+                    .font(.subheadline.weight(.bold))
+            }
+        }
+        .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
+        .dsAnimation(.sweep, value: tone)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(s.accessibilitySummary())
     }
 }
 
@@ -197,7 +312,8 @@ struct PhoneBanners: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var services: PhoneServices
     @Environment(\.openURL) private var openURL
-    @Binding var showsSettings: Bool
+    /// Opens Settings at the section that fixes the problem.
+    let openSettings: (PhoneSettingsView.Jump?) -> Void
 
     var body: some View {
         VStack(spacing: DS.Space.sm) {
@@ -221,7 +337,7 @@ struct PhoneBanners: View {
             if !services.relaySettings.isConfigured && settings.alertsEnabled {
                 StatusBanner(severity: .info, title: "Alerts only while GlucOS is open",
                              message: "iPhone apps can't check in the background reliably. Connect the push relay for alerts and a live Lock Screen card at all times.",
-                             action: BannerAction(title: "Set Up") { showsSettings = true },
+                             action: BannerAction(title: "Set Up") { openSettings(.relay) },
                              density: .compact)
             } else if let error = services.relayError {
                 StatusBanner(severity: .warning, title: "Can't reach the push relay",

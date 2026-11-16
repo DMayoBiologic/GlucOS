@@ -4,11 +4,21 @@ import AppKit
 /// What the log sheet is for: a new entry, or editing one.
 enum LogSheetTarget: Identifiable {
     case new
+    /// Food at an earlier time: the meal a dose was for ("Was it for a meal?" → Meal → Add Food).
+    case meal(at: Date)
     case edit(LogEntry)
+    /// "I'm treating it" on a low or high alert (docs/AlertActions.md): a hypo treatment, filled
+    /// from the "Treat a low" usual when there is one, or a correction dose.
+    case treating(AlertTreatment)
+    /// A hypo treatment at an earlier time: "Did you treat this low?" → Something else.
+    case lowTreatment(at: Date)
 
     var id: String {
         switch self {
         case .new: return "new"
+        case .meal(let at): return "meal-\(at.timeIntervalSince1970)"
+        case .treating(let t): return "treating-\(t.rawValue)"
+        case .lowTreatment(let at): return "low-\(at.timeIntervalSince1970)"
         case .edit(let e): return e.id.uuidString
         }
     }
@@ -30,9 +40,14 @@ struct LogSheet: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var store: GlucoseStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Closes the host. Nil for a sheet, which uses `dismiss`.
     private let onClose: (() -> Void)?
+    /// Opened to add the meal a logged dose was for: no "bolus for it" step, the dose is in already.
+    private let forLoggedDose: Bool
+    /// Opened from "I'm treating it" on an alert.
+    private let treating: AlertTreatment?
 
     /// Set when editing: only that part is shown.
     private let editing: Part?
@@ -77,7 +92,21 @@ struct LogSheet: View {
     /// Works the calculator's answer out again on the spot, for the check at save and log.
     @State private var recomputeSuggestion: (@MainActor () -> BolusSuggestion?)?
     @State private var confirmingDose = false
+    /// The usual entry the sheet was filled from, if any (docs/UsualEntries.md).
+    @State private var appliedUsual: UsualEntry?
+    /// Something was filled in with one click (a usual entry, a preset, "same as last", a recent
+    /// food), so the entry is checked against the logbook for a repeat before it's logged.
+    @State private var filledByRepeat = false
+    @State private var repeatWarning: String?
+    @State private var confirmingRepeat = false
     @FocusState private var focus: LogFieldFocus?
+    /// The "What's happening?" tiles have the keyboard: arrows move, Space and Return pick
+    /// (`LogKeyboard`). A new entry opens with them focused.
+    @FocusState private var momentsFocused: Bool
+    /// The tile the arrow keys are on. Nil until an arrow is pressed, so a mouse user never sees a ring.
+    @State private var highlightedMoment: Int?
+    /// The ⌘? list.
+    @State private var showsShortcutList = false
 
     init(target: LogSheetTarget, onClose: (() -> Void)? = nil) {
         let s = AppSettings.shared
@@ -99,6 +128,21 @@ struct LogSheet: View {
         var note = ""
         var items: [MealItem] = []
 
+        if case .meal(let at) = target {
+            time = min(at, Date())
+            parts = [.food]
+        }
+        if case .lowTreatment(let at) = target {
+            // Food tagged as a hypo treatment, at the time the low was treated. No dose.
+            time = min(at, Date())
+            parts = [.food]
+            tags = [.hypoTreatment]
+        }
+        if case .treating(let t) = target {
+            // A low: fast carbs tagged as a hypo treatment, no dose. A high: the correction dose.
+            parts = t == .low ? [.food] : [.insulin]
+            if t == .low { tags = [.hypoTreatment] }
+        }
         if case .edit(let entry) = target {
             time = entry.timestamp
             editingID = entry.id
@@ -139,6 +183,11 @@ struct LogSheet: View {
         }
 
         self.onClose = onClose
+        switch target {
+        case .meal, .lowTreatment: forLoggedDose = true
+        default: forLoggedDose = false
+        }
+        if case .treating(let t) = target { treating = t } else { treating = nil }
         self.editing = editing
         self.editingID = editingID
         self.doseID = doseID
@@ -179,6 +228,7 @@ struct LogSheet: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
                             if isNew { momentPicker }
+                            if isNew { usualRow }
                             if isNew { quickAdd }
                             ForEach(shownParts) { part in
                                 bridge(before: part)
@@ -216,7 +266,7 @@ struct LogSheet: View {
             }
         }
         .frame(minWidth: 460, idealWidth: 540, maxWidth: 780)
-        .onAppear { startDose(); focusFirstField() }
+        .onAppear { startDose(); applyTreatingUsual(); focusFirstField() }
         .onChange(of: settings.therapy) { _, therapy in
             // Picked in the setup step above: start from that therapy's defaults.
             guard editing == nil else { return }
@@ -274,12 +324,29 @@ struct LogSheet: View {
                 .environmentObject(store)
                 .environmentObject(settings)
         }
+        .sheet(isPresented: $showsShortcutList) {
+            ShortcutListView(groups: ShortcutCatalog.logSheet(momentCount: isNew ? moments.count : 0,
+                                                              globalKey: settings.activeGlobalLogShortcut)) {
+                showsShortcutList = false
+            }
+        }
+        .background {
+            HiddenShortcut(key: "?") { showsShortcutList = true }
+                .accessibilityHidden(true)
+        }
         .confirmationDialog(units.map { "Log a \(LogFormat.units($0)) dose?" } ?? "Log this dose?",
                             isPresented: $confirmingDose) {
             Button("Log \(units.map { LogFormat.units($0) } ?? "dose")") { commit() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(usedSuggestion?.confirmation(loggedUnits: units ?? 0, unit: settings.unit) ?? "")
+            Text([repeatWarning, usedSuggestion?.confirmation(loggedUnits: units ?? 0, unit: settings.unit)]
+                .compactMap { $0 }.joined(separator: "\n\n"))
+        }
+        .confirmationDialog("Already logged?", isPresented: $confirmingRepeat) {
+            Button("Log anyway") { commit() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(repeatWarning ?? "")
         }
         .onChange(of: carbsText) { _, _ in
             // A suggestion was for the carbs at the time: if they change, take it again.
@@ -320,6 +387,13 @@ struct LogSheet: View {
                 Text(title)
                     .dsFont(.title)
                 Spacer()
+                Button { showsShortcutList = true } label: {
+                    Image(systemName: "keyboard")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Keyboard shortcuts (⌘?)")
+                .accessibilityLabel("Keyboard shortcuts")
                 DatePicker("Time", selection: $time, in: ...Date().addingTimeInterval(15 * 60),
                            displayedComponents: [.date, .hourAndMinute])
                     .labelsHidden()
@@ -377,6 +451,8 @@ struct LogSheet: View {
 
     private func apply(_ p: LogPreset) {
         appliedPresetID = p.id
+        appliedUsual = nil
+        filledByRepeat = true
         var next = parts.subtracting([.insulin, .food, .event])
         if settings.therapy.logsInsulin, let u = p.units {
             next.insert(.insulin)
@@ -394,6 +470,7 @@ struct LogSheet: View {
     }
 
     private func applyLast(_ d: InsulinDose) {
+        filledByRepeat = true
         parts.insert(.insulin)
         unitsText = LogFormat.number(d.units)
         if !viaPump || InsulinKind.pumpKinds.contains(d.kind) { kind = d.kind }
@@ -401,10 +478,119 @@ struct LogSheet: View {
         focus = .units
     }
 
+    /// The units from the usual meal last time, clicked in the dose step.
+    private func applyUsualDose(_ u: UsualEntry, units: Double) {
+        filledByRepeat = true
+        unitsText = LogFormat.number(units)
+        if let k = u.insulinKind, k.isBolus, !viaPump || InsulinKind.pumpKinds.contains(k) { kind = k }
+        if !u.insulinName.isEmpty { insulinName = u.insulinName }
+    }
+
     private func apply(_ f: RecentFood) {
+        filledByRepeat = true
         parts.insert(.food)
         food = f.food
         if f.carbs > 0 { carbsText = LogFormat.number(f.carbs) }
+    }
+
+    // MARK: Usual
+
+    /// The usual entries for now: the usual meal for this time of day, the usual correction while
+    /// high, and what the user takes for a low (first, while low). One click fills the sheet in.
+    private var usuals: [UsualEntry] { logbook.usualEntries(store: store, settings: settings) }
+
+    @ViewBuilder
+    private var usualRow: some View {
+        let entries = usuals
+        if !entries.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Eyebrow(title: "Your usual", systemImage: "arrow.triangle.2.circlepath")
+                    .accessibilityAddTraits(.isHeader)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(entries) { u in
+                            Button { apply(u) } label: {
+                                Label {
+                                    Text(u.title) + Text(u.detail.isEmpty ? "" : "  \(u.detail)").foregroundColor(.secondary)
+                                } icon: {
+                                    Image(systemName: u.systemImage)
+                                }
+                            }
+                            .buttonStyle(ChipButtonStyle(selected: appliedUsual?.id == u.id || u.kind == .lowTreatment, tint: u.tint))
+                            .help(u.spokenHint)
+                            .accessibilityLabel(u.spokenLabel)
+                            .accessibilityHint(u.spokenHint)
+                            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        }
+                    }
+                    .padding(.vertical, 1)
+                }
+            }
+            .transition(.opacity)
+            .dsAnimation(.standard, value: entries.map(\.id))
+        }
+    }
+
+    /// Fills the sheet from a usual entry. A meal never brings a dose with it: the dose step opens
+    /// for the calculator (or the units from last time, as a chip to click). A correction fills the
+    /// units shown on its chip. A low treatment is food tagged as a hypo treatment, with no dose.
+    private func apply(_ u: UsualEntry) {
+        DS.animate(.standard, reduceMotion: reduceMotion) {
+            appliedUsual = u
+            appliedPresetID = nil
+            filledByRepeat = true
+            usedSuggestion = nil
+            switch u.kind {
+            case .meal, .lowTreatment:
+                parts.insert(.food)
+                mealItems = u.freshItems
+                food = u.foodFieldText
+                carbsText = u.carbs > 0 ? LogFormat.number(u.carbs) : ""
+                if u.kind == .lowTreatment {
+                    tags.insert(.hypoTreatment)
+                    parts.remove(.insulin)
+                    unitsText = ""
+                } else if settings.therapy.logsInsulin && !forLoggedDose {
+                    tags.remove(.hypoTreatment)
+                    startDose(bolus: true)
+                    parts.insert(.insulin)
+                }
+            case .correction:
+                parts.remove(.food)
+                tags.remove(.hypoTreatment)
+                startDose(bolus: true)
+                parts.insert(.insulin)
+                if let units = u.units { unitsText = LogFormat.number(units) }
+                if let k = u.insulinKind, k.isBolus, !viaPump || InsulinKind.pumpKinds.contains(k) { kind = k }
+                if !u.insulinName.isEmpty { insulinName = u.insulinName }
+            }
+        }
+        UsualAnnouncer.say(u.filledAnnouncement)
+    }
+
+    /// The units taken with the usual meal last time, offered in the dose step while it's empty.
+    private var usualMealDose: UsualEntry? {
+        guard isNew, let u = appliedUsual, case .meal = u.kind, u.units != nil, includes(.food),
+              abs((carbs ?? -1) - u.carbs) < 0.001 else { return nil }
+        return u
+    }
+
+    /// The usual meal for now, offered in a dose with no food yet: one click adds it, so the
+    /// calculator has the carbs.
+    private var usualMealForDose: UsualEntry? {
+        guard isNew, !forLoggedDose, !includes(.food), kind.isBolus else { return nil }
+        return usuals.first { if case .meal = $0.kind { return true } else { return false } }
+    }
+
+    /// Checked before a one-click fill is logged: is it already in the logbook?
+    private func currentRepeatWarning() -> String? {
+        guard isNew, filledByRepeat else { return nil }
+        let logsFood = includes(.food) && foodValid
+        return logbook.repeatWarning(at: time,
+                                     bolusUnits: includes(.insulin) && kind.isBolus ? units : nil,
+                                     carbs: logsFood ? carbs : nil,
+                                     food: logsFood ? (foodText.isEmpty ? mealItems.map(\.name).joined(separator: ", ") : foodText) : "",
+                                     hypoTreatment: tags.contains(.hypoTreatment))
     }
 
     // MARK: Insulin
@@ -519,13 +705,18 @@ struct LogSheet: View {
         }
     }
 
-    /// "What's happening?": the moments to pick from, ⌘1 onwards. More than one can be on.
+    /// The tiles are three to a row; the arrow keys move through them in the same layout.
+    private static let momentColumns = 3
+
+    /// "What's happening?": the moments to pick from, ⌘1 onwards. More than one can be on. With
+    /// the keyboard: arrows move between tiles, Space turns one on or off, Return picks it and
+    /// moves on to fill it in (or logs, once the entry is ready).
     private var momentPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("What's happening?")
                 .dsFont(.sectionTitle)
                 .accessibilityAddTraits(.isHeader)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: Self.momentColumns), spacing: 8) {
                 ForEach(Array(moments.enumerated()), id: \.element) { index, m in
                     Toggle(isOn: Binding(get: { isOn(m) }, set: { _ in toggle(m) })) {
                         Label(m.title, systemImage: m.systemImage)
@@ -533,9 +724,76 @@ struct LogSheet: View {
                     .toggleStyle(TileToggleStyle(tint: tint(m)))
                     .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
                     .help("\(m.detail) (⌘\(index + 1))")
+                    .overlay {
+                        if momentsFocused && highlightedMoment == index {
+                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                .strokeBorder(Color.accentColor, lineWidth: 2)
+                                .padding(-2)
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
                 }
             }
+            .animation(reduceMotion ? nil : .snappy(duration: 0.12), value: highlightedMoment)
+            .focusable()
+            .focusEffectDisabled()
+            .focused($momentsFocused)
+            .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+                let direction: LogKeyboard.Direction
+                switch press.key {
+                case .leftArrow: direction = .left
+                case .rightArrow: direction = .right
+                case .upArrow: direction = .up
+                default: direction = .down
+                }
+                moveMomentHighlight(direction)
+                return .handled
+            }
+            .onKeyPress(keys: [.return, .space], phases: .down) { press in
+                pressHighlightedMoment(isReturn: press.key == .return)
+                return .handled
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("What's happening?")
         }
+    }
+
+    private func moveMomentHighlight(_ direction: LogKeyboard.Direction) {
+        highlightedMoment = LogKeyboard.move(from: highlightedMoment, direction, count: moments.count,
+                                             columns: Self.momentColumns)
+        if let i = highlightedMoment, moments.indices.contains(i) {
+            let m = moments[i]
+            VoiceOver.announce("\(m.title), \(isOn(m) ? "on" : "off")")
+        }
+    }
+
+    private func pressHighlightedMoment(isReturn: Bool) {
+        guard let i = highlightedMoment, moments.indices.contains(i) else {
+            // Nothing highlighted yet: show where the keyboard is, on the first tile.
+            highlightedMoment = moments.isEmpty ? nil : 0
+            return
+        }
+        let m = moments[i]
+        let action = LogKeyboard.action(return: isReturn, tileIsOn: isOn(m), opensPart: m.part != nil, canLog: canSave)
+        switch action {
+        case .toggle:
+            toggle(m)
+            // Turning a tile on opens its part, which takes the cursor: Space keeps it here.
+            if !isReturn { keepMomentsFocused() }
+        case .pickAndContinue:
+            toggle(m)   // opening the part moves the cursor into it (see onChange(of: parts))
+        case .log:
+            save()
+        case .nothing:
+            break
+        }
+    }
+
+    /// Opening a part puts the cursor in it a beat later; Space is for picking several moments,
+    /// so hand the keyboard back to the tiles after that.
+    private func keepMomentsFocused() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { momentsFocused = true }
     }
 
     private func toggle(_ moment: LogMoment) {
@@ -568,7 +826,7 @@ struct LogSheet: View {
     // MARK: Next step
 
     private var nextStep: LogNextStep? {
-        guard isNew else { return nil }
+        guard isNew, !forLoggedDose else { return nil }
         return LogFlow.nextStep(picked: parts, available: availableParts, carbs: foodValid ? (carbs ?? 0) : 0,
                                 mealtimeDose: kind.isBolus)
     }
@@ -577,6 +835,13 @@ struct LogSheet: View {
     @ViewBuilder
     private func bridge(before part: LogPart) -> some View {
         if part == .insulin, nextStep == .addFood {
+            if let u = usualMealForDose {
+                bridgeButton("\(u.title)? Add \(u.detail)", systemImage: u.systemImage, tint: Self.foodTint) {
+                    apply(u)
+                }
+                .accessibilityLabel("Add \(u.spokenLabel)")
+                .accessibilityHint("Adds the food, so the calculator counts its carbs")
+            }
             bridgeButton("Eating with this? Add the food", systemImage: "fork.knife", tint: Self.foodTint) {
                 parts.insert(.food)
             }
@@ -647,7 +912,14 @@ struct LogSheet: View {
                 NumberStepperField(title: "Units", text: $unitsText, unitLabel: "units",
                                step: InsulinLibrary.step(for: logbook.savedInsulin(named: insulinName), viaPump: viaPump),
                                range: LogLimits.units, focus: $focus, focusValue: .units)
-                if isNew, unitsText.isEmpty, let d = lastDose {
+                if isNew, unitsText.isEmpty, let u = usualMealDose, let usualUnits = u.units {
+                    Button { applyUsualDose(u, units: usualUnits) } label: {
+                        Label("With it last time: \(LogFormat.units(usualUnits))", systemImage: "arrow.uturn.backward")
+                    }
+                    .buttonStyle(ChipButtonStyle(tint: Self.insulinTint))
+                    .help("What you took with this meal \(u.lastLogged.formatted(.relative(presentation: .named)))")
+                    .accessibilityLabel("With it last time: \(LogFormat.number(usualUnits)) units")
+                } else if isNew, unitsText.isEmpty, let d = lastDose {
                     Button { applyLast(d) } label: {
                         Label("Same as last: \(LogFormat.units(d.units))", systemImage: "arrow.uturn.backward")
                     }
@@ -910,7 +1182,9 @@ struct LogSheet: View {
             Button("Cancel", role: .cancel) { close() }
                 .keyboardShortcut(.cancelAction)
             Button(canSave ? saveSummary : (isNew ? "Log" : "Save")) { save() }
-                .keyboardShortcut(.defaultAction)
+                // While the tiles have the keyboard, Return is theirs: it logs only once the
+                // entry is ready (LogKeyboard.action).
+                .keyboardShortcut(momentsFocused ? nil : .defaultAction)
                 .disabled(!canSave)
         }
         .padding(16)
@@ -1005,7 +1279,22 @@ struct LogSheet: View {
         return ContextTag.allCases.first(where: tags.contains)?.title ?? "Preset"
     }
 
+    /// Opened from "I'm treating it" on a low: the usual low treatment goes straight in (food only,
+    /// never a dose), still checked by `RepeatCheck` before it's logged. A high opens on the dose
+    /// for the calculator, with the usual correction one tap away: a dose amount is never filled in
+    /// without a click.
+    private func applyTreatingUsual() {
+        guard isNew, treating == .low, appliedUsual == nil,
+              let u = usuals.first(where: { $0.kind == .lowTreatment }) else { return }
+        apply(u)
+    }
+
     private func focusFirstField() {
+        if isNew && parts.isEmpty && settings.therapy != .notSet {
+            // A new entry starts on "What's happening?", ready for the arrow keys.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { momentsFocused = true }
+            return
+        }
         guard editing == .dose || editing == .meal else { return }
         // Sheets and new windows take focus a beat after appearing.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
@@ -1047,11 +1336,21 @@ struct LogSheet: View {
             dropSuggestionIfStale()
             return
         }
+        repeatWarning = currentRepeatWarning()
         if includes(.insulin) && usedSuggestion != nil {
             confirmingDose = true
+        } else if repeatWarning != nil {
+            confirmingRepeat = true
         } else {
             commit()
         }
+    }
+
+    /// A dose logged from the usual correction, with no food, is a correction by the user's own
+    /// choice, so "Was that dose for a meal?" doesn't ask about it later.
+    private func usualPurpose(logsFood: Bool) -> DosePurpose? {
+        guard isNew, appliedUsual?.kind == .correction || treating == .high, !logsFood, kind.isBolus else { return nil }
+        return .correction
     }
 
     private func commit() {
@@ -1076,7 +1375,8 @@ struct LogSheet: View {
             logbook.save(.dose(InsulinDose(id: doseID, timestamp: time, units: units, kind: kind,
                                            name: trimmedName,
                                            site: viaPump ? nil : injectionSite, viaPump: viaPump,
-                                           note: trimmedNote, calculation: calculation)))
+                                           note: trimmedNote, calculation: calculation,
+                                           purpose: existing?.purpose ?? usualPurpose(logsFood: logsFood))))
         }
         if logsFood, let carbs {
             let described = foodText.isEmpty ? mealItems.map(\.name).joined(separator: ", ") : foodText
@@ -1216,11 +1516,24 @@ struct InjectionSitePicker: View {
 struct LogWindow: View {
     static let id = "log"
     @Environment(\.dismissWindow) private var dismissWindow
+    @ObservedObject private var request = LogWindowRequest.shared
 
     var body: some View {
-        LogSheet(target: .new) { dismissWindow(id: Self.id) }
-            .onAppear { NSApp.activate() }
+        LogSheet(target: request.target) {
+            request.target = .new
+            dismissWindow(id: Self.id)
+        }
+        // A new request (Add Food for a dose) starts the sheet afresh, even if the window is open.
+        .id(request.target.id)
+        .onAppear { NSApp.activate() }
     }
+}
+
+/// What the quick-log window opens on: usually a new entry, or the meal a dose was for.
+@MainActor
+final class LogWindowRequest: ObservableObject {
+    static let shared = LogWindowRequest()
+    @Published var target: LogSheetTarget = .new
 }
 
 // MARK: - Therapy setup

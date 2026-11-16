@@ -9,6 +9,9 @@ struct PopoverChartCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var showsShortcuts: Bool
+    /// When the forecast starts drawing in after the popover opens, so it follows the card's own
+    /// entrance (`PopoverStagger.forecastDelay`).
+    var forecastDelay: TimeInterval = 0
 
     @FocusState private var chartFocused: Bool
     @State private var pinned: Date?
@@ -39,9 +42,14 @@ struct PopoverChartCard: View {
             .frame(height: 24)
             .animation(PopoverMotion.quick(reduceMotion), value: pinned)
             let outlook = s.currentOutlook()
-            GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
-                         hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
-                         forecast: settings.showForecast ? (outlook?.forecast ?? []) : [])
+            // The forecast draws in as the popover opens, once its card is most of the way in, and
+            // bends into each new one.
+            ForecastMotion(forecast: settings.showForecast ? (outlook?.forecast ?? []) : [],
+                           drawInDelay: forecastDelay) { forecast, reveal in
+                GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
+                             hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
+                             forecast: forecast, forecastReveal: reveal)
+            }
                 .frame(height: 136)
                 .focusable()
                 .focused($chartFocused)
@@ -64,6 +72,7 @@ struct PopoverChartCard: View {
                     return .handled
                 }
                 .onChange(of: chartFocused) { _, focused in if !focused { pinned = nil } }
+                // The chart glides to the new span itself.
                 .onChange(of: settings.chartHours) { _, _ in pinned = nil }
                 .help("Hover to see readings, or click and use ← →")
                 .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
@@ -72,6 +81,15 @@ struct PopoverChartCard: View {
             if let outlook, outlook.showsInsulin || (settings.showForecast && !outlook.forecast.isEmpty) {
                 OutlookSummaryRow(outlook: settings.showForecast ? outlook : withoutForecast(outlook),
                                   unit: s.unit, lowMgdl: s.lowMgdl)
+            }
+            // Above range only, never with a low expected, and only while this Mac's own checks
+            // of the estimate stay within 15 minutes (`GlucoseSnapshot.backInRange`).
+            if settings.showForecast, let back = s.backInRange() {
+                BackInRangeNote(minutes: back.minutes)
+                    .dsFont(.label)
+                    .foregroundStyle(.secondary)
+                    .help("Forecast, not a reading: when the forecast comes back down to \(s.unit.format(mgdl: s.highMgdl, withUnit: true)). Shown only while this Mac's past estimates were typically within 15 minutes.")
+                    .transition(.opacity)
             }
         }
         .dsCard(.standard)
@@ -87,15 +105,9 @@ struct PopoverChartCard: View {
         HStack(spacing: 8) {
             Eyebrow(title: "Last \(settings.chartHours) hours", systemImage: "waveform.path.ecg")
                 .accessibilityAddTraits(.isHeader)
-            Picker("Chart range", selection: $settings.chartHours) {
-                Text("3h").tag(3).accessibilityLabel("3 hours")
-                Text("6h").tag(6).accessibilityLabel("6 hours")
-                Text("12h").tag(12).accessibilityLabel("12 hours")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.mini)
-            .fixedSize()
+            SlidingSegments(selection: $settings.chartHours, options: [3, 6, 12]) { "\($0)h" }
+                .fixedSize()
+                .accessibilityLabel("Chart range")
             .help("Chart range (⌘1, ⌘2, ⌘3)")
             .overlay(alignment: .bottom) {
                 if showsShortcuts {
@@ -155,11 +167,18 @@ struct PopoverChartCard: View {
         return .handled
     }
 
+    /// The pinned reading while stepping through with the arrow keys, so VoiceOver reads each one;
+    /// otherwise the whole chart in a sentence (`ChartSummary`).
     private func chartSummary(_ window: [GlucoseReading]) -> String {
-        guard let lo = window.min(by: { $0.mgdl < $1.mgdl }), let hi = window.max(by: { $0.mgdl < $1.mgdl }) else {
-            return "No readings"
+        if let date = pinned, let r = window.first(where: { $0.timestamp == date }) {
+            let range = GlucoseRange.classify(mgdl: r.mgdl, low: s.lowMgdl, high: s.highMgdl)
+            return "\(s.unit.format(mgdl: r.mgdl)) \(s.unit.spokenLabel) at \(ClockLabel.time(r.timestamp)), \(range.spokenLabel)"
         }
-        return "\(window.count) readings, lowest \(s.unit.format(mgdl: lo.mgdl)) at \(lo.timestamp.formatted(date: .omitted, time: .shortened)), highest \(s.unit.format(mgdl: hi.mgdl)) at \(hi.timestamp.formatted(date: .omitted, time: .shortened))"
+        let outlook = settings.showForecast && !s.isStale() ? s.currentOutlook() : nil
+        let cutoff = (window.last?.timestamp ?? Date()).addingTimeInterval(-Double(settings.chartHours) * 3600)
+        return ChartSummary.sentence(.init(readings: window.filter { $0.timestamp >= cutoff }, lowMgdl: s.lowMgdl,
+                                           highMgdl: s.highMgdl, unit: s.unit, hours: Double(settings.chartHours),
+                                           stale: s.isStale(), forecastEnd: outlook?.forecast.last))
     }
 }
 

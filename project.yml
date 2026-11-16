@@ -4,7 +4,7 @@ options:
   bundleIdPrefix: au.com.declanmayo
   deploymentTarget:
     macOS: "14.0"
-    iOS: "17.2"
+    iOS: "18.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
@@ -122,10 +122,12 @@ targets:
   GlucOSiOS:
     type: application
     platform: iOS
-    deploymentTarget: "17.2"
+    deploymentTarget: "18.0"
     sources:
       - path: Sources/iOS
         excludes: ["Info.plist", "*.entitlements"]
+      # The Live Activity's check-in buttons: drawn by the widget, run in the app.
+      - path: Sources/iOSIntents
       - path: Sources/Core
       - path: Sources/Engine
       - path: Sources/Shared
@@ -138,6 +140,7 @@ targets:
       - path: Sources/App/Logbook/LogbookModels.swift
       - path: Sources/App/Logbook/FoodModels.swift
       - path: Sources/App/Logbook/LogFlow.swift
+      - path: Sources/App/Logbook/LogKeyboard.swift
       - path: Sources/Food
       - path: Sources/Bolus
       - path: Sources/App/Logbook/LogbookStore.swift
@@ -147,8 +150,15 @@ targets:
       - path: Sources/App/Logbook/InsulinLibrary.swift
       - path: Sources/App/Logbook/InsulinSettingsView.swift
       - path: Sources/App/Logbook/SiteRotation.swift
+      - path: Sources/App/Logbook/DoseQuestion.swift
+      - path: Sources/App/Logbook/LowQuestion.swift
+      - path: Sources/App/Logbook/AlertLogStyle.swift
       - path: Sources/App/Outlook/OutlookStore.swift
       - path: Sources/App/Outlook/ForecastLedgerStore.swift
+      - path: Sources/App/Outlook/ForecastScorecardView.swift
+      - path: Sources/App/Views/DayPatternView.swift
+      - path: Sources/App/Views/WeekInReviewView.swift
+      - path: Sources/App/Views/TodaySoFarView.swift
       - path: Sources/App/Views/FlowComponents.swift
       - path: Sources/App/Views/MenuBar/PopoverInsights.swift
     dependencies:
@@ -210,10 +220,11 @@ targets:
   GlucOSiOSWidget:
     type: app-extension
     platform: iOS
-    deploymentTarget: "17.2"
+    deploymentTarget: "18.0"
     sources:
       - path: Sources/iOSWidget
         excludes: ["Info.plist", "*.entitlements"]
+      - path: Sources/iOSIntents
       - path: Sources/Widget
         excludes: ["Info.plist", "*.entitlements"]
       - path: Sources/Shared
@@ -251,7 +262,7 @@ targets:
     # and App Store Connect rejects the upload ("Missing App Icon … iMessage app icon").
     type: app-extension.messages
     platform: iOS
-    deploymentTarget: "17.2"
+    deploymentTarget: "18.0"
     sources:
       - path: Sources/iOSMessages
         excludes: ["Info.plist", "*.entitlements"]

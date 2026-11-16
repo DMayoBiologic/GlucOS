@@ -30,11 +30,17 @@ final class OutlookStore: ObservableObject {
             recent.append(current)
             recent.sort { $0.timestamp < $1.timestamp }
         }
+        // The range, and how far ahead it's drawn, follow how this device's forecasts actually did.
+        var current = model
+        current.rangeScale = ledger.rangeScale
+        current.liveHorizon = ledger.liveHorizon
+        current.backInRange = ledger.backInRange
         let o = OutlookEngine.outlook(readings: recent, doses: logbook?.doses ?? [], meals: logbook?.meals ?? [],
-                                      contexts: logbook?.contexts ?? [], model: model, now: now)
+                                      contexts: logbook?.contexts ?? [], model: current, now: now)
         outlook = o
-        ledger.update(forecast: o.glucoseForecast, tuned: model.tuning.isTuned, archive: archive,
-                      current: snapshot.current, logTimes: Self.logTimes(logbook), now: now)
+        ledger.update(forecast: o.forecastToLog, tuned: model.tuning.isTuned, archive: archive,
+                      current: snapshot.current, logTimes: Self.logTimes(logbook),
+                      low: snapshot.lowMgdl, high: snapshot.highMgdl, now: now)
         return o
     }
 
@@ -43,6 +49,12 @@ final class OutlookStore: ObservableObject {
         guard let logbook else { return [] }
         return logbook.doses.map(\.timestamp) + logbook.meals.map(\.timestamp)
             + logbook.contexts.filter { !$0.isWake }.map(\.timestamp)
+    }
+
+    /// Readings were filled in from elsewhere: relearn at the next chance rather than waiting out
+    /// `relearnInterval`, so the forecast's tuning and accuracy figures use them.
+    func historyFilledIn() {
+        learnedFingerprint = nil
     }
 
     /// Starts relearning in the background if the logs changed or the last run is old.

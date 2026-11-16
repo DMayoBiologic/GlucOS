@@ -12,9 +12,14 @@ struct OnBoardNow {
     let carbs: CarbActivity
 
     init(doses: [InsulinDose], meals: [MealEntry], contexts: [ContextEvent], at now: Date) {
+        // Hypo treatments and doses marked as for a meal that isn't logged: food that can't be
+        // counted. Doses are matched against every meal entry, repeats included.
         let hypo = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
+            + DoseMealCheck.unloggedMealTimes(doses: doses, meals: meals)
+        let meals = LogCleanup.mealsWithoutRepeats(meals)
         insulin = InsulinActivity.compute(doses: doses, at: now)
         background = BackgroundInsulinActivity.compute(doses: doses, at: now)
+        // The same meal logged twice is counted once, as in the forecast.
         carbs = CarbActivity.compute(meals: meals, hypoTreatments: hypo, at: now)
     }
 

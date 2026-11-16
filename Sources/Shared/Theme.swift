@@ -74,24 +74,26 @@ enum Palette {
         #endif
     }
 
-    // Range hues, for lines, fills, icons and big numbers (3:1 or better). With Increase
-    // Contrast, light mode uses the darker text values everywhere.
-    static let mint = dynamic(light: rgb(0x0E9F6E), dark: rgb(0x34D399), highContrastLight: rgb(0x047857))
-    static let amber = dynamic(light: rgb(0xD97706), dark: rgb(0xFBBF24), highContrastLight: rgb(0xB45309))
+    // Range hues, for lines, fills, icons and big numbers: 3:1 or better against white, the
+    // grouped background (#F2F2F7) and the Mac window (#ECECEC) in light mode, and against black,
+    // #1C1C1E, #2C2C2E and the Mac's dark window (#323232) in dark mode. With Increase Contrast,
+    // light mode uses the darker text values everywhere. docs/DesignSystem.md has the ratios.
+    static let mint = dynamic(light: rgb(0x0A8F63), dark: rgb(0x34D399), highContrastLight: rgb(0x047857))
+    static let amber = dynamic(light: rgb(0xC26A04), dark: rgb(0xFBBF24), highContrastLight: rgb(0xB45309))
     static let coral = dynamic(light: rgb(0xE5484D), dark: rgb(0xFF6B6B), highContrastLight: rgb(0xC62A2F))
     static let crimson = dynamic(light: rgb(0xC81E4B), dark: rgb(0xFF4D79), highContrastLight: rgb(0xBE123C))
     static let magenta = dynamic(light: rgb(0xC2257A), dark: rgb(0xF472B6), highContrastLight: rgb(0xA21C64))
 
-    // Text-safe versions: 4.5:1 or better on window and card backgrounds in both appearances.
+    // Text-safe versions: 4.5:1 or better on the same backgrounds, in both appearances.
     static let mintText = dynamic(light: rgb(0x047857), dark: rgb(0x34D399), highContrastDark: rgb(0x6EE7B7))
-    static let amberText = dynamic(light: rgb(0xB45309), dark: rgb(0xFBBF24), highContrastDark: rgb(0xFCD34D))
+    static let amberText = dynamic(light: rgb(0xA34A07), dark: rgb(0xFBBF24), highContrastDark: rgb(0xFCD34D))
     static let coralText = dynamic(light: rgb(0xC62A2F), dark: rgb(0xFF6B6B), highContrastDark: rgb(0xFCA5A5))
-    static let crimsonText = dynamic(light: rgb(0xBE123C), dark: rgb(0xFF4D79), highContrastDark: rgb(0xFDA4AF))
+    static let crimsonText = dynamic(light: rgb(0xBE123C), dark: rgb(0xFF7092), highContrastDark: rgb(0xFDA4AF))
     static let magentaText = dynamic(light: rgb(0xA21C64), dark: rgb(0xF472B6), highContrastDark: rgb(0xF9A8D4))
 
     /// Old data. Deliberately colourless so it can never read as "fine".
-    static let stale = dynamic(light: rgb(0x8E8E93), dark: rgb(0x8E8E93), highContrastLight: rgb(0x6E6E73))
-    static let staleText = dynamic(light: rgb(0x6E6E73), dark: rgb(0x98989D),
+    static let stale = dynamic(light: rgb(0x808086), dark: rgb(0x8E8E93), highContrastLight: rgb(0x6E6E73))
+    static let staleText = dynamic(light: rgb(0x636368), dark: rgb(0xA4A4A9),
                                    highContrastLight: rgb(0x48484A), highContrastDark: rgb(0xC7C7CC))
     /// Status-free chrome.
     static let neutral = dynamic(light: rgb(0x6E6E73), dark: rgb(0x98989D))
@@ -256,21 +258,14 @@ struct Eyebrow: View {
 
 // MARK: - Trend dial
 
-/// The trend as a ring with an arrow that rotates to the actual rate of change.
+/// The trend needle (docs/Redesign.md §5.2): a ring with an arrow that swings to the direction of
+/// travel, with a trail behind it while the trend is rapid.
 struct TrendDial: View {
     let trend: Trend
     var tint: Color
     var size: CGFloat = 56
 
-    private var angle: Double {
-        switch trend {
-        case .risingQuickly: return -90
-        case .rising: return -45
-        case .flat, .unknown: return 0
-        case .falling: return 45
-        case .fallingQuickly: return 90
-        }
-    }
+    private var angle: Double { trend.needleAngle }
 
     var body: some View {
         ZStack {
@@ -286,21 +281,57 @@ struct TrendDial: View {
                     .font(.system(size: size * 0.36, weight: .bold, design: .rounded))
                     .foregroundStyle(tint)
             } else {
-                Image(systemName: "arrow.right")
-                    .font(.system(size: size * 0.42, weight: .heavy))
-                    .foregroundStyle(tint)
-                    .rotationEffect(.degrees(angle))
-                    .dsAnimation(.emphasized, value: angle)
+                // The needle: an arrow swung to the direction of travel, springing to a new angle
+                // when the trend turns (also between two Live Activity states). A rapid trend draws
+                // a ghosted second arrow behind it, a trail that says "fast" without reading words.
+                ZStack {
+                    if trend.isRapid {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: size * 0.42, weight: .heavy))
+                            .foregroundStyle(tint.opacity(0.35))
+                            .offset(x: -size * 0.16)
+                    }
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: size * 0.42, weight: .heavy))
+                        .foregroundStyle(tint)
+                        .offset(x: trend.isRapid ? size * 0.05 : 0)
+                }
+                .rotationEffect(.degrees(angle))
+                .dsAnimation(.arrival, value: angle)
             }
             if trend.isRapid {
                 Circle()
                     .strokeBorder(tint.opacity(0.35), lineWidth: 1)
                     .padding(-4)
+                RapidHalo(tint: tint)
             }
         }
         .frame(width: size, height: size)
+        // A range change cross-fades the dial's colour (a fade only, under Reduce Motion).
+        .dsAnimation(.sweep, value: tint)
         .accessibilityElement()
         .accessibilityLabel(trend.description)
+    }
+}
+
+/// A slow ring that swells out of the dial while glucose is changing fast, so a rapid rise or
+/// fall reads as urgent at a glance: one swell every few seconds (`PulseBeat`). Under Reduce Motion
+/// and in widgets only the plain outline above is drawn.
+private struct RapidHalo: View {
+    let tint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if !reduceMotion {
+            // One swell every few seconds rather than a loop (see `PulseBeat`).
+            PulseBeat(every: PulseInterval.rapid) { beat in
+                Circle()
+                    .strokeBorder(tint.opacity(0.5), lineWidth: 1.5)
+                    .padding(-4)
+                    .pulse(beat: beat, scale: 1.22, opacity: 0.7, duration: 1.8)
+            }
+            .allowsHitTesting(false)
+        }
     }
 }
 
@@ -314,21 +345,30 @@ struct TimeInRangeRing: View {
     var lineWidth: CGFloat = 10
     var showsLabel: Bool = true
     var caption: String = "in range"
+    /// Sweeps the arcs in from 12 o'clock when the ring first appears. Off by default so a
+    /// widget (where nothing animates) never renders an empty ring.
+    var drawsIn: Bool = false
+    @State private var progress: Double = 1
 
-    init(stats: GlucoseStats, lineWidth: CGFloat = 10, showsLabel: Bool = true) {
+    init(stats: GlucoseStats, lineWidth: CGFloat = 10, showsLabel: Bool = true, drawsIn: Bool = false) {
         segments = [(stats.timeBelowRange, GlucoseRange.low.tint),
                     (stats.timeInRange, GlucoseRange.inRange.tint),
                     (stats.timeAboveRange, GlucoseRange.high.tint)]
         inRange = stats.timeInRange
         self.lineWidth = lineWidth
         self.showsLabel = showsLabel
+        self.drawsIn = drawsIn
+        _progress = State(initialValue: drawsIn ? 0 : 1)
     }
 
-    init(segments: [(fraction: Double, color: Color)], inRange: Double, lineWidth: CGFloat = 10, showsLabel: Bool = true) {
+    init(segments: [(fraction: Double, color: Color)], inRange: Double, lineWidth: CGFloat = 10,
+         showsLabel: Bool = true, drawsIn: Bool = false) {
         self.segments = segments
         self.inRange = inRange
         self.lineWidth = lineWidth
         self.showsLabel = showsLabel
+        self.drawsIn = drawsIn
+        _progress = State(initialValue: drawsIn ? 0 : 1)
     }
 
     private var arcs: [(start: Double, end: Double, color: Color)] {
@@ -353,13 +393,14 @@ struct TimeInRangeRing: View {
                 .stroke(Color.primary.opacity(0.07), lineWidth: lineWidth)
             ForEach(Array(arcs.enumerated()), id: \.offset) { _, arc in
                 Circle()
-                    .trim(from: arc.start, to: arc.end)
+                    .trim(from: arc.start * progress, to: arc.end * progress)
                     .stroke(arc.color.gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
             if showsLabel {
                 VStack(spacing: -1) {
-                    Text(Format.percent(inRange))
+                    // Counts up with the arcs on a screen that has `figuresCountUp` on.
+                    RollingFigure(inRange) { Format.percent($0) }
                         .font(.system(.title3, design: .rounded).weight(.bold))
                         .monospacedDigit()
                         .minimumScaleFactor(0.6)
@@ -374,6 +415,9 @@ struct TimeInRangeRing: View {
             }
         }
         .padding(lineWidth / 2)
+        // A new period or new readings slide the arcs to their new lengths.
+        .dsAnimation(.emphasized, value: inRange)
+        .modifier(DrawIn(enabled: drawsIn, progress: $progress))
         .accessibilityElement()
         .accessibilityLabel("Time in range")
         .accessibilityValue("\(Format.percent(inRange)) in range")
@@ -387,16 +431,29 @@ struct ProgressRing: View {
     let fraction: Double
     var tint: Color
     var lineWidth: CGFloat = 4
+    /// Sweeps in from empty when it first appears (app screens only, never widgets).
+    var drawsIn: Bool = false
+    @State private var progress: Double
+
+    init(fraction: Double, tint: Color, lineWidth: CGFloat = 4, drawsIn: Bool = false) {
+        self.fraction = fraction
+        self.tint = tint
+        self.lineWidth = lineWidth
+        self.drawsIn = drawsIn
+        _progress = State(initialValue: drawsIn ? 0 : 1)
+    }
 
     var body: some View {
         ZStack {
             Circle().stroke(Color.primary.opacity(0.08), lineWidth: lineWidth)
             Circle()
-                .trim(from: 0, to: max(0.001, min(1, fraction)))
+                .trim(from: 0, to: max(0.001, min(1, fraction)) * progress)
                 .stroke(tint.gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .padding(lineWidth / 2)
+        .dsAnimation(.emphasized, value: fraction)
+        .modifier(DrawIn(enabled: drawsIn, progress: $progress))
     }
 }
 

@@ -101,8 +101,11 @@ struct BolusSettingsReview: Hashable {
         let series = GlucoseSeries(readings)
         let since = now.addingTimeInterval(-Double(lookbackDays) * 86_400)
         let boluses = doses.filter { $0.kind.isBolus && $0.units > 0 }.sorted { $0.timestamp < $1.timestamp }
-        let carbMeals = meals.sorted { $0.timestamp < $1.timestamp }
+        // The same meal logged twice (e.g. on two devices) counts once, so it can't look like extra food.
+        let carbMeals = LogCleanup.mealsWithoutRepeats(meals).sorted { $0.timestamp < $1.timestamp }
         let fastDoses = doses.filter { !$0.kind.fastComponents.isEmpty && $0.units > 0 }
+        // Doses the user said were for a meal that isn't logged: food the sums can't see.
+        let unloggedMeals = DoseMealCheck.unloggedMealTimes(doses: doses, meals: meals)
 
         func blockFor(_ date: Date) -> BolusScheduleBlock? { settings.block(at: date, calendar: calendar) }
 
@@ -112,6 +115,7 @@ struct BolusSettingsReview: Hashable {
             if carbMeals.contains(where: { !ignoringMeals.contains($0.id) && $0.timestamp >= start.addingTimeInterval(-quietBefore) && $0.timestamp <= end }) {
                 return false
             }
+            if unloggedMeals.contains(where: { $0 >= start.addingTimeInterval(-quietBefore) && $0 <= end }) { return false }
             // Other fast insulin given in the window, or still acting from before it.
             let others = fastDoses.filter { !ignoringDoses.contains($0.id) }
             if others.contains(where: { $0.timestamp > start.addingTimeInterval(-quietBefore) && $0.timestamp <= end }) { return false }
@@ -154,7 +158,7 @@ struct BolusSettingsReview: Hashable {
         }
 
         // Corrections.
-        for d in boluses where !usedDoses.contains(d.id) && d.timestamp >= since && d.timestamp.addingTimeInterval(outcomeAfter) <= now {
+        for d in boluses where !usedDoses.contains(d.id) && d.purpose != .meal && d.timestamp >= since && d.timestamp.addingTimeInterval(outcomeAfter) <= now {
             guard let block = blockFor(d.timestamp) else { continue }
             let end = d.timestamp.addingTimeInterval(outcomeAfter)
             guard clean(from: d.timestamp, to: end, ignoringDoses: [d.id], ignoringMeals: []),

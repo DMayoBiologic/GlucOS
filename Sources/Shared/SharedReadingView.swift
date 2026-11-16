@@ -20,7 +20,7 @@ struct SharedReadingView: View {
                             .font(.system(size: valueSize, weight: .bold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
-                            .strikethrough(stale, color: .secondary)
+                            .staleStrike(stale, thickness: valueSize >= 40 ? 3 : 2)
                             .minimumScaleFactor(0.6)
                             .lineLimit(1)
                         Text(card.glucoseUnit.label).dsFont(.label).foregroundStyle(.secondary)

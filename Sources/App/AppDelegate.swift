@@ -4,12 +4,17 @@ import UserNotifications
 
 /// App-level plumbing SwiftUI's `App` doesn't cover for a menu bar app:
 /// - `glucos://open` (widget taps) and re-opening the app from Finder/Spotlight show the popover; `glucos://dashboard` opens the dashboard.
-/// - Notifications still appear while GlucOS is the active app, and clicking one shows the popover.
+/// - Notifications still appear while GlucOS is the active app, and clicking one shows the popover
+///   (the Meal / Correction buttons of "Was that dose for a meal?" answer without opening it).
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Must be set before launch finishes, or a click on a notification that launched us is lost.
         UNUserNotificationCenter.current().delegate = self
+        // "Was that dose for a meal?" with Meal and Correction buttons, and the low/high alerts'
+        // "Snooze 30 min" and "I'm treating it".
+        UNUserNotificationCenter.current().setNotificationCategories(
+            Set([DoseQuestion.notificationCategory] + AlertNotifications.categories))
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -24,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         // The first use of the Mac each morning is offered as the wake-up time.
         MacWakeWatcher.shared.start()
+        // The optional "open the log window from anywhere" shortcut (off unless turned on in Settings).
+        GlobalLogShortcut.shared.start()
     }
 
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
@@ -58,7 +65,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        Task { @MainActor in StatusItemPopover.show() }
+        let action = response.actionIdentifier
+        let userInfo = response.notification.request.content.userInfo
+        let date = response.notification.date
+        Task { @MainActor in
+            // Meal, Correction or dismissing "Was that dose for a meal?" is answered on the spot.
+            if DoseQuestion.shared.handle(action: action, userInfo: userInfo),
+               action != UNNotificationDefaultActionIdentifier { return }
+            if let tap = AlertNotifications.button(action: action, userInfo: userInfo) {
+                AlertLogRecorder.shared.tapped(tap, userInfo: userInfo, firedAt: date)
+                if let minutes = tap.snoozeMinutes { AlertSnoozeStore.shared.snooze(tap.kind, minutes: minutes) }
+                if case .treat(_, let treatment) = tap {
+                    // The quick-log window, opened by the menu bar label (it can reach openWindow).
+                    LogWindowRequest.shared.target = .treating(treatment)
+                    NotificationCenter.default.post(name: .glucosOpenLogWindow, object: nil)
+                }
+                return
+            }
+            StatusItemPopover.show()
+        }
         completionHandler()
     }
 }
@@ -66,6 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 extension Notification.Name {
     /// Posted for `glucos://dashboard` (the widgets' dashboard button).
     static let glucosOpenDashboard = Notification.Name("au.com.declanmayo.glucos.open-dashboard")
+    /// Posted for "I'm treating it" on an alert: open the quick-log window on `LogWindowRequest`.
+    static let glucosOpenLogWindow = Notification.Name("au.com.declanmayo.glucos.open-log-window")
 }
 
 /// Opens the `MenuBarExtra` popover programmatically. SwiftUI has no API for this, so it clicks

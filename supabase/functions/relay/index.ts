@@ -3,6 +3,7 @@
 //
 //   GET  /health                           → "ok"          (no secret)
 //   GET  /v1/status                        → RelayStatus
+//   GET  /v1/history?since=<unix seconds>  → RelayHistory  (one-minute readings, at most 30 days)
 //   POST /v1/claim      {email, password}  → {secret}      (no secret: the owner's LibreLinkUp login)
 //   POST /v1/register   RelayRegistration  → RelayStatus
 //   POST /v1/test                          → RelayStatus   (sends a test alert push)
@@ -10,6 +11,9 @@
 //   GET  /v1/shares                        → Share[]       (the owner's live share links)
 //   POST /v1/shares     CreateShareRequest → CreatedShare
 //   POST /v1/shares/revoke  {id}           → Share[]
+//   POST /v1/shares/update  {id, showsLogbook} → Share[]   (what that link's followers see)
+//   POST /v1/checkins/answer {answer}      → RelayStatus   (the owner answers check-ins: "okay" | "help")
+//   POST /v1/alerts/snooze {kind, minutes} → RelayStatus   (quiet the owner's pushes of one alert; never urgent lows)
 //
 // The phone sends `Authorization: Bearer <RELAY_SECRET>`. The schedule sends `X-GlucOS-Cron`
 // with a token the migration generated into Vault. JWT verification is off for this function
@@ -19,10 +23,12 @@
 // optionally APNS_BUNDLE_ID (default au.com.declanmayo.glucos.ios) and APNS_CRITICAL_ALERTS=true.
 
 import { APNsSender } from "./apns.ts";
-import { constantTimeEqual, type CreateShareRequest, RelayEngine, type RelayRegistration, ShareError } from "./engine.ts";
+import { constantTimeEqual, type CreateShareRequest, RelayEngine, type RelayRegistration, ShareError, version,
+         type UpdateShareRequest } from "./engine.ts";
 import { LibreLinkUpFetcher } from "./libre.ts";
 import { connect, PostgresStore } from "./store.ts";
 import { PostgresShareStore } from "./sharing.ts";
+import { PostgresForecastLedger } from "./ledger.ts";
 
 const env = (k: string) => Deno.env.get(k)?.trim() || undefined;
 
@@ -41,6 +47,7 @@ function services() {
     bundleId: env("APNS_BUNDLE_ID") ?? "au.com.declanmayo.glucos.ios",
     criticalAlerts: env("APNS_CRITICAL_ALERTS") === "true",
     shares: new PostgresShareStore(sql),
+    ledger: new PostgresForecastLedger(sql, version),
   });
   cached = { store, engine };
   return cached;
@@ -81,7 +88,27 @@ export async function handle(req: Request): Promise<Response> {
   }
   const { engine } = services();
   if (path === "/v1/status" && req.method === "GET") return json(await engine.status());
+  if (path === "/v1/history" && req.method === "GET") {
+    return json(await engine.history(Number(url.searchParams.get("since") ?? 0)));
+  }
   if (path === "/v1/test" && req.method === "POST") return json(await engine.sendTest());
+  if (path === "/v1/alerts/snooze" && req.method === "POST") {
+    const body = await req.json().catch(() => null);
+    if (typeof body?.kind !== "string" || typeof body?.minutes !== "number") return json({ error: "bad request" }, 400);
+    const result = await engine.snoozeAlerts(body.kind, body.minutes);
+    if (result === "not snoozable") return json({ error: "This alert can't be snoozed." }, 400);
+    return json(result);
+  }
+  if (path === "/v1/checkins/answer" && req.method === "POST") {
+    const body = await req.json().catch(() => null);
+    if (body?.answer !== "okay" && body?.answer !== "help") return json({ error: "bad request" }, 400);
+    try {
+      return json(await engine.answerCheckIns(body.answer));
+    } catch (e) {
+      if (e instanceof ShareError) return json({ error: e.message }, e.status);
+      throw e;
+    }
+  }
   if (path.startsWith("/v1/shares")) {
     try {
       if (path === "/v1/shares" && req.method === "GET") return json(await engine.listShares());
@@ -90,6 +117,9 @@ export async function handle(req: Request): Promise<Response> {
       if (path === "/v1/shares/revoke" && req.method === "POST") {
         if (typeof body?.id !== "string") return json({ error: "bad request" }, 400);
         return json(await engine.revokeShare(body.id));
+      }
+      if (path === "/v1/shares/update" && req.method === "POST") {
+        return json(await engine.updateShare((body ?? {}) as UpdateShareRequest));
       }
     } catch (e) {
       if (e instanceof ShareError) return json({ error: e.message }, e.status);

@@ -5,12 +5,49 @@ import SwiftUI
 struct OverviewSection: View {
     let data: DashboardData
     let snapshot: GlucoseSnapshot
-    let events: [ChartEvent]
     /// The period before this one, on its own timestamps.
     let comparison: [GlucoseReading]
+    /// Every stored reading, for the Today so far card.
+    let archive: [GlucoseReading]
 
     @EnvironmentObject private var logbook: LogbookStore
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The chart's span while the range changes (`nil` until the section appears, then it follows
+    /// the range picker). The axis glides from one range to the next; see `ChartSpanTransition`.
+    @State private var span: ChartSpanTransition?
+
+    /// What a change of range is measured against: its length, and where it ends.
+    private struct SpanKey: Equatable {
+        let hours: Double
+        let chartKey: String
+    }
+
+    private var spanKey: SpanKey { SpanKey(hours: data.range.duration / 3600, chartKey: data.chartKey) }
+
+    /// A new range on the same stretch of time: plot what both ends need, glide the axis, then
+    /// drop what's off screen. Moving to another stretch (it wipes in), or Reduce Motion, just
+    /// switches.
+    private func changeSpan(from old: SpanKey, to new: SpanKey) {
+        var t = span ?? ChartSpanTransition(hours: old.hours)
+        guard old.chartKey == new.chartKey, !reduceMotion, !data.readings.isEmpty else {
+            t.jump(to: new.hours)
+            withTransaction(Transaction(animation: nil)) { span = t }
+            return
+        }
+        t.prepare(for: new.hours)
+        let generation = t.generation
+        withTransaction(Transaction(animation: nil)) { span = t }
+        // On the next turn, so the extra readings are already in place (unseen, past the left
+        // edge) when the axis starts moving, and slide in rather than fading in.
+        DispatchQueue.main.async {
+            withAnimation(DSMotion.standard.animation, completionCriteria: .logicallyComplete) {
+                span?.move(to: new.hours)
+            } completion: {
+                withTransaction(Transaction(animation: nil)) { span?.settle(generation: generation) }
+            }
+        }
+    }
 
     /// The forecast runs a few hours at most, so it's only drawn where that's visible.
     private var drawsForecast: Bool { data.isLive && data.range.duration <= 3 * 86_400 }
@@ -28,6 +65,15 @@ struct OverviewSection: View {
             guard GlucoseAnalytics.coverage(comparison, from: start, to: data.domain.lowerBound) >= 0.5 else { return nil }
             return GlucoseStats.compute(comparison, low: data.lowMgdl, high: data.highMgdl)
         }()
+        // The chart's own window on the archive: the period at the span being shown, plus what
+        // slides in or out past the left edge.
+        let transition = span ?? ChartSpanTransition(hours: data.range.duration / 3600)
+        let window = PeriodSpan(readings: archive, end: data.domain.upperBound, transition: transition)
+        let chartReadings = Array(window.visible)
+        let chartPlotted = Array(window.plotted)
+        let chartEvents = logbook.chartEvents(in: window.plotDomain)
+        // From the moment the range is picked until the glide has finished.
+        let gliding = transition.isChanging || transition.domainHours != data.range.duration / 3600
         DashboardPage { layout in
             OverviewHeader(snapshot: snapshot, data: data, previous: previousStats, layout: layout)
 
@@ -57,22 +103,34 @@ struct OverviewSection: View {
                     // On the reading panel's 30 s clock, so the chart's latest point greys out
                     // at the same moment the panel does.
                     TimelineView(.periodic(from: .now, by: 30)) { context in
-                        TrendChart(readings: data.readings, domain: data.domain, unit: data.unit,
-                                   lowMgdl: data.lowMgdl, highMgdl: data.highMgdl, events: events,
-                                   comparison: comparison, comparisonShift: data.range.duration,
+                        TrendChart(readings: chartReadings, domain: window.domain, unit: data.unit,
+                                   lowMgdl: data.lowMgdl, highMgdl: data.highMgdl,
+                                   plotted: chartPlotted, detailStart: window.detailStart, events: chartEvents,
+                                   // The previous period comes back once the glide has finished.
+                                   comparison: gliding ? [] : comparison,
+                                   comparisonShift: data.range.duration,
                                    latestIsStale: data.isLive && snapshot.isStale(at: context.date),
                                    now: data.isLive ? context.date : nil,
                                    forecast: drawsForecast ? (snapshot.currentOutlook(at: context.date)?.forecast ?? []) : [],
                                    forecastBasis: snapshot.outlook?.basis)
                     }
-                    .id("\(data.range.rawValue)-\(data.isLive ? "live" : String(data.domain.upperBound.timeIntervalSince1970))")
+                    // Same chart across a change of range, so its axis can glide; a new one for
+                    // another stretch of time.
+                    .id(data.chartKey)
                 }
             }
+            // Another stretch of time wipes in from the left (docs/Redesign.md §8.3); a new range
+            // on the same stretch glides instead.
+            .chartWipe(data.chartKey)
             // Room above for the header, and below for the top of the next row of cards.
             .frame(height: layout.chartHeight(reserving: (layout.widthClass == .compact ? 470 : 330) + (showsOnBoard ? 150 : 0)))
             .dashboardCard()
 
             if let note = data.historyNote { HistoryNote(text: note) }
+            // Today against the same hours on a usual day, on a live period only (it's about now).
+            if data.isLive {
+                TodaySoFarView(readings: archive, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl)
+            }
             if let st = data.stats, let b = data.breakdown {
                 CardGrid(minColumnWidth: 300, maxColumns: 3, spacing: layout.gutter) {
                     TimeInRangeCard(breakdown: b, data: data)
@@ -82,6 +140,8 @@ struct OverviewSection: View {
             }
             Disclaimer()
         }
+        .onAppear { if span == nil { span = ChartSpanTransition(hours: data.range.duration / 3600) } }
+        .onChange(of: spanKey) { old, new in changeSpan(from: old, to: new) }
     }
 }
 
@@ -97,6 +157,7 @@ struct StatChange {
 /// left on a regular window and on top on a narrow one; the tiles go four across when there's
 /// room and two by two when there isn't.
 private struct OverviewHeader: View {
+    @EnvironmentObject private var settings: AppSettings
     let snapshot: GlucoseSnapshot
     let data: DashboardData
     let previous: GlucoseStats?
@@ -106,12 +167,12 @@ private struct OverviewHeader: View {
         switch data.stats == nil ? DashboardLayout.WidthClass.compact : layout.widthClass {
         case .compact:
             VStack(spacing: layout.gutter) {
-                CurrentReadingPanel(snapshot: snapshot, isLive: data.isLive)
+                CurrentReadingPanel(snapshot: snapshot, isLive: data.isLive, showsForecast: settings.showForecast)
                 tiles
             }
         case .regular, .wide:
             HStack(alignment: .top, spacing: layout.gutter) {
-                CurrentReadingPanel(snapshot: snapshot, isLive: data.isLive)
+                CurrentReadingPanel(snapshot: snapshot, isLive: data.isLive, showsForecast: settings.showForecast)
                     .frame(width: layout.widthClass == .wide ? 400 : min(340, layout.contentWidth * 0.42))
                 tiles
             }
@@ -151,6 +212,8 @@ private struct OverviewHeader: View {
                              goal: "goal under 4%", periodNoun: noun,
                              help: "Share of readings below \(data.unit.format(mgdl: data.lowMgdl, withUnit: true)).")
             }
+            // The numbers roll to the new period's values (docs/Redesign.md §8.3).
+            .dsAnimation(.emphasized, value: data.periodKey)
         }
     }
 }
@@ -194,6 +257,7 @@ private struct CurrentReadingPanel: View {
     let snapshot: GlucoseSnapshot
     /// False when the page shows an earlier period, so the panel says this one is "now".
     let isLive: Bool
+    var showsForecast: Bool = true
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
@@ -207,7 +271,7 @@ private struct CurrentReadingPanel: View {
         return VStack(alignment: .leading, spacing: DS.Space.md) {
             HStack(spacing: DS.Space.sm - 2) {
                 Eyebrow(title: isLive ? "Current reading" : "Now", systemImage: isLive ? nil : "clock")
-                if let range = snapshot.range, snapshot.current != nil { RangeBadge(range: range, stale: stale) }
+                if let range = snapshot.range, snapshot.current != nil { RangeBadgeSwap(range: range, stale: stale) }
             }
             if let cur = snapshot.current {
                 HStack(alignment: .center, spacing: DS.Space.lg) {
@@ -221,6 +285,7 @@ private struct CurrentReadingPanel: View {
                                 .contentTransition(.numericText(value: cur.mgdl))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.55)
+                                .staleStrike(stale)
                             Text(snapshot.unit.label)
                                 .dsFont(.unit)
                                 .foregroundStyle(.secondary)
@@ -239,6 +304,9 @@ private struct CurrentReadingPanel: View {
                         .lineLimit(1)
                     }
                 }
+                RangeRail(mgdl: cur.mgdl, lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl, stale: stale,
+                          forecastMgdl: stale || !showsForecast ? nil : snapshot.currentOutlook(at: now).flatMap(OutlookFormat.headlineSample)?.sample.mgdl,
+                          thickness: 6, unit: snapshot.unit)
                 if stale {
                     Label("No new reading for \(PopoverFormat.age(cur.age(at: now))). Check your sensor before relying on this number.",
                           systemImage: "exclamationmark.triangle.fill")
@@ -255,6 +323,17 @@ private struct CurrentReadingPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .dsCard(.hero(snapshot.displayTone(at: now)), radius: DS.Radius.panel)
+        // The range field (docs/Redesign.md §8.3): living colour behind the reading, drifting
+        // slowly while it's fresh. A window you look at, so it may move; never under Reduce Motion.
+        .background {
+            RangeField(tone: snapshot.displayTone(at: now),
+                       rapid: !stale && (snapshot.current?.trend.isRapid ?? false), live: isLive,
+                       range: stale ? nil : snapshot.range)
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
+        }
+        // An urgent low gets a rim as well as its colour, so it reads without colour vision.
+        .urgentRim(!stale && snapshot.current != nil && snapshot.range == .urgentLow,
+                   in: RoundedRectangle(cornerRadius: DS.Radius.panel, style: .continuous))
         .help(isLive ? "" : "This is your current reading. The numbers beside it are for the earlier period you're viewing.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(snapshot.accessibilitySummary(at: now))
@@ -293,7 +372,7 @@ private struct TimeInRangeCard: View {
     private func ring(size: CGFloat) -> some View {
         TimeInRangeRing(
             segments: breakdown.rows.reversed().map { (fraction: $0.fraction, color: $0.range.reportColor) },
-            inRange: breakdown.inRange, lineWidth: 12)
+            inRange: breakdown.inRange, lineWidth: 12, drawsIn: true)
             .frame(width: size, height: size)
     }
 

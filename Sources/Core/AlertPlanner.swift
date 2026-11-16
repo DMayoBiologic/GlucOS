@@ -15,8 +15,8 @@ struct AlertPreferences: Codable, Hashable {
     var sensorExpiry = true
     var predictedLow = true
     var predictedHigh = true
-    /// How far ahead a predicted low may be to alert, in minutes.
-    var predictiveMinutes = 20
+    /// How far ahead a predicted low may be to alert, in minutes (highs: half as far again, up to 30).
+    var predictiveMinutes = 30
     var cooldownMinutes = 15
 }
 
@@ -156,6 +156,12 @@ struct AlertPlanner {
                  body: "\(current) Heading above \(threshold). \(note)", cooldown: highCooldown, now: now, into: &out)
         }
         return out.first
+    }
+
+    /// Forgets when `kind` last fired, so it fires again on the next reading that calls for it.
+    /// Used for alerts a snooze held back (`unsnoozed`).
+    mutating func release(_ kind: AlertNotice.Kind) {
+        lastFired[kind] = nil
     }
 
     private mutating func clearPredictions(now: Date) {
