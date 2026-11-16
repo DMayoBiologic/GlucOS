@@ -139,6 +139,7 @@ struct PhoneInsightsView: View {
         case .overnight: PhoneOvernightCard()
         case .weekdayWeekend: PhoneWeekdayWeekendCard()
         case .streaks: PhoneInRangeStreaksCard()
+        case .bestDays: PhoneBestToughestDaysCard()
         case .dayPattern: PhoneDayPatternCard()
         case .mornings: PhoneMorningCard(outlook: store.outlook)
         case .forecastAccuracy: PhoneForecastAccuracyCard(outlook: store.outlook)
@@ -378,6 +379,29 @@ struct PhoneInRangeStreaksCard: View {
             .dsCard(.standard, padding: DS.Space.lg)
         if let navigator {
             card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .bestStreak)), in: navigator.zoom)
+        } else {
+            card
+        }
+    }
+}
+
+/// The period's best and toughest days by time in range, each a small day chart
+/// (`BestToughestDaysCardView`). Tapping either zooms the card into the Logbook on that day; Back
+/// shrinks it home.
+struct PhoneBestToughestDaysCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var logbook: LogbookStore
+    @Environment(\.phoneNavigator) private var navigator
+
+    var body: some View {
+        let card = BestToughestDaysCardView(readings: store.archive, entries: logbook.entries, unit: store.snapshot.unit,
+                                            lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                            openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
+            .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card
+                .matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .bestDay)), in: navigator.zoom)
+                .matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .toughestDay)), in: navigator.zoom)
         } else {
             card
         }

@@ -20,7 +20,8 @@ Insights screens let them put the cards in their own order and hide the ones the
 - Right-click a card for **Move Up**, **Move Down**, **Hide** and **Customise Cards…**.
 - The logging cards (the safety note, insulin action, meals and sites) stay fixed at the top. They
   depend on the therapy setting and read as one block. The movable cards are Week in review, Lows,
-  Highs, Overnight, Weekdays and weekends, In-range streaks, Your usual day and Forecast accuracy.
+  Highs, Overnight, Weekdays and weekends, In-range streaks, Best and toughest days, Your usual day
+  and Forecast accuracy.
 
 ## Motion
 

@@ -776,6 +776,11 @@ struct InsightsSection: View {
                                    openLogbook: openLogbook)
                 .dashboardCard()
                 .id(Self.cardID(.bestStreak))
+        case .bestDays:
+            BestToughestDaysCardView(readings: readings, entries: logbook.entries, unit: unit, lowMgdl: lowMgdl,
+                                     highMgdl: highMgdl, openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.bestDay))
         case .dayPattern:
             DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
@@ -822,8 +827,9 @@ struct InsightsSection: View {
     }
 
     /// "insights.lows", "insights.highs", "insights.overnight", "insights.weekdays",
-    /// "insights.thisWeek", "insights.bestStreak": where Back from the Logbook scrolls to. Weekends comes back to the
-    /// Weekdays and weekends card too, and Last week to Week in review.
+    /// "insights.thisWeek", "insights.bestStreak", "insights.bestDay": where Back from the Logbook
+    /// scrolls to. Weekends comes back to the Weekdays and weekends card too, Last week to Week in
+    /// review, and Toughest day to Best and toughest days.
     private static func cardID(_ card: LogbookFilter) -> String { "insights.\(card.insightsCard.rawValue)" }
 
     private var startLogging: some View {

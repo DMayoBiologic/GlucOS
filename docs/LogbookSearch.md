@@ -159,3 +159,9 @@ tested in LogbookLinkTests).
   runs to tonight's midnight, so something logged after the last reading still shows. Listed only
   while the card has opened on it; iPhone zoom and Mac "‹ Insights" work as for the other cards.
   With no day at 70% yet the card has nothing to open, so it isn't a button.
+- **Best day and Toughest day (round 43).** Each day on the Insights Best and toughest days card is
+  its own button: it opens the Logbook on a **Best day** or **Toughest day** chip over that day,
+  local midnight to midnight (`LogbookLink.bestDay`), labelled with the day ("Yesterday",
+  "Sat 12 Sep"). The chips keep every entry and alert, so the period does the narrowing. Listed only
+  while the card has opened on them; on iPhone either day zooms from the card, and on the Mac
+  "‹ Insights" scrolls back to the card from either.
