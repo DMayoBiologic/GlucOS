@@ -1660,3 +1660,81 @@ To rerun the table, with each start time in place of the one below:
       avg((abs(a - f) <= case when a >= f or lo <= 39.5 then up - f else f - lo end)::int) inside,
       avg(abs(a - f)) error
     from p where a is not null and not al and m in (15, 30) group by 1, 2 order by 1, 2;
+
+## 30. Predicted-low alerts re-checked on everything since §13 (16 Nov 2026)
+
+The question: with 30-minute lookahead and the 30-minute default lead in place since §13 (relay
+2.11.0), how early do predicted-low alerts warn, how many lows do they miss, how many are false
+alarms, and would another lead, trend gate or margin do better on days it wasn't chosen on?
+**No: the shipped settings won held out. Nothing shipped; no app or relay code changed.** The
+Mac, iPhone and relay still share the same rules (`PredictiveAlertRules`, `evaluatePrediction`:
+lead 30, trend falling at least 0.3 mg/dL a minute, crossing 70 or 54).
+
+Nothing here touches dosing: the bolus calculator, insulin on board, sensitivity and carb ratios
+were not read or changed.
+
+**What there is.** 7,272 readings from 10 Nov 22:45 to 16 Nov 11:15 Perth, 121 hours ticked
+(7,208 ticks, 6 Perth days), 8 lows under 70 (6 in §13, plus 16 Nov 00:52, nadir 51, and 16 Nov
+04:50, nadir 53). Only about 10 hours (one low) come after §13 merged, too little to judge it on
+its own, so every day is used and each is held out in turn.
+
+**Scoring, tightened.** §13 counted a low as warned by any alert in the hour before it, while an
+alert was a false alarm with no low in the 45 minutes after it, so one alert could be both: the
+16 Nov 03:52 alert was a false alarm and also "warned" the 04:50 low 58 minutes early. Both now use
+45 minutes. `scripts/low-alert-heldout.ts` replays the relay once, then runs the alert rules per
+candidate and scores each Perth day as minutes of warning (capped at 30 per low) minus 10 per
+false alarm. For each day, the best candidate on the other five days is scored on the day left
+out, against the shipped setting. Candidates: lead 15/20/25/30, trend gate −0.2/−0.3/−0.4/−0.5,
+and warning when the forecast crosses 0, 4 or 8 mg/dL above the line.
+
+**Shipped, all days:** all 8 lows warned, median 6 / mean 9.8 minutes ahead (the 45-minute
+window; `low-alert-replay.ts` says 16.0 because of the hour window), 27 alerts, 4 false alarms.
+None missed.
+
+| Held out | Chosen on the other days | Score (warned, false) | Shipped score (warned, false) |
+|---|---|---|---|
+| 11 Nov | lead 15, gate −0.5, margin 4 | 22 (1/1, 0) | 27 (1/1, 0) |
+| 12 Nov | shipped | 10 (2/2, 0) | 10 (2/2, 0) |
+| 13 Nov | shipped | 10 (1/1, 0) | 10 (1/1, 0) |
+| 14 Nov | shipped | 0 (no lows) | 0 |
+| 15 Nov | lead 20 | 3 (2/2, 1) | 8 (2/2, 1) |
+| 16 Nov | lead 30, gate −0.2, margin 4 | −34 (2/2, 5) | −17 (2/2, 3) |
+| **Total** | | **11 (8/8, 6)** | **38 (8/8, 4)** |
+
+Shipped also wins at 5 (58 against 50) and 20 (−2 against −12) minutes per false alarm; only with
+no cost for false alarms does anything beat it (114 against 78, with 16 false alarms against 4).
+
+- **Lead.** 20 minutes drops one false alarm but warns 1.4 minutes later on average; 15 warns
+  later still. 25 is worse than both. Nothing past 30 can matter: the lookahead stops at 30 (§13).
+- **Trend gate.** −0.2 changes nothing (a trend that slow never reaches 70 inside 30 minutes from
+  above it); −0.4 and −0.5 drop at most one alert and no false alarms.
+- **Margin.** 4 mg/dL moves the median from 6 to 11 minutes but adds 3–4 false alarms; 8 adds
+  9–12. This is the §13 "toward the lower edge" result again.
+
+**What the false alarms are.** All four are dips that bottomed out in the high 70s or low 80s:
+15 Nov 14:11 (a fall from 237 levelling at 86), and three on the night of 16 Nov (Perth): 03:52 (to
+78, an hour before the 04:50 low), 05:39 (a 140 → 84 drop straight after an unlogged spike) and
+07:45 (bouncing between 77 and 88). The last one is in the iPhone's own alert log at 07:45:01,
+the same minute as the replay, so the replay and the live relay agree; the iPhone also logged the
+04:57 urgent-low heads-up that the replay fires at 04:56. The other replay alerts aren't in the
+log because it only records pushes the app sees before they're cleared (docs/AlertLog.md).
+
+**Late warnings.** The four lows warned 4–6 minutes ahead were first alerted at 76–90 mg/dL,
+most of them falling 2–7 mg/dL a minute. No setting here sees them earlier without the false
+alarms above.
+
+**When to re-check.** After two or three more weeks of lows (early December), with the same
+script. Changes that would be worth testing then, once lows have more company: a margin used only
+overnight, and false alarms split by whether the reading had just spiked (§18 found the LinkUp
+graph points make spikes look sharper than they are).
+
+    GLUCOS_REPLAY_DIR=dir deno run --allow-read --allow-env scripts/low-alert-heldout.ts
+    # PENALTY=min per false alarm (default 10), LIST=1 for every candidate, FROM=unix seconds to
+    # score only lows and alerts from then on
+
+`dir` holds readings.json, with the trend column, and log.json, as for `low-alert-replay.ts`:
+
+    select json_agg(json_build_array(extract(epoch from at)::bigint, mgdl, trend) order by at) from glucos.readings;
+    select json_agg((payload->>'timestamp')::float::bigint order by (payload->>'timestamp')::float)
+      from glucos.logbook where not deleted and kind in ('dose', 'meal', 'context')
+        and payload->>'timestamp' is not null and not coalesce(payload->'tags' ? 'wokeUp', false);
