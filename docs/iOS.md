@@ -202,6 +202,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Nights have their own Insights card.** The Overnight card shows your time in range from midnight to 6 am, overnight lows and the usual change across the night, and tapping it opens the Logbook on those nights.
 - **Weekdays and weekends side by side.** An Insights card compares time in range, average glucose and lows on weekdays and weekends, and tapping either side opens the Logbook on those days.
 - **Entries logged from elsewhere are pointed out once.** Something you log from Siri, a control, an alert or a widget gets a brief highlight and a caption on its Logbook row and chart marker the next time you open the app.
+- **Pinch the Today chart to change its span.** Spread two fingers for fewer hours or pinch together for more, stepping through 3, 6, 12 and 24 hours like the control above it. The axes spring to the new span (with Reduce Motion on, it cross-fades), and the app opens on the span you chose last.
 - **Insights cards go in the order you choose.** Tap Edit in Insights, or touch and hold a card, to drag cards into a new order or hide them. Hidden cards stay in a Hidden section until you bring them back, and new cards show up by default.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.

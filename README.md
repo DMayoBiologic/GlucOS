@@ -52,9 +52,9 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   dose and meal, and an "At a glance" card (time in range, average, CV, GMI and sensor life over
   24 h, 7 or 14 days).
 - **Hover the chart** to read any individual reading and its time, or click it and step through
-  readings with ← → (Home/End jump to the ends). The 3h / 6h / 12h control sets the range.
+  readings with ← → (Home/End jump to the ends). The 3h / 6h / 12h / 24h control sets the range (or pinch the chart on a trackpad), and the popover remembers it.
 - **Keyboard** in the popover: ⌘L log, ⌘R refresh, ⌘D dashboard, ⌘, settings, ⌘C copy the reading,
-  ⌘1 / ⌘2 / ⌘3 chart range, ⌘Q quit. Hold ⌘ to see them. Right-click the reading for the same actions.
+  ⌘1–⌘4 chart range (⌘+ / ⌘− for fewer or more hours), ⌘Q quit. Hold ⌘ to see them. Right-click the reading for the same actions.
   In the log sheet, use the arrow keys and Return to pick the moment, and ⌘? to list every shortcut. You can also
   turn on a shortcut that opens logging from any app (**Settings → Logging**, off by default; see docs/KeyboardLogging.md).
 - **Back in range ≈ X min**: when you're high, this shows under the popover forecast and in the menu bar item's tooltip.

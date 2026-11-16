@@ -128,10 +128,12 @@ enum GlanceWindow: Int, CaseIterable, Identifiable {
 }
 
 extension GlucoseStore {
-    /// Readings from the archive (plus anything newer in the live snapshot) within `hours`.
+    /// Readings from the archive (plus anything newer in the live snapshot) within `hours`. The
+    /// archive is oldest → newest, so this is a binary search and a slice, not a pass over 90
+    /// days: the iPhone Today chart and the Mac popover chart call it on every redraw.
     func readings(lastHours hours: Double, now: Date = Date()) -> [GlucoseReading] {
         let cutoff = now.addingTimeInterval(-hours * 3600)
-        var out = archive.filter { $0.timestamp >= cutoff }
+        var out = Array(archive[ChartSpan.firstIndex(in: archive, atOrAfter: cutoff)...])
         let newest = out.last?.timestamp ?? .distantPast
         var live = snapshot.history
         if let c = snapshot.current { live.append(c) }
