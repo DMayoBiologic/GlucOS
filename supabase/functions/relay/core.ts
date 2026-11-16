@@ -835,18 +835,111 @@ export function replayRangeScale(checks: Check[], stats: HorizonStats[], now: nu
   return rangeScaleFrom([...byOrigin.values()], now);
 }
 
+// MARK: - Back in range (Sources/Engine/BackInRange.swift)
+
+/// How the relay's own "back in range" estimates have done (BackInRangeCheck). Its forecasts are
+/// its own, so it never borrows the apps' checks: until its own ledger has enough, it sends none.
+export interface BackInRangeCheck {
+  checks: number;
+  /// Median |estimate − actual|, minutes. Null with no checks.
+  medianMissMinutes: number | null;
+  /// Share of checks within `backInRangeMaxMiss`, 0...1.
+  withinTolerance: number | null;
+}
+
+export const backInRangeMaxMiss = 15;
+export const backInRangeMinimumChecks = 5;
+export const backInRangeWindow = 30 * 86_400;
+export const backInRangeLookAhead = 6 * 3600;
+export const backInRangeConfirmWithin = 20 * 60;
+
+export const backInRangeShows = (c: BackInRangeCheck | null | undefined): boolean =>
+  !!c && c.checks >= backInRangeMinimumChecks && c.medianMissMinutes !== null && c.medianMissMinutes <= backInRangeMaxMiss;
+
+/// Minutes until a line starting at `start` (above `high`) first comes back to `high`, linear
+/// between `points` (minutes ahead, in order). Null when it starts in range or doesn't come back.
+export function minutesBack(start: number, points: { minutes: number; mgdl: number }[], high: number): number | null {
+  if (!(start > high)) return null;
+  let m0 = 0, v0 = start;
+  for (const p of points) {
+    if (p.mgdl <= high) {
+      const drop = v0 - p.mgdl;
+      return drop > 0 ? m0 + ((v0 - high) / drop) * (p.minutes - m0) : p.minutes;
+    }
+    m0 = p.minutes;
+    v0 = p.mgdl;
+  }
+  return null;
+}
+
+/// Minutes from `start` until glucose was back in range: the first in-range reading whose next
+/// reading (within 20 minutes) is too, looked for up to 6 hours. Null when not seen or the readings
+/// stop first. `readings` oldest first.
+export function actualMinutesBack(readings: Reading[], start: number, low: number, high: number): number | null {
+  const r = readings.filter((x) => x.t > start && x.t <= start + backInRangeLookAhead + backInRangeConfirmWithin);
+  for (let i = 0; i + 1 < r.length; i++) {
+    const a = r[i], b = r[i + 1];
+    if (a.t - start > backInRangeLookAhead) break;
+    const inA = a.mgdl >= low && a.mgdl <= high, inB = b.mgdl >= low && b.mgdl <= high;
+    if (inA && inB && b.t - a.t <= backInRangeConfirmWithin) return (a.t - start) / 60;
+  }
+  return null;
+}
+
+/// One settled relay forecast, as the back-in-range check reads it.
+export interface BackInRangeRecord {
+  issuedAt: number;
+  startMgdl: number;
+  /// The drawn points only.
+  points: { minutes: number; mgdl: number }[];
+}
+
+/// Scores the relay's settled forecasts from the last 30 days that started above range and came
+/// back within their drawn points (BackInRange.check). `readings` oldest first.
+export function backInRangeCheck(records: BackInRangeRecord[], readings: Reading[], low: number, high: number,
+                                 now: number): BackInRangeCheck {
+  const misses: number[] = [];
+  const last = readings[readings.length - 1];
+  for (const r of records) {
+    if (r.issuedAt < now - backInRangeWindow || r.startMgdl <= high) continue;
+    const points = [...r.points].sort((a, b) => a.minutes - b.minutes);
+    const estimate = minutesBack(r.startMgdl, points, high);
+    if (estimate === null) continue;
+    const actual = actualMinutesBack(readings, r.issuedAt, low, high);
+    if (actual !== null) misses.push(Math.abs(estimate - actual));
+    else if (last && last.t >= r.issuedAt + backInRangeLookAhead) misses.push(backInRangeLookAhead / 60 - estimate);
+  }
+  if (!misses.length) return { checks: 0, medianMissMinutes: null, withinTolerance: null };
+  return {
+    checks: misses.length,
+    medianMissMinutes: median(misses),
+    withinTolerance: misses.filter((m) => m <= backInRangeMaxMiss).length / misses.length,
+  };
+}
+
 // MARK: - Outlook snapshot
 
 export interface OutlookSnapshot {
   issuedAt: number;
   forecast: ForecastSample[];
   lowExpectedAt: number | null;
+  /// From above range: when the forecast's central line comes back down to the high threshold,
+  /// only while the relay's own checks of that keep it within 15 minutes. Null otherwise.
+  backInRangeAt: number | null;
 }
 
-export function outlookSnapshot(result: ForecastResult, now: number, lowMgdl: number): OutlookSnapshot {
-  if (!result.ok) return { issuedAt: now, forecast: [], lowExpectedAt: null };
+export function outlookSnapshot(result: ForecastResult, now: number, lowMgdl: number, highMgdl = Infinity,
+                                check: BackInRangeCheck | null = null): OutlookSnapshot {
+  if (!result.ok) return { issuedAt: now, forecast: [], lowExpectedAt: null, backInRangeAt: null };
   const f = result.forecast;
-  return { issuedAt: f.issuedAt, forecast: f.samples, lowExpectedAt: f.samples.find((s) => s.mgdl < lowMgdl)?.t ?? null };
+  const lowExpectedAt = f.samples.find((s) => s.mgdl < lowMgdl)?.t ?? null;
+  let backInRangeAt: number | null = null;
+  if (lowExpectedAt === null && backInRangeShows(check)) {
+    const points = f.samples.map((s) => ({ minutes: (s.t - f.issuedAt) / 60, mgdl: s.mgdl })).filter((p) => p.minutes > 0.01);
+    const m = minutesBack(f.startMgdl, points, highMgdl);
+    if (m !== null) backInRangeAt = f.issuedAt + m * 60;
+  }
+  return { issuedAt: f.issuedAt, forecast: f.samples, lowExpectedAt, backInRangeAt };
 }
 
 // MARK: - Alerts
@@ -1134,6 +1227,9 @@ export interface CardState {
   forecastUpper?: number;
   insulinOnBoard?: number;
   lowExpectedAt?: number;
+  /// From above range: when the forecast says glucose is back in range, while the sender's own
+  /// checks of that estimate keep it within 15 minutes. Never on a low or a low expected.
+  backInRangeAt?: number;
   source: string;
   /// A check-in on this card (checkins.ts). Never set by `makeCard`: the relay adds it per card.
   checkIn?: CheckInCard;
@@ -1196,6 +1292,9 @@ export function makeCard(s: Snapshot, readings: Reading[], source: string, now: 
       card.forecastUpper = roundHalfAway(last.upperMgdl);
     }
     if (o.lowExpectedAt !== null) card.lowExpectedAt = o.lowExpectedAt;
+    else if (o.backInRangeAt !== null && current.mgdl > s.highMgdl && o.backInRangeAt > current.t) {
+      card.backInRangeAt = o.backInRangeAt;
+    }
   }
   return card;
 }
@@ -1242,6 +1341,8 @@ export function processTick(args: {
   rangeScale?: RangeScale | null;
   /// How far its own live checks let the relay draw the forecast (liveHorizon). Missing: no cut.
   live?: LiveCut | null;
+  /// How the relay's own back-in-range estimates have done. Missing: none is sent.
+  backInRange?: BackInRangeCheck | null;
   now: number;
 }): TickResult {
   const { stored, now } = args;
@@ -1249,7 +1350,7 @@ export function processTick(args: {
   const recent = stored.filter((r) => now - r.t <= 3600);
   const result = forecast(new Series(recent), args.calibration, now, undefined,
     args.calibration?.tuning ?? standardTuning, args.live ?? null, effectiveRangeScale(args.rangeScale, args.calibration));
-  if (snapshot.current) snapshot.outlook = outlookSnapshot(result, now, snapshot.lowMgdl);
+  if (snapshot.current) snapshot.outlook = outlookSnapshot(result, now, snapshot.lowMgdl, snapshot.highMgdl, args.backInRange ?? null);
   const notices = evaluateAlerts(args.planner, snapshot, args.prefs, now);
   const p = evaluatePrediction(args.planner, snapshot, result.ok ? result.forecast : null, args.prefs, now);
   if (p) notices.push(p);

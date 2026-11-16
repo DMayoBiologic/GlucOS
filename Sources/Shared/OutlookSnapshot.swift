@@ -143,8 +143,8 @@ struct MorningAdjustmentSnapshot: Codable, Hashable {
 // MARK: - Back in range
 
 /// "Back in range ≈ 25 min" (`BackInRange`, docs/ForecastAccuracy.md §24), worded once for the
-/// iPhone Today card, the Mac popover and the Mac menu bar tooltip, so every place shows the same
-/// estimate under the same rules.
+/// iPhone Today card, the Mac popover and menu bar tooltip, the Live Activity and the widgets, so
+/// every place shows the same estimate under the same rules.
 enum BackInRangeText {
     /// Minutes from the reading, rounded to 5 like every forecast time (never under 5).
     static func minutes(_ back: Date, from reading: Date) -> Int {
@@ -153,6 +153,9 @@ enum BackInRangeText {
 
     /// "Back in range ≈ 25 min".
     static func short(minutes: Int) -> String { "Back in range ≈ \(minutes) min" }
+
+    /// "In range ≈ 25 min", for the Dynamic Island and the small widget footer.
+    static func compact(minutes: Int) -> String { "In range ≈ \(minutes) min" }
 
     static func spoken(minutes: Int) -> String {
         "Back in range in about \(minutes) minutes if nothing else changes"

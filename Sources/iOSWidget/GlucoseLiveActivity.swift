@@ -172,6 +172,8 @@ extension GlucoseActivityState {
         var s = who + parts.joined(separator: ", ") + "."
         if let low = lowExpectedDate {
             s += " Low expected in about \(ForecastNote.roundedMinutes(low.timeIntervalSince(readingDate))) minutes."
+        } else if let back = backInRangeMinutes(stale: false) {
+            s += " " + BackInRangeText.spoken(minutes: back) + "."
         } else if let f = forecastHeadline {
             s += " Forecast about \(glucoseUnit.format(mgdl: f.mgdl)) in \(f.minutes) minutes."
         }
@@ -537,7 +539,9 @@ struct ActivityFooter: View {
                     .lineLimit(1)
             } else {
                 ForecastNote(unit: state.glucoseUnit, headline: state.forecastHeadline,
-                             lowExpectedAt: state.lowExpectedDate, readingDate: state.readingDate, compact: compact)
+                             lowExpectedAt: state.lowExpectedDate,
+                             backInRangeMinutes: state.backInRangeMinutes(stale: stale),
+                             readingDate: state.readingDate, compact: compact)
                 if let iob = state.insulinOnBoard, iob >= 0.05 {
                     Label(OutlookFormat.units(iob), systemImage: "syringe")
                         .lineLimit(1)

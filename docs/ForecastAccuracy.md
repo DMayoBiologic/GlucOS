@@ -1242,6 +1242,20 @@ To rerun (estimate from stored points, actual from live readings):
         and rd.nmg between 70 and 180 and rd.nat <= rd.at + interval '20 minutes') actual
     from f join est using (id) order by f.issued_at;
 
+**Lock Screen and widgets (round 21).** The Live Activity (Lock Screen card and expanded
+Dynamic Island), the Lock Screen rectangular widget and the Home Screen widget footer (medium and
+up) show it too, in place of the "≈ 6.8 in 30 min" headline, with "In range ≈ 20 min" where space
+is short. A low expected always wins. The iPhone's own card and widgets use its gate
+(`GlucoseSnapshot.backInRange(at:)`, the card's `backInRangeAt`), and widgets reload when the
+estimate appears, moves or goes (`WidgetReload.OutlookKey.backAt`). The relay draws its own
+forecast, so it never borrows the iPhone's gate: relay 2.14.0 scores its own ledger the same way
+(core.ts `backInRangeCheck`: ≥5 checks, median miss ≤15 min, last 30 days, redone when a new
+forecast could be checked or hourly) and sends `backInRangeAt` only while that is open. On 16 Nov
+the relay had 10 forecasts from above range and 1 that came back within its drawn 30 minutes, so
+its cards won't show it yet; the card shown while the app is open will, from the iPhone's gate.
+The card checks again whatever it's sent: never on a low, with a low expected, stale, or after the
+time has passed.
+
 **When to look again.** 13 checks is few, and the tail is wide (4 of 13 off by more than 15
 minutes). Re-run around 3 December. If the share within 15 minutes stays under 7 in 10, try
 requiring that as well as the median. If the relay reaches 5 checks under the same bar, the Lock

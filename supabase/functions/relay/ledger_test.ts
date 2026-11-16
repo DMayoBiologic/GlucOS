@@ -1,7 +1,7 @@
 // The relay's forecast ledger: which forecasts it keeps, and how a tick uses it.
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1";
 import {
-  type Calibration, type Check, effectiveRangeScale, type Forecast, forecast, type HorizonStats, learnCalibration, type LivePoint,
+  type BackInRangeRecord, type Calibration, type Check, effectiveRangeScale, type Forecast, forecast, type HorizonStats, learnCalibration, type LivePoint,
   rangeFactor, type RangeScale, rangeScaleFrom, rangeWindow, type Reading, replayRangeScale, Series, type ShownForecast,
   standardTuning,
 } from "./core.ts";
@@ -75,6 +75,16 @@ class FakeLedger implements ForecastLedger {
   points: LivePoint[] = [];
   livePoints() {
     return Promise.resolve(this.points);
+  }
+  backInRange: BackInRangeRecord[] = [];
+  readingsAsked = 0;
+  backInRangeRecords(_owner: string, high: number, before: number) {
+    return Promise.resolve(this.backInRange.filter((r) => r.startMgdl > high && r.issuedAt <= before));
+  }
+  stored: Reading[] = [];
+  readingsBetween(from: number, to: number) {
+    this.readingsAsked++;
+    return Promise.resolve(this.stored.filter((r) => r.t > from && r.t <= to));
   }
 }
 
@@ -378,4 +388,22 @@ Deno.test("forecast() draws only to the live cut", () => {
   assert(!none.ok);
   assertEquals(none.reason, "Past forecasts haven't been accurate enough to show one.");
   assertEquals(none.unshown?.samples.length, 1);
+});
+
+Deno.test("ticks work out the relay's own back-in-range checks when they score, and redo them only on a change", async () => {
+  const t = ticking("llu-1");
+  // Five forecasts from 220 drawn back to 180 at 15 minutes; each was back in range 20 minutes on.
+  for (let i = 0; i < 5; i++) {
+    const at = t0 - 86_400 + i * 3600;
+    t.ledger.backInRange.push({ issuedAt: at, startMgdl: 220, points: [{ minutes: 15, mgdl: 160 }, { minutes: 30, mgdl: 140 }] });
+    for (let m = 1; m <= 60; m++) t.ledger.stored.push({ t: at + m * 60, mgdl: m < 20 ? 200 : 150, trend: 3 });
+  }
+  assertEquals(await t.engine.tick(), "done");
+  const log = t.store.row.work.forecastLog!;
+  assertEquals(log.backInRange?.checks, 5);
+  assertEquals(log.backInRange?.medianMissMinutes, 10);
+  const asked = t.ledger.readingsAsked;
+  t.advance(ledgerScoreEvery);
+  assertEquals(await t.engine.tick(), "done");
+  assertEquals(t.ledger.readingsAsked, asked);
 });

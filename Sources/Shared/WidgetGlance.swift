@@ -54,7 +54,9 @@ enum WidgetSpeech {
                 parts.append("change \(unit.formatDelta(mgdl: d).replacingOccurrences(of: "−", with: "minus "))")
             }
             parts.append(age(cur.age(at: now)))
-            return parts.joined(separator: ", ") + "."
+            var out = parts.joined(separator: ", ") + "."
+            if let back = s.backInRange(at: now) { out += " " + BackInRangeText.spoken(minutes: back.minutes) + "." }
+            return out
         case .stale:
             return "Stale. The last reading was \(value), \(age(cur.age(at: now))). Waiting for a new reading."
         case .expired, .none:
@@ -132,6 +134,8 @@ enum WidgetReload {
         var issuedAt: Date
         var headline: Int?
         var lowAt: Int?
+        /// "Back in range ≈ X min", to the minute: its appearing, moving or going reloads.
+        var backAt: Int?
         var insulin: Int?
         var carbs: Int?
         var caveat: ForecastCaveat?
@@ -142,6 +146,7 @@ enum WidgetReload {
             OutlookKey(issuedAt: o.issuedAt,
                        headline: o.forecast.last.map { Int($0.mgdl.rounded()) },
                        lowAt: o.lowExpectedAt.map { Int($0.timeIntervalSince1970 / 60) },
+                       backAt: o.backInRangeAt.map { Int($0.timeIntervalSince1970 / 60) },
                        insulin: o.insulinOnBoard.map { Int(($0 * 10).rounded()) },
                        carbs: o.carbsOnBoard.map { Int($0.rounded()) },
                        caveat: o.caveat)
