@@ -1983,7 +1983,7 @@ Why nothing shipped:
   how someone reads their day, it missed by 9 to 43 points.
 - **Days differ more than hours do.** Days ranged from 28% to 86% in range. A usual rest of the
   day is a median of very different days, so it pulls every projection toward the middle; good
-  days were projected too low and bad ones too high all morning (bias −15 to +43 points by day).
+  days were projected too low and bad ones too high all morning (average miss per day from −36 to +43 points before midday).
 - **A gate couldn't open honestly.** A self-check like back in range (§24) needs earlier days to
   score itself on, and with fewer than 5 earlier days the card has no usual day to project from.
 
