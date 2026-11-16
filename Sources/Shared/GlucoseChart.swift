@@ -33,6 +33,10 @@ struct GlucoseChart: View {
     var timeLabelCount: Int = 4
     /// A faint "Now" line where readings end and the forecast begins.
     var marksNow: Bool = false
+    /// Whether a marker that's just been logged (or has just arrived by sync) pops in at its time,
+    /// and a deleted one shrinks out, with VoiceOver told which (`MarkerPop`). For the one chart
+    /// the user logs against on each device: iPhone Today and the Mac popover. Interactive charts only.
+    var popsMarkers: Bool = false
 
     @State private var hoverDate: Date?
     /// Whether a finger (or the pointer) is on the chart, as opposed to the readout gliding back
@@ -46,6 +50,11 @@ struct GlucoseChart: View {
     /// The span on screen while `hours` changes (app screens only; `nil` follows `hours`, which is
     /// all a widget ever does since it never runs `onAppear`). See `ChartSpanTransition`.
     @State private var range: ChartSpanTransition?
+    /// The markers as the chart last saw them, so it can tell which are new or gone. `nil` until the
+    /// chart appears: what's there when it opens is already there, and never pops.
+    @State private var seenMarkers: [ChartLogMarker]?
+    /// Markers popping in or shrinking out right now, drawn over the chart until they settle.
+    @State private var flights: [MarkerFlight] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The real reading nearest the pointer. Only actual readings are ever shown, never an
@@ -154,6 +163,37 @@ struct GlucoseChart: View {
             scrubTick.fire(tick)
         }
         scrubbedFrom = date
+    }
+
+    /// The logged markers changed: pop in the new ones and shrink out the ones that went, if they're
+    /// on screen, and say so. Markers sliding off the left edge as time passes aren't deletions, and
+    /// a whole logbook arriving at once changes silently (`MarkerPop.burstLimit`).
+    private func markersChanged(visibleFrom start: Date) {
+        guard popsMarkers, interactive, let old = seenMarkers else { return }
+        seenMarkers = events
+        let change = MarkerPop.change(from: old.map(\.id), to: events.map(\.id))
+        guard change.animates else { return }
+        let added = events.filter { change.added.contains($0.id) && $0.date >= start }
+        let removed = old.filter { change.removed.contains($0.id) && $0.date >= start }
+        guard !(added.isEmpty && removed.isEmpty) else { return }
+        if let text = MarkerPop.announcement(added: added.compactMap(\.kind), removed: removed.compactMap(\.kind)) {
+            // Low priority, so it waits for "Saved" or "Deleted" from the sheet or toast to finish.
+            var spoken = AttributedString(text)
+            spoken.accessibilitySpeechAnnouncementPriority = .low
+            AccessibilityNotification.Announcement(spoken).post()
+        }
+        guard !reduceMotion else { return }
+        // Undo while it's still shrinking out (or a delete while it's still popping): the newer
+        // movement takes over from where the marker is.
+        let touched = Set(added.map(\.id) + removed.map(\.id))
+        var next = flights.filter { !touched.contains($0.marker.id) }
+        next += added.map { MarkerFlight(marker: $0, leaving: false) }
+        next += removed.map { MarkerFlight(marker: $0, leaving: true) }
+        withTransaction(Transaction(animation: nil)) { flights = next }
+    }
+
+    private func landed(_ flight: MarkerFlight) {
+        withTransaction(Transaction(animation: nil)) { flights.removeAll { $0.id == flight.id } }
     }
 
     private func color(for mgdl: Double) -> Color {
@@ -352,8 +392,21 @@ struct GlucoseChart: View {
             if interactive, !stale, !reduceMotion, let last = window.last {
                 TracePulse(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl), tint: currentTint)
             }
+            // Markers popping in or shrinking out. The chart leaves a popping marker out until it
+            // lands, then draws it in the same place, so the hand-over can't be seen.
+            ForEach(flights) { flight in
+                MarkerFlightView(proxy: proxy, flight: flight, value: markerY(lane: flight.marker.lane, yd: yd)) {
+                    landed(flight)
+                }
+            }
         }
-        .onAppear { if interactive, range == nil { range = ChartSpanTransition(hours: hours) } }
+        .onAppear {
+            if interactive, range == nil { range = ChartSpanTransition(hours: hours) }
+            if popsMarkers, interactive, seenMarkers == nil { seenMarkers = events }
+        }
+        .onChange(of: events.map(\.id)) { _, _ in
+            markersChanged(visibleFrom: window.first?.timestamp ?? .distantFuture)
+        }
         .onChange(of: hours) { old, new in changeRange(from: old, to: new) }
         .hoverSelection(interactive, selection(newest: window.last?.timestamp))
         .onChange(of: hovered?.timestamp) { _, new in scrubbed(to: new, readings: window) }
@@ -440,6 +493,60 @@ struct ChartLogMarker: Identifiable {
     var lane: Int = 0
     /// For VoiceOver: "6 units Novorapid at 12:56 pm".
     let label: String
+    /// What it is, for "Meal added to chart" (`MarkerPop`). `nil` says nothing.
+    var kind: MarkerPop.Kind? = nil
+}
+
+/// A marker popping in or shrinking out.
+private struct MarkerFlight: Identifiable {
+    /// Its own id, not the marker's, so a marker brought back while still leaving starts afresh.
+    let id = UUID()
+    let marker: ChartLogMarker
+    let leaving: Bool
+}
+
+/// One marker popping in (a small spring, overshooting a little) or shrinking out, placed with the
+/// chart's proxy exactly where the chart draws it. It moves once, then calls `landed`.
+private struct MarkerFlightView: View {
+    let proxy: ChartProxy
+    let flight: MarkerFlight
+    let value: Double
+    let landed: () -> Void
+    @State private var shown: Bool
+
+    init(proxy: ChartProxy, flight: MarkerFlight, value: Double, landed: @escaping () -> Void) {
+        self.proxy = proxy
+        self.flight = flight
+        self.value = value
+        self.landed = landed
+        _shown = State(initialValue: flight.leaving)
+    }
+
+    static let popIn = Animation.spring(response: 0.36, dampingFraction: 0.58)
+    static let shrinkOut = Animation.easeIn(duration: 0.2)
+
+    var body: some View {
+        GeometryReader { geo in
+            if let plot = proxy.plotFrame,
+               let x = proxy.position(forX: flight.marker.date),
+               let y = proxy.position(forY: value) {
+                let origin = geo[plot].origin
+                EventSymbol(event: flight.marker)
+                    .scaleEffect(shown ? 1 : 0.01)
+                    .opacity(shown ? 1 : 0)
+                    .position(x: origin.x + x, y: origin.y + y)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear {
+            withAnimation(flight.leaving ? Self.shrinkOut : Self.popIn, completionCriteria: .logicallyComplete) {
+                shown = !flight.leaving
+            } completion: {
+                landed()
+            }
+        }
+    }
 }
 
 extension GlucoseChart {
@@ -523,15 +630,19 @@ extension GlucoseChart {
         }
     }
 
+    /// Where a row of markers sits, from the bottom of the glucose axis.
+    func markerY(lane: Int, yd: ClosedRange<Double>) -> Double {
+        yd.lowerBound + (yd.upperBound - yd.lowerBound) * (0.06 + 0.08 * Double(lane))
+    }
+
     /// Logged insulin and food, along the bottom.
     @ChartContentBuilder
     func eventMarks(_ window: [GlucoseReading], yd: ClosedRange<Double>) -> some ChartContent {
         let start = window.first?.timestamp ?? .distantFuture
-        let shown = events.filter { $0.date >= start }
-        let span = yd.upperBound - yd.lowerBound
+        let inFlight = Set(flights.filter { !$0.leaving }.map(\.marker.id))
+        let shown = events.filter { $0.date >= start && !inFlight.contains($0.id) }
         ForEach(shown) { e in
-            let y: Double = yd.lowerBound + span * (0.06 + 0.08 * Double(e.lane))
-            PointMark(x: .value("Time", e.date), y: .value("Logged", y))
+            PointMark(x: .value("Time", e.date), y: .value("Logged", markerY(lane: e.lane, yd: yd)))
                 .symbol { EventSymbol(event: e) }
                 .accessibilityLabel(e.label)
         }

@@ -6,6 +6,7 @@ import AppKit
 struct PopoverChartCard: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var logbook: LogbookStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var showsShortcuts: Bool
@@ -48,7 +49,7 @@ struct PopoverChartCard: View {
                            drawInDelay: forecastDelay) { forecast, reveal in
                 GlucoseChart(readings: s.history, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                              hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
-                             forecast: forecast, forecastReveal: reveal)
+                             forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true)
             }
                 .frame(height: 136)
                 .focusable()
@@ -95,7 +96,14 @@ struct PopoverChartCard: View {
         .dsCard(.standard)
     }
 
-    private func withoutForecast(_ o: OutlookSnapshot) -> OutlookSnapshot {
+    /// Doses, meals and wake-ups over the longest range (12 hours), whatever's on screen, so
+    /// switching range doesn't count as markers arriving. Something just logged pops in.
+    private var markers: [ChartLogMarker] {
+        ChartLogMarker.logbook(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts,
+                               since: Date().addingTimeInterval(-12 * 3600))
+    }
+
+        private func withoutForecast(_ o: OutlookSnapshot) -> OutlookSnapshot {
         var copy = o
         copy.forecast = []
         return copy
