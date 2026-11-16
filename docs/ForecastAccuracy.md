@@ -3234,3 +3234,88 @@ select ag, m, count(*), avg(abs(a - f)) shipped, avg(abs(a - fc)) lag_aware,
   sum((a < 70 and lo < 70)::int) low_bottom, sum((a < 70 and loc < 70)::int) low_bottom_lag_aware
 from x where a is not null group by 1, 2 order by 1, 2;
 ```
+
+## 48. Does "Your usual day" help during the day? (17 Nov 2026)
+
+§16 tried the usual day (`DayPattern`, the Insights card) as a prior overnight. This is the daytime
+version: forecasts issued 09:00–22:00 Perth, scored at 30, 45 and 60 minutes, with the usual day
+built from the other days only. The bar: at least 3% better at 30 minutes on held-out days, coverage
+not worse, and no low drawn later. **It didn't clear it. The usual day's shape never helped at any
+weight, and pulling toward its level is §44's drift-to-average again, which a flat average does
+better. Nothing ships.**
+
+Nothing here touches dosing, the insulin or carb effects, the low alerts, the relay or `web/`.
+
+**Data.** Readings 10 Nov 22:45 to 17 Nov 05:51 Perth (six full days). For each held-out day the
+pattern was rebuilt from the other days with the card's own method: 5-minute bucket means,
+half-hour medians, 1-2-1 smoothing round midnight, a slot needing 8 buckets; the value at any
+minute is interpolated between slot centres. Live: clean shown points in `glucos.forecast_checks`
+(not after a log, drawn), 12–16 Nov, 206 at 30 minutes, 144 at 45 and 114 at 60. Replay: the
+trend forecast (gain 0.45, 30-minute fade, as §44) every 15 minutes on the readings, 11–16 Nov,
+split into clean (no meal or dose from 3 hours before to the target) and after-log.
+
+**Three ways in.** *Shape*: add w × the usual day's change from now to the target time (w 0.1,
+0.2, 0.3, 0.5). *Level*: pull the line w of the way to the usual day's value at the target time
+(w 0.05–0.3). *Flat*: the same pull toward one figure, the other days' mean, as a control for
+plain damping. The range moves with the line. w was picked per horizon on the other days and
+scored on the held-out one. Typical error, mg/dL:
+
+| Held out | 30 min | 45 min | 60 min |
+|---|---|---|---|
+| Live clean: what ships | 31.5 | 47.4 | 55.5 |
+| Live clean: shape | 31.5 (w = 0 every day) | 47.4 (w = 0) | 55.8 |
+| Live clean: level | 32.0 | 45.9 | 55.0 |
+| Replay clean: what ships / shape / level / flat | 22.6 / 22.6 / 23.0 / 22.7 | 30.9 / 30.9 / 31.5 / 31.2 | 35.9 / 35.9 / 36.4 / 35.8 |
+| Replay after a log: what ships / level / flat | 31.6 / 30.6 / 29.2 | 42.1 / 39.8 / 38.4 | 52.0 / 48.2 / 45.8 |
+
+**Shape.** The other days never wanted it: the held-out pick was 0 at 30 and 45 minutes on every
+day, live and replay, and 0.1 at 60 minutes on three live days made those days worse. At a fixed
+w = 0.2 the live 30-minute miss goes 31.5 → 31.9 and coverage 71.4% → 69.9%. Daytime glucose here
+is meals and activity at different times each day; five other days give a median curve whose rises
+land at the wrong time, and the trend already follows a rise once it starts.
+
+**Level.** Worse at 30 minutes (31.5 → 32.0, coverage 71.4% → 70.4%), mixed by day at 45 (13 Nov
+15.5 → 18.9) and within 1% at 60. On the clean replay it's worse at every horizon. Where it does
+help (after a log, live 45 minutes) the flat mean helps more (live fixed w = 0.2: flat 43.7 against
+level 45.8 at 45 minutes, 51.7 against 53.6 at 60), so the gain is damping toward a typical level,
+not the time of day. That's §44's pull, which was rejected because it lifts forecasts heading for a
+low: here too, of the six live 30-minute points that ended under 70, four had the line under 90 as
+shipped and only two after a level pull at w = 0.2. The replay's after-log rows are the trend alone,
+which the apps don't ship after a log (§12), so they're no case for it either.
+
+**Low warnings.** Unchanged, since nothing shipped.
+
+**What would settle it.** Three weeks of days, so the pattern has 14+ days behind it as the card
+wants, and a pattern keyed to logged meals rather than the clock (that's the carb effect's job). If
+it's rerun, try shape only (level is §44), hold out by day, and ship only at ≥3% at 30 minutes on
+most held-out days with the six-low check unchanged. To rerun the live table:
+
+```sql
+with b as (select (at at time zone 'Australia/Perth')::date d,
+    floor(extract(epoch from (at at time zone 'Australia/Perth')::time) / 300)::int b5, avg(mgdl) v
+  from glucos.readings group by 1, 2),
+days as (select distinct d from b),
+raw as (select h.d hd, b.b5 / 6 s, percentile_cont(0.5) within group (order by b.v) med, count(*) n
+  from days h join b on b.d <> h.d group by 1, 2),
+pat as (select r.hd, r.s, 0.25 * p.med + 0.5 * r.med + 0.25 * x.med u from raw r
+  join raw p on p.hd = r.hd and p.s = (r.s + 47) % 48 join raw x on x.hd = r.hd and x.s = (r.s + 1) % 48
+  where r.n >= 8 and p.n >= 8 and x.n >= 8),
+q0 as (select (c.issued_at at time zone 'Australia/Perth') li, (e->>'minutes')::int m,
+    (e->>'actual')::float a, (e->>'mgdl')::float f, (e->>'lower')::float lo, (e->>'upper')::float up
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and coalesce(e->>'shown', 'true') <> 'false'
+    and not coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false)
+    and (e->>'minutes')::int in (30, 45, 60)
+    and (c.issued_at at time zone 'Australia/Perth')::time between '09:00' and '21:59'),
+q as (select q0.*, (select (1 - fr) * p0.u + fr * p1.u from
+      (select (x - 15) / 30 - floor((x - 15) / 30) fr, (floor((x - 15) / 30)::int + 48) % 48 s0
+       from (select extract(epoch from li::time) / 60.0 + k x) t) z
+      join pat p0 on p0.hd = li::date and p0.s = z.s0 join pat p1 on p1.hd = li::date and p1.s = (z.s0 + 1) % 48) uk,
+    k from q0 cross join lateral (values (0), (q0.m)) kk(k)),
+w as (select li, m, a, f, lo, up, max(uk) filter (where k = 0) u0, max(uk) filter (where k = m) u1
+  from q group by 1, 2, 3, 4, 5, 6)
+select m, count(*), avg(abs(a - f)) shipped, avg(abs(a - f - 0.2 * (u1 - u0))) shape_02,
+  avg(abs(a - f - 0.2 * (u1 - f))) level_02, avg((a between lo and up)::int) inside,
+  sum((a < 70 and f < 90)::int) low_line_90, sum((a < 70 and f + 0.2 * (u1 - f) < 90)::int) low_line_90_level
+from w group by 1 order by 1;
+```
