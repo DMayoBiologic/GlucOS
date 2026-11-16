@@ -1296,9 +1296,9 @@ estimates, and `meal_at` groups them for the held-out folds):
         select 1 from glucos.readings o where o.at <> r.at and abs(extract(epoch from o.at - r.at)) < 30))),
     m0 as (select to_timestamp((payload->>'timestamp')::float) t, (payload->>'carbs')::float carbs,
       payload->>'food' food from glucos.logbook where not deleted and kind = 'meal'),
-    -- the same meal logged on both devices: same carbs within 20 minutes
+    -- the same meal logged on both devices: same food and carbs within 20 minutes
     m as (select * from m0 where not exists (select 1 from m0 p where p.t < m0.t
-      and p.t > m0.t - interval '20 minutes' and p.carbs = m0.carbs)),
+      and p.t > m0.t - interval '20 minutes' and p.carbs = m0.carbs and p.food = m0.food)),
     f as (select f.*, m.t mt, m.food, (select min(n.t) from m n where n.t > m.t) nt from glucos.forecast_checks f
       join m on f.issued_at between m.t and m.t + interval '2 hours'
       where not exists (select 1 from m n where n.t > m.t and n.t <= f.issued_at)),
