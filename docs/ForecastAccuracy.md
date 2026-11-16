@@ -1278,7 +1278,7 @@ is 45 mg/dL. So the estimate would have been hidden on every meal.
 
 **Why, and what would change it.** The forecast's carb effect is learnt as one figure per gram on a
 standard 3-hour curve (§1, §15), and it's drawn only as far as it beats "no change" (60 minutes
-after most meals). Peaks after Declan's meals came 50 minutes to over 2 hours after eating, so the
+after most meals). Peaks after these meals came about 2 to 3 hours after eating, so the
 forecast's line is usually cut off before it turns, and when it does turn early it's the curve
 timing showing, not the meal. A slower curve for slow meals lost on held-out meals (§15), and the
 food data has carbs only, so there's nothing yet to tell a juice from a burrito bowl. The carb
