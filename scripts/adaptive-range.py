@@ -30,6 +30,9 @@ LOW_CLIP, HIGH_CLIP = 39.5, 400.5
 # First versions that draw §40 (low-start upper) and §41 (high-start lower; apps only).
 LOW_START_FROM = {'r': (2, 17, 0), 'M': (1, 30, 0), 'i': (1, 30, 0)}
 HIGH_START_FROM = {'M': (1, 31, 0), 'i': (1, 31, 0)}
+# The first of those went out at 09:33 UTC on 16 Nov 2026. A record with no version from after
+# then could already carry them, so it's left out rather than guessed at.
+WIDENING_FROM = 1794821580
 
 
 def load(path):
@@ -119,7 +122,8 @@ def summ(rs, F):
 
 
 def main(path, grid=False):
-    clean = [r for r in load(path) if not r['log'] and r['shown']]
+    clean = [r for r in load(path) if not r['log'] and r['shown']
+             and not (r['ver'] == (0,) and r['t'] >= WIDENING_FROM)]
     for r in clean:
         as_drawn_today(r)
         r['ratio'] = ratio(r)
