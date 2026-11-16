@@ -485,9 +485,14 @@ struct DashboardView: View {
         select(.logbook)
     }
 
-    /// The Insights card a chip came from, for the Logbook's back button: "Lows", "Weekdays and weekends".
+    /// The Insights card a chip came from, for the Logbook's back button: "Lows", "Weekdays and
+    /// weekends", "Week in review".
     private static func cardTitle(_ chip: LogbookFilter) -> String {
-        chip.insightsCard == .weekdays ? WeekdayWeekendText.title : chip.title
+        switch chip.insightsCard {
+        case .weekdays: return WeekdayWeekendText.title
+        case .thisWeek: return WeekInReviewText.title
+        default: return chip.title
+        }
     }
 
     /// Back from that Logbook: cross-fade to Insights, scrolled to the card it came from.

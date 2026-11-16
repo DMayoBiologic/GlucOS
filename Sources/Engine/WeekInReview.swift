@@ -16,9 +16,14 @@ import Foundation
 //    Each part needs `minimumPartBuckets` buckets this week. Best is the part with the most time in
 //    range, hardest the one with the least; when they're within 5 points the day reads as steady.
 //
+// 5. Since round 41 the two weeks sit side by side, each its own button that opens the Logbook on
+//    that week (`LogbookLink.week`): the same 7 days the card counted, on an unlisted This week or
+//    Last week chip that keeps every entry and alert.
+//
 // Observational only, like Insights: it says how the week went and never suggests a change to
 // insulin or settings. Plain Foundation, so it's unit-tested. Worked out off the main thread once
-// per data change (see `WeekInReviewCache`), never per frame, and the card it feeds doesn't animate.
+// per data change (see `WeekInReviewCache`), never per frame; the card's figures roll once per
+// change and nothing loops.
 
 struct WeekInReview: Hashable {
     struct Week: Hashable {
@@ -54,6 +59,22 @@ struct WeekInReview: Hashable {
             let start = rawValue * 360
             return "\(DayPatternText.clock(start)) to \(DayPatternText.clock(start + 360))"
         }
+    }
+
+    /// This week or last week: one side of the card, and the Logbook chip it opens on.
+    enum Side: Int, CaseIterable, Identifiable, Hashable, Sendable {
+        case current, previous
+
+        var id: Int { rawValue }
+
+        /// "This week", "Last week": the tile's label and the Logbook chip's.
+        var title: String { self == .current ? "This week" : "Last week" }
+
+        /// The Logbook chip this side opens on.
+        var filter: LogbookFilter { self == .current ? .thisWeek : .lastWeek }
+
+        /// How many 7-day stretches before the newest reading this side ends: 0 or 1.
+        var weeksBack: Int { rawValue }
     }
 
     struct PartFigures: Hashable {
@@ -152,6 +173,19 @@ struct WeekInReview: Hashable {
                     days: min(weekDays, days))
     }
 
+    /// One side's figures; last week is nil until it has enough readings.
+    func week(_ side: Side) -> Week? { side == .current ? thisWeek : lastWeek }
+
+    /// The sides the card shows: this week alone until last week has enough readings.
+    var sides: [Side] { lastWeek == nil ? [.current] : Side.allCases }
+
+    /// The 7 days a side counted, ending at the newest reading or 7 days before it.
+    static func interval(_ side: Side, end: Date) -> DateInterval {
+        let week = Double(weekDays) * 86_400
+        let to = end.addingTimeInterval(-week * Double(side.weeksBack))
+        return DateInterval(start: to.addingTimeInterval(-week), end: to)
+    }
+
     // MARK: Comparison
 
     typealias Change = TodaySoFar.Change
@@ -201,19 +235,36 @@ enum WeekInReviewText {
         }
     }
 
-    static func lowsValue(_ n: Int) -> String { n == 0 ? "None" : "\(n)" }
+    /// "98%".
+    static func percent(_ v: Double) -> String { Format.percent(v) }
 
-    static func rangeCaption(_ w: WeekInReview) -> String? {
-        w.lastWeek.map { "Last week \(Format.percent($0.timeInRange))" }
+    /// A week's average with its unit: "6.6 mmol/L".
+    static func average(_ week: WeekInReview.Week, unit: GlucoseUnit) -> String {
+        unit.format(mgdl: week.meanMgdl, withUnit: true)
     }
 
-    static func meanCaption(_ w: WeekInReview, unit: GlucoseUnit) -> String? {
-        w.lastWeek.map { "Last week \(unit.format(mgdl: $0.meanMgdl))" }
+    /// A week's lows: "No lows", "1 low", "3 lows".
+    static func lows(_ n: Int) -> String {
+        n == 0 ? "No lows" : (n == 1 ? "1 low" : "\(n) lows")
     }
 
-    static func lowsCaption(_ w: WeekInReview) -> String? {
-        w.lastWeek.map { $0.lows == 0 ? "None last week" : "Last week \($0.lows)" }
+    /// "7 days", "1 day": how many of the week's days had enough readings.
+    static func days(_ n: Int) -> String { n == 1 ? "1 day" : "\(n) days" }
+
+    /// One side for VoiceOver: "This week, 7 days. 82 percent in range. Average 7.1 mmol/L. 2 lows."
+    static func spoken(_ side: WeekInReview.Side, _ w: WeekInReview, unit: GlucoseUnit) -> String? {
+        guard let week = w.week(side) else { return nil }
+        return [days(week.days), "\(spokenPercent(week.timeInRange)) in range",
+                "Average \(average(week, unit: unit))", lows(week.lows)]
+            .joined(separator: ". ") + "."
     }
+
+    static func logbookHint(_ side: WeekInReview.Side) -> String {
+        side == .current ? "Opens the Logbook on what was logged over the last 7 days"
+            : "Opens the Logbook on what was logged in the 7 days before that"
+    }
+
+    private static func spokenPercent(_ v: Double) -> String { "\(Int((v * 100).rounded())) percent" }
 
     /// "mostly above range" or "mostly below range", for the hardest part of the day.
     static func lean(_ p: WeekInReview.PartFigures) -> String {
@@ -234,39 +285,22 @@ enum WeekInReviewText {
         ]
     }
 
+    /// `lines` as VoiceOver reads them, with each part's hours: "Hardest: evenings, 6 pm to
+    /// midnight, 0 percent in range, mostly above range."
+    static func spokenLines(_ w: WeekInReview) -> [String] {
+        guard !w.steadyAcrossDay, let b = w.best, let h = w.worst else { return lines(w) }
+        return [
+            "Best: \(b.part.name.lowercased()), \(b.part.hours), \(spokenPercent(b.timeInRange)) in range.",
+            "Hardest: \(h.part.name.lowercased()), \(h.part.hours), \(spokenPercent(h.timeInRange)) in range, \(lean(h)).",
+        ]
+    }
+
     /// The line under the figures: what this week is compared with, or why it isn't yet.
     static func footnote(_ w: WeekInReview) -> String {
         if w.lastWeek != nil {
             return "The last 7 days against the 7 before them. Observations, not advice."
         }
         return "Last week joins in once GlucOS has readings on \(WeekInReview.minimumDays) of its \(WeekInReview.weekDays) days."
-    }
-
-    /// The whole card for VoiceOver, in a few sentences.
-    static func spoken(_ w: WeekInReview, unit: GlucoseUnit) -> String {
-        var parts = ["Week in review, the last 7 days", String(headline(w).dropLast())]
-        let percent = { (v: Double) in "\(Int((v * 100).rounded())) percent" }
-        let t = w.thisWeek
-        if let l = w.lastWeek {
-            parts.append("\(percent(t.timeInRange)) in range, last week \(percent(l.timeInRange))")
-            parts.append("Average \(unit.format(mgdl: t.meanMgdl)) \(unit.label), last week \(unit.format(mgdl: l.meanMgdl))")
-        } else {
-            parts.append("\(percent(t.timeInRange)) in range")
-            parts.append("Average \(unit.format(mgdl: t.meanMgdl)) \(unit.label)")
-        }
-        var lowLine = t.lows == 0 ? "No lows" : (t.lows == 1 ? "1 low" : "\(t.lows) lows")
-        if let l = w.lastWeek {
-            lowLine += l.lows == 0 ? ", none last week" : (l.lows == 1 ? ", 1 last week" : ", \(l.lows) last week")
-        }
-        parts.append(lowLine)
-        if !w.steadyAcrossDay, let b = w.best, let h = w.worst {
-            parts.append("Best \(b.part.name.lowercased()), \(b.part.hours), \(percent(b.timeInRange)) in range")
-            parts.append("Hardest \(h.part.name.lowercased()), \(h.part.hours), \(percent(h.timeInRange)) in range, \(lean(h))")
-        } else if w.parts.count >= 2 {
-            parts.append("About the same at every time of day")
-        }
-        if w.lastWeek == nil { parts.append(String(footnote(w).dropLast())) }
-        return parts.joined(separator: ". ") + "."
     }
 }
 
