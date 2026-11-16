@@ -82,6 +82,30 @@ tested in DayInRangeTests).
 Mac: the bar only fills for days inside the readings the dashboard has loaded for the toolbar's
 period, like the Glucose column.
 
+## Day charts
+
+Round 37 lets a day's bar open into that day's chart (`DayChart`, Engine, tested in
+DayChartTests; drawn by `DayMiniChart`).
+
+- **Where.** On iPhone, tap a day header that has a bar: the bar grows in place into a small chart
+  of the day, midnight to midnight, on its target band, with doses, meals and wake-ups marked
+  along the bottom. "Lowest 3.9 at 4:10 am · Highest 12.1 at 1:30 pm" takes the bar's place under
+  it, beside "78% in range". Tap again and the chart shrinks back into the bar. One day is open at
+  a time: opening another closes the first, so the pinned headers never stack two charts. On the
+  Mac, clicking a day in the Day column shows the same chart in a popover.
+- **What it draws.** Readings averaged into 5-minute buckets, as for the bar, so a day plots 288
+  points at most. The line breaks where readings stop for more than 20 minutes. Today's trace
+  stops at now, on a full day's axis. Markers come from the whole day's entries, whatever the
+  search or chip leaves showing. On the Mac, the trace covers the toolbar's period, like the bars.
+- **Motion.** The bar and the chart share one frame (`matchedGeometryEffect`), so the chart grows
+  out of the bar with the emphasized spring and shrinks back into it. Under Reduce Motion the two
+  cross-fade in place. The chart itself never moves once it is there. Nothing loops.
+- **VoiceOver.** The header is still one heading, now also a button ("Shows the day's chart").
+  Opened, it reads "Tuesday 12 November, chart. 78% in range, 4% below. Lowest 3.9 mmol/L at
+  4:10 am, highest 12.1 mmol/L at 1:30 pm. Target 3.9 to 10.0. 3 entries logged."
+  (`DayChartText.spoken`); the chart itself is hidden.
+- **Cost.** Only the open day is worked out, once per day or readings change (`DayChartCache`).
+
 ## From the Lows and Highs cards
 
 Round 34 joined the Insights Lows card to the Logbook, on iPhone and Mac (`LogbookLink`, Engine,

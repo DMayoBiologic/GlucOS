@@ -49,6 +49,8 @@ struct LogbookSection: View {
     @State private var dayRanges = DayInRangeCache()
     /// Day bars that have drawn in, so each plays once.
     @State private var drawnBars = DrawnOnce()
+    /// The day whose chart is showing in a popover from its Day cell (`DayMiniChart`).
+    @State private var openDay: Date?
     @Environment(\.dashboardPadding) private var padding
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -407,9 +409,12 @@ struct LogbookSection: View {
 
     /// "Tue 12 Nov ▬▬▬ 78%": the day, its time in range as a thin bar (`DayRangeBar`, drawn in
     /// once when the row first shows) and the figure. Days without enough readings show the name.
+    /// Clicking a day with a bar shows that day's chart in a popover (`DayMiniChart`), the iPhone's
+    /// opened day header in Mac form.
+    @ViewBuilder
     private func dayCell(_ start: Date, range: DayInRange?, now: Date) -> some View {
         let day = ClockLabel.day(of: start, now: now)
-        return HStack(spacing: DS.Space.sm) {
+        let content = HStack(spacing: DS.Space.sm) {
             Text(ClockLabel.dayTitle(day))
                 .fontWeight(.semibold)
                 .lineLimit(1)
@@ -424,9 +429,50 @@ struct LogbookSection: View {
                     .dsAnimation(.standard, value: range.inRange)
             }
         }
-        .help(range.map { "\(DayInRangeText.percent($0)) of the day in range" } ?? "Not enough readings for this day's time in range")
+        if range != nil {
+            Button { openDay = start } label: { content.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .help("Show this day's chart")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(DayInRangeText.spoken(day, range))
+                .accessibilityHint("Shows the day's chart")
+                .popover(isPresented: Binding(get: { openDay == start },
+                                              set: { if !$0, openDay == start { openDay = nil } }),
+                         arrowEdge: .trailing) {
+                    dayChartPopover(start, range: range, day: day)
+                }
+        } else {
+            content
+                .help("Not enough readings for this day's time in range")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(DayInRangeText.spoken(day, range))
+        }
+    }
+
+    /// The day's trace on its target band with what was logged, then its lowest and highest. Like
+    /// the day bars, the trace only covers the toolbar's period (`data.readings`).
+    private func dayChartPopover(_ start: Date, range: DayInRange?, day: ClockLabel.Day) -> some View {
+        let segments = DayChart.segments(data.readings, from: start, to: DayChart.end(of: start))
+        let markers = ChartLogMarker.day(logbook.entries, start: start)
+        return VStack(alignment: .leading, spacing: DS.Space.sm) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(DayInRangeText.spokenDay(day)).dsFont(.headline)
+                Spacer(minLength: DS.Space.md)
+                if let range {
+                    Text("\(DayInRangeText.percent(range)) in range")
+                        .dsFont(.caption).monospacedDigit().foregroundStyle(.secondary)
+                }
+            }
+            DayMiniChart(start: start, segments: segments, markers: markers, unit: data.unit,
+                         lowMgdl: data.lowMgdl, highMgdl: data.highMgdl, height: 140)
+            Text(DayChartText.caption(segments, unit: data.unit) ?? "No readings")
+                .dsFont(.caption).monospacedDigit().foregroundStyle(.secondary)
+        }
+        .padding(DS.Space.lg)
+        .frame(width: 380)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(DayInRangeText.spoken(day, range))
+        .accessibilityLabel(DayChartText.spoken(day: day, figures: range, segments: segments, unit: data.unit,
+                                                low: data.lowMgdl, high: data.highMgdl, logged: markers.count))
     }
 
     @ViewBuilder

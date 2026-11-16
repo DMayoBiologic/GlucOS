@@ -155,6 +155,7 @@ targets:
       - path: Sources/App/Logbook/AlertLogStyle.swift
       - path: Sources/App/Logbook/DayRangeBar.swift
       - path: Sources/App/Logbook/ChartLogMarkers.swift
+      - path: Sources/App/Logbook/DayMiniChart.swift
       - path: Sources/App/Outlook/OutlookStore.swift
       - path: Sources/App/Outlook/ForecastLedgerStore.swift
       - path: Sources/App/Outlook/ForecastScorecardView.swift
