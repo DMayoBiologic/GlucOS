@@ -97,6 +97,8 @@ struct LowsCardView: View {
                 }
             }
             .monospacedDigit()
+            InsightsSparklineView(series: InsightsSparkline.lows(s), tint: GlucoseRange.low.tint,
+                                  label: LowsSummaryText.sparklineLabel)
             if s.count > 0 {
                 LowsTimeOfDayBars(counts: s.byPart, cluster: s.cluster)
                 if let line = LowsSummaryText.clusterLine(s) {
@@ -114,7 +116,9 @@ struct LowsCardView: View {
         // One stop for VoiceOver: the period's lows in a few sentences.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(LowsSummaryText.title)
-        .accessibilityValue(LowsSummaryText.spoken(s, lowLine: lowLine))
+        .accessibilityValue([LowsSummaryText.spoken(s, lowLine: lowLine),
+                             InsightsSparkline.lows(s).spokenLine(label: LowsSummaryText.sparklineLabel)]
+            .compactMap { $0 }.joined(separator: " "))
         // The figures open the Logbook too, not just the row under them. The period picker stays
         // its own control.
         .contentShape(Rectangle())

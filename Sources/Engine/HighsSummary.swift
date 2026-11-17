@@ -40,6 +40,10 @@ struct HighsSummary: Hashable {
     let timeAbove: Double
     /// Days (24-hour stretches) of the period with readings in half their 15-minute slots.
     let days: Int
+    /// The share above range on each calendar day of the period, oldest first, ending on the
+    /// newest reading's day; nil for a day with under two hours of readings. Drawn as the card's sparkline
+    /// (`InsightsSparkline.highs`).
+    var daily: [Double?] = []
 
     var count: Int { highs.count }
 
@@ -53,7 +57,8 @@ struct HighsSummary: Hashable {
 
     // MARK: Compute
 
-    static func compute(readings: [GlucoseReading], high: Double, period: Period) -> HighsSummary? {
+    static func compute(readings: [GlucoseReading], high: Double, period: Period,
+                        calendar: Calendar = .autoupdatingCurrent) -> HighsSummary? {
         guard let newest = readings.last(where: { $0.mgdl > 0 }) else { return nil }
         let end = newest.timestamp
         let start = end.addingTimeInterval(-Double(period.days) * 86_400)
@@ -86,8 +91,19 @@ struct HighsSummary: Hashable {
             let peak = buckets.filter { $0.0 >= span.start && $0.0 < span.end }.map(\.1).max() ?? high
             return High(start: span.start, end: span.end, peakMgdl: peak)
         }
+        var dayAbove = [Int](repeating: 0, count: period.days)
+        var dayTotal = [Int](repeating: 0, count: period.days)
+        for (t, v) in buckets {
+            guard let i = InsightsSparkline.dayIndex(t, end: end, days: period.days, calendar: calendar) else { continue }
+            dayTotal[i] += 1
+            if v > high { dayAbove[i] += 1 }
+        }
+        let daily: [Double?] = zip(dayAbove, dayTotal).map { a, n in
+            // Two hours of 5-minute buckets, as a day needs on the Day by day card.
+            n < 24 ? nil : Double(a) / Double(n)
+        }
         return HighsSummary(period: period, end: end, highs: highs, timeAbove: above,
-                            days: min(days, period.days))
+                            days: min(days, period.days), daily: daily)
     }
 }
 
@@ -103,6 +119,9 @@ enum HighsSummaryText {
     }
 
     static let logbookHint = "Opens the Logbook on Highs over the same days"
+
+    /// What the card's sparkline shows (`InsightsSparkline.highs`).
+    static let sparklineLabel = "Time above each day"
 
     static func emptyLine(_ period: HighsSummary.Period) -> String {
         "Highs over \(period.spoken) show here once GlucOS has a day of readings."

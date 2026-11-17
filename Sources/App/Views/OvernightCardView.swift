@@ -96,6 +96,8 @@ struct OvernightCardView: View {
                 }
             }
             .monospacedDigit()
+            InsightsSparklineView(series: InsightsSparkline.overnight(s), tint: GlucoseRange.inRange.tint,
+                                  label: OvernightSummaryText.sparklineLabel)
             if let line = OvernightSummaryText.movementLine(s, unit: unit) {
                 Text(line)
                     .dsFont(.callout)
@@ -110,7 +112,9 @@ struct OvernightCardView: View {
         // One stop for VoiceOver: the period's nights in a few sentences.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(OvernightSummaryText.title)
-        .accessibilityValue(OvernightSummaryText.spoken(s, lowLine: lowLine, unit: unit))
+        .accessibilityValue([OvernightSummaryText.spoken(s, lowLine: lowLine, unit: unit),
+                             InsightsSparkline.overnight(s).spokenLine(label: OvernightSummaryText.sparklineLabel)]
+            .compactMap { $0 }.joined(separator: " "))
         // The figures open the Logbook too, not just the row under them. The period picker stays
         // its own control.
         .contentShape(Rectangle())

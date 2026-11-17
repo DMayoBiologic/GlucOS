@@ -144,6 +144,8 @@ struct OvernightSummary: Hashable {
 enum OvernightSummaryText {
     static let title = "Overnight"
     static let hours = "Midnight to 6 am"
+    /// What the card's sparkline shows (`InsightsSparkline.overnight`).
+    static let sparklineLabel = "In range each night"
 
     /// The row at the foot of the card that opens the Logbook (`LogbookLink.overnight`).
     static let logbookLine = "See these nights in the Logbook"

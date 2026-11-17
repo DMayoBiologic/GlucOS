@@ -90,6 +90,8 @@ struct HighsCardView: View {
                 }
             }
             .monospacedDigit()
+            InsightsSparklineView(series: InsightsSparkline.highs(s), tint: GlucoseRange.high.tint,
+                                  label: HighsSummaryText.sparklineLabel)
             if let line = HighsSummaryText.longestLine(s, peak: peak) {
                 Text(line)
                     .dsFont(.callout)
@@ -104,7 +106,9 @@ struct HighsCardView: View {
         // One stop for VoiceOver: the period's highs in a few sentences.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(HighsSummaryText.title)
-        .accessibilityValue(HighsSummaryText.spoken(s, highLine: highLine, peak: peak))
+        .accessibilityValue([HighsSummaryText.spoken(s, highLine: highLine, peak: peak),
+                             InsightsSparkline.highs(s).spokenLine(label: HighsSummaryText.sparklineLabel)]
+            .compactMap { $0 }.joined(separator: " "))
         // The figures open the Logbook too, not just the row under them. The period picker stays
         // its own control.
         .contentShape(Rectangle())
