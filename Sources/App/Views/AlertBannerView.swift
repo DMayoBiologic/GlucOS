@@ -199,8 +199,11 @@ struct AlertBannerView: View {
         let increased = contrast == .increased
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
+                // Wiggles once as the alert arrives, the way it's heading (round 48). Still under
+                // Reduce Motion.
                 Image(systemName: banner.isLow ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
                     .foregroundStyle(tone.color)
+                    .symbolWiggleOnAppear(banner.isLow ? .down : .up)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: DS.Space.xxs) {
                     Text(banner.title)
