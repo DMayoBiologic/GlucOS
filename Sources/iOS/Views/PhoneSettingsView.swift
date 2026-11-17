@@ -144,6 +144,8 @@ struct PhoneSettingsView: View {
     @State private var notificationsAllowed: Bool?
     @State private var relaySecret = ""
     @State private var confirmsSignOut = false
+    @StateObject private var search = SettingsSearchModel()
+    @State private var searching = false
     /// Opens scrolled to this section (a banner's Set Up button lands on the relay, not the top).
     var scrollTo: Jump?
 
@@ -151,7 +153,7 @@ struct PhoneSettingsView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            form
+            form(proxy)
                 .task {
                     guard let scrollTo else { return }
                     // After the sheet has finished arriving, or the scroll is lost.
@@ -166,26 +168,21 @@ struct PhoneSettingsView: View {
         }
     }
 
-    private var form: some View {
+    private func form(_ proxy: ScrollViewProxy) -> some View {
         Form {
-            accountSection
-            displaySection
-            loggingSection
-            if !logbook.presets.isEmpty { presetsSection }
-            syncSection
-            alertsSection
-            recapSection
-            lockScreenSection
-            sharingSection
-            FollowingSettingsSection()
-            relaySection
-            DiagnosticsSettingsSection()
-            Section {
-                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
-                Text("Personal use. Not a medical device. Confirm readings and alerts with your sensor app before acting.")
-                    .dsFont(.caption)
-                    .foregroundStyle(.secondary)
+            if search.isSearching {
+                searchResults(proxy)
+            } else {
+                allSections
             }
+        }
+        .environment(\.settingsSearch, search)
+        // Search (docs/SettingsSearch.md): titles and the words people use for them.
+        .searchable(text: $search.query, isPresented: $searching,
+                    placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search Settings")
+        // Return goes to the best match.
+        .onSubmit(of: .search) {
+            if let first = search.results(in: SettingsCatalog.phone).first { open(first, proxy: proxy) }
         }
         // Rows a toggle reveals or hides slide in and out with the toggle, instead of popping.
         .dsAnimation(.standard, value: settings.alertsEnabled)
@@ -205,15 +202,79 @@ struct PhoneSettingsView: View {
         }
     }
 
+    @ViewBuilder private var allSections: some View {
+        Group {
+            accountSection
+            displaySection
+            loggingSection
+            if !logbook.presets.isEmpty { presetsSection }
+            syncSection
+            alertsSection
+            recapSection
+            lockScreenSection
+            sharingSection
+            FollowingSettingsSection()
+            relaySection
+            DiagnosticsSettingsSection()
+            Section {
+                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
+                    .settingsAnchor(.version)
+                Text("Personal use. Not a medical device. Confirm readings and alerts with your sensor app before acting.")
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// What a search found, or a plain "nothing matches".
+    @ViewBuilder private func searchResults(_ proxy: ScrollViewProxy) -> some View {
+        let found = search.results(in: SettingsCatalog.phone)
+        Section {
+            if found.isEmpty {
+                SettingsSearchEmptyView(query: search.query)
+            } else {
+                ForEach(found) { item in
+                    SettingsSearchResultRow(item: item, query: search.query) { open(item, proxy: proxy) }
+                }
+            }
+        } header: {
+            if !found.isEmpty { Text(SettingsSearch.countLabel(found.count)) }
+        }
+    }
+
+    /// Close the search, then scroll to the row (or the switch that reveals it) and light it.
+    private func open(_ item: SettingsItem, proxy: ScrollViewProxy) {
+        let target = SettingsSearch.target(for: item, in: SettingsCatalog.phone, isShown: isShown)
+        Haptics.play(.choice)
+        searching = false
+        search.query = ""
+        search.jump(to: target, proxy: proxy, reduceMotion: reduceMotion)
+    }
+
+    /// Rows that only appear once something else is turned on.
+    private func isShown(_ anchor: SettingsAnchor) -> Bool {
+        switch anchor {
+        case .insulins, .bolus: return settings.therapy.logsInsulin
+        case .presets: return !logbook.presets.isEmpty
+        case .highAlert, .rapidAlert, .staleAlert, .sensorEndingAlert, .predictedLows, .predictedHighs, .alertRepeat, .testAlert:
+            return settings.alertsEnabled
+        case .warnAhead:
+            return settings.alertsEnabled && (settings.alertOnPredictedLow || settings.alertOnPredictedHigh)
+        default: return true
+        }
+    }
+
     // MARK: Sections
 
     private var accountSection: some View {
         Section("LibreLinkUp") {
             LabeledContent("Account", value: settings.email)
+                .settingsAnchor(.account)
             LabeledContent("Region", value: LibreRegion.all.first { $0.id == settings.region }?.name ?? settings.region)
             LabeledContent("Status", value: store.statusLine)
             Button("Sign Out…", role: .destructive) { confirmsSignOut = true }
             NavigationLink("Read sensor") { SensorScanView() }
+                .settingsAnchor(.readSensor)
         }
     }
 
@@ -222,10 +283,14 @@ struct PhoneSettingsView: View {
             Picker("Units", selection: $settings.unit) {
                 ForEach(GlucoseUnit.allCases) { Text($0.label).tag($0) }
             }
+            .settingsAnchor(.units)
             TargetRangeEditor(settings: settings, readingMgdl: freshMgdl, previewReadings: store.archive)
                 .padding(.vertical, DS.Space.xs)
+                .settingsAnchor(.targetRange)
             Toggle("Show forecast on the chart", isOn: $settings.showForecast)
+                .settingsAnchor(.showForecast)
             Toggle("Show yesterday on the chart", isOn: $settings.showYesterdayLine)
+                .settingsAnchor(.showYesterday)
         } header: {
             Text("Display")
         } footer: {
@@ -238,6 +303,7 @@ struct PhoneSettingsView: View {
             Picker("Insulin", selection: $settings.therapy) {
                 ForEach(TherapyType.allCases) { Text($0.title).tag($0) }
             }
+            .settingsAnchor(.therapy)
             if settings.therapy.logsInsulin {
                 // The two modifiers below carry into the screen: brand names, not words to correct.
                 NavigationLink {
@@ -248,11 +314,13 @@ struct PhoneSettingsView: View {
                 }
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
+                    .settingsAnchor(.insulins)
                 NavigationLink {
                     PhoneBolusSettingsScreen()
                 } label: {
                     BolusSettingsSummary(settings: logbook.bolusSettings, unit: settings.unit)
                 }
+                .settingsAnchor(.bolus)
             }
         } header: {
             Text("Logging")
@@ -280,6 +348,7 @@ struct PhoneSettingsView: View {
         } header: {
             HStack {
                 Text("Presets")
+                    .settingsAnchor(.presets)
                 Spacer()
                 EditButton().textCase(nil)
             }
@@ -291,6 +360,7 @@ struct PhoneSettingsView: View {
     private var syncSection: some View {
         Section {
             Toggle("Sync logbook", isOn: $logbookSync.enabled)
+                .settingsAnchor(.syncLogbook)
             if logbookSync.enabled {
                 LabeledContent("Status") {
                     Text(logbookSync.summary)
@@ -314,6 +384,7 @@ struct PhoneSettingsView: View {
     private var alertsSection: some View {
         Section {
             Toggle("Glucose alerts", isOn: $settings.alertsEnabled)
+                .settingsAnchor(.alerts)
                 .onChange(of: settings.alertsEnabled) { _, on in
                     // Turning alerts on is the moment to ask, if iOS hasn't asked yet.
                     guard on else { return }
@@ -329,23 +400,32 @@ struct PhoneSettingsView: View {
                         .foregroundStyle(Tone.critical.textColor)
                 }
                 Toggle("High (above target)", isOn: $settings.alertOnHigh)
+                    .settingsAnchor(.highAlert)
                 Toggle("Rising or falling quickly", isOn: $settings.alertOnRapidChange)
+                    .settingsAnchor(.rapidAlert)
                 Toggle("No recent data", isOn: $settings.alertOnStale)
+                    .settingsAnchor(.staleAlert)
                 Toggle("Sensor ending", isOn: $settings.alertOnSensorExpiry)
+                    .settingsAnchor(.sensorEndingAlert)
                 Toggle("Predicted lows", isOn: $settings.alertOnPredictedLow)
+                    .settingsAnchor(.predictedLows)
                 Toggle("Predicted highs", isOn: $settings.alertOnPredictedHigh)
+                    .settingsAnchor(.predictedHighs)
                 if settings.alertOnPredictedLow || settings.alertOnPredictedHigh {
                     Picker("Warn me ahead by", selection: $settings.predictiveAlertMinutes) {
                         ForEach([10, 15, 20, 30], id: \.self) { Text("\($0) min").tag($0) }
                     }
+                    .settingsAnchor(.warnAhead)
                 }
                 Picker("Repeat no more than every", selection: $settings.alertCooldownMinutes) {
                     ForEach([5, 10, 15, 30, 60], id: \.self) { Text("\($0) min").tag($0) }
                 }
+                .settingsAnchor(.alertRepeat)
                 Button("Send Test Alert") {
                     store.alerts.requestAuthorization()
                     store.alerts.sendTest()
                 }
+                .settingsAnchor(.testAlert)
             }
         } header: {
             Text("Alerts")
@@ -362,6 +442,7 @@ struct PhoneSettingsView: View {
                 .onChange(of: settings.eveningRecapEnabled) { _, on in
                     if on { store.alerts.requestAuthorization() }
                 }
+                .settingsAnchor(.eveningRecap)
             if settings.eveningRecapEnabled {
                 DatePicker("Time", selection: settings.eveningRecapTime, displayedComponents: .hourAndMinute)
             }
@@ -375,6 +456,7 @@ struct PhoneSettingsView: View {
     private var lockScreenSection: some View {
         Section {
             Toggle("Live Activity", isOn: $services.liveActivityEnabled)
+                .settingsAnchor(.liveActivity)
             if services.liveActivityEnabled {
                 LabeledContent("Status", value: liveActivityStatus)
                 if !services.liveActivity.systemEnabled {
@@ -397,6 +479,7 @@ struct PhoneSettingsView: View {
             } label: {
                 Label("Share Live Readings", systemImage: "person.2.wave.2")
             }
+            .settingsAnchor(.shareLive)
         } header: {
             Text("Sharing")
         } footer: {
@@ -423,6 +506,7 @@ struct PhoneSettingsView: View {
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .settingsAnchor(.relay)
             SecureField("Relay secret", text: $relaySecret)
                 .onSubmit { relay.secret = relaySecret }
                 .onChange(of: relaySecret) { _, new in relay.secret = new }
@@ -457,6 +541,7 @@ struct DiagnosticsSettingsSection: View {
     var body: some View {
         Section {
             DiagnosticsToggle()
+                .settingsAnchor(.diagnostics)
         } header: {
             Text("Diagnostics")
         } footer: {

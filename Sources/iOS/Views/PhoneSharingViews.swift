@@ -755,6 +755,7 @@ struct FollowingSettingsSection: View {
                 }
             }
             Button("Follow Someone…", systemImage: "plus") { showsAdd = true }
+                .settingsAnchor(.following)
             if !follows.follows.isEmpty {
                 LabeledContent("Your name") {
                     TextField("For check-ins", text: $follows.myName)
