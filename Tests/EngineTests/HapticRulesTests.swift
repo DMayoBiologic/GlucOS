@@ -17,6 +17,10 @@ final class HapticRulesTests: XCTestCase {
         XCTAssertEqual(HapticEvent.newData.feel, .lightImpact(intensity: 0.8))
         XCTAssertEqual(HapticEvent.scrubRangeEdge.feel, .lightImpact(intensity: 0.9))
         XCTAssertEqual(HapticEvent.scrubLogged.feel, .lightImpact(intensity: 0.6))
+        // Snapping onto a point is lighter still, as a busy day can snap often.
+        XCTAssertEqual(HapticEvent.scrubSnapped.feel, .lightImpact(intensity: 0.5))
+        XCTAssertTrue(HapticEvent.scrubSnapped.isTick)
+        XCTAssertEqual(HapticEvent.scrubSnapped.priority, HapticEvent.scrubLogged.priority)
         XCTAssertEqual(HapticEvent.rangeCrossed.feel, .lightImpact(intensity: 0.7))
         // Saving from the log sheet is a light tap under the checkmark, not a success buzz.
         XCTAssertEqual(HapticEvent.logSaved.feel, .lightImpact(intensity: 0.7))

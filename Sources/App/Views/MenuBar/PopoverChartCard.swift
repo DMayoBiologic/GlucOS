@@ -67,7 +67,7 @@ struct PopoverChartCard: View {
                              hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
                              forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true, ripplesNewReading: true,
                              yesterday: yesterday, peeksMarkers: true,
-                             openInLogbook: openInLogbook, closesCallout: closeCallout)
+                             openInLogbook: openInLogbook, closesCallout: closeCallout, snapsScrub: true)
             }
                 .onPreferenceChange(MarkerCalloutOpenKey.self) { calloutOpen = $0 }
                 .frame(height: 136)
