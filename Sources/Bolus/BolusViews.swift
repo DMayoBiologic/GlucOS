@@ -176,7 +176,15 @@ struct BolusSuggestionCard: View {
         if usesFingerPrick {
             HStack {
                 TextField("Glucose", text: $fingerPrickText, prompt: Text(settings.unit == .mmol ? "e.g. 7.4" : "e.g. 133"))
-                    .textFieldStyle(.roundedBorder)
+                    .rollingDigits(fingerPrickText, style: .primary, alignment: .leading)
+                    // Plain, with its own rounded box, so the rolling figure sits exactly over the
+                    // field's text (a rounded-border field insets it by a platform-set amount).
+                    .textFieldStyle(.plain)
+                    .monospacedDigit()
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.primary.opacity(0.15)))
                     .frame(maxWidth: 120)
                     #if os(iOS)
                     .keyboardType(.decimalPad)

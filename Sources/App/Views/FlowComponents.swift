@@ -145,6 +145,7 @@ struct NumberStepperField: View {
         HStack(spacing: 6) {
             stepButton("minus", delta: -step)
             TextField(title, text: $text, prompt: Text("0"))
+                .rollingDigits(text, style: .primary)
                 .labelsHidden()
                 .textFieldStyle(.plain)
                 .dsFont(.metricValueLarge)
@@ -172,6 +173,59 @@ struct NumberStepperField: View {
         }
         .buttonStyle(ChipButtonStyle())
         .accessibilityLabel(delta > 0 ? "Increase \(title)" : "Decrease \(title)")
+    }
+}
+
+// MARK: - Rolling digits
+
+extension View {
+    /// Rolls a typed amount's digits into place as it changes (`TypedAmountRoll`). Apply it
+    /// straight to the `TextField`, before its font and colour, so the rolling figure drawn over
+    /// the field picks up the same font. The field's own glyphs go clear while it holds text, so
+    /// its caret, selection and editing are untouched; when empty its prompt shows as before.
+    /// The figure on top is hidden from VoiceOver, which reads the field's final value.
+    func rollingDigits(_ text: String, style: some ShapeStyle,
+                       alignment: Alignment = .center) -> some View {
+        modifier(RollingDigits(text: text, style: AnyShapeStyle(style), alignment: alignment))
+    }
+}
+
+private struct RollingDigits: ViewModifier {
+    let text: String
+    let style: AnyShapeStyle
+    let alignment: Alignment
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The figure on screen; nil until the text first changes.
+    @State private var shown: String?
+    @State private var countsDown = false
+
+    func body(content: Content) -> some View {
+        let figure = shown ?? text
+        content
+            .foregroundStyle(text.isEmpty ? style : AnyShapeStyle(Color.clear))
+            .overlay(alignment: alignment) {
+                Text(figure)
+                    .foregroundStyle(style)
+                    .lineLimit(1)
+                    .contentTransition(reduceMotion ? .identity : .numericText(countsDown: countsDown))
+                    .frame(maxWidth: .infinity, alignment: alignment)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .onChange(of: text) { old, new in
+                switch TypedAmountRoll.between(old, new, reduceMotion: reduceMotion) {
+                case .none:
+                    break
+                case .roll(let down):
+                    countsDown = down
+                    withAnimation(DSMotion.arrival.animation) { shown = new }
+                case .instant:
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) { shown = new }
+                }
+            }
     }
 }
 
