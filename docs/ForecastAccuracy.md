@@ -4219,3 +4219,64 @@ the three-week mark (about 3 Dec, with 45- and 60-minute points from at least 10
 ship a fixed per-horizon factor then only if it wins the interval score held out on most days at
 30 and 60 minutes without widening more than the misses it saves. To rerun: export with the SQL in
 `scripts/adaptive-range.py`, then `python3 -I scripts/range-calibration.py points.txt`.
+
+## 61. Do the trend tuner's learned settings still win? (17 Nov 2026)
+
+The question: the tuner (§2, #46 and #63) learned to carry only part of the trend forward. Is that
+still better than the standard settings on the latest week at 30 and 60 minutes, and if it has
+drifted, would learning from a shorter window do better? **It hasn't drifted: the learned settings
+still beat standard on the whole week and held out, and shorter learning windows are no better.
+Nothing shipped; no app or relay code changed, so the relay stays 2.17.0.**
+
+What's learned now: the relay's last relearn (06:08 UTC 17 Nov, 571 origins) kept the standard
+timing (30-minute fade, 20-minute window) with gain 0.45; the Mac's last fit was also 0.45, the
+iPhone's 0.7 (§45). Replay of the relay's trend forecast every 5 minutes over 8,237 live readings,
+10 Nov 14:45 to 17 Nov 07:29 UTC; clean means nothing logged from 3 hours before the forecast to
+the point checked.
+
+| Clean, mg/dL | 15 min (1,015) | 30 min (977) | 60 min (902) |
+|---|---|---|---|
+| Standard (gain 1) | 16.9 | 23.9 | 36.5 |
+| Gain 0.45 (relay, Mac) | 15.4 | **22.2** (−7.1%) | **34.8** (−4.7%) |
+| Gain 0.7 (iPhone) | 15.8 | 22.6 (−5.4%) | 35.4 (−3.0%) |
+| No change | 15.6 | 22.7 | 34.9 |
+
+On all points (meals included) gain 0.45 is also better: 25.3 against 26.5 at 30, 41.3 against
+42.8 at 60.
+
+**Day by day (Perth, clean, standard / 0.45 / 0.7).** Standard was best only on 12 Nov (30 min
+11.9/12.4/11.9, 60 min 18.8/19.7/19.1) and level on 13–14 Nov at 60. The last three days favour
+the learned gain most: 15 Nov 35.8/31.1/32.9 at 30 and 52.5/46.7/49.2 at 60, 17 Nov 26.9/22.9/24.4
+and 37.1/33.4/34.9. So the drift, if any, is toward carrying less trend, which is the direction
+already learned.
+
+**Held out, and shorter windows.** The relay's tuner rerun every 3 hours from the last W days, each
+3-hour block scored with what was learned before it (12 Nov 14:45 on, clean):
+
+| Learning window | 15 min | 30 min | 60 min | Gains it picked |
+|---|---|---|---|---|
+| All history (14 d, what ships) | 17.44 | 25.57 | 39.92 | 0.35–0.5 |
+| 7 days | same (history is under 7 days) | | | |
+| 5 days | 17.44 (0.0%) | 25.58 (0.0%) | 39.95 (+0.1%) | 0.35–0.5 |
+| 3 days | 17.53 (+0.5%) | 25.79 (+0.9%) | 40.26 (+0.8%) | 0.35–0.7 |
+| 2 days | 17.51 (+0.4%) | 25.63 (+0.2%) | 40.19 (+0.7%) | 0.3–0.7 |
+| Standard, same points | 19.19 | 27.59 | 42.40 | |
+
+Held out the learned gain is 7.3% better than standard at 30 minutes and 5.8% at 60. A 2- or
+3-day window just makes the gain wander (0.3 to 0.7 from one relearn to the next) and is slightly
+worse; 2 and 3 days each beat full history on 1 of 7 days. None clears the 3% bar, so the window
+stays as it is.
+
+**Notes.** At 60 minutes the trend at 0.45 is level with no change (34.8 against 34.9); that is
+why the trend forecast is drawn only 30 minutes out (`GlucoseForecaster.trendHorizon`). The
+iPhone's 0.7 costs about 1.8% at 30 minutes against 0.45 on this replay, under the 3% bar, and it
+is fitted on the iPhone's own history, so it's left alone.
+
+**Dosing.** Not touched: the trend feeds only the drawn forecast and predicted alerts, never insulin
+on board, the effect learner or the bolus figure.
+
+**Next.** Recheck at three weeks (about 1 Dec), when a 7-day window is shorter than the history and
+can be told apart from 14 days. Ship a window change only if it beats full history by 3% held out
+at 30 and 60 minutes. To rerun: export live readings (`glucos.readings where trend > 0`) and meal
+and dose times from `glucos.logbook` as for §45, then
+`node --experimental-strip-types scripts/tuner-drift.ts DIR`.
