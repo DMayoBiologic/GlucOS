@@ -4195,3 +4195,27 @@ again with `scripts/trend-reversal.py` then; only revisit if the 30 and 60-minut
 reversal are 10%+ above the rest. To rerun: `python3 scripts/trend-reversal.py DIR`, with
 readings.json and logs.json as for §45 (`glucos.readings where trend > 0`, meals and doses from
 `glucos.logbook`, `payload->>'timestamp'` in unix seconds).
+
+## 60. Does the drawn range hold its 8 in 10, rechecked (17 Nov 2026)
+
+The question: §53's retest of range coverage, on whatever has been scored since. **Nothing has
+changed, because there is almost nothing new: 18 clean drawn points scored since §53 was measured
+(02:30 UTC 17 Nov to 06:20 UTC), all at 15 or 30 minutes and none at 45 or 60. Nothing shipped;
+no app or relay code changed, so the relay stays 2.17.0.**
+
+| Horizon | New clean points | Inside | §53 (1,100 points) |
+|---|---|---|---|
+| 15 min | 16 (14 relay, 2 Mac) | 13 (81%) | 76%, relay already 80% |
+| 30 min | 2 (Mac) | 2 | 71% |
+| 45 / 60 min | 0 | – | 72% / 77% |
+
+Three more 15-minute iPhone points came in but weren't drawn, so they don't count. 16 points
+fit the relay holding 80% at 15 minutes and say nothing about the apps' shortfall at 30–60 minutes,
+which is where a fixed factor would have to win. Refitting §53's per-horizon factors on 1,118
+points instead of 1,100 can't move the held-out result, so it wasn't rerun.
+
+**Decision.** Same as §53: keep the drawn range and the "8 in 10" wording. Don't recheck before
+the three-week mark (about 3 Dec, with 45- and 60-minute points from at least 10 more days), and
+ship a fixed per-horizon factor then only if it wins the interval score held out on most days at
+30 and 60 minutes without widening more than the misses it saves. To rerun: export with the SQL in
+`scripts/adaptive-range.py`, then `python3 -I scripts/range-calibration.py points.txt`.
