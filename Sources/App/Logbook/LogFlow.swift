@@ -199,7 +199,16 @@ enum LogFlow {
 
     /// How long the checkmark shows before the sheet closes: long enough to see the check draw,
     /// shorter under Reduce Motion where it simply appears.
-    static func savedHold(reduceMotion: Bool) -> TimeInterval { reduceMotion ? 0.5 : 0.75 }
+    static func savedHold(reduceMotion: Bool) -> TimeInterval { reduceMotion ? 0.5 : 0.9 }
+
+    /// How long the Save button takes to turn into its checkmark (`Animation.saveMorph`): a short
+    /// spring as it shrinks, or a plain cross-fade under Reduce Motion. Leaves time inside
+    /// `savedHold` for the tick to draw and be seen.
+    static func saveMorphDuration(reduceMotion: Bool) -> TimeInterval { reduceMotion ? 0.2 : 0.32 }
+
+    /// Whether the Save button changes shape on the way to its checkmark. Under Reduce Motion it
+    /// keeps its size and only its label cross-fades.
+    static func saveMorphShrinks(reduceMotion: Bool) -> Bool { !reduceMotion }
 
     /// How long to wait before scrolling to a step that just opened: until the card has mostly
     /// settled, so the scroll follows it rather than racing it. No wait under Reduce Motion.

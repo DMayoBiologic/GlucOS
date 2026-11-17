@@ -140,6 +140,7 @@ targets:
       - path: Sources/App/Logbook/LogbookModels.swift
       - path: Sources/App/Logbook/FoodModels.swift
       - path: Sources/App/Logbook/LogFlow.swift
+      - path: Sources/App/Logbook/SaveCheckmark.swift
       - path: Sources/App/Logbook/LogKeyboard.swift
       - path: Sources/Food
       - path: Sources/Bolus

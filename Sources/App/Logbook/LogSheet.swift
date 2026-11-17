@@ -123,6 +123,10 @@ struct LogSheet: View {
     @State private var highlightedMoment: Int?
     /// The ⌘? list.
     @State private var showsShortcutList = false
+    /// Saved: the Log button has turned into a checkmark and the sheet is about to close. Nothing
+    /// more can be logged or changed.
+    @State private var saved = false
+    @Namespace private var saveButtonSpace
 
     init(target: LogSheetTarget, origin: LogOrigin? = nil, onClose: (() -> Void)? = nil) {
         let s = AppSettings.shared
@@ -288,6 +292,7 @@ struct LogSheet: View {
                 // Grows and shrinks with the window (or sheet), scrolling when there's more form than
                 // room, instead of a fixed height that clips on small displays.
                 .frame(minHeight: 220, idealHeight: editing == nil ? 520 : 360, maxHeight: .infinity)
+                .allowsHitTesting(!saved)
                 Divider()
                 footer
             }
@@ -1210,12 +1215,22 @@ struct LogSheet: View {
             }
             Button("Cancel", role: .cancel) { close() }
                 .keyboardShortcut(.cancelAction)
-            Button(canSave ? saveSummary : (isNew ? "Log" : "Save")) { save() }
-                // While the tiles have the keyboard, Return is theirs: it logs only once the
-                // entry is ready (LogKeyboard.action).
-                .keyboardShortcut(momentsFocused ? nil : .defaultAction)
-                .disabled(!canSave)
+                .disabled(saved)
+            if saved {
+                SavedButtonCheck(title: LogFlow.savedTitle(isNew: isNew))
+                    .saveMorphGeometry(id: "save", in: saveButtonSpace, enabled: !reduceMotion)
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.8)))
+            } else {
+                Button(canSave ? saveSummary : (isNew ? "Log" : "Save")) { save() }
+                    // While the tiles have the keyboard, Return is theirs: it logs only once the
+                    // entry is ready (LogKeyboard.action).
+                    .keyboardShortcut(momentsFocused ? nil : .defaultAction)
+                    .disabled(!canSave)
+                    .saveMorphGeometry(id: "save", in: saveButtonSpace, enabled: !reduceMotion)
+                    .transition(.opacity)
+            }
         }
+        .disabled(saved)
         .padding(16)
     }
 
@@ -1369,7 +1384,7 @@ struct LogSheet: View {
     }
 
     private func save() {
-        guard canSave else { return }
+        guard canSave, !saved else { return }
         refreshLiveSuggestion()
         if includes(.insulin) && usedSuggestion != nil && !suggestionStillApplies {
             dropSuggestionIfStale()
@@ -1393,7 +1408,7 @@ struct LogSheet: View {
     }
 
     private func commit() {
-        guard canSave else { return }
+        guard canSave, !saved else { return }
         // Checked again here: the confirm step can sit open past the calculator's window.
         refreshLiveSuggestion()
         if includes(.insulin) && usedSuggestion != nil && !suggestionStillApplies {
@@ -1449,7 +1464,43 @@ struct LogSheet: View {
                                          food: logsFood ? foodText : "",
                                          tags: tags))
         }
-        close()
+        finishSaving()
+    }
+
+    /// Saved: the Log button turns into a checkmark (a light tap on a Force Touch trackpad), held
+    /// just long enough to see, then the sheet closes. Only reached after the confirm steps, so the
+    /// checkmark never stands in for a warning. Under Reduce Motion the button cross-fades instead.
+    private func finishSaving() {
+        focus = nil
+        momentsFocused = false
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        withAnimation(.saveMorph(reduceMotion: reduceMotion)) { saved = true }
+        VoiceOver.announce(LogFlow.savedTitle(isNew: isNew))
+        DispatchQueue.main.asyncAfter(deadline: .now() + LogFlow.savedHold(reduceMotion: reduceMotion)) { close() }
+    }
+}
+
+/// Where the Log button was: a filled circle whose checkmark draws itself once.
+private struct SavedButtonCheck: View {
+    let title: String
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Color.accentColor)
+            DrawnCheckmark(lineWidth: 2.2).padding(6.5)
+        }
+        .frame(width: 24, height: 24)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+    }
+}
+
+private extension View {
+    /// Ties the Log button and its checkmark together so one grows into the other. Off under
+    /// Reduce Motion, where they only cross-fade.
+    @ViewBuilder
+    func saveMorphGeometry(id: String, in space: Namespace.ID, enabled: Bool) -> some View {
+        if enabled { matchedGeometryEffect(id: id, in: space) } else { self }
     }
 }
 
