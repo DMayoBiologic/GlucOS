@@ -135,6 +135,13 @@ struct PhoneHomeView: View {
         LowTreatButton.current(store: store, logbook: logbook, settings: settings)
     }
 
+    /// What's showing above the cards that can come and go, so the stack glides when it changes.
+    private var stackShape: TodayStackShape {
+        TodayStackShape(banners: PhoneBanners.shown(store: store, settings: settings, services: services),
+                        checkIn: services.waitingCheckIn != nil,
+                        resumeError: snoozeStore.isSnoozing && services.snoozeResumeError != nil)
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
@@ -202,6 +209,10 @@ struct PhoneHomeView: View {
                 // The snoozed chip fades in and out once; instant under Reduce Motion.
                 .animation(DSMotion.standard.animation(reduceMotion: reduceMotion), value: snoozeStore.isSnoozing)
                 .animation(DSMotion.standard.animation(reduceMotion: reduceMotion), value: lowTreat != nil)
+                // A status banner, the check-in banner or the chip's resume error coming or going:
+                // the cards below glide to their new place instead of jumping (`ContentResize`).
+                // Keyed on which ones show, never on a reading; instant under Reduce Motion.
+                .animation(DSMotion.standard.animation(reduceMotion: reduceMotion), value: stackShape)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
@@ -387,7 +398,14 @@ private struct PhoneTitleReading: View {
     }
 }
 
-/// Problems that need attention, most serious first.
+/// Which of the things above Today's cards are showing (`PhoneHomeView.stackShape`).
+struct TodayStackShape: Equatable {
+    var banners: [PhoneBanners.Shown]
+    var checkIn: Bool
+    var resumeError: Bool
+}
+
+/// Problems that need attention, most serious first. Keep `shown` in step with `body`.
 struct PhoneBanners: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
@@ -395,6 +413,24 @@ struct PhoneBanners: View {
     @Environment(\.openURL) private var openURL
     /// Opens Settings at the section that fixes the problem.
     let openSettings: (PhoneSettingsView.Jump?) -> Void
+
+    /// The banners showing, top to bottom.
+    enum Shown: Hashable {
+        case connection, notificationsOff, liveActivitiesOff, relayMissing, relayError
+    }
+
+    static func shown(store: GlucoseStore, settings: AppSettings, services: PhoneServices) -> [Shown] {
+        var shown: [Shown] = []
+        if store.connectionProblem != nil { shown.append(.connection) }
+        if store.notificationsBlocked { shown.append(.notificationsOff) }
+        if services.liveActivityEnabled && !services.liveActivity.systemEnabled { shown.append(.liveActivitiesOff) }
+        if !services.relaySettings.isConfigured && settings.alertsEnabled {
+            shown.append(.relayMissing)
+        } else if services.relayError != nil {
+            shown.append(.relayError)
+        }
+        return shown
+    }
 
     var body: some View {
         VStack(spacing: DS.Space.sm) {

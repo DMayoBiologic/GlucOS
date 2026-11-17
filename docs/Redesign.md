@@ -185,6 +185,13 @@ icons (Log, Refresh, Dashboard, Settings) bounce once per tap or shortcut (`symb
 in-app alert banner's arrow wiggles once as the alert arrives, down for a low and up for a high
 (`symbolWiggleOnAppear`; a bounce on macOS 14). None of them play under Reduce Motion.
 
+Sizes change once, with the content (round 57, `ContentResize`). When the snoozed chip, a notice,
+Log treatment or Details comes or goes, the Mac popover glides to its new height in 0.3 s and its
+window follows it step by step (`PopoverHeightFrame`), instead of jumping to the end size while the
+cards move. On iPhone Today the cards below a status banner, the check-in banner or the chip's resume
+error slide to their new place. The popover opens at its size, changes under 4 pt (text settling on
+a new reading) snap, and under Reduce Motion every resize is instant.
+
 ### 4.5 Navigation
 
 - iPhone pushes from a card to its full screen use the zoom transition (iOS 18

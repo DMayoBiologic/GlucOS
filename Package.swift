@@ -41,6 +41,7 @@ let package = Package(
                 "Shared/LoggedElsewhere.swift",
                 "Shared/ForecastMorph.swift",
                 "Shared/PopoverStagger.swift",
+                "Shared/ContentResize.swift",
                 "Shared/ReadingRoll.swift",
                 "Shared/UnitSwitch.swift",
                 "Shared/TypedAmountRoll.swift",
