@@ -4615,3 +4615,61 @@ from p where h in (30, 60) and not al and not meal1h and tr >= 1.5 group by 1 or
 ```
 
 **Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.
+
+## 66. How much does the shown forecast jump between readings, and would smoothing help? (17 Nov 2026)
+
+The worry: the app redraws the forecast at every reading, so if the 30- and 60-minute points hop about
+from one minute to the next the line looks nervous and is hard to trust. The candidate is light output
+smoothing, blending each new forecast with the one shown a minute before. The bar: less jitter, no worse
+error on held-out days at 30 and 60 minutes, and no later reaction to real turns. **The line barely
+jumps, and smoothing it only adds lag. Nothing ships; no app or relay code changed, so the relay stays
+2.17.0.**
+
+Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
+
+**The accuracy log.** It keeps one check per 15 minutes (plus 5-minute extras since 16 Nov), so it
+can't see minute-to-minute jumps. The closest pairs, Mac checks at most 7 minutes apart (39 pairs), moved
+the 30-minute point 11.9 mg/dL on average while the start reading moved 9.5: nearly all of the move is
+glucose itself.
+
+**The replay.** The engine's trend forecast (20-minute least-squares slope clamped at ±4, 30-minute fade,
+so the 60-minute point sits on the same flat end as the 30-minute one) at every live reading in
+`glucos.readings`, 11–17 Nov, 8,548 forecasts, consecutive readings at most 90 s apart. *Jump* is how far
+the shown point moves between readings; *excess* is the part beyond what the reading moved; *flips* is how
+often the line's direction reverses (ignoring offsets under 3 mg/dL); *turn lag* is the minutes from a real
+peak or trough (a swing of 15+ mg/dL on both sides within 30 minutes, 104 of them) until the line points
+the new way.
+
+| Gain 0.45 (Mac, relay) | Jump (p90) | Excess | Flips per hour | Turn lag (median) | 30 min miss | 60 min miss |
+|---|---|---|---|---|---|---|
+| As shipped | 2.40 (5.4) | 0.70 | 1.13 | 10.2 (10) | 25.46 | 41.57 |
+| Blend 0.7 new / 0.3 previous | 2.34 (5.3) | 0.66 | 1.09 | 10.6 (11) | 25.47 | 41.58 |
+| Blend 0.5 / 0.5 | 2.29 (5.1) | 0.61 | 1.01 | 11.1 (11) | 25.47 | 41.59 |
+| Blend 0.35 / 0.65 | 2.22 (5.0) | 0.56 | 0.93 | 11.7 (12) | 25.46 | 41.60 |
+| Blend 0.25 / 0.75 | 2.16 (4.9) | 0.49 | 0.87 | 12.7 (13) | 25.44 | 41.61 |
+| Hold unless it moves 1 / 2 / 3 mg/dL | 2.38 (5.4–5.8) | 0.58–0.65 | 1.01–1.10 | 10.3–11.1 | 25.47–25.52 | 41.58–41.65 |
+
+Gain 0.6 (iPhone) reads the same: jump 2.62 as shipped, 2.30 at the heaviest blend, turn lag 10.2 → 12.7
+minutes. The blend acts on the line's offset from the current reading, so it always starts at the reading.
+
+The reading itself moves 1.82 mg/dL a minute on average; the line's own offset changes 0.86 (p90 2.0, p99
+4.7, max 10.0) and moves 5 mg/dL or more on 0.8% of readings. The 20-minute fitted slope is already a
+smoother, so there is little jitter left to remove.
+
+**Held out.** Picking the blend on six Perth days by 30 + 60 minute miss and scoring the seventh: at gain
+0.45 the pick was "none" on 4 days and the heaviest blend on 3, held-out 25.46 → 25.54 (+0.3%) at 30 and
+41.57 → 41.67 (+0.3%) at 60, better on 0 days and worse on 3 at each. At 0.6: +0.2% and +0.4%, better on 1
+and 0, worse on 3 and 4.
+
+**Why.** Smoothing a forecast that is already a 20-minute fit mostly lags it: a blend that removes a tenth
+of the jump costs 1–2.5 minutes at each real turn, which is when the forecast matters most (§45, §59), and
+buys no accuracy. The bigger moves are real changes of direction, not noise.
+
+**Decision.** Keep the shown forecast as it is. Don't re-propose output smoothing unless a new forecast
+basis (for example §45's turning-point easing) adds visible jitter; rerun this then. To rerun:
+
+    python3 scripts/forecast-jitter.py DIR
+
+`DIR` holds readings.json (`[[unix, mgdl], ...]` from `glucos.readings where trend > 0`).
+
+**Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.
