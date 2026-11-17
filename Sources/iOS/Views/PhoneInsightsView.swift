@@ -145,10 +145,9 @@ struct PhoneInsightsView: View {
                         .padding(.top, DS.Space.xs)
                 }
                 if visible.isEmpty {
-                    Text("Every card is hidden. Tap Edit to bring some back.")
-                        .dsFont(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                    EmptyStateView(systemImage: "eye.slash", title: "Every card is hidden",
+                                   message: "Bring back the cards you want to see, in your own order.",
+                                   actionTitle: "Edit Cards", action: { setEditing(true) })
                         .padding(.top, DS.Space.xl)
                 }
             }
@@ -475,7 +474,9 @@ struct PhoneTagInsightsCard: View {
     var body: some View {
         let card = TagInsightsCardView(readings: store.archive, entries: logbook.entries, unit: store.shownUnit,
                                        lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
-                                       openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
+                                       openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } },
+                                       // Not in a shared picture, which has no navigator.
+                                       log: navigator.map { _ in { PhoneLogRouter.shared.open() } })
             .dsCard(.standard, padding: DS.Space.lg)
         if let navigator {
             card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .tagged)), in: navigator.zoom)

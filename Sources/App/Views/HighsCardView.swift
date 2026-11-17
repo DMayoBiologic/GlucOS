@@ -51,10 +51,7 @@ struct HighsCardView: View {
             if let value {
                 content(value)
             } else if shownKey == key {
-                Text(HighsSummaryText.emptyLine(period))
-                    .dsFont(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                emptyNote(key)
             } else {
                 // Working it out: hold the space without a spinner.
                 Color.clear.frame(height: 120)
@@ -168,5 +165,25 @@ struct HighsCardView: View {
     private func open(_ s: HighsSummary) {
         guard let openLogbook else { return }
         openLogbook(.highs(s.period, newestReading: s.end, now: Date()))
+    }
+}
+
+extension HighsCardView {
+    /// Nothing to show: why, and the shortest longer period that has enough, when one does
+    /// (`InsightsEmptyState`, docs/EmptyStates.md). Worked out off the main thread, only while empty.
+    fileprivate func emptyNote(_ key: HighsSummaryCache.Key) -> some View {
+        let readings = readings, high = highMgdl, period = period
+        return InsightsEmptyNote(id: AnyHashable(key), waiting: HighsSummaryText.emptyLine(period), decide: {
+            let longer = InsightsEmptyState.firstWithData(
+                InsightsEmptyState.longer(than: period.days, in: HighsSummary.Period.allCases.map(\.days))) { days in
+                    guard let p = HighsSummary.Period(rawValue: days) else { return false }
+                    return HighsSummary.compute(readings: readings, high: high, period: p) != nil
+                }
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: 1,
+                                               waiting: HighsSummaryText.emptyLine(period), currentDays: period.days,
+                                               longerWithData: longer)
+        }, act: { action in
+            if case .showPeriod(let days) = action { periodDays = days }
+        })
     }
 }

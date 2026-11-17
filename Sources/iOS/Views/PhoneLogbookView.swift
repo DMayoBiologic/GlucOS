@@ -781,7 +781,8 @@ struct PhoneLogbookView: View {
             VStack(spacing: DS.Space.md) {
                 EmptyStateView(systemImage: "magnifyingglass", title: "No matches",
                                message: LogbookSearch.noMatchMessage(search, filter: kind, tag: tagFilter),
-                               actionTitle: "Clear Filters", action: clearFilters)
+                               actionTitle: LogbookSearch.clearTitle(search, filter: kind, tag: tagFilter),
+                               action: clearFilters)
                 // When the day was the problem, the same words across every date may still find it.
                 if search.period != nil && (!search.terms.isEmpty || kind != nil || tagFilter != nil) {
                     Button("Search All Dates") { dropPeriod(); Haptics.play(.choice) }

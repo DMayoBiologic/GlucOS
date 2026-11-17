@@ -471,7 +471,8 @@ struct LogbookSection: View {
                                message: pastPeriod
                                    ? LogbookSearch.noMatchMessage(query, filter: filter, tag: tagFilter)
                                    : "Nothing in \(filter?.title ?? "the Logbook")\(tagFilter.map { " tagged \($0)" } ?? "") in this period.",
-                               actionTitle: "Clear Filters", action: clearFilters)
+                               actionTitle: LogbookSearch.clearTitle(query, filter: filter, tag: tagFilter, toAllDates: false),
+                               action: clearFilters)
                 if LogbookSearch.offersAllDates(query, filter: filter, tag: tagFilter, allDates: allDates) {
                     Button("Search All Dates") { dropPeriod() }
                     .dsFont(.label)
@@ -1108,7 +1109,7 @@ struct InsightsSection: View {
                 .id(Self.cardID(.bestDay))
         case .tags:
             TagInsightsCardView(readings: readings, entries: logbook.entries, unit: unit, lowMgdl: lowMgdl,
-                                highMgdl: highMgdl, openLogbook: openLogbook)
+                                highMgdl: highMgdl, openLogbook: openLogbook, log: onLog)
                 .dashboardCard()
                 .id(Self.cardID(.tagged))
         case .dayPattern:

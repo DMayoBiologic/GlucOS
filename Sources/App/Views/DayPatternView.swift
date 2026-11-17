@@ -60,10 +60,7 @@ struct DayPatternView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if shownKey == key {
-                Text(DayPatternText.emptyLine(window))
-                    .dsFont(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                emptyNote(key)
             } else {
                 // Working it out: hold the space without a spinner.
                 Color.clear.frame(height: 190)
@@ -371,5 +368,26 @@ private struct DayPatternSwatch: View {
             }
             Text(label).lineLimit(1)
         }
+    }
+}
+
+extension DayPatternView {
+    /// Nothing to show: why, and 30 days when that has enough (`InsightsEmptyState`,
+    /// docs/EmptyStates.md). Worked out off the main thread, only while empty.
+    fileprivate func emptyNote(_ key: DayPatternCache.Key) -> some View {
+        let readings = readings, window = window
+        return InsightsEmptyNote(id: AnyHashable(key), waiting: DayPatternText.emptyLine(window), decide: {
+            let longer = InsightsEmptyState.firstWithData(
+                InsightsEmptyState.longer(than: window.days, in: DayPattern.Window.allCases.map(\.days))) { days in
+                    guard let w = DayPattern.Window(rawValue: days) else { return false }
+                    return DayPattern.compute(readings: readings, window: w) != nil
+                }
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings),
+                                               needed: DayPattern.minimumDays,
+                                               waiting: DayPatternText.emptyLine(window), currentDays: window.days,
+                                               longerWithData: longer)
+        }, act: { action in
+            if case .showPeriod(let days) = action { windowDays = days }
+        })
     }
 }
