@@ -27,10 +27,9 @@ with the keyboard and goes away on a click, so clicking a card never leaves a ri
   navigation is on, and its items all have shortcuts.
 - **Insights:** Customise Cards…, then each card in the order on screen. The Lows, Highs and
   Overnight cards hold their period picker (← → change it) and "in the Logbook" link; streaks
-  holds its link; Weekdays and weekends, Week in
-  review and Best and toughest days hold their two sides; Best and toughest days stack theirs (↑ ↓);
-  Tags holds a tile per tag (↑ ↓, as the grid's width varies); Time in range
-  by hour holds its 24 hours.
+  holds its link; Weekdays and weekends and Week in review hold their two sides (← →); Best and
+  toughest days holds its two stacked days (↑ ↓); Tags holds a tile per tag (↑ ↓, as the grid's
+  width varies); Time in range by hour holds its 24 hours (← →).
 - **Logbook:** Back to Insights (when it came from a card), the search bar (search field, date
   chip, Jump to Date, Edit…, Log Again Now, Delete), the filter bar (← → on the filters pick the
   next one, then move on to Alerts and the tags), then the table, which keeps every arrow key for
