@@ -54,7 +54,7 @@ struct InsightsSparklineView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(label)
             .accessibilityValue(series.summary ?? "Not enough days yet")
-            .onAppear { appear(target) }
+            .onEntrance { appear(target) }
             .onDisappear { generation += 1 }
             .onChange(of: target) { _, new in change(to: new) }
         }

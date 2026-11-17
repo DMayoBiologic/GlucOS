@@ -117,7 +117,7 @@ private struct DayPatternMotion<Content: View>: View {
     var body: some View {
         DayPatternFrame(from: from ?? pattern, to: to ?? pattern, phase: phase, reveal: reveal,
                         lowMgdl: lowMgdl, highMgdl: highMgdl, content: content)
-            .onAppear {
+            .onEntrance {
                 onScreen = true
                 settle(on: pattern)
                 guard !drewIn else { return }

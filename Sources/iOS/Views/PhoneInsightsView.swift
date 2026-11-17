@@ -68,6 +68,9 @@ struct PhoneInsightsView: View {
                 set: { logbook.saveInsightsLayout($0, for: .phone) })
     }
     @State private var editing = false
+    /// Cards that have risen in on this visit, so going to Edit and back, or a re-sort, never
+    /// plays them again.
+    @State private var reveals = CardReveals()
     /// The card whose picture is being shared (docs/InsightsShare.md).
     @State private var sharing: InsightsCard?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -114,11 +117,14 @@ struct PhoneInsightsView: View {
                                          lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl,
                                          recapMinute: settings.eveningRecapMinute, firedAt: recapFiredAt,
                                          padding: DS.Space.lg)
-                        .dsEntrance(0)
+                        .dsReveal("recap", in: reveals, when: .scrolledIntoView)
                 }
                 ForEach(Array(visible.enumerated()), id: \.element) { i, card in
+                    // Each card rises in the first time it's scrolled into view on this visit,
+                    // with any that come into view alongside it a step behind; its figures
+                    // count up and its rings, bars and sparkline draw in as it rises.
                     view(for: card)
-                        .dsEntrance(i)
+                        .dsReveal(card, in: reveals, when: .scrolledIntoView, order: i + (recapFiredAt == nil ? 0 : 1))
                         .contextMenu { menu(card, index: i, count: visible.count) }
                         .accessibilityAction(named: "Share card") { sharing = card }
                 }
@@ -508,7 +514,7 @@ struct DayColumnsCard: View {
                     ForEach(Array(days.enumerated()), id: \.element.id) { i, day in column(day, order: i) }
                 }
                 .frame(height: 150)
-                .onAppear {
+                .onEntrance {
                     guard !grown else { return }
                     if reduceMotion { grown = true } else {
                         // Next frame, so the columns are laid out at the baseline first.
