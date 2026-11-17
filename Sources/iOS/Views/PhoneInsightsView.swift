@@ -94,9 +94,7 @@ struct PhoneInsightsView: View {
     }
 
     private var cards: some View {
-        // The Tags card stays out until something carries a tag; its place in the order is kept.
-        let showsTags = TagInsightsCardView.shows(logbook.entries)
-        let visible = layout.visible(defaults).filter { $0 != .tags || showsTags }
+        let visible = layout.visible(defaults).filter(onScreen)
         return ScrollView {
             VStack(spacing: DS.Space.lg) {
                 if let recapFiredAt {
@@ -141,6 +139,12 @@ struct PhoneInsightsView: View {
         .environment(\.figuresCountUp, true)
     }
 
+    /// Whether a showing card is on screen now. The Tags card stays out until something carries a
+    /// tag; its place in the order is kept.
+    private func onScreen(_ card: InsightsCard) -> Bool {
+        card != .tags || TagInsightsCardView.shows(logbook.entries)
+    }
+
     @ViewBuilder
     private func view(for card: InsightsCard) -> some View {
         switch card {
@@ -163,11 +167,11 @@ struct PhoneInsightsView: View {
     /// Touch and hold a card: move it a place, hide it, or open the full edit list.
     @ViewBuilder
     private func menu(_ card: InsightsCard, index: Int, count: Int) -> some View {
-        Button { change { $0.move(card, by: -1, defaults: defaults) } } label: {
+        Button { change { $0.move(card, by: -1, defaults: defaults, onScreen: onScreen) } } label: {
             Label("Move Up", systemImage: "arrow.up")
         }
         .disabled(index == 0)
-        Button { change { $0.move(card, by: 1, defaults: defaults) } } label: {
+        Button { change { $0.move(card, by: 1, defaults: defaults, onScreen: onScreen) } } label: {
             Label("Move Down", systemImage: "arrow.down")
         }
         .disabled(index >= count - 1)

@@ -66,6 +66,8 @@ struct TagInsightsCardView: View {
             } else {
                 new = await TagInsightsCache.shared.value(for: key, readings: readings, entries: entries)
             }
+            // A newer period or data change took over while this one was worked out: drop it.
+            guard !Task.isCancelled else { return }
             if value == nil || new == nil {
                 value = new
             } else {

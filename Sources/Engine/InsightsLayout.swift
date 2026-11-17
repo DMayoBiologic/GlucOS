@@ -158,6 +158,20 @@ struct InsightsLayout: Codable, Equatable, Sendable {
         moveVisible(fromOffsets: IndexSet(integer: i), toOffset: step > 0 ? target + 1 : target, defaults: defaults)
     }
 
+    /// One place up or down among the cards actually on screen, when the screen leaves some showing
+    /// cards out (the Tags card before anything is tagged): it swaps with the next card the person
+    /// can see, and a card left out keeps its slot beside its own neighbour.
+    mutating func move(_ card: InsightsCard, by step: Int, defaults: [InsightsCard],
+                       onScreen: (InsightsCard) -> Bool) {
+        let all = visible(defaults)
+        let shown = all.filter(onScreen)
+        guard let i = shown.firstIndex(of: card) else { return }
+        let target = i + step
+        guard target >= 0, target < shown.count,
+              let from = all.firstIndex(of: card), let to = all.firstIndex(of: shown[target]) else { return }
+        moveVisible(fromOffsets: IndexSet(integer: from), toOffset: step > 0 ? to + 1 : to, defaults: defaults)
+    }
+
     mutating func hide(_ card: InsightsCard, defaults: [InsightsCard]) {
         pinOrder(defaults)
         hidden.insert(card.rawValue)

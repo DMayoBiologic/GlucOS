@@ -190,7 +190,7 @@ enum TagInsightsText {
 // MARK: - Cache
 
 /// Keeps the last result, so the card works it out once per data change rather than on every
-/// redraw. The key moves with each 15 minutes of new readings, a backfill, a tagged entry added,
+/// redraw. The key moves with each new or backfilled reading, a tagged entry added,
 /// moved or retagged, a change of either line, or a new period.
 @MainActor
 final class TagInsightsCache {
@@ -198,7 +198,9 @@ final class TagInsightsCache {
 
     struct Key: Hashable {
         var newest: Date?
-        var count15: Int
+        /// The exact count, so a backfill of even one reading (which can give a tag its hour) moves
+        /// the key. Cheap here: one pass over buckets per minute at most, off the main thread.
+        var count: Int
         var tagged: Int
         var low: Double
         var high: Double
@@ -218,7 +220,7 @@ final class TagInsightsCache {
             h.combine(e.timestamp)
             h.combine(tags.map(LogbookTags.key))
         }
-        return Key(newest: newest, count15: readings.count / 15, tagged: h.finalize(), low: low, high: high,
+        return Key(newest: newest, count: readings.count, tagged: h.finalize(), low: low, high: high,
                    period: period)
     }
 

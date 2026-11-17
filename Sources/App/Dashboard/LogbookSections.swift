@@ -857,9 +857,7 @@ struct InsightsSection: View {
             }
             customiseRow
             ScrollViewReader { proxy in
-                // The Tags card stays out until something carries a tag; its place in the order is kept.
-                let showsTags = TagInsightsCardView.shows(logbook.entries)
-                let visible = cardLayout.visible(Self.defaults).filter { $0 != .tags || showsTags }
+                let visible = cardLayout.visible(Self.defaults).filter(onScreen)
                 VStack(alignment: .leading, spacing: layout.gutter) {
                     ForEach(Array(visible.enumerated()), id: \.element) { i, card in
                         view(for: card)
@@ -889,6 +887,12 @@ struct InsightsSection: View {
         .onChange(of: cardLayout) { _, new in
             UserDefaults.standard.set(new.stored, forKey: InsightsLayout.macKey)
         }
+    }
+
+    /// Whether a showing card is on screen now. The Tags card stays out until something carries a
+    /// tag; its place in the order is kept.
+    private func onScreen(_ card: InsightsCard) -> Bool {
+        card != .tags || TagInsightsCardView.shows(logbook.entries)
     }
 
     @ViewBuilder
@@ -965,9 +969,9 @@ struct InsightsSection: View {
     /// Right-click a card: move it a place, hide it, or open the customise sheet.
     @ViewBuilder
     private func menu(_ card: InsightsCard, index: Int, count: Int) -> some View {
-        Button("Move Up") { change { $0.move(card, by: -1, defaults: Self.defaults) } }
+        Button("Move Up") { change { $0.move(card, by: -1, defaults: Self.defaults, onScreen: onScreen) } }
             .disabled(index == 0)
-        Button("Move Down") { change { $0.move(card, by: 1, defaults: Self.defaults) } }
+        Button("Move Down") { change { $0.move(card, by: 1, defaults: Self.defaults, onScreen: onScreen) } }
             .disabled(index >= count - 1)
         Button("Hide \(card.title)") { change { $0.hide(card, defaults: Self.defaults) } }
         Divider()

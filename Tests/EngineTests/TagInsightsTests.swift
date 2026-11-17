@@ -154,6 +154,34 @@ final class TagInsightsTests: XCTestCase {
         XCTAssertEqual(t.rows.first?.entries, 8)
     }
 
+    func testOneBackfilledReadingMovesTheCacheKey() {
+        // 150 → 151 readings with the same newest one: the added reading can give a tag its
+        // twelfth bucket, so the card must work it out again.
+        let full = history()
+        let before = Array(full.suffix(150))
+        let after = Array(full.suffix(151))
+        let k1 = TagInsightsCache.key(readings: before, entries: [], low: 70, high: 180, period: .week)
+        let k2 = TagInsightsCache.key(readings: after, entries: [], low: 70, high: 180, period: .week)
+        XCTAssertEqual(k1.newest, k2.newest)
+        XCTAssertNotEqual(k1, k2)
+        // Retagging an entry moves it too.
+        let at = ago(days: 1)
+        let id = UUID()
+        let a = LogEntry.meal(MealEntry(id: id, timestamp: at, carbs: 30, food: "toast", labels: ["Walk"]))
+        let b = LogEntry.meal(MealEntry(id: id, timestamp: at, carbs: 30, food: "toast", labels: ["Run"]))
+        XCTAssertNotEqual(TagInsightsCache.key(readings: full, entries: [a], low: 70, high: 180, period: .week),
+                          TagInsightsCache.key(readings: full, entries: [b], low: 70, high: 180, period: .week))
+    }
+
+    func testTheTwelfthBucketBringsTheFigures() throws {
+        // 11 buckets after the tag, then one more reading.
+        let at = ago(hours: 2)
+        let eleven = history(skip: { $0 >= at.addingTimeInterval(11 * 300) && $0 < at.addingTimeInterval(4 * 3600) })
+        XCTAssertNil(try XCTUnwrap(compute(eleven, [meal(at, ["Walk"])])).rows[0].after)
+        let twelve = (eleven + [reading(at.addingTimeInterval(11 * 300), 120)]).sorted { $0.timestamp < $1.timestamp }
+        XCTAssertEqual(try XCTUnwrap(compute(twelve, [meal(at, ["Walk"])])).rows[0].after?.buckets, 12)
+    }
+
     // MARK: Logbook
 
     func testTagOpensTheLogbookOnThatTagChip() {

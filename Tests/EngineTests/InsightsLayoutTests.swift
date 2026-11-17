@@ -118,6 +118,24 @@ final class InsightsLayoutTests: XCTestCase {
         XCTAssertEqual(phoneLayout.visible(phone), phone)
     }
 
+    func testMoveSkipsACardLeftOffTheScreen() {
+        // Nothing tagged: Tags isn't drawn, so Move Up on Your usual day swaps it with Best and
+        // toughest days, and Tags keeps its slot after Best and toughest days.
+        var layout = InsightsLayout.standard
+        let onScreen: (InsightsCard) -> Bool = { $0 != .tags }
+        layout.move(.dayPattern, by: -1, defaults: mac, onScreen: onScreen)
+        let shown = layout.visible(mac).filter(onScreen)
+        XCTAssertEqual(Array(shown.suffix(4)), [.streaks, .dayPattern, .bestDays, .forecastAccuracy])
+        XCTAssertEqual(Array(layout.visible(mac).suffix(4)), [.dayPattern, .bestDays, .tags, .forecastAccuracy])
+        // And back down past the hidden slot.
+        layout.move(.dayPattern, by: 1, defaults: mac, onScreen: onScreen)
+        XCTAssertEqual(layout.visible(mac).filter(onScreen), mac.filter(onScreen))
+        // Ends still stop.
+        let before = layout
+        layout.move(.forecastAccuracy, by: 1, defaults: mac, onScreen: onScreen)
+        XCTAssertEqual(layout, before)
+    }
+
     func testNewCardFirstInShippedOrderGoesToTheTop() {
         let layout = InsightsLayout(order: ["days", "weekInReview"], hidden: [])
         XCTAssertEqual(layout.arranged(phone).first, .glance)
