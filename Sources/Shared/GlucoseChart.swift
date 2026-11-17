@@ -46,8 +46,17 @@ struct GlucoseChart: View {
     /// line at the same clock time today (`YesterdayLine`), behind the trace. Empty, the default,
     /// draws nothing. Pass them only while `AppSettings.showYesterdayLine` is on.
     var yesterday: [GlucoseReading] = []
+    /// Whether a logged marker can be peeked at (`MarkerPeek`): touch and hold one on iPhone for a
+    /// small card saying what it was, how long ago and the reading then, gone when the finger lifts;
+    /// hover one on the Mac for the same card as a tooltip. Interactive charts only.
+    var peeksMarkers: Bool = false
 
     @State private var hoverDate: Date?
+    /// The marker being peeked at, while a finger holds it (iPhone) or the pointer is over it (Mac).
+    @State private var peeked: UUID?
+    /// Whether a finger is down on a marker, before or during a peek. The yesterday-line menu
+    /// stands down meanwhile (`MarkerPeekPressKey`), so holding a marker never opens it.
+    @State private var pressingMarker = false
     /// Whether a finger (or the pointer) is on the chart, as opposed to the readout gliding back
     /// to the newest reading after a scrub, which mustn't tick.
     @State private var touching = false
@@ -158,6 +167,8 @@ struct GlucoseChart: View {
     private func selection(newest: Date?) -> Binding<Date?> {
         Binding(get: { hoverDate }, set: { new in
             if let new {
+                // A peek has the finger: the readout stays away until it lifts.
+                guard peeked == nil else { return }
                 if !touching { touching = true; scrubbedFrom = nil }
                 touchGeneration += 1
                 hoverDate = new
@@ -274,6 +285,43 @@ struct GlucoseChart: View {
         }
     }
 
+    /// The markers that can be peeked at: on screen and not still popping in.
+    private func peekable(_ window: [GlucoseReading]) -> [ChartLogMarker] {
+        let start = window.first?.timestamp ?? .distantFuture
+        let inFlight = Set(flights.map(\.marker.id))
+        return events.filter { $0.date >= start && !inFlight.contains($0.id) }
+    }
+
+    /// The layer that finds a held (iPhone) or hovered (Mac) marker, and the card over it.
+    @ViewBuilder
+    private func markerPeek(proxy: ChartProxy, yd: ClosedRange<Double>, window: [GlucoseReading]) -> some View {
+        let markers = peekable(window)
+        MarkerPeekLayer(proxy: proxy, markers: markers.map { (marker: $0, value: markerY(lane: $0.lane, yd: yd)) },
+                        pressing: { pressingMarker = $0 }, peek: setPeek)
+        if let id = peeked, let marker = markers.first(where: { $0.id == id }) {
+            MarkerPeekCard(proxy: proxy, marker: marker, value: markerY(lane: marker.lane, yd: yd),
+                           detail: MarkerPeek.detail(date: marker.date, now: Date(), readings: window, unit: unit))
+                .id(id)
+                .transition(MarkerPeekCard.transition(reduceMotion: reduceMotion))
+        }
+    }
+
+    /// A peek starts or ends. Starting one clears the scrub readout; on iPhone it ticks once.
+    private func setPeek(_ id: UUID?) {
+        guard id != peeked else { return }
+        if id != nil {
+            withTransaction(Transaction(animation: nil)) {
+                hoverDate = nil
+                touching = false
+                scrubbedFrom = nil
+            }
+            #if os(iOS)
+            Haptics.play(.scrubLogged)
+            #endif
+        }
+        withAnimation(MarkerPeekCard.animation(showing: id != nil, reduceMotion: reduceMotion)) { peeked = id }
+    }
+
     private func appeared(visibleFrom start: Date) {
         if interactive, range == nil { range = ChartSpanTransition(hours: hours) }
         onScreen = true
@@ -302,6 +350,8 @@ struct GlucoseChart: View {
     private func disappeared() {
         onScreen = false
         glows = []
+        peeked = nil
+        pressingMarker = false
     }
 
     private func landed(_ flight: MarkerFlight) {
@@ -338,7 +388,7 @@ struct GlucoseChart: View {
             to: domain.upperBound)
         let yd = yDomain(onScreen, extra: ghost.map(\.mgdl))
         let floor = yd.lowerBound
-        let hovered = interactive ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
+        let hovered = interactive && peeked == nil ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
         // The gradient is stretched over the drawn line, so its stops follow what's plotted.
         let lineStyle = ThresholdGradient.style(minMgdl: plotted.map(\.mgdl).min() ?? lowMgdl,
                                                 maxMgdl: plotted.map(\.mgdl).max() ?? highMgdl,
@@ -541,7 +591,11 @@ struct GlucoseChart: View {
                 }
             }
             markerOverlays(proxy: proxy, yd: yd)
+            if peeksMarkers, interactive {
+                markerPeek(proxy: proxy, yd: yd, window: window)
+            }
         }
+        .preference(key: MarkerPeekPressKey.self, value: pressingMarker)
         // Under Reduce Motion a new span replaces the chart, cross-fading (`changeRange`). Only
         // ever bumped there, so otherwise the chart keeps its identity and its axes move.
         .id(spanFade)
@@ -968,5 +1022,197 @@ private extension View {
         } else {
             self
         }
+    }
+}
+
+// MARK: - Marker peek
+
+/// Whether a finger is down on a logged marker (iPhone). `yesterdayLineMenu` reads it and offers
+/// nothing meanwhile, so a hold on a marker peeks instead of opening the menu (`MarkerPeek`).
+struct MarkerPeekPressKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+/// An invisible layer that only answers over the markers themselves (a fingertip-sized circle each),
+/// so touches anywhere else on the chart reach the scrub and the menu exactly as before. On iPhone
+/// a finger held still on one for `MarkerPeek.holdDuration` peeks it, until it lifts; moving first
+/// is a scrub. On the Mac the pointer over one peeks it. Hidden from VoiceOver, which reads each
+/// marker in the chart's summary instead.
+private struct MarkerPeekLayer: View {
+    let proxy: ChartProxy
+    let markers: [(marker: ChartLogMarker, value: Double)]
+    let pressing: (Bool) -> Void
+    let peek: (UUID?) -> Void
+    #if os(iOS)
+    @State private var hold: Task<Void, Never>?
+    @State private var down: CGPoint?
+    @State private var peeking = false
+    #endif
+
+    var body: some View {
+        GeometryReader { geo in
+            let spots = self.spots(in: geo)
+            Color.clear
+                .contentShape(MarkerSpotsShape(spots: spots))
+                .interactions(spots: spots, layer: self)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func spots(in geo: GeometryProxy) -> [MarkerPeek.Spot] {
+        guard let plot = proxy.plotFrame else { return [] }
+        let origin = geo[plot].origin
+        return markers.compactMap { m in
+            guard let x = proxy.position(forX: m.marker.date), let y = proxy.position(forY: m.value) else { return nil }
+            return MarkerPeek.Spot(id: m.marker.id, x: Double(origin.x + x), y: Double(origin.y + y))
+        }
+    }
+
+    #if os(iOS)
+    /// The finger went down or moved. Down on a marker starts the hold; moving off it is a scrub.
+    fileprivate func touched(_ value: DragGesture.Value, spots: [MarkerPeek.Spot]) {
+        if down == nil {
+            down = value.startLocation
+            guard let id = MarkerPeek.hit(x: Double(value.startLocation.x), y: Double(value.startLocation.y), in: spots)
+            else { return }
+            pressing(true)
+            hold = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(MarkerPeek.holdDuration))
+                guard !Task.isCancelled else { return }
+                peeking = true
+                peek(id)
+            }
+        } else if !peeking, !MarkerPeek.isHolding(dx: Double(value.translation.width), dy: Double(value.translation.height)) {
+            hold?.cancel()
+            hold = nil
+            pressing(false)
+        }
+    }
+
+    /// The finger lifted (or the system took the touch): any peek goes.
+    fileprivate func lifted() {
+        hold?.cancel()
+        hold = nil
+        down = nil
+        if peeking { peek(nil) }
+        peeking = false
+        pressing(false)
+    }
+    #endif
+
+    #if os(macOS)
+    fileprivate func hovered(_ phase: HoverPhase, spots: [MarkerPeek.Spot]) {
+        switch phase {
+        case .active(let p): peek(MarkerPeek.hit(x: Double(p.x), y: Double(p.y), in: spots))
+        case .ended: peek(nil)
+        }
+    }
+    #endif
+}
+
+private extension View {
+    @ViewBuilder
+    func interactions(spots: [MarkerPeek.Spot], layer: MarkerPeekLayer) -> some View {
+        #if os(iOS)
+        // Alongside the chart's own selection, never instead of it: a finger that moves is a scrub.
+        simultaneousGesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                .onChanged { layer.touched($0, spots: spots) }
+                .onEnded { _ in layer.lifted() }
+        )
+        #elseif os(macOS)
+        onContinuousHover(coordinateSpace: .local) { layer.hovered($0, spots: spots) }
+        #else
+        self
+        #endif
+    }
+}
+
+/// A fingertip-sized circle round each marker: the only places the peek layer answers touches.
+private struct MarkerSpotsShape: Shape {
+    let spots: [MarkerPeek.Spot]
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let r = MarkerPeek.hitRadius
+        for s in spots {
+            p.addEllipse(in: CGRect(x: s.x - r, y: s.y - r, width: r * 2, height: r * 2))
+        }
+        return p
+    }
+}
+
+/// The peek: the marker's own symbol, what it was ("6 units Novorapid at 12:56 pm"), and how long
+/// ago with the reading then. It sits above the marker, kept inside the chart, and springs up out of
+/// it on iPhone (a plain fade under Reduce Motion, and always on the Mac, where it's a tooltip).
+private struct MarkerPeekCard: View {
+    let proxy: ChartProxy
+    let marker: ChartLogMarker
+    let value: Double
+    let detail: String
+
+    static let width: CGFloat = 196
+
+    static func animation(showing: Bool, reduceMotion: Bool) -> Animation {
+        #if os(iOS)
+        if !reduceMotion {
+            return showing ? .spring(response: 0.32, dampingFraction: 0.68) : .easeIn(duration: 0.14)
+        }
+        #endif
+        return showing ? .easeOut(duration: 0.16) : .easeIn(duration: 0.12)
+    }
+
+    static func transition(reduceMotion: Bool) -> AnyTransition {
+        #if os(iOS)
+        if !reduceMotion {
+            return .scale(scale: 0.6, anchor: .bottom).combined(with: .opacity)
+        }
+        #endif
+        return .opacity
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            if let plot = proxy.plotFrame,
+               let x = proxy.position(forX: marker.date),
+               let y = proxy.position(forY: value) {
+                let frame = geo[plot]
+                let half = Self.width / 2
+                let cx = min(max(frame.minX + x, frame.minX + half), max(frame.minX + half, frame.maxX - half))
+                // Its bottom edge just above the marker, so the finger doesn't cover it.
+                let bottom = max(frame.minY + y - 14, 0)
+                card
+                    .frame(width: Self.width)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: Self.width, height: bottom, alignment: .bottom)
+                    .position(x: cx, y: bottom / 2)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var card: some View {
+        HStack(alignment: .top, spacing: DS.Space.sm) {
+            EventSymbol(event: marker)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(marker.label)
+                    .dsFont(.callout)
+                    .fontWeight(.semibold)
+                    .lineLimit(2)
+                Text(detail)
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DS.Space.sm)
+        .padding(.vertical, DS.Space.xs + 2)
+        .background { DSSurface(style: .standard, radius: DS.Radius.control) }
+        .dsShadow(.medium)
     }
 }

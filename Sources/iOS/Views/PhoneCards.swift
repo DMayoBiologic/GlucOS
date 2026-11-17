@@ -535,11 +535,12 @@ struct PhoneChartCard: View {
                              highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
                              forecast: forecast, forecastReveal: reveal, events: events(hours: Self.longest),
                              timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true, ripplesNewReading: true,
-                             yesterday: yesterday)
+                             yesterday: yesterday, peeksMarkers: true)
             }
                 .frame(height: 260)
                 .chartHoursPinch($settings.chartHours)
-                // Touch and hold for yesterday's faint line (also in Settings → Display).
+                // Touch and hold for yesterday's faint line (also in Settings → Display); a hold on a
+                // logged marker peeks it instead.
                 .yesterdayLineMenu($settings.showYesterdayLine)
                 .accessibilityAction(named: "Show fewer hours") {
                     settings.chartHours = ChartHours.shorter(than: settings.chartHours)

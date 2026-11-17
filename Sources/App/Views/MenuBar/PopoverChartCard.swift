@@ -62,7 +62,7 @@ struct PopoverChartCard: View {
                 GlucoseChart(readings: plotted, unit: store.shownUnit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                              hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
                              forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true, ripplesNewReading: true,
-                             yesterday: yesterday)
+                             yesterday: yesterday, peeksMarkers: true)
             }
                 .frame(height: 136)
                 .focusable()
