@@ -236,6 +236,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Tap the reading for details.** Tap the current reading on Today to see when it was taken, where it came from, how fast it's changing per minute and when the next one is due. Touch and hold anything you logged on the chart to peek at it.
 - **Search Settings.** Type in the search field at the top of Settings to find a setting by its name or an everyday word, like "mmol" for units. Tap a result to jump to it; it lights up briefly so you can spot it. A setting that appears only when another switch is on, such as "Warn me ahead by", lights up the row that reveals it instead.
 - **Empty cards explain themselves.** When an Insights card or a Logbook filter has nothing to show, it says why and offers one thing to try, like a longer period or clearing the filter. Tap a Logbook entry to edit it; the editor opens out of its row and folds back when you close it.
+- **Step through Insights periods.** Swipe sideways on Insights to go back a period, or forward again, never past today. If an alert banner is showing, swipe it up to put it away; a second alert stacks behind the first, so tap the stack to see both.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
