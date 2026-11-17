@@ -28,6 +28,9 @@ final class LogbookStore: ObservableObject {
     /// Low and high alerts that went off, and what was tapped on them (`AlertLog`). Synced, and
     /// shown in the Logbook, but never entries: nothing that reads `entries` sees them.
     @Published private(set) var alerts: [AlertRecord] = []
+    /// Each Insights screen's card order and hidden cards (docs/InsightsLayout.md). Synced, one
+    /// record per screen; a screen missing here shows the shipped order.
+    @Published private(set) var insightsLayouts: [InsightsScreen: InsightsLayout] = [:]
     /// The entries removed by the last delete, kept in memory so it can be undone.
     @Published private(set) var lastDeleted: [LogEntry] = []
     /// When each entry in `lastDeleted` was deleted, as pushed, so sync can tell this device's own
@@ -56,6 +59,8 @@ final class LogbookStore: ObservableObject {
         var bolusSettings: BolusSettings?
         var lowAnswers: [LowAnswer]? = []
         var alerts: [AlertRecord]? = []
+        /// Keyed by `InsightsScreen` raw value.
+        var insightsLayouts: [String: InsightsLayout]? = [:]
     }
 
     private static var url: URL? {
@@ -70,7 +75,10 @@ final class LogbookStore: ObservableObject {
 
     init() {
         loadInsulins()
-        defer { discoverInsulins() }
+        defer {
+            discoverInsulins()
+            adoptLegacyInsightsLayouts()
+        }
         if let url = Self.syncURL, let data = try? Data(contentsOf: url),
            let state = try? JSONDecoder().decode(LogbookSyncState.self, from: data) {
             syncState = state
@@ -94,6 +102,9 @@ final class LogbookStore: ObservableObject {
         bolusSettings = file.bolusSettings
         lowAnswers = file.lowAnswers ?? []
         alerts = file.alerts ?? []
+        for (raw, layout) in file.insightsLayouts ?? [:] {
+            if let screen = InsightsScreen(rawValue: raw), !layout.isStandard { insightsLayouts[screen] = layout }
+        }
         pruneExpiredAlerts()
     }
 
@@ -473,11 +484,49 @@ final class LogbookStore: ObservableObject {
         persist()
     }
 
+    // MARK: Insights layout
+
+    /// The screen's card order and hidden cards; the shipped order if nothing's been chosen.
+    func insightsLayout(for screen: InsightsScreen) -> InsightsLayout {
+        insightsLayouts[screen] ?? .standard
+    }
+
+    /// Keeps the screen's layout and syncs it. Back to the shipped order removes it everywhere.
+    func saveInsightsLayout(_ layout: InsightsLayout, for screen: InsightsScreen) {
+        guard layout != insightsLayout(for: screen) else { return }
+        insightsLayouts[screen] = layout.isStandard ? nil : layout
+        touch(screen.recordID, kind: .insightsLayout, deleted: layout.isStandard)
+        persist()
+    }
+
+    /// Builds before syncing kept each screen's layout in this device's UserDefaults. Moves it into
+    /// the logbook once, as older than anything on the server, so a layout another device already
+    /// synced wins and this one only fills a gap.
+    private func adoptLegacyInsightsLayouts() {
+        let defaults = UserDefaults.standard
+        var moved = false
+        for screen in InsightsScreen.allCases {
+            guard let text = defaults.string(forKey: screen.legacyKey) else { continue }
+            defaults.removeObject(forKey: screen.legacyKey)
+            let layout = InsightsLayout(stored: text)
+            guard insightsLayouts[screen] == nil, !layout.isStandard else { continue }
+            insightsLayouts[screen] = layout
+            if syncState.pending[screen.recordID] == nil {
+                syncState.pending[screen.recordID] = LogbookPendingChange(kind: LogbookRecordKind.insightsLayout.rawValue,
+                                                                          modified: LogbookMerge.adoptedModified,
+                                                                          deleted: false)
+            }
+            moved = true
+        }
+        if moved { persist(notify: false) }
+    }
+
     // MARK: Sync
 
     var contents: LogbookContents {
         LogbookContents(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets,
-                        foods: foods, bolusSettings: bolusSettings, lowAnswers: lowAnswers, alerts: alerts)
+                        foods: foods, bolusSettings: bolusSettings, lowAnswers: lowAnswers, alerts: alerts,
+                        insightsLayouts: insightsLayouts)
     }
 
     private func touch(_ id: UUID, kind: LogbookRecordKind, deleted: Bool = false) {
@@ -507,6 +556,7 @@ final class LogbookStore: ObservableObject {
             if c.bolusSettings != bolusSettings { bolusSettings = c.bolusSettings }
             if c.lowAnswers != lowAnswers { lowAnswers = c.lowAnswers }
             if c.alerts != alerts { alerts = c.alerts }
+            if c.insightsLayouts != insightsLayouts { insightsLayouts = c.insightsLayouts }
             // Another device may have sent records this one would already have let go.
             pruneAlerts(now: Date())
             persist(notify: false)
@@ -540,7 +590,8 @@ final class LogbookStore: ObservableObject {
         if notify { localChanges.send() }
         guard let url = Self.url else { return }
         let file = File(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets,
-                        foods: foods, bolusSettings: bolusSettings, lowAnswers: lowAnswers, alerts: alerts)
+                        foods: foods, bolusSettings: bolusSettings, lowAnswers: lowAnswers, alerts: alerts,
+                        insightsLayouts: Dictionary(uniqueKeysWithValues: insightsLayouts.map { ($0.key.rawValue, $0.value) }))
         Self.writeQueue.async {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .secondsSince1970

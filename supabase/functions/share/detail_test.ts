@@ -89,5 +89,5 @@ Deno.test("detail: follower payloads keep the shape the apps decode", () => {
 Deno.test("detail: followers never see alerts or the app's own records", () => {
   // Alert rows (docs/AlertLog.md), low answers and settings are the owner's alone.
   assertEquals(sharedLogKinds, ["dose", "meal", "siteChange", "context"]);
-  for (const k of ["alert", "lowAnswer", "preset", "food", "insulin", "bolusSettings"]) assert(!sharedLogKinds.includes(k));
+  for (const k of ["alert", "lowAnswer", "preset", "food", "insulin", "bolusSettings", "insightsLayout"]) assert(!sharedLogKinds.includes(k));
 });

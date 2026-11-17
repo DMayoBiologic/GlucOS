@@ -60,9 +60,13 @@ struct PhoneInsightsView: View {
     @EnvironmentObject var settings: AppSettings
     /// Opened from the evening recap notification: its Today card goes on top (docs/EveningRecap.md).
     var recapFiredAt: Date? = nil
-    /// The person's order and hidden cards, kept on this iPhone (docs/InsightsLayout.md). Held in
-    /// state so a change animates, and written back on every change.
-    @State private var layout = InsightsLayout(stored: UserDefaults.standard.string(forKey: InsightsLayout.phoneKey) ?? "")
+    /// The person's order and hidden cards for the iPhone screen (docs/InsightsLayout.md). Kept in
+    /// the logbook, so it syncs to their other iPhones and comes back after a reinstall.
+    private var layout: InsightsLayout { logbook.insightsLayout(for: .phone) }
+    private var layoutBinding: Binding<InsightsLayout> {
+        Binding(get: { logbook.insightsLayout(for: .phone) },
+                set: { logbook.saveInsightsLayout($0, for: .phone) })
+    }
     @State private var editing = false
     /// The card whose picture is being shared (docs/InsightsShare.md).
     @State private var sharing: InsightsCard?
@@ -73,7 +77,7 @@ struct PhoneInsightsView: View {
     var body: some View {
         ZStack {
             if editing {
-                PhoneInsightsEditList(layout: $layout, defaults: defaults, change: change)
+                PhoneInsightsEditList(layout: layoutBinding, defaults: defaults, change: change)
                     .transition(.opacity)
             } else {
                 cards.transition(.opacity)
@@ -89,9 +93,6 @@ struct PhoneInsightsView: View {
                 }
                 .accessibilityHint(editing ? "Goes back to your cards" : "Reorder or hide the Insights cards")
             }
-        }
-        .onChange(of: layout) { _, new in
-            UserDefaults.standard.set(new.stored, forKey: InsightsLayout.phoneKey)
         }
         .sheet(item: $sharing) { card in
             InsightsSharePreview(card: card,
@@ -203,7 +204,11 @@ struct PhoneInsightsView: View {
 
     /// Springs the cards into their new places; a cross-fade under Reduce Motion.
     private func change(_ edit: (inout InsightsLayout) -> Void) {
-        withAnimation(InsightsMotion.reorder(reduceMotion: reduceMotion)) { edit(&layout) }
+        var next = layout
+        edit(&next)
+        withAnimation(InsightsMotion.reorder(reduceMotion: reduceMotion)) {
+            logbook.saveInsightsLayout(next, for: .phone)
+        }
     }
 
     private func setEditing(_ on: Bool) {

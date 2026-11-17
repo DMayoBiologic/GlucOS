@@ -12,7 +12,7 @@ LibreLinkUp account they already use.
   foreground and during its background refreshes. What's waiting to go up is in
   `logbook-sync.json` next to the logbook.
 - **Records.** One row per entry in `glucos.logbook`: its id, kind (`insulin`, `dose`, `meal`, `siteChange`,
-  `context`, `preset`, `food`, `bolusSettings`, `lowAnswer`, `alert`), the entry as JSON (the same encoding as `logbook.json`), when it was last
+  `context`, `preset`, `food`, `bolusSettings`, `lowAnswer`, `alert`, `insightsLayout`), the entry as JSON (the same encoding as `logbook.json`), when it was last
   changed, and a server change counter (`rev`). Devices pull everything above the last counter they
   saw, and everything from the start every 12 hours.
 - **Conflicts.** The later edit wins, by the editing device's clock (the server caps it at five

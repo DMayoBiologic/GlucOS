@@ -70,6 +70,9 @@ enum LogbookRecordKind: String, CaseIterable {
     /// A low or high alert that went off and what was tapped on it (`AlertRecord`). Shown in the
     /// Logbook only: never a treatment, and not one of the kinds a follower sees.
     case alert
+    /// One Insights screen's card order and hidden cards (`SyncedInsightsLayout`): one record per
+    /// screen, id `InsightsScreen.recordID`. A screen back on the shipped order is a delete.
+    case insightsLayout
 }
 
 /// One entry as the server keeps it.
@@ -131,6 +134,8 @@ struct LogbookContents: Equatable {
     var bolusSettings: BolusSettings?
     var lowAnswers: [LowAnswer] = []
     var alerts: [AlertRecord] = []
+    /// Each Insights screen's layout. A screen without one shows the shipped order.
+    var insightsLayouts: [InsightsScreen: InsightsLayout] = [:]
 
     var allIDs: [(UUID, LogbookRecordKind)] {
         insulins.map { ($0.id, LogbookRecordKind.insulin) } +
@@ -139,6 +144,7 @@ struct LogbookContents: Equatable {
             + (bolusSettings == nil ? [] : [(BolusSettings.recordID, .bolusSettings)])
             + lowAnswers.map { ($0.id, .lowAnswer) }
             + alerts.map { ($0.id, .alert) }
+            + InsightsScreen.allCases.filter { insightsLayouts[$0] != nil }.map { ($0.recordID, .insightsLayout) }
     }
 }
 
@@ -281,6 +287,10 @@ enum LogbookMerge {
         case .bolusSettings: return id == BolusSettings.recordID ? c.bolusSettings.flatMap(json) : nil
         case .lowAnswer: return c.lowAnswers.first { $0.id == id }.flatMap(json)
         case .alert: return c.alerts.first { $0.id == id }.flatMap(json)
+        case .insightsLayout:
+            guard let screen = InsightsScreen(recordID: id), let layout = c.insightsLayouts[screen],
+                  !layout.isStandard else { return nil }
+            return json(SyncedInsightsLayout(screen: screen, layout: layout))
         case nil: return nil
         }
     }
@@ -330,6 +340,12 @@ enum LogbookMerge {
         case .alert:
             guard let a = decode(AlertRecord.self, from: payload) else { return false }
             if let i = c.alerts.firstIndex(where: { $0.id == a.id }) { c.alerts[i] = a } else { c.alerts.append(a) }
+        case .insightsLayout:
+            // A screen this build doesn't have (a newer app's) is left for that app.
+            guard let synced = decode(SyncedInsightsLayout.self, from: payload),
+                  let screen = InsightsScreen(rawValue: synced.screen) else { return false }
+            let layout = synced.layout
+            c.insightsLayouts[screen] = layout.isStandard ? nil : layout
         }
         return true
     }
@@ -338,6 +354,11 @@ enum LogbookMerge {
         if kind == .bolusSettings {
             guard c.bolusSettings != nil, id == BolusSettings.recordID else { return false }
             c.bolusSettings = nil
+            return true
+        }
+        if kind == .insightsLayout {
+            guard let screen = InsightsScreen(recordID: id), c.insightsLayouts[screen] != nil else { return false }
+            c.insightsLayouts[screen] = nil
             return true
         }
         let before = c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count + c.foods.count
@@ -355,7 +376,7 @@ enum LogbookMerge {
         case .food: c.foods.removeAll { $0.id == id }
         case .lowAnswer: c.lowAnswers.removeAll { $0.id == id }
         case .alert: c.alerts.removeAll { $0.id == id }
-        case .bolusSettings: break
+        case .bolusSettings, .insightsLayout: break
         }
         return before != c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count + c.foods.count
             + c.lowAnswers.count + c.alerts.count
