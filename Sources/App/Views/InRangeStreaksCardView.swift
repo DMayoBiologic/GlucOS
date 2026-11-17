@@ -158,7 +158,7 @@ private struct StreakDots: View {
         }
         .clipShape(Capsule())
         .accessibilityHidden(true)
-        .onAppear {
+        .onEntrance {
             guard !filled else { return }
             if animates {
                 // Next frame, so the empty row is drawn before it fills.

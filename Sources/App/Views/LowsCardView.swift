@@ -197,7 +197,7 @@ private struct LowsTimeOfDayBars: View {
             }
         }
         .accessibilityHidden(true)
-        .onAppear {
+        .onEntrance {
             guard !grown else { return }
             if reduceMotion { grown = true } else {
                 // Next frame, so the bars are laid out empty first.

@@ -168,6 +168,153 @@ private struct DSEntrance: ViewModifier {
     }
 }
 
+// MARK: - Card reveal
+
+private struct EntranceHeldKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// The card around this view hasn't risen in yet (`dsReveal`), so its own first-appearance
+    /// motion (figures counting up, rings and bars drawing in, sparklines sweeping) waits for it,
+    /// rather than playing out unseen below the fold. False everywhere else.
+    var entranceHeld: Bool {
+        get { self[EntranceHeldKey.self] }
+        set { self[EntranceHeldKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Runs `action` when the view appears, or, inside a card that hasn't risen in yet, when that
+    /// card starts to rise. Use it in place of `onAppear` for a view's first-appearance motion.
+    /// `action` should guard against running twice, as an `onAppear` one would.
+    func onEntrance(perform action: @escaping () -> Void) -> some View {
+        modifier(OnEntrance(action: action))
+    }
+
+    /// Rises and fades a card in once, the first time it comes into view on this visit, a short
+    /// stagger after any card that came into view with it. `.scrolledIntoView` waits until the
+    /// card is scrolled on screen (iPhone Insights); `.appear` plays when the screen opens, `order`
+    /// steps after the first (Mac Insights). Never replays for the same `id` from the same
+    /// `reveals`; a plain fade under Reduce Motion. The card's own count-ups and draw-ins
+    /// (`onEntrance`) start as it rises. Not for widgets.
+    func dsReveal(_ id: AnyHashable, in reveals: CardReveals, when trigger: CardRevealTrigger,
+                  order: Int = 0) -> some View {
+        modifier(DSReveal(id: id, reveals: reveals, trigger: trigger, order: order))
+    }
+}
+
+enum CardRevealTrigger {
+    case appear
+    case scrolledIntoView
+}
+
+private struct OnEntrance: ViewModifier {
+    let action: () -> Void
+    @Environment(\.entranceHeld) private var held
+    @State private var onScreen = false
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                onScreen = true
+                if !held { action() }
+            }
+            .onDisappear { onScreen = false }
+            .onChange(of: held) { _, nowHeld in
+                if !nowHeld && onScreen { action() }
+            }
+    }
+}
+
+private struct DSReveal: ViewModifier {
+    let id: AnyHashable
+    let reveals: CardReveals
+    let trigger: CardRevealTrigger
+    let order: Int
+    @State private var shown: Bool
+    /// The scroll view has said whether the card is visible at least once.
+    @State private var reported = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// A card that isn't drawn yet can't be reached by VoiceOver, so it couldn't be swiped to and
+    /// scrolled into view. With VoiceOver on, every card rises in as the screen opens.
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+
+    private var waitsForScroll: Bool { trigger == .scrolledIntoView && !voiceOver }
+
+    init(id: AnyHashable, reveals: CardReveals, trigger: CardRevealTrigger, order: Int) {
+        self.id = id
+        self.reveals = reveals
+        self.trigger = trigger
+        self.order = order
+        _shown = State(initialValue: reveals.hasRevealed(id))
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.entranceHeld, !shown)
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown || reduceMotion ? 0 : 18)
+            .scaleEffect(shown || reduceMotion ? 1 : 0.985, anchor: .top)
+            .modifier(VisibilityWatch(active: waitsForScroll && !shown) { visible in
+                reported = true
+                if visible { reveal() }
+            })
+            .onAppear {
+                guard !shown else { return }
+                if !waitsForScroll {
+                    reveal(after: Double(min(order, 8)) * 0.055)
+                } else {
+                    // Should the scroll view never say (no scroll view around it), rise in anyway
+                    // rather than stay invisible.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        if !reported { reveal() }
+                    }
+                }
+            }
+    }
+
+    private func reveal(after fixed: TimeInterval? = nil) {
+        guard !shown, let batched = reveals.claim(id) else {
+            // Already risen on this visit (its view was rebuilt): just be there.
+            if !shown { shown = true }
+            return
+        }
+        let delay = fixed ?? batched
+        let start = {
+            let animation: Animation = reduceMotion
+                ? .easeOut(duration: 0.2)
+                : .spring(response: 0.55, dampingFraction: 0.86)
+            withAnimation(animation) { shown = true }
+        }
+        // Waits in real time, not as an animation delay, so the card's count-ups (held until
+        // `shown`) start with the rise instead of before it.
+        if delay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: start)
+        } else {
+            start()
+        }
+    }
+}
+
+/// Reports whether the view is at least a little on screen in its scroll view, while `active`.
+private struct VisibilityWatch: ViewModifier {
+    let active: Bool
+    let changed: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        // Always attached once available, whether or not it's active: switching the modifier on
+        // and off would rebuild the card under it and restart its motion.
+        if #available(iOS 18, macOS 15, *) {
+            content.onScrollVisibilityChange(threshold: 0.1) { visible in
+                if active { changed(visible) }
+            }
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - Draw-in
 
 /// Drives a ring from empty to its value when it first appears. The ring starts `progress` at 0
@@ -179,7 +326,7 @@ struct DrawIn: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
-        content.onAppear {
+        content.onEntrance {
             guard enabled, progress < 1 else { return }
             if reduceMotion { progress = 1; return }
             withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.1)) { progress = 1 }
@@ -235,7 +382,7 @@ struct RollingFigure: View {
         Text(text(display))
             .contentTransition(.numericText(value: display))
             .accessibilityLabel(text(value))
-            .onAppear {
+            .onEntrance {
                 guard countsUp, animates, shown == nil else { return }
                 // Next frame, so the zero is drawn before it rolls.
                 DispatchQueue.main.async {

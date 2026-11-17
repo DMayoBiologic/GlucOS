@@ -173,7 +173,7 @@ private struct DayChartDrawIn: ViewModifier {
                 }
             }
             .opacity(reduceMotion && !shown ? 0 : 1)
-            .onAppear { reveal() }
+            .onEntrance { reveal() }
             .onChange(of: day) { reveal() }
     }
 

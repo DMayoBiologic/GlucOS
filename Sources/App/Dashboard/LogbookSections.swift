@@ -858,6 +858,9 @@ struct InsightsSection: View {
     @State private var customising = false
     /// The card whose picture is being shared (docs/InsightsShare.md).
     @State private var sharing: InsightsCard?
+    /// Cards that have risen in since the page opened, so a re-sort or the customise sheet never
+    /// plays them again.
+    @State private var reveals = CardReveals()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let defaults = InsightsCard.macDefault
@@ -912,8 +915,10 @@ struct InsightsSection: View {
                 let visible = cardLayout.visible(Self.defaults).filter(onScreen)
                 VStack(alignment: .leading, spacing: layout.gutter) {
                     ForEach(Array(visible.enumerated()), id: \.element) { i, card in
+                        // Rises in as the page opens, a step after the card above it; its
+                        // figures count up and its bars draw in as it rises, not before.
                         view(for: card)
-                            .dsEntrance(5 + i)
+                            .dsReveal(card, in: reveals, when: .appear, order: 5 + i)
                             .contextMenu { menu(card, index: i, count: visible.count) }
                             .accessibilityAction(named: "Share card") { sharing = card }
                     }
