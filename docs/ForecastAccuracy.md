@@ -3862,3 +3862,74 @@ select i.thr, i.m, count(*) n, avg(abs(i.a - i.f)) drawn,
   avg(abs(i.a - (i.s + pk.w * (i.f - i.s)))) held_out, avg(abs(i.a - i.s)) no_change
 from idle i join pick pk using (thr, m, dy) group by 1, 2 order by 1, 2;
 ```
+
+## 55. Should every forecast be blended with "no change" by a fixed weight per horizon? (17 Nov 2026)
+
+The question: §52 found the drawn forecast beats "no change" by 4–9% at 15 to 45 minutes and ties
+at 60, and §54 found leaning toward no change only in idle stretches didn't help. Would one fixed
+blend weight per horizon, applied to every drawn forecast, lower the 30- and 60-minute miss?
+**No. Held out, the best weight is about 1 (the forecast as drawn) at 30 minutes and the blend is
+0.6% worse; at 60 minutes the in-sample best weight (0.35) is 2.2% better but 1.3% worse held out,
+and swings from −8% to +25% by day. Nothing shipped; no app or relay code changed, so the relay
+stays 2.17.0.**
+
+**The data.** 1,075 clean drawn points (nothing logged after, a reading at the target, shown) at
+15, 30, 45 and 60 minutes in `glucos.forecast_checks`, Mac, iPhone and relay, 12–17 Nov Perth.
+
+**The test.** Each line becomes `start + w × (forecast − start)`, with w from 0 (no change) to 1.2
+in steps of 0.05, one w per horizon for every device and kind. w was chosen on every other Perth
+day and scored on the held-out day (leave one day out). Ties go to the w closest to 1.
+
+| Horizon | Points | Days | Drawn | Held out | Diff | No change | Best w, all days | Held-out w by day | Days better / worse |
+|---|---|---|---|---|---|---|---|---|---|
+| 15 min | 485 | 6 | 18.29 | 18.66 | +2.0% | 19.18 | 0.75 | 0.5–0.9 | 3 / 3 |
+| 30 min | 266 | 6 | 31.00 | 31.19 | +0.6% | 34.21 | 1.05 | 0.95–1.15 | 0 / 4 |
+| 45 min | 180 | 5 | 46.83 | 47.52 | +1.5% | 48.93 | 1.15 | 0.85–1.2 | 0 / 5 |
+| 60 min | 144 | 5 | 54.97 | 55.69 | +1.3% | 54.49 | 0.35 | 0.05–0.7 | 3 / 2 |
+
+- **30 minutes wants the forecast exactly as drawn.** Every held-out day picks w between 0.95 and
+  1.15, and no day gets better. 45 minutes is the same (w 0.85–1.2, worse on every day). The drawn
+  line is already about as far from no change as it should be there.
+- **60 minutes has no stable weight.** The held-out pick runs from 0.05 to 0.7. Pulling toward no
+  change helps on 13–15 Nov (−4 to −8%) but costs 24.6% on 12 Nov, when the insulin-and-carb
+  forecast was 42 against no change's 54. With all days in, w = 0.35 is 53.8 against 55.0 drawn
+  (−2.2%), under the 3% bar even before holding out, and no held-out version keeps it.
+- **15 minutes splits the days evenly** (3 better, 3 worse). The days that like a pull are 13, 14
+  and 17 Nov, the same trend-only near-ties §52 and §54 saw (iPhone trend-only and the relay), so
+  a horizon-wide blend would tax the Mac's insulin-and-carb forecast to fix them.
+
+**Low warnings.** Of the clean points that ended under 70 and were drawn under 70, the held-out
+blend keeps 9 of 10 at 15 minutes, 4 of 4 at 30 and 1 of 1 at 45 (none at 60). Nothing shipped,
+so low warnings (§13, §30) and "a low is possible" are exactly as before.
+
+**Dosing.** Not touched: nothing here changes insulin on board, the effect learner or the bolus
+figure.
+
+**Caveats.** Five and a bit days, 144 sixty-minute points from 5 days, all insulin-and-carb
+forecasts. The 60-minute tie with no change is real, but it is a day-to-day swing, not a steady
+over-reach a fixed weight can trim; the §8 cut already handles a horizon that stops paying its way.
+Rerun after three weeks; ship a blend only if it is at least 3% better held out at 30 AND 60
+minutes, better on most days, with the low check unchanged. If 15 minutes still splits, look at a
+per-kind weight for trend-only forecasts, not a horizon-wide one.
+
+```sql
+with p as (select c.id, c.device d, c.basis b, c.issued_at t, c.start_mgdl s, (e->>'minutes')::int m,
+  (e->>'actual')::float a, (e->>'mgdl')::float f,
+  coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al, coalesce(e->>'shown', 'true') shown
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e),
+cl as (select p.*, date(t at time zone 'Australia/Perth') dy from p
+  where a is not null and not al and shown <> 'false' and m in (15, 30, 45, 60)),
+w(w) as (select g / 20.0 from generate_series(0, 24) g),
+dayw as (select m, dy, w.w, sum(abs(a - (s + w.w * (f - s)))) se, count(*) n from cl cross join w group by 1, 2, 3),
+oth as (select d1.m, d1.dy, d2.w, sum(d2.se) / sum(d2.n) e from (select distinct m, dy from dayw) d1
+  join dayw d2 on d2.m = d1.m and d2.dy <> d1.dy group by 1, 2, 3),
+pick as (select distinct on (m, dy) m, dy, w from oth order by m, dy, e, abs(w - 1)),
+byday as (select c.m, c.dy, count(*) n, avg(abs(c.a - c.f)) drawn,
+  avg(abs(c.a - (c.s + pk.w * (c.f - c.s)))) ho, avg(abs(c.a - c.s)) nc, max(pk.w) w,
+  sum((c.a < 70 and c.f < 70)::int) low_drawn, sum((c.a < 70 and c.s + pk.w * (c.f - c.s) < 70)::int) low_blend
+  from cl c join pick pk using (m, dy) group by 1, 2)
+select m, sum(n) n, sum(drawn * n) / sum(n) drawn, sum(ho * n) / sum(n) held_out, sum(nc * n) / sum(n) no_change,
+  sum((ho < drawn)::int) days_better, sum((ho > drawn)::int) days_worse,
+  string_agg(dy || ':' || w, ' ' order by dy) w_by_day, sum(low_drawn) low_drawn, sum(low_blend) low_blend
+from byday group by m order by m;
+```
