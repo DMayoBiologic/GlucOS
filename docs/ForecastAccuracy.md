@@ -5003,3 +5003,85 @@ passes the bar above held out by day. A different fix, if wanted later, is to sh
 replay next to the card's own figures; that's a design change, not a reweighting.
 
 **Dosing.** Not touched.
+
+## 71. Are forecasts worse when the latest reading is a peak or a trough, and would damping the trend there help? (18 Nov 2026)
+
+The worry: the trend is a 20-minute fit, so just after glucose tops out or bottoms out it still points
+the old way, and the line carries on into the turn. The candidate is to damp the trend whenever the
+latest readings show a turn. The bar: better on held-out days at both 30 and 60 minutes, and no
+lifting of lows (no low warning later, no higher forecasts where glucose ends up low). **Turning
+points are worse, and one narrow damping passes the bar, but it is almost entirely a subset of §45's
+rises-only easing, which does more on the same days and is already due a retest against a stricter
+bar. Nothing ships; no app or relay code changed, so the relay stays as it is.**
+
+Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
+
+**How.** `scripts/turning-points.py` replays the engine's trend forecast (20-minute slope clamped at
+±4, 30-minute fade) every 5 minutes on the live readings in `glucos.readings`, 11–18 Nov, 9,008
+readings, 1,704 forecast points over 8 Perth days, scored at 15, 30 and 60 minutes at gains 0.45
+(Mac, relay), 0.6 and 0.7 (iPhone). A turning point is judged only from what the app has at issue
+time, on the readings nearest to now, 5, 10 and 15 minutes ago (so one-minute noise doesn't count):
+the reading 5 or 10 minutes ago is a peak if it sits at least M mg/dL above the 5-minute readings on
+either side, a trough if M below. The latest reading can't be judged until the next one lands, so
+"the latest reading is a turn" means a turn in the last 10 minutes. M is 1, 3 and 5. Like §45, §59
+and §66 it models the trend term only; on the `trendInsulinCarbs` basis the trend is only part of
+the drawn line.
+
+**How much worse** (gain 0.6, mean miss in mg/dL, no change / as shipped, bias = actual − forecast in
+brackets, so negative means the forecast ran high):
+
+| M = 3 (29% of points) | 15 min | 30 min | 60 min |
+|---|---|---|---|
+| Turning points (490) | 17.8 / 18.8 (−1.5) | 25.2 / 26.5 (−3.2) | 41.6 / 42.8 (−7.1) |
+| Peaks (283, 153 with the trend still rising) | 17.9 / 18.3 (−5.1) | 24.9 / 26.3 (−7.0) | 41.7 / 42.8 (−11.4) |
+| Troughs (207, 117 still falling) | 17.7 / 19.6 (+3.5) | 25.7 / 26.8 (+2.2) | 41.5 / 42.9 (−1.2) |
+| The rest (1,214) | 16.3 / 15.4 (+0.7) | 26.4 / 25.1 (+1.5) | 40.4 / 40.5 (+3.3) |
+
+At a turn the shipped line misses about 6% more than elsewhere at 30 and 60 minutes, and it is worse
+than no change there at every horizon, while on the rest it beats no change at 15 and 30 minutes and
+ties it at 60. Peaks run high (the
+line keeps rising after the top) and troughs run low at 15 and 30 minutes. M = 1 (48% of points)
+and M = 5 (17%) read the same, the gap growing with M (at M = 5, 28.1 vs 25.0 at 30, 45.7 vs 40.2
+at 60).
+
+**Held out.** The damping scales the trend by w (1 = as shipped, 0 = no change) at a turning point,
+w picked on seven Perth days by miss at 30 + 60 minutes and scored on the eighth. Three variants:
+*all* turning points, *into* (only when the trend still points into the turn: rising at a peak,
+falling at a trough) and *peaks* (only at a peak with the trend still rising, which can only lower
+a forecast). Every fold picked w = 0, full damping, in every variant.
+
+| Gain 0.45 | 30 min | 60 min | Days better (30 / 60, of 8) | Low warnings later | Bias where actual < 80 at 30 (−18.5 shipped) |
+|---|---|---|---|---|---|
+| All, M = 1 | 25.41 → 25.15 (−1.0%) | 40.86 → 40.49 (−0.9%) | 7 / 7 | 3 of 9 (12 Nov 23:39 loses all 4 min) | −19.1 |
+| Into, M = 1 | → 25.16 (−1.0%) | → 40.54 (−0.8%) | 7 / 7 | 0 | −18.7 |
+| Peaks, M = 1 | → 25.18 (−0.9%) | → 40.65 (−0.5%) | 7 / 7 | 0 | −17.8 |
+| Peaks, M = 3 | → 25.24 (−0.7%) | → 40.72 (−0.3%) | 7 / 6 | 0 | −18.1 |
+
+Gain 0.6 and 0.7 gain a little more (peaks M = 1: −1.3% / −0.7% and −1.5% / −0.9%). Damping troughs
+raises the line where glucose is heading low: *all* makes up to 3 of the 9 lows warn later and
+*into* pushes forecasts near lows higher still, so both fail the lows bar. *Peaks* passes it: no low
+warning moves, forecasts near lows come down a little, and predicted highs (29 highs over 180) are
+no later at any gain, with one or two fewer false alarms (gain 0.45: 9 → 7).
+
+**Why it still doesn't ship.** Of the 238 peak points it touches, §45's rises-only easing (S = 5,
+k = 1, floor 0: ease a rising trend by how much weaker the last 5 minutes are) already eases 236 and
+takes 229 to zero. On these same 8 days §45 alone scores 25.08 at 30 and 40.50 at 60 at gain 0.45
+(−1.3% / −0.9%), better than *peaks* (−0.9% / −0.5%), and adding *peaks* on top of it changes
+nothing (25.07 / 40.50). So this is a weaker slice of a rule we already have on the bench, and
+§45's agreed bar is 3% at 15 and 30 minutes at gain 0.45 on three weeks of data, which neither
+clears (§45 here: −1.4% at 15, −1.3% at 30). Shipping the slice now would pre-empt that retest for
+under 1%.
+
+**Decision.** Keep the trend as it is. Fold the turning-point question into the §45 retest on
+**7 Dec 2026**: rerun both scripts, and if §45 clears its bar, it covers the peaks here. Revisit a
+trough rule only with a per-low check that passes on every low; on this data it lifts lows. To
+rerun:
+
+    python3 scripts/turning-points.py DIR
+
+`DIR` holds readings.json (`[[unix, mgdl], ...]` from `glucos.readings where trend > 0`) and
+logs.json (`[[unix, "meal" | "dose"], ...]`, meals and rapid doses from `glucos.logbook`,
+`payload->>'timestamp'`), as for §59.
+
+**Dosing.** Not touched: the trend feeds only the drawn forecast and predicted alerts, never insulin
+on board, the effect learner or the bolus figure.
