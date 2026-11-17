@@ -620,6 +620,15 @@ struct PhoneChartCard: View {
 struct PhoneGlanceCard: View {
     @EnvironmentObject var store: GlucoseStore
     @State private var window: GlanceWindow = .day
+    /// Each of the last 14 days' time in range, worked out off the main thread once per 15 minutes
+    /// of new readings or a new target range.
+    @State private var trend: InsightsSparkline?
+
+    private struct TrendKey: Hashable {
+        let slot: Int
+        let low: Double
+        let high: Double
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
@@ -633,6 +642,10 @@ struct PhoneGlanceCard: View {
             }
             if let stats = store.glanceStats(window) {
                 GlanceStatsContent(stats: stats, unit: store.snapshot.unit)
+                if let trend {
+                    InsightsSparklineView(series: trend, tint: GlucoseRange.inRange.tint,
+                                          label: InsightsSparkline.timeInRangeLabel)
+                }
             } else {
                 Text("Readings will appear here as GlucOS collects them.")
                     .dsFont(.callout)
@@ -640,6 +653,16 @@ struct PhoneGlanceCard: View {
             }
         }
         .dsCard(.standard, padding: DS.Space.lg)
+        .task(id: TrendKey(slot: Int((store.archive.last?.timestamp.timeIntervalSince1970 ?? 0) / 900),
+                           low: store.snapshot.lowMgdl, high: store.snapshot.highMgdl)) {
+            let readings = store.readings(lastHours: 15 * 24)
+            let low = store.snapshot.lowMgdl, high = store.snapshot.highMgdl
+            let new = await Task.detached(priority: .utility) {
+                InsightsSparkline.timeInRange(readings: readings, low: low, high: high)
+            }.value
+            // The line bends into its new shape by itself (a cross-fade under Reduce Motion).
+            trend = new
+        }
     }
 }
 

@@ -163,6 +163,9 @@ enum LowsSummaryText {
         "Lows over \(period.spoken) show here once GlucOS has a day of readings."
     }
 
+    /// What the card's sparkline shows (`InsightsSparkline.lows`).
+    static let sparklineLabel = "Lows each day"
+
     static func countValue(_ n: Int) -> String { n == 0 ? "None" : "\(n)" }
 
     static func lows(_ n: Int) -> String { n == 1 ? "1 low" : "\(n) lows" }
