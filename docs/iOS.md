@@ -234,7 +234,8 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **A meal and its insulin share a row.** In the Logbook, entries logged within 15 minutes of each other show as one row. Tap it to open out the separate entries, each with its own swipes and menu.
 - **See your day hour by hour.** The Time in range by hour card in Insights colours each of the 24 hours by how much time you spent in range over the period. Tap an hour to see what you logged around then on those days.
 - **Tap the reading for details.** Tap the current reading on Today to see when it was taken, where it came from, how fast it's changing per minute and when the next one is due. Touch and hold anything you logged on the chart to peek at it.
-- **Search Settings.** Type in the search field at the top of Settings to find a setting by its name or an everyday word, like "mmol" for units. Tap a result to jump to it; it lights up briefly so you can spot it.
+- **Search Settings.** Type in the search field at the top of Settings to find a setting by its name or an everyday word, like "mmol" for units. Tap a result to jump to it; it lights up briefly so you can spot it. A setting that appears only when another switch is on, such as "Warn me ahead by", lights up the row that reveals it instead.
+- **Empty cards explain themselves.** When an Insights card or a Logbook filter has nothing to show, it says why and offers one thing to try, like a longer period or clearing the filter. Tap a Logbook entry to edit it; the editor opens out of its row and folds back when you close it.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
