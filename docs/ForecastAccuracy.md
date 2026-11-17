@@ -3767,3 +3767,98 @@ and the apps sit 3–9 points short, inside the day-to-day spread. Retest at thr
 fixed per-horizon factor only if it wins the interval score held out on most days at 30 and
 60 minutes. To rerun: export with the SQL in `scripts/adaptive-range.py`, then
 `python3 -I scripts/range-calibration.py points.txt`.
+
+## 54. Should forecasts lean toward "no change" when nothing has been logged for hours? (17 Nov 2026)
+
+The question: split forecast error by how long it has been since the last logged meal or rapid
+dose, and in the idle stretches (4 hours or more with nothing active), would pulling the drawn line
+part of the way back toward "no change" lower the 30- and 60-minute miss? §52 found the forecast
+beats no change by 4–9% at 15–45 minutes overall. **Idle forecasts still beat no change by 7% at
+30 minutes, and no pull toward no change helps there held out (0.0 to +0.2% at a 2 or 4 hour
+cut, +12.6% at 6 hours). At 60 minutes there are only 16 idle points from 2 days, too few to act
+on. Nothing shipped; no app or relay code changed, so the relay stays 2.17.0.**
+
+**The data.** 1,072 clean drawn points (nothing logged after, a reading at the target) at 15, 30,
+45 and 60 minutes in `glucos.forecast_checks`, Mac, iPhone and relay, 12–17 Nov Perth, with extras
+included as in §52. "Time since" is from the issue time back to the latest non-deleted meal or
+rapid dose in `glucos.logbook` (long-acting doses don't count). Points with no earlier entry count
+as idle. A negative difference means the forecast was closer than no change.
+
+| Horizon | Under 4 h: checks / forecast / no change / diff | 4 h or more: checks / forecast / no change / diff |
+|---|---|---|
+| 15 min | 279 / 17.8 / 19.8 / −9.8% | 203 / 18.8 / 18.2 / +3.5% |
+| 30 min | 191 / 30.8 / 34.3 / −10.2% | 75 / 31.6 / 34.1 / −7.3% |
+| 45 min | 150 / 44.9 / 47.4 / −5.3% | 30 / 56.6 / 56.7 / −0.2% |
+| 60 min | 128 / 56.5 / 56.6 / −0.1% | 16 / 42.4 / 37.6 / +13.0% |
+
+- **The idle edge is smaller but real at 30 minutes.** Idle forecasts are 7% closer than no change
+  there; the trend still carries information when nothing is active.
+- **At 15 minutes idle forecasts lose to no change** (+3.5%), mostly the iPhone's trend-only
+  forecast (+11.7%, 59 checks, around late morning) and the relay (+3.4%, 97 checks). The Mac's
+  insulin-and-carb forecast still wins idle (−8.6%). This matches the §52 near-ties (relay 15,
+  iPhone trend-only 15 on the morning of 17 Nov).
+- **60 minutes barely exists idle**: the §8 cut stops trend-only lines at 30 minutes, so the 16
+  idle 60-minute points are insulin-and-carb forecasts from 2 days (13 and 15 Nov).
+
+**The test.** For idle points (cut at 2, 4 or 6 hours), the line becomes
+`start + w × (forecast − start)`, w from 1 (as drawn) to 0 (no change). w was chosen per horizon
+on every other Perth day and applied to the held-out day (leave one day out), so the result isn't
+fitted to the day it's scored on.
+
+| Idle cut | Horizon | Points | Drawn | Held out | Diff | No change | Best w in sample |
+|---|---|---|---|---|---|---|---|
+| 2 h | 15 min | 340 | 18.7 | 18.9 | +1.6% | 19.6 | 0.75–0.9 |
+| 2 h | 30 min | 172 | 34.3 | 34.3 | 0.0% | 37.6 | 1.0 |
+| 2 h | 60 min | 87 | 66.4 | 67.3 | +1.4% | 64.3 | 0 |
+| 4 h | 15 min | 203 | 18.8 | 19.0 | +1.1% | 18.2 | 0.25 |
+| 4 h | 30 min | 75 | 31.6 | 31.7 | +0.2% | 34.1 | 0.9–1.0 |
+| 4 h | 60 min | 16 | 42.4 | 37.6 | −11.5% | 37.6 | 0 (2 days) |
+| 6 h | 15 min | 128 | 16.7 | 15.7 | −6.1% | 14.8 | 0 |
+| 6 h | 30 min | 34 | 23.4 | 26.4 | +12.6% | 25.9 | 0.75 |
+
+- **30 minutes picks w = 1 (no pull) on every held-out day at 2 hours, and 0.9–1.0 at 4.** The
+  forecast is already as far from no change as it should be there.
+- **The 60-minute win at 4 hours is 16 points on 2 days** and doesn't hold at 2 hours (+1.4%,
+  87 points). With 2 days, each is fitted on the other alone, so it isn't a held-out result worth
+  trusting.
+- **The only steady signal is 15 minutes after 6 idle hours** (−6.1% held out, w = 0 on 4 of 5
+  days), but the brief was 30 and 60, and 30 minutes gets worse by 12.6% under the same cut. It's
+  the same short-horizon trend-only weakness §52 and §31 saw, not an idle effect on its own.
+
+**Low warnings.** A pull toward no change would move the central line and so the predicted-low
+check (§13, §30). Nothing shipped, so low warnings and "a low is possible" are exactly as before.
+
+**Dosing.** Not touched: nothing here changes insulin on board, the effect learner or the bolus
+figure.
+
+**Caveats.** Five and a bit days, only 17 meals and 29 doses logged since 7 Nov, so "idle" is most
+of every night and late morning, and is partly a time-of-day split. Rerun after three weeks with
+more logged entries; ship an idle pull only if it is at least 3% better held out at 30 AND 60
+minutes on most days, with the low check unchanged. If the 15-minute idle loss persists, the
+candidate is a trend-only 15-minute fix (for example a §8-style cut that can reach 15 minutes for
+the relay and the iPhone's trend-only forecast), not an idle rule.
+
+```sql
+with lg as (select to_timestamp((payload->>'timestamp')::float) ts, kind, payload->>'kind' k
+  from glucos.logbook where not deleted and kind in ('meal','dose') and payload->>'timestamp' is not null),
+p as (select c.id, c.device d, c.basis b, c.issued_at t, c.start_mgdl s, (e->>'minutes')::int m,
+  (e->>'actual')::float a, (e->>'mgdl')::float f,
+  coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al, coalesce(e->>'shown', 'true') shown
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e),
+cl as (select p.*, date(t at time zone 'Australia/Perth') dy,
+  (select extract(epoch from p.t - max(ts)) / 3600 from lg
+    where ts <= p.t and (kind = 'meal' or coalesce(k, 'rapid') = 'rapid')) since
+  from p where a is not null and not al and shown <> 'false' and m in (15, 30, 45, 60)),
+th(h) as (values (2), (4), (6)),
+w(w) as (values (1.0), (0.9), (0.75), (0.5), (0.25), (0.0)),
+idle as (select th.h thr, cl.* from cl cross join th where cl.since is null or cl.since >= th.h),
+dayw as (select thr, m, dy, w.w, sum(abs(a - (s + w.w * (f - s)))) se, count(*) n
+  from idle cross join w group by 1, 2, 3, 4),
+oth as (select d1.thr, d1.m, d1.dy, d2.w, sum(d2.se) / sum(d2.n) e
+  from (select distinct thr, m, dy from dayw) d1
+  join dayw d2 on d2.thr = d1.thr and d2.m = d1.m and d2.dy <> d1.dy group by 1, 2, 3, 4),
+pick as (select distinct on (thr, m, dy) thr, m, dy, w from oth order by thr, m, dy, e, w desc)
+select i.thr, i.m, count(*) n, avg(abs(i.a - i.f)) drawn,
+  avg(abs(i.a - (i.s + pk.w * (i.f - i.s)))) held_out, avg(abs(i.a - i.s)) no_change
+from idle i join pick pk using (thr, m, dy) group by 1, 2 order by 1, 2;
+```
