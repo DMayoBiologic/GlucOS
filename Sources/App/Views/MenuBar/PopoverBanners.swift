@@ -6,7 +6,7 @@ import AppKit
 struct PopoverNotice: Identifiable {
     enum Kind: Int, Comparable {
         // Order is priority: the numbers on screen first, then whether alerts can reach you.
-        case stale, sensorEnded, notificationsBlocked, connection, sensorEnding
+        case stale, notificationsBlocked, connection
 
         static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
     }
@@ -31,27 +31,16 @@ extension PopoverNotice {
         var out: [PopoverNotice] = []
         // While a new sensor warms up, its countdown card says when readings start instead: the
         // old sensor's last reading is hidden, so there's no old number to warn about.
-        if let cur = s.current, s.isStale(at: now), s.warmUp(at: now) == nil {
+        // Once the sensor has ended, its card says so and what to do, so there's no stale warning either.
+        if let cur = s.current, s.isStale(at: now), s.warmUp(at: now) == nil, s.sensorEnded(at: now) == nil {
             out.append(PopoverNotice(
                 kind: .stale, severity: .warning, systemImage: "clock.badge.exclamationmark.fill",
                 title: "No new reading for \(PopoverFormat.age(cur.age(at: now)))",
                 message: "Don't treat based on this value. Check your sensor and phone, or scan with your reader.",
                 action: BannerAction(title: "Check Now", isBusy: store.isRefreshing, perform: onRefresh)))
         }
-        if let sensor = s.sensor {
-            let remaining = sensor.daysRemaining(at: now)
-            if remaining <= 0 {
-                out.append(PopoverNotice(
-                    kind: .sensorEnded, severity: .critical, systemImage: "sensor.tag.radiowaves.forward.fill",
-                    title: "Sensor has ended",
-                    message: "Readings stop until you start a new sensor."))
-            } else if remaining < 0.25 {
-                out.append(PopoverNotice(
-                    kind: .sensorEnding, severity: .warning, systemImage: "sensor.tag.radiowaves.forward.fill",
-                    title: "Sensor ends in \(Format.days(remaining))",
-                    message: "Have a replacement ready so you don't lose readings."))
-            }
-        }
+        // The sensor's last day and its end are in the top card: a quiet countdown line under the
+        // reading, then the ended card in its place (docs/SensorEnd.md).
         if store.notificationsBlocked {
             out.append(PopoverNotice(
                 kind: .notificationsBlocked, severity: .critical, systemImage: "bell.slash.fill",

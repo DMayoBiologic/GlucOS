@@ -376,6 +376,8 @@ final class GlucoseStore: ObservableObject {
         refreshUsualGlance()
         // Today's evening recap carries the latest figures (only does anything when they moved).
         EveningRecapScheduler.shared.update(readings: archive, settings: settings)
+        // The evening-before reminder follows the sensor (only does anything when it moved).
+        SensorEndReminderScheduler.shared.update(sensor: snapshot.sensor, settings: settings)
         SharedStore.save(snapshot)
         reloadChangedWidgets()
         onPublish?(snapshot)

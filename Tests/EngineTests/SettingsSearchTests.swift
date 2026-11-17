@@ -72,10 +72,11 @@ final class SettingsSearchTests: XCTestCase {
     }
 
     func testTitleBeatsKeywordBeatsPlace() {
-        // "Sensor ending" has sensor in its title; Read sensor too, so both rank above rows that
-        // only list sensor as a keyword (Sensor lifetime isn't on iPhone).
+        // "Sensor ending", "Sensor change reminder" and "Read sensor" have sensor in their titles,
+        // so all three rank above rows that only list sensor as a keyword (Sensor lifetime isn't
+        // on iPhone).
         let sensor = anchors("sensor")
-        XCTAssertEqual(Set(sensor.prefix(2)), [.readSensor, .sensorEndingAlert])
+        XCTAssertEqual(Set(sensor.prefix(3)), [.readSensor, .sensorEndingAlert, .sensorEndReminder])
         // "alerts" is the place of every alert row, but the title hit leads.
         XCTAssertEqual(top("alerts"), .alerts)
         XCTAssertTrue(anchors("alerts").contains(.staleAlert))

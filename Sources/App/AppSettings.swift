@@ -71,6 +71,9 @@ final class AppSettings: ObservableObject {
     /// When it goes out, in minutes after local midnight. 9 pm unless changed.
     @Published var eveningRecapMinute: Int { didSet { d.set(eveningRecapMinute, forKey: "eveningRecapMinute") } }
 
+    /// A reminder at 7 pm the evening before the sensor ends (docs/SensorEnd.md). Off until turned on.
+    @Published var sensorEndReminderEnabled: Bool { didSet { d.set(sensorEndReminderEnabled, forKey: "sensorEndReminderEnabled") } }
+
     /// First-run setup finished (or skipped). Existing installs with an account count as done.
     @Published var onboardingCompleted: Bool { didSet { d.set(onboardingCompleted, forKey: "onboardingCompleted") } }
 
@@ -118,6 +121,7 @@ final class AppSettings: ObservableObject {
             .flatMap { try? JSONDecoder().decode(LogHotKey.self, from: $0) } ?? .suggested
         eveningRecapEnabled = d.bool(forKey: "eveningRecapEnabled")
         eveningRecapMinute = EveningRecap.sanitized(d.object(forKey: "eveningRecapMinute") as? Int)
+        sensorEndReminderEnabled = d.bool(forKey: "sensorEndReminderEnabled")
         let savedEmail = d.string(forKey: "email") ?? ""
         onboardingCompleted = d.object(forKey: "onboardingCompleted") as? Bool ?? !savedEmail.isEmpty
     }

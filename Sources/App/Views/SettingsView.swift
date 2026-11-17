@@ -578,6 +578,19 @@ private struct AlertSettingsTab: View {
                 Text(EveningRecapText.settingsFooter(minute: settings.eveningRecapMinute) + " Click it to open Insights on today.")
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                Toggle("Sensor change reminder", isOn: $settings.sensorEndReminderEnabled)
+                    .onChange(of: settings.sensorEndReminderEnabled) { _, on in
+                        if on { store.alerts.requestAuthorization() }
+                    }
+                    .settingsAnchor(.sensorEndReminder)
+            } header: {
+                Text("Sensor")
+            } footer: {
+                Text(SensorEndReminder.settingsFooter)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .settingsSearchPage(.alerts)

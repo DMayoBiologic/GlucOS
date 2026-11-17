@@ -179,6 +179,8 @@ targets:
       - path: Sources/App/Views/TodaySoFarView.swift
       - path: Sources/App/Views/EveningRecapCardView.swift
       - path: Sources/App/EveningRecapScheduler.swift
+      - path: Sources/App/SensorEndReminderScheduler.swift
+      - path: Sources/App/Views/SensorEndViews.swift
       - path: Sources/App/Views/FlowComponents.swift
       - path: Sources/App/Views/SettingsSearchViews.swift
       - path: Sources/App/Views/DependentRowsViews.swift
