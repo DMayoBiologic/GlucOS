@@ -237,6 +237,12 @@ tested in LogbookLinkTests).
   where it came from, for the iPhone zoom and the Mac's "‹ Insights". The hour is read off the clock,
   so on the night the clocks go back both passes of the repeated hour match.
 
+- **While you were away (round 64).** Not a card: the line under the reading after 2 hours or more
+  unseen (docs/WhileAway.md) opens the Logbook over the span it covers, under a "While you were
+  away" period chip with no kind chip (`LogbookLink.whileAway`, unlisted `LogbookFilter.whileAway`),
+  so every entry and alert in the gap shows. A plain push on iPhone; on the Mac the dashboard opens
+  on its Logbook with no "‹ Insights".
+
 ## Tags
 
 Each tag in use gets its own chip after the kind chips, on iPhone and Mac. See docs/LogbookTags.md.

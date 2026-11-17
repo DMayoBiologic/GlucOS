@@ -129,6 +129,20 @@ struct PhoneHomeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PhoneSetupView.pendingKey) private var setupPending = false
     @ObservedObject private var snoozeStore = AlertSnoozeStore.shared
+    /// The "while you were away" line's span for this opening (`WhileAway`).
+    @ObservedObject private var whileAway = WhileAwayModel.shared
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Only the person wearing the sensor has a "last looked": this screen needs their sign-in.
+    private var isFollower: Bool { !settings.hasCredentials }
+
+    private static func phase(_ p: ScenePhase) -> LastLookedClock.Phase {
+        switch p {
+        case .active: return .active
+        case .background: return .background
+        default: return .inactive
+        }
+    }
 
     /// Why "Log treatment" shows under the reading, if it does (`LowTreatButton`).
     private var lowTreat: LowTreatButton.Reason? {
@@ -158,6 +172,12 @@ struct PhoneHomeView: View {
                             Double($0.frame(in: .named(TodayHeaderCollapse.space)).minY)
                         } action: { collapse.update(stageTop: $0) }
                         .dsEntrance(0)
+                    // After 2 hours or more unseen: lowest, highest, time in range and alerts since
+                    // the last look, for 10 seconds. A tap opens the Logbook on that span.
+                    WhileAwayLine(model: whileAway, readings: store.archive, alerts: logbook.alerts,
+                                  lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                  unit: store.shownUnit) { path.append(PhoneRoute.logbookLink($0)) }
+                        .padding(.horizontal, DS.Space.xs)
                     // While an alert is snoozed: until when, and a tap turns alerts back on.
                     if snoozeStore.isSnoozing {
                         AlertSnoozeChipView(snoozes: snoozeStore.snoozes, countdown: snoozeStore.countdown,
@@ -282,7 +302,7 @@ struct PhoneHomeView: View {
                     case .insightsToday(let firedAt): PhoneInsightsView(recapFiredAt: firedAt)
                     }
                 }
-                if reduceMotion {
+                if reduceMotion || !route.zooms {
                     screen
                 } else {
                     screen.navigationTransition(.zoom(sourceID: route.zoomSource, in: routes))
@@ -335,6 +355,15 @@ struct PhoneHomeView: View {
                 // Editing from a Logbook row: zooms out of the row and back into it on dismiss
                 // (`LogbookEditMorph`); a cross-fade under Reduce Motion.
                 .logbookEditMorph(from: request.zoomSource, in: routes, reduceMotion: reduceMotion)
+        }
+        // Coming to the screen counts as a look; leaving it does too, so the next opening after 2
+        // hours or more sums up only the time unseen (`LastLookedClock`). A launch in the
+        // background (a refresh) isn't a look.
+        .onAppear { if scenePhase == .active { whileAway.opened(isFollower: isFollower) } }
+        // Control Center or the app switcher is still a look and keeps the line; a warm resume
+        // passing through inactive measures from when the app went to the background.
+        .onChange(of: scenePhase) { old, new in
+            whileAway.sceneChanged(from: Self.phase(old), to: Self.phase(new), isFollower: isFollower)
         }
     }
 }

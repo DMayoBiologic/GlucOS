@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 final class DashboardRequest: ObservableObject {
     static let shared = DashboardRequest()
     @Published var logbookEntry: UUID?
+    /// The popover's "while you were away" line: the Logbook over the span it covers.
+    @Published var logbookLink: LogbookLink?
 }
 
 /// The pop-out dashboard: a regular, resizable window with the full picture. Opened from the
@@ -122,6 +124,7 @@ struct DashboardView: View {
             if requested { openRequestedLogSheet() }
         }
         .onChange(of: request.logbookEntry) { _, _ in takeEntryRequest() }
+        .onChange(of: request.logbookLink) { _, _ in takeLinkRequest() }
         // A click on the evening recap, including one that opened this window.
         .onReceive(EveningRecapRoute.shared.$request) { request in
             guard request != nil, let firedAt = EveningRecapRoute.shared.take() else { return }
@@ -141,6 +144,7 @@ struct DashboardView: View {
             NSApp.activate()
             if logbook.logSheetRequested { openRequestedLogSheet() }
             takeEntryRequest()
+            takeLinkRequest()
         }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
     }
@@ -578,6 +582,18 @@ struct DashboardView: View {
         logbookLink = link
         select(.logbook)
         cameFromCard = link.filter
+    }
+
+    /// The popover's "while you were away" line was clicked: cross-fade to the Logbook over that
+    /// span, everything in it, with no way back to an Insights card (it didn't come from one).
+    private func takeLinkRequest() {
+        guard let link = request.logbookLink else { return }
+        request.logbookLink = nil
+        if periodEnd != nil { setPeriodEnd(nil) }
+        logbookLink = link
+        cameFromCard = nil
+        revealEntry = nil
+        select(.logbook)
     }
 
     /// The popover's "last logged" line was clicked: cross-fade to the Logbook with that entry

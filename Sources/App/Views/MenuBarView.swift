@@ -39,6 +39,8 @@ struct MenuBarView: View {
     /// Which card, chip or button has the keyboard (docs/KeyboardNavigation.md).
     @FocusState private var keyFocus: String?
     @ObservedObject private var snoozeStore = AlertSnoozeStore.shared
+    /// The "while you were away" line's span for this opening (`WhileAway`).
+    @ObservedObject private var whileAway = WhileAwayModel.shared
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -100,8 +102,13 @@ struct MenuBarView: View {
         .animation(PopoverMotion.standard(reduceMotion), value: snoozeStore.isSnoozing)
         .animation(PopoverMotion.standard(reduceMotion), value: lowTreat != nil)
         .task { await store.checkNotificationPermission() }
-        .onAppear { commandKey.start(); staggerSectionsIn(); revealUnitChange(); settleResizing() }
+        .onAppear {
+            commandKey.start(); staggerSectionsIn(); revealUnitChange(); settleResizing()
+            // Opening counts as a look: after 2 hours or more unseen, the line sums up the gap.
+            whileAway.opened(isFollower: false)
+        }
         .onDisappear {
+            whileAway.closed(isFollower: false)
             commandKey.stop(); showsShortcutList = false
             resizeSettled = false
             sectionsIn = true
@@ -126,6 +133,14 @@ struct MenuBarView: View {
                 heroSlot(warmUp: s.warmUp(at: context.date), ended: s.sensorEnded(at: context.date), now: context.date)
             }
             .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
+            // After 2 hours or more unseen: lowest, highest, time in range and alerts since the
+            // last look, for 10 seconds. A click opens the Logbook on that span (docs/WhileAway.md).
+            if s.current != nil {
+                WhileAwayLine(model: whileAway, readings: store.archive, alerts: logbook.alerts,
+                              lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, unit: store.shownUnit,
+                              open: openWhileAway)
+                    .padding(.horizontal, 6)
+            }
             // While an alert is snoozed: until when, and a click turns alerts back on.
             if snoozeStore.isSnoozing {
                 AlertSnoozeChipView(snoozes: snoozeStore.snoozes, countdown: snoozeStore.countdown) {
@@ -437,6 +452,12 @@ struct MenuBarView: View {
     private func showDashboard() {
         openWindow(id: DashboardView.windowID)
         NSApp.activate()
+    }
+
+    /// The dashboard, on the Logbook over the span the "while you were away" line covered.
+    private func openWhileAway(_ link: LogbookLink) {
+        DashboardRequest.shared.logbookLink = link
+        showDashboard()
     }
 
     /// Logging opens its own small window, since a sheet can't hang off the popover.
