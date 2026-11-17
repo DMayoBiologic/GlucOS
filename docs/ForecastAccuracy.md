@@ -4354,3 +4354,99 @@ score instead. To rerun: export with the SQL in `scripts/adaptive-range.py`, the
 
 **Dosing.** Not touched: the range is display only and never feeds insulin on board, the effect
 learner or the bolus figure.
+
+## 63. Do 30- and 60-minute forecasts made 4–8 am lean compared with the rest of the day? (17 Nov 2026)
+
+§49 compared the dawn window only with the hours either side of it. This compares it with the
+whole rest of the night (22:00–03:59) and day (08:00–21:59), and tests a flat per-horizon dawn
+offset learnt from the other mornings. The bar: better on held-out mornings at both 30 and 60
+minutes. **Dawn forecasts do lean low while the rest of the day leans high, but a dawn offset is
+no better at 30 minutes, at 60 it's 2–4% better overall but worse on the mornings that didn't rise, and it lifts low lines. Nothing
+ships; no app or relay code changed, so the relay stays 2.17.0.**
+
+Nothing here touches dosing, the insulin or carb effects, the low alerts, the relay or `web/`.
+
+**The accuracy log can't answer this yet.** Clean shown points issued 04:00–07:59 Perth in
+`glucos.forecast_checks`: 2 at 30 minutes (both iPhone) and none at 60. The relay's ledger, which
+does run through the night, only logs 15 minutes; there its 31 dawn points (2 mornings) have a bias
+of −1.6 mg/dL (median −1.9, 42% ran low), against +0.5 by day and +0.6 at night, so no lean at
+15 minutes. So the 30/60 figures below are §49's replay (the engine's trend at gain 0.45, issued
+every 5 minutes on `glucos.readings`, clean = no meal or rapid dose from 3 hours before to the
+target), now run over every hour, 11–17 Nov.
+
+**The lean.** Bias is actual minus forecast, so positive means the forecast ran low.
+
+| Issued (Perth) | 30 min: points, days | bias (median) | ran low | typical miss | 60 min: points | bias (median) | ran low | typical miss |
+|---|---|---|---|---|---|---|---|---|
+| Night 22:00–03:59 | 319, 7 | −4.3 (−5.6) | 41% | 23.1 | 306 | −5.4 (−9.7) | 38% | 36.5 |
+| **Dawn 04:00–07:59** | 263, 6 | **+4.0 (+2.8)** | 54% | 18.5 | 255 | **+9.0 (+6.4)** | 64% | 25.4 |
+| Day 08:00–21:59 | 532, 7 | −3.7 (−4.0) | 42% | 22.3 | 484 | −10.3 (−9.2) | 37% | 37.4 |
+
+Against the rest, dawn is about +8 at 30 minutes and +19 at 60: it's the only window that runs low,
+while the night and the day run high (the forecast falls short of the drop back toward range).
+But the lean is not steady by morning. Dawn bias per morning, 12–17 Nov: 0.0, +8.0, +11.1, +7.2,
+−0.3, −1.8 at 30 minutes and +10.6, +20.2, +13.0, +11.8, +1.3, +0.2 at 60, so the last two mornings
+had none.
+
+**The test.** Add a fixed c mg/dL to every dawn forecast at that horizon, c learnt from the other
+five mornings only (leave one morning out): the mean dawn bias, the median of the per-morning
+medians, or the mean shrunk toward 0 (sum / (n + 60)). A guarded version adds it only when the line
+is at least 100 and the trend isn't falling. Forecasts outside 04:00–07:59 are untouched. Typical
+error, mg/dL:
+
+| Held out | 12 Nov | 13 | 14 | 15 | 16 | 17 | All |
+|---|---|---|---|---|---|---|---|
+| 30 min: what ships | 12.98 | 11.75 | 27.35 | 19.87 | 22.05 | 14.92 | 18.51 |
+| 30 min: mean offset (c ≈ +2.4 to +5.3) | 13.48 | 10.48 | 27.03 | 19.34 | 22.80 | 15.81 | 18.56 |
+| 30 min: shrunk offset | 13.28 | 10.69 | 27.08 | 19.40 | 22.59 | 15.60 | 18.50 |
+| 30 min: median offset | 13.99 | 11.94 | 27.41 | 19.96 | 23.17 | 15.99 | 19.11 |
+| 30 min: guarded | 13.61 | 11.29 | 27.13 | 20.23 | 22.71 | 16.47 | 18.97 |
+| 60 min: what ships | 19.21 | 20.25 | 47.07 | 25.24 | 20.38 | 17.08 | 25.42 |
+| 60 min: mean offset (c ≈ +7.2 to +11.1) | 17.11 | 14.69 | 46.00 | 24.66 | 21.15 | 20.70 | 24.90 |
+| 60 min: shrunk offset | 17.05 | 15.58 | 46.16 | 24.66 | 20.48 | 19.58 | 24.71 |
+| 60 min: median offset | 17.04 | 15.21 | 46.16 | 24.66 | 20.12 | 18.73 | 24.44 |
+| 60 min: guarded | 17.95 | 16.97 | 47.04 | 26.05 | 21.83 | 21.21 | 25.98 |
+
+At 30 minutes the best version (shrunk) is 18.51 → 18.50, nothing, and worse on three of six
+mornings. At 60 the offsets are 2–4% better overall but worse on 17 Nov in every version (and on 16 Nov for
+the mean and shrunk ones), exactly the mornings without a rise: the offset is learnt from the mornings that rose and charged to the ones that
+didn't. The guarded version is worse at both horizons. This is §49's result with a flat offset in
+place of the time-weighted allowance.
+
+**Low warnings.** The mean offset lifts 5 dawn lines at 30 minutes and 15 at 60 from under 90 to
+90 or more (13 of them on 16 Nov, the morning glucose was under 70 from about 04:50), so the chart
+would draw a possible low later on exactly the morning it mattered. Nothing shipped, so low warnings
+(§13, §30) and "a low is possible" are unchanged on the apps and the relay.
+
+**Why it isn't a fix for the rest of the day either.** Night and day leaning high (−4 to −10) is
+the in-range drift §44 looked at and the per-horizon bias §46 tried to remove; both lost held out,
+because the sign flips by day. Splitting that same correction by clock window doesn't change the
+problem: each window still has only 6–7 days, and the dawn lean disappeared on the two most recent.
+
+**Decision.** Keep forecasts as they are. Rerun with three weeks of mornings (about 8 Dec), and
+ideally once the relay's ledger logs 30 and 60 minutes, so the accuracy log itself covers dawn
+instead of a replay. Ship a dawn offset only if, held out by morning, it's better at both 30 and
+60 minutes on most mornings and lifts no line that was under 90. To rerun, use §49's query with
+`iss` over every hour (drop the `04:00–07:59` filter) for the lean table; for the offset test:
+
+```sql
+with r as (select at, mgdl, (at at time zone 'Australia/Perth') l from glucos.readings),
+lg as (select to_timestamp((payload->>'timestamp')::float) t from glucos.logbook
+  where not deleted and (kind = 'meal' or (kind = 'dose' and payload->>'kind' = 'rapid'))),
+iss as (select r.at t, r.l, r.mgdl v0 from r
+  where extract(minute from r.l)::int % 5 = 0 and r.l::time between '04:00' and '07:59:59'),
+tr as (select i.*, s.sl, s.n, s.span from iss i cross join lateral (select regr_slope(mgdl, extract(epoch from at) / 60) sl,
+    count(*) n, extract(epoch from max(at) - min(at)) / 60 span from r where r.at > i.t - interval '20 min' and r.at <= i.t) s),
+pts as (select tr.*, h, (select mgdl from r where r.at between tr.t + (h - 2) * interval '1 min' and tr.t + (h + 2) * interval '1 min'
+      order by abs(extract(epoch from r.at - tr.t) - h * 60) limit 1) a,
+    exists(select 1 from lg where lg.t between tr.t - interval '3 hours' and tr.t + h * interval '1 min') logged
+  from tr cross join (values (30), (60)) hh(h) where n >= 3 and span >= 9),
+f as (select l::date d, h, a, v0 + 0.45 * greatest(-4, least(4, sl)) * 15 f from pts where a is not null and not logged),
+db as (select d, h, count(*) n, avg(a - f) b from f group by 1, 2),
+off as (select x.d, x.h, (select sum(y.b * y.n) / sum(y.n) from db y where y.h = x.h and y.d <> x.d) c from db x)
+select f.h, f.d, count(*), avg(abs(f.a - f.f)) shipped, avg(abs(f.a - f.f - o.c)) offset,
+  count(*) filter (where f.f < 90 and f.f + o.c >= 90) lifted
+from f join off o on o.d = f.d and o.h = f.h group by grouping sets ((1, 2), (1)) order by 1, 2;
+```
+
+**Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.
