@@ -21,7 +21,8 @@ def clamp(s, c):
 
 def forecast(p, gain, cap):
     # Trend-only line: the trend fades over 30 min, so it adds gain × trend × 15 at 30 and 60 min.
-    return p["v0"] + gain * 15 * clamp(p["sl"], cap)
+    # Like the engine, the central line is held to one past the sensor range (40...400).
+    return min(401, max(39, p["v0"] + gain * 15 * clamp(p["sl"], cap)))
 
 
 def mae(ps, gain, cap):
@@ -54,7 +55,8 @@ for gain in (0.45, 0.6):
         print(f"  gain {gain} {h} min: {shipped / len(ps):.2f} -> {capped / len(ps):.2f}"
               f" ({(capped / shipped - 1) * 100:+.1f}%)")
 
-print("lows: falls faster than 3 that ended under 70, line drawn under 90 (cap 4 / cap 3)")
+print("lows: forecast points (both horizons) on falls faster than 3 that ended under 70,"
+      " line under 90 (cap 4 / cap 3)")
 for gain in (0.45, 0.6):
     lows = [p for p in R if p["sl"] < -3 and p["a"] < 70]
     print(f"  gain {gain}: {len(lows)} points,"
