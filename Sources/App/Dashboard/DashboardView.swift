@@ -1024,6 +1024,13 @@ struct DashboardData {
     /// True when the period ends at the latest readings rather than somewhere in the past.
     let isLive: Bool
 
+    /// The period's figures for the Glance info buttons' notes (docs/InsightsExplainers.md).
+    func explainerContext(_ stats: GlucoseStats) -> InsightsExplainer.Context {
+        InsightsExplainer.Context(stats: stats, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                                  period: InsightsExplainer.period(hours: range.duration / 3600,
+                                                                   end: domain.upperBound, isLatest: isLive))
+    }
+
     /// Names the period on screen (its length and where it ends), so charts can wipe in when it
     /// changes but not when a new reading extends a live period.
     var periodKey: String {

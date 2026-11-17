@@ -186,26 +186,27 @@ private struct OverviewHeader: View {
         if let st = data.stats {
             let cv = st.coefficientOfVariation
             let noun = data.range.periodNoun
+            let explain = data.explainerContext(st)
             CardGrid(minColumnWidth: 150, maxColumns: 4, spacing: layout.gutter, evenRows: true, fillsHeight: true) {
                 HeadlineTile(title: "Time in range", value: Format.percent(st.timeInRange), tone: .glucose(.inRange),
                              rolling: .init(st.timeInRange, order: 0) { Format.percent($0) },
                              change: previous.map { StatChange(value: st.timeInRange - $0.timeInRange,
                                                                text: DeltaFormat.points(st.timeInRange - $0.timeInRange),
                                                                goodWhenUp: true) },
-                             goal: "goal over 70%", periodNoun: noun,
+                             goal: "goal over 70%", periodNoun: noun, info: .timeInRange, explain: explain,
                              help: "Share of readings between \(data.unit.format(mgdl: data.lowMgdl)) and \(data.unit.format(mgdl: data.highMgdl)) \(data.unit.label).")
                 HeadlineTile(title: "Average", value: data.unit.format(mgdl: st.meanMgdl), unit: data.unit.label, tone: .brand,
                              rolling: .init(st.meanMgdl, order: 1) { data.unit.format(mgdl: $0) },
                              change: previous.map { StatChange(value: st.meanMgdl - $0.meanMgdl,
                                                                text: DeltaFormat.glucose(st.meanMgdl - $0.meanMgdl, unit: data.unit),
                                                                goodWhenUp: nil) },
-                             goal: "\(st.count) readings", periodNoun: noun)
+                             goal: "\(st.count) readings", periodNoun: noun, info: .average, explain: explain)
                 HeadlineTile(title: "Variability", value: Format.percent(cv), tone: cv <= 0.36 ? .brand : .warning,
                              rolling: .init(cv, order: 2) { Format.percent($0) },
                              change: previous.map { StatChange(value: cv - $0.coefficientOfVariation,
                                                                text: DeltaFormat.points(cv - $0.coefficientOfVariation),
                                                                goodWhenUp: false) },
-                             goal: "goal 36% or less", periodNoun: noun,
+                             goal: "goal 36% or less", periodNoun: noun, info: .variability, explain: explain,
                              help: "Coefficient of variation: standard deviation ÷ average. 36% or less is considered stable.")
                 HeadlineTile(title: "Time below", value: Format.percent(st.timeBelowRange),
                              tone: st.timeBelowRange > 0.04 ? .glucose(.low) : .neutral,
@@ -213,7 +214,7 @@ private struct OverviewHeader: View {
                              change: previous.map { StatChange(value: st.timeBelowRange - $0.timeBelowRange,
                                                                text: DeltaFormat.points(st.timeBelowRange - $0.timeBelowRange),
                                                                goodWhenUp: false) },
-                             goal: "goal under 4%", periodNoun: noun,
+                             goal: "goal under 4%", periodNoun: noun, info: .lows, explain: explain,
                              help: "Share of readings below \(data.unit.format(mgdl: data.lowMgdl, withUnit: true)).")
             }
             // The numbers roll to the new period's values (docs/Redesign.md §8.3), and the change
@@ -234,6 +235,10 @@ private struct HeadlineTile: View {
     var change: StatChange?
     var goal: String?
     let periodNoun: String
+    /// The figure behind the corner's info button and the period's figures for its note
+    /// (docs/InsightsExplainers.md).
+    var info: InsightsFigure?
+    var explain: InsightsExplainer.Context?
     var help: String?
 
     var body: some View {
@@ -254,6 +259,9 @@ private struct HeadlineTile: View {
             .padding(.top, DS.Space.xxs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .topTrailing) {
+            if let info { InsightsInfoButton(figure: info, context: explain).offset(x: 4, y: -4) }
+        }
         .dsCard(.standard, padding: DS.Space.md + 2)
     }
 }
@@ -419,6 +427,9 @@ private struct StatisticsCard: View {
                            tint: fullGMI ? nil : Color.secondary,
                            help: "Glucose Management Indicator: an A1c estimate from average glucose. Only reliable over 14+ days of data.",
                            rolling: .init(stats.gmiPercent, order: 1) { String(format: "%.1f%%", $0) })
+                        .overlay(alignment: .topTrailing) {
+                            InsightsInfoButton(figure: .gmi, context: data.explainerContext(stats))
+                        }
                 }
                 GridRow {
                     Metric("Time above", Format.percent(stats.timeAboveRange),
