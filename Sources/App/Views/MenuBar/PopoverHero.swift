@@ -19,6 +19,8 @@ struct PopoverHero: View {
 
     /// Bumped on each new reading to play a single soft ripple around the card.
     @State private var ripple = 0
+    /// The reading details card (round 56), opened by clicking the reading.
+    @State private var showDetails = false
 
     private var s: GlucoseSnapshot { store.snapshot }
     private var shape: RoundedRectangle {
@@ -70,6 +72,12 @@ struct PopoverHero: View {
                         .accessibilityHidden(true)
                 }
             }
+            // A click on the reading opens a small card: when it was taken, where it came from,
+            // the rate per minute and when the next one is due (round 56).
+            .readingDetailsPopover(isPresented: $showDetails, snapshot: s, unit: store.shownUnit,
+                                   lastCheck: store.lastAttempt,
+                                   checkEvery: TimeInterval(settings.pollIntervalSeconds))
+            .help(s.current == nil ? "" : "Click for reading details")
             if let cur = s.current {
                 RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
                           forecastMgdl: stale || !settings.showForecast ? nil : s.currentOutlook().flatMap(OutlookFormat.headlineSample)?.sample.mgdl,
@@ -94,6 +102,7 @@ struct PopoverHero: View {
         .accessibilityAction(named: "Copy reading", onCopy)
         .accessibilityAction(named: "Refresh", onRefresh)
         .accessibilityAction(named: "Open Dashboard", onOpenDashboard)
+        .accessibilityAction(named: "Show reading details") { if s.current != nil { showDetails = true } }
         // Stale is `Tone.stale`: a grey surface, so an old reading never sits on a reassuring colour.
         .background {
             // The range field behind the reading. Still here (the popover is open for seconds), so
@@ -114,6 +123,8 @@ struct PopoverHero: View {
                 .disabled(s.current == nil)
             Button("Refresh Now", systemImage: "arrow.clockwise", action: onRefresh)
                 .disabled(store.isRefreshing)
+            Button("Reading Details", systemImage: "info.circle") { showDetails = true }
+                .disabled(s.current == nil)
             Divider()
             Button("Open Dashboard", systemImage: "macwindow", action: onOpenDashboard)
         }

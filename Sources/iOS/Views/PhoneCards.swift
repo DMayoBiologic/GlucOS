@@ -18,6 +18,8 @@ struct PhoneHeroCard: View {
     private let textScale = DSScaledValue()
     /// Bumped on each new reading to play one soft ripple around the card, like the Mac popover.
     @State private var ripple = 0
+    /// The reading details card (round 56), opened by tapping the reading.
+    @State private var showDetails = false
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -84,6 +86,11 @@ struct PhoneHeroCard: View {
                                 .accessibilityHidden(true)
                         }
                     }
+                    // A tap on the reading opens a small card: when it was taken, where it came
+                    // from, the rate per minute and when the next one is due (round 56).
+                    .readingDetailsPopover(isPresented: $showDetails, snapshot: s, unit: store.shownUnit,
+                                           lastCheck: store.lastAttempt,
+                                           checkEvery: TimeInterval(settings.pollIntervalSeconds))
                     // Scrolling down shrinks the figure into the bar's title and fades it; scrolling
                     // back grows it again (round 46, `HeaderCollapse`). Only fades under Reduce Motion.
                     .todayStageCollapse()
@@ -134,6 +141,9 @@ struct PhoneHeroCard: View {
             .accessibilityActions {
                 if s.current == nil, emptyStep != nil {
                     Button("Check Again") { Task { await store.refresh() } }
+                }
+                if s.current != nil, warmUp == nil {
+                    Button("Show Reading Details") { showDetails = true }
                 }
             }
             .contextMenu {
