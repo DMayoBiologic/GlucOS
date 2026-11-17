@@ -3436,8 +3436,8 @@ points above the 90 line. Nothing ships.**
 
 Nothing here touches dosing, the insulin or carb effects, the low alerts, the relay or `web/`.
 
-**Data.** A replay on the server's readings (11 Nov 16:00 to 17 Nov 07:40 Perth), the same way
-as §49: the engine's trend (20-minute least-squares slope, 30-minute fade) issued every 5 minutes,
+**Data.** A replay on the server's readings (from 10 Nov 22:45 Perth, exported 17 Nov 08:12; the
+first scoreable forecast is 11 Nov 10:40 and the last 07:40 on 17 Nov), the same way as §49: the engine's trend (20-minute least-squares slope, 30-minute fade) issued every 5 minutes,
 held to one past the sensor range (39–401) like the engine, scored against the reading within 2
 minutes of each target, at gain 0.45 (Mac and relay), 0.6 and
 0.7 (iPhone). Clean = no meal or rapid dose from 3 hours before the forecast to its target. 1,038 /
@@ -3489,10 +3489,11 @@ with r as (select at, mgdl, (at at time zone 'Australia/Perth') l from glucos.re
 lg as (select to_timestamp((payload->>'timestamp')::float) t from glucos.logbook
   where not deleted and (kind = 'meal' or (kind = 'dose' and payload->>'kind' = 'rapid'))),
 iss as (select r.at t, r.l, r.mgdl v0 from r where extract(minute from r.l)::int % 5 = 0
-  and r.l < '2026-11-17 08:00'),  -- the §50 cohort; drop or move the bound to rerun on newer data
+  and r.l < '2026-11-17 08:00'),  -- the §50 cohort; drop or move both bounds to rerun on newer data
 tr as (select i.*, s.sl, s.n, s.span from iss i cross join lateral (select regr_slope(mgdl, extract(epoch from at) / 60) sl,
     count(*) n, extract(epoch from max(at) - min(at)) / 60 span from r where r.at > i.t - interval '20 min' and r.at <= i.t) s),
 pts as (select tr.*, h, (select mgdl from r where r.at between tr.t + (h - 2) * interval '1 min' and tr.t + (h + 2) * interval '1 min'
+        and r.l <= '2026-11-17 08:12'  -- targets as of the §50 export
       order by abs(extract(epoch from r.at - tr.t) - h * 60) limit 1) a,
     exists(select 1 from lg where lg.t between tr.t - interval '3 hours' and tr.t + h * interval '1 min') logged
   from tr cross join (values (30), (60)) hh(h) where n >= 3 and span >= 9)
