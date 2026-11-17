@@ -157,7 +157,11 @@ function score(alerts: number[]): Map<string, DayScore> {
       d.warned++;
       d.leads.push((h.t - a) / 60);
       d.score += Math.min(30, (h.t - a) / 60);
-      if (perthDay(a) !== perthDay(h.t)) d.borrowed += Math.min(30, (h.t - a) / 60);
+      if (perthDay(a) !== perthDay(h.t)) {
+        // Without the day before, the earliest alert on the high's own day (if any) would count.
+        const own = alerts.find((t) => t <= h.t && t >= h.t - window && perthDay(t) === perthDay(h.t));
+        d.borrowed += Math.min(30, (h.t - a) / 60) - (own === undefined ? 0 : Math.min(30, (h.t - own) / 60));
+      }
     }
   }
   for (const a of alerts) {
