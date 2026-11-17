@@ -34,6 +34,7 @@ let package = Package(
                 "Shared/ChartSummary.swift",
                 "Shared/ChartSpan.swift",
                 "Shared/ChartScrub.swift",
+                "Shared/YesterdayLine.swift",
                 "Shared/MarkerPop.swift",
                 "Shared/LoggedElsewhere.swift",
                 "Shared/ForecastMorph.swift",

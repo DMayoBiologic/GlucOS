@@ -36,6 +36,10 @@ final class AppSettings: ObservableObject {
     @Published var colorMenuBarIcon: Bool { didSet { d.set(colorMenuBarIcon, forKey: "colorMenuBarIcon") } }
     /// A tiny sparkline of the last hour after the menu bar reading.
     @Published var showMenuBarSparkline: Bool { didSet { d.set(showMenuBarSparkline, forKey: "menuBarSparkline") } }
+    /// Yesterday's readings as a faint line behind today's on the iPhone Today chart and the Mac
+    /// popover and Outlook charts (`YesterdayLine`). Off unless turned on, here or from the chart's
+    /// long-press / right-click menu.
+    @Published var showYesterdayLine: Bool { didSet { d.set(showYesterdayLine, forKey: "showYesterdayLine") } }
     /// Hours of history in the popover chart (3, 6 or 12).
     @Published var chartHours: Int { didSet { d.set(chartHours, forKey: "chartHours") } }
 
@@ -104,6 +108,7 @@ final class AppSettings: ObservableObject {
         colorMenuBarIcon = d.object(forKey: "colorMenuBarIcon") as? Bool ?? true
         showMenuBarSparkline = d.object(forKey: "menuBarSparkline") as? Bool ?? false
         chartHours = ChartHours.sanitized(d.object(forKey: "chartHours") as? Int)
+        showYesterdayLine = d.bool(forKey: "showYesterdayLine")
         therapy = TherapyType(rawValue: d.string(forKey: "therapy") ?? "") ?? .notSet
         bolusInsulinKind = InsulinKind(rawValue: d.string(forKey: "bolusInsulinKind") ?? "") ?? .rapid
         bolusInsulinName = d.string(forKey: "bolusInsulinName") ?? ""

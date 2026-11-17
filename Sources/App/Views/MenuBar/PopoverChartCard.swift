@@ -25,6 +25,11 @@ struct PopoverChartCard: View {
     /// span glides rather than waiting on data.
     private var plotted: [GlucoseReading] { store.readings(lastHours: ChartHours.longestPlotted) }
 
+    /// Readings back to a day before the longest span, for yesterday's line, while it's on.
+    private var yesterday: [GlucoseReading] {
+        settings.showYesterdayLine ? store.readings(lastHours: YesterdayLine.hoursNeeded(forSpan: ChartHours.longestPlotted)) : []
+    }
+
     /// The readings the chart is showing, oldest → newest.
     private func window(in plotted: [GlucoseReading]) -> [GlucoseReading] {
         guard let last = plotted.last else { return [] }
@@ -56,7 +61,8 @@ struct PopoverChartCard: View {
                            drawInDelay: forecastDelay) { forecast, reveal in
                 GlucoseChart(readings: plotted, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                              hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
-                             forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true, ripplesNewReading: true)
+                             forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true, ripplesNewReading: true,
+                             yesterday: yesterday)
             }
                 .frame(height: 136)
                 .focusable()
@@ -84,6 +90,8 @@ struct PopoverChartCard: View {
                 .onChange(of: settings.chartHours) { _, _ in pinned = nil }
                 // Pinch on the trackpad steps through the spans, as on iPhone.
                 .chartHoursPinch($settings.chartHours)
+                // Right-click for yesterday's faint line (also in Settings → Menu Bar).
+                .yesterdayLineMenu($settings.showYesterdayLine)
                 .help("Hover to see readings, or click and use ← →")
                 .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
                 .accessibilityValue(chartSummary(window))
@@ -202,9 +210,13 @@ struct PopoverChartCard: View {
         }
         let outlook = settings.showForecast && !s.isStale() ? s.currentOutlook() : nil
         let cutoff = (window.last?.timestamp ?? Date()).addingTimeInterval(-Double(settings.chartHours) * 3600)
-        return ChartSummary.sentence(.init(readings: window.filter { $0.timestamp >= cutoff }, lowMgdl: s.lowMgdl,
-                                           highMgdl: s.highMgdl, unit: s.unit, hours: Double(settings.chartHours),
-                                           stale: s.isStale(), forecastEnd: outlook?.forecast.last))
+        let sentence = ChartSummary.sentence(.init(readings: window.filter { $0.timestamp >= cutoff }, lowMgdl: s.lowMgdl,
+                                                   highMgdl: s.highMgdl, unit: s.unit, hours: Double(settings.chartHours),
+                                                   stale: s.isStale(), forecastEnd: outlook?.forecast.last))
+        guard settings.showYesterdayLine,
+              let line = YesterdayLine.spoken(YesterdayLine.reading(at: window.last?.timestamp ?? Date(), in: yesterday), unit: s.unit)
+        else { return sentence }
+        return sentence + " " + line
     }
 }
 

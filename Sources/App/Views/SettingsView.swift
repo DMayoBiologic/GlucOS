@@ -67,6 +67,8 @@ private struct GeneralSettingsTab: View {
                     Text("Last 24 hours").tag(24)
                 }
                 Toggle("Show the forecast on the popover chart", isOn: $settings.showForecast)
+                Toggle("Show yesterday's line on the popover chart", isOn: $settings.showYesterdayLine)
+                    .help("A faint grey line of yesterday's readings at the same time of day. Right-click the chart to turn it on or off.")
             } header: {
                 Text("Menu Bar")
             } footer: {
