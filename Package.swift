@@ -65,6 +65,7 @@ let package = Package(
                 "App/Logbook/LogbookModels.swift",
                 "App/Logbook/FoodModels.swift",
                 "App/Logbook/LogFlow.swift",
+                "App/HomeQuickActions.swift",
                 "App/Logbook/LogKeyboard.swift",
                 "Food/FoodDatabase.swift",
                 "Food/FoodSearch.swift",

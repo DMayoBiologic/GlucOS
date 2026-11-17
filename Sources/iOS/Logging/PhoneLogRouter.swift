@@ -76,6 +76,16 @@ final class PhoneLogRouter: ObservableObject {
         }
     }
 
+    /// A Home Screen quick action (long-press the app icon, `HomeQuickAction`). None logs anything:
+    /// Log treatment and Log meal open the log sheet, Latest reading goes back to Today.
+    func openQuickAction(_ action: HomeQuickAction) {
+        switch action.destination {
+        case .treating(let treatment): treat(treatment, from: HomeQuickAction.origin)
+        case .log(let part): open(part, from: HomeQuickAction.origin)
+        case .today: showToday()
+        }
+    }
+
     /// The log sheet filled in from a usual entry: the Your usual widget's buttons.
     func openUsual(_ id: String) {
         savedSinceOpen = false
