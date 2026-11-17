@@ -18,7 +18,8 @@ final class AlertCountPreviewTests: XCTestCase {
     }
 
     private func preview(_ readings: [GlucoseReading], records: [AlertRecord] = []) -> AlertCountPreview {
-        AlertCountPreview.make(readings: readings, records: records, now: readings.last!.timestamp)!
+        AlertCountPreview.make(readings: readings, records: records,
+                                now: readings.map(\.timestamp).max()!)!
     }
 
     private let prefs = AlertPreferences()
