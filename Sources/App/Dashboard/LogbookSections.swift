@@ -432,8 +432,8 @@ struct LogbookSection: View {
         link = nil
         search = ""
         allDates = false
-        filter = l.filter
-        tagFilter = nil
+        filter = l.kindChip
+        tagFilter = l.tag
         linked = l.period
     }
 
@@ -857,7 +857,9 @@ struct InsightsSection: View {
             }
             customiseRow
             ScrollViewReader { proxy in
-                let visible = cardLayout.visible(Self.defaults)
+                // The Tags card stays out until something carries a tag; its place in the order is kept.
+                let showsTags = TagInsightsCardView.shows(logbook.entries)
+                let visible = cardLayout.visible(Self.defaults).filter { $0 != .tags || showsTags }
                 VStack(alignment: .leading, spacing: layout.gutter) {
                     ForEach(Array(visible.enumerated()), id: \.element) { i, card in
                         view(for: card)
@@ -927,6 +929,11 @@ struct InsightsSection: View {
                                      highMgdl: highMgdl, openLogbook: openLogbook)
                 .dashboardCard()
                 .id(Self.cardID(.bestDay))
+        case .tags:
+            TagInsightsCardView(readings: readings, entries: logbook.entries, unit: unit, lowMgdl: lowMgdl,
+                                highMgdl: highMgdl, openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.tagged))
         case .dayPattern:
             DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
@@ -973,7 +980,7 @@ struct InsightsSection: View {
     }
 
     /// "insights.lows", "insights.highs", "insights.overnight", "insights.weekdays",
-    /// "insights.thisWeek", "insights.bestStreak", "insights.bestDay": where Back from the Logbook
+    /// "insights.thisWeek", "insights.bestStreak", "insights.bestDay", "insights.tagged": where Back from the Logbook
     /// scrolls to. Weekends comes back to the Weekdays and weekends card too, Last week to Week in
     /// review, and Toughest day to Best and toughest days.
     private static func cardID(_ card: LogbookFilter) -> String { "insights.\(card.insightsCard.rawValue)" }

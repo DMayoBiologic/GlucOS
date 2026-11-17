@@ -56,6 +56,7 @@ struct PhoneInsightsRow: View {
 /// days side by side, this week against last, lows and when they start, time above range and the longest high, how the nights go, weekdays against weekends, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
 struct PhoneInsightsView: View {
     @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
     /// Opened from the evening recap notification: its Today card goes on top (docs/EveningRecap.md).
     var recapFiredAt: Date? = nil
@@ -93,7 +94,9 @@ struct PhoneInsightsView: View {
     }
 
     private var cards: some View {
-        let visible = layout.visible(defaults)
+        // The Tags card stays out until something carries a tag; its place in the order is kept.
+        let showsTags = TagInsightsCardView.shows(logbook.entries)
+        let visible = layout.visible(defaults).filter { $0 != .tags || showsTags }
         return ScrollView {
             VStack(spacing: DS.Space.lg) {
                 if let recapFiredAt {
@@ -150,6 +153,7 @@ struct PhoneInsightsView: View {
         case .weekdayWeekend: PhoneWeekdayWeekendCard()
         case .streaks: PhoneInRangeStreaksCard()
         case .bestDays: PhoneBestToughestDaysCard()
+        case .tags: PhoneTagInsightsCard()
         case .dayPattern: PhoneDayPatternCard()
         case .mornings: PhoneMorningCard(outlook: store.outlook)
         case .forecastAccuracy: PhoneForecastAccuracyCard(outlook: store.outlook)
@@ -412,6 +416,27 @@ struct PhoneBestToughestDaysCard: View {
             card
                 .matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .bestDay)), in: navigator.zoom)
                 .matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .toughestDay)), in: navigator.zoom)
+        } else {
+            card
+        }
+    }
+}
+
+/// Time in range and the average in the 4 hours after each tag, against every reading over the same
+/// days (`TagInsightsCardView`). Tapping a tag zooms the card into the Logbook on that tag's chip;
+/// Back shrinks it home. Every tag registers the card as its zoom source.
+struct PhoneTagInsightsCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var logbook: LogbookStore
+    @Environment(\.phoneNavigator) private var navigator
+
+    var body: some View {
+        let card = TagInsightsCardView(readings: store.archive, entries: logbook.entries, unit: store.snapshot.unit,
+                                       lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                       openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
+            .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .tagged)), in: navigator.zoom)
         } else {
             card
         }

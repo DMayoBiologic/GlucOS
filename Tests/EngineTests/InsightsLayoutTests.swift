@@ -17,7 +17,7 @@ final class InsightsLayoutTests: XCTestCase {
         var layout = InsightsLayout.standard
         // Drag Lows (index 1) to the top.
         layout.moveVisible(fromOffsets: IndexSet(integer: 1), toOffset: 0, defaults: mac)
-        XCTAssertEqual(layout.visible(mac), [.lows, .weekInReview, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .dayPattern, .forecastAccuracy])
+        XCTAssertEqual(layout.visible(mac), [.lows, .weekInReview, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .dayPattern, .forecastAccuracy])
         // Drag Week in review (now index 1) to the end: onMove reports the count as the destination.
         layout.moveVisible(fromOffsets: IndexSet(integer: 1), toOffset: mac.count, defaults: mac)
         XCTAssertEqual(layout.visible(mac).last, .weekInReview)
@@ -70,10 +70,10 @@ final class InsightsLayoutTests: XCTestCase {
         let layout = InsightsLayout(order: ["dayPattern", "weekInReview", "lows", "highs", "forecastAccuracy"],
                                     hidden: ["highs"])
         XCTAssertEqual(layout.arranged(mac),
-                       [.dayPattern, .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .forecastAccuracy])
+                       [.dayPattern, .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy])
         // New cards are never hidden.
         XCTAssertEqual(layout.visible(mac),
-                       [.dayPattern, .weekInReview, .lows, .overnight, .weekdayWeekend, .streaks, .bestDays, .forecastAccuracy])
+                       [.dayPattern, .weekInReview, .lows, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy])
     }
 
     func testStreaksArriveAfterWeekdaysAndWeekendsInASavedLayout() {
@@ -99,6 +99,21 @@ final class InsightsLayoutTests: XCTestCase {
         XCTAssertEqual(InsightsCard.bestDays.title, "Best and toughest days")
         XCTAssertEqual(InsightsCard(rawValue: "bestDays"), .bestDays)
         let phoneLayout = InsightsLayout(order: InsightsCard.phoneDefault.filter { $0 != .bestDays }.map(\.rawValue),
+                                         hidden: [])
+        XCTAssertEqual(phoneLayout.visible(phone), phone)
+    }
+
+    func testTagsArriveAfterBestDaysInASavedLayout() {
+        // A layout saved before the Tags card shipped, with Best and toughest days moved to the top:
+        // Tags shows straight after it, not hidden.
+        let saved = ["bestDays", "weekInReview", "lows", "highs", "overnight", "weekdayWeekend", "streaks",
+                     "dayPattern", "forecastAccuracy"]
+        let layout = InsightsLayout(order: saved, hidden: ["lows"])
+        XCTAssertEqual(Array(layout.arranged(mac).prefix(2)), [.bestDays, .tags])
+        XCTAssertFalse(layout.isHidden(.tags))
+        XCTAssertEqual(InsightsCard(rawValue: "tags"), .tags)
+        XCTAssertEqual(InsightsCard.tags.title, "Tags")
+        let phoneLayout = InsightsLayout(order: InsightsCard.phoneDefault.filter { $0 != .tags }.map(\.rawValue),
                                          hidden: [])
         XCTAssertEqual(phoneLayout.visible(phone), phone)
     }
