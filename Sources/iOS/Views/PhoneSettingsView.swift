@@ -211,6 +211,7 @@ struct PhoneSettingsView: View {
             syncSection
             alertsSection
             recapSection
+            sensorReminderSection
             lockScreenSection
             sharingSection
             FollowingSettingsSection()
@@ -484,6 +485,21 @@ struct PhoneSettingsView: View {
             Text("Daily recap")
         } footer: {
             Text(EveningRecapText.settingsFooter(minute: settings.eveningRecapMinute) + " Tap it to open Insights on today. It uses the readings GlucOS had when it last refreshed, and says which hours it covers.")
+        }
+    }
+
+    /// The evening-before sensor reminder (docs/SensorEnd.md): off until turned on.
+    private var sensorReminderSection: some View {
+        Section {
+            Toggle("Sensor change reminder", isOn: $settings.sensorEndReminderEnabled)
+                .onChange(of: settings.sensorEndReminderEnabled) { _, on in
+                    if on { store.alerts.requestAuthorization() }
+                }
+                .settingsAnchor(.sensorEndReminder)
+        } header: {
+            Text("Sensor")
+        } footer: {
+            Text(SensorEndReminder.settingsFooter)
         }
     }
 

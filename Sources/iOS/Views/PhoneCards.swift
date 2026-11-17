@@ -32,18 +32,25 @@ struct PhoneHeroCard: View {
             let headline = outlook.flatMap(OutlookFormat.headlineSample)
             // A new sensor's first hour: a countdown instead of the old sensor's last reading.
             let warmUp = s.warmUp(at: now)
+            // The sensor's life is over and nothing newer has come in: what to do next, in place
+            // of its last reading (docs/SensorEnd.md).
+            let ended = warmUp == nil ? s.sensorEnded(at: now) : nil
+            // Either one stands in for the reading, so its range pill and streak step aside.
+            let replaced = warmUp != nil || ended != nil
+            // The last 24 hours: day count and time left, quietly under the reading.
+            let countdown = s.sensorCountdown(at: now)
             // Right after launch: the saved reading, dimmed with its age, until the first fetch.
             let launch = store.launchPhase(at: now)
             VStack(alignment: .leading, spacing: DS.Space.md) {
                 HStack(spacing: DS.Space.sm) {
                     // The streak drops under the pill at the accessibility text sizes.
                     DSAccessibleStack(spacing: DS.Space.sm) {
-                        if let range = s.range, warmUp == nil {
+                        if let range = s.range, !replaced {
                             RangeBadge(range: range, stale: stale)
                                 .id(stale ? "stale" : range.label)
                                 .transition(.push(from: (s.current?.trend.isFalling ?? false) ? .top : .bottom))
                         }
-                        if warmUp == nil, let streak = s.rangeStreak(at: now), streak.duration >= 5 * 60 {
+                        if !replaced, let streak = s.rangeStreak(at: now), streak.duration >= 5 * 60 {
                             Text("for \(streak.isOpenEnded ? "over " : "")\(PopoverFormat.streak(streak.duration))")
                                 .dsFont(.label)
                                 .foregroundStyle(.secondary)
@@ -59,6 +66,9 @@ struct PhoneHeroCard: View {
                 .dsAnimation(.standard, value: stale)
                 if let warmUp {
                     PhoneWarmUpView(warmUp: warmUp, now: now)
+                        .transition(.opacity)
+                } else if let ended {
+                    PhoneSensorEndedView(ended: ended, now: now)
                         .transition(.opacity)
                 } else if let cur = s.current {
                     HStack(alignment: .center, spacing: DS.Space.md) {
@@ -111,6 +121,10 @@ struct PhoneHeroCard: View {
                             .transition(.opacity)
                     }
                     freshness(cur, stale: stale, now: now, launch: launch)
+                    if let countdown {
+                        SensorCountdownLine(countdown: countdown)
+                            .transition(.opacity)
+                    }
                 } else {
                     waiting
                 }
@@ -127,22 +141,23 @@ struct PhoneHeroCard: View {
             // The warm-up countdown cross-fades to the first reading: a fade, so it stays under
             // Reduce Motion (`.sweep` keeps a short fade there).
             .dsAnimation(.sweep, value: warmUp == nil)
+            // The ended card fades in over the last reading, and the new sensor's warm-up over it.
+            .dsAnimation(.sweep, value: ended == nil)
+            .dsAnimation(.standard, value: countdown == nil)
             // An urgent low gets a rim as well as its colour, so it reads without colour vision.
-            .padding(s.range == .urgentLow && !stale && warmUp == nil ? DS.Space.md : 0)
-            .urgentRim(s.range == .urgentLow && !stale && warmUp == nil,
+            .padding(s.range == .urgentLow && !stale && !replaced ? DS.Space.md : 0)
+            .urgentRim(s.range == .urgentLow && !stale && !replaced,
                        in: RoundedRectangle(cornerRadius: DS.Radius.hero, style: .continuous))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(warmUp.map { $0.spoken(at: now) }
-                                ?? (s.current == nil ? waitingSummary
-                                    : s.accessibilitySummary(at: now) + (launch.spokenNote.map { ". \($0)" } ?? "")
-                                      + forecastSentence(outlook, headline: headline)))
+            .accessibilityLabel(spokenSummary(now: now, warmUp: warmUp, ended: ended, countdown: countdown,
+                                              launch: launch, outlook: outlook, headline: headline))
             .accessibilityAddTraits(.updatesFrequently)
             // The card is one VoiceOver element, so the empty state's button is an action on it.
             .accessibilityActions {
-                if s.current == nil, emptyStep != nil {
+                if (s.current == nil && emptyStep != nil) || ended != nil {
                     Button("Check Again") { Task { await store.refresh() } }
                 }
-                if s.current != nil, warmUp == nil {
+                if s.current != nil, !replaced {
                     Button("Show Reading Details") { showDetails = true }
                 }
             }
@@ -209,6 +224,21 @@ struct PhoneHeroCard: View {
     /// first fetch is still going or when a connection problem's banner already says.
     private var emptyStep: NoReadingsStep? {
         NoReadingsStep.current(snapshot: s, hasConnectionProblem: store.connectionProblem != nil)
+    }
+
+    /// The whole card in a sentence, for VoiceOver: the warm-up, the ended sensor, the empty
+    /// state, or the reading with its forecast and, in the sensor's last day, the time left.
+    private func spokenSummary(now: Date, warmUp: SensorWarmUp?, ended: SensorEnd.Ended?,
+                               countdown: SensorEnd.Countdown?, launch: LaunchReading,
+                               outlook: OutlookSnapshot?, headline: (minutes: Int, sample: ForecastSample)?) -> String {
+        if let warmUp { return warmUp.spoken(at: now) }
+        if let ended { return SensorEndedContent.spoken(ended, now: now, unit: store.shownUnit) }
+        guard s.current != nil else { return waitingSummary }
+        var out = s.accessibilitySummary(at: now)
+        if let note = launch.spokenNote { out += ". \(note)" }
+        out += forecastSentence(outlook, headline: headline)
+        if let countdown { out += ". " + countdown.spoken() }
+        return out
     }
 
     /// What the empty card says, for VoiceOver.
@@ -357,6 +387,32 @@ struct PhoneWarmUpView: View {
         }
         .dsAnimation(.standard, value: minutes)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Sensor ended
+
+/// The stage once the sensor has ended (`SensorEnd.Ended`): what happened and how to start a new
+/// one, with Check Again for when it's been started. The new sensor's warm-up countdown fades in
+/// over it as soon as LibreLinkUp reports the start.
+struct PhoneSensorEndedView: View {
+    @EnvironmentObject var store: GlucoseStore
+    let ended: SensorEnd.Ended
+    let now: Date
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            SensorEndedContent(ended: ended, now: now, unit: store.shownUnit,
+                               titleFont: .title, iconSize: typeSize.dsLargeText ? 88 : 72)
+            Button {
+                Task { await store.refresh() }
+            } label: {
+                Label(store.isRefreshing ? "Checking…" : "Check Again", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .disabled(store.isRefreshing)
+        }
     }
 }
 
@@ -850,12 +906,12 @@ struct PhoneSensorCard: View {
                 .frame(width: 40, height: 40)
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text("Sensor").dsFont(.label).foregroundStyle(.secondary)
-                Text("\(Format.days(days)) left")
+                Text(days <= 0 ? "Ended" : "\(Format.days(days)) left")
                     .dsFont(.headline)
                     .foregroundStyle(tone == .neutral ? AnyShapeStyle(Color.primary) : AnyShapeStyle(tone.textColor))
             }
             Spacer()
-            Text("Ends \(ClockLabel.dayTime(sensor.expires, now: Date()))")
+            Text("\(days <= 0 ? "Ended" : "Ends") \(ClockLabel.dayTime(sensor.expires, now: Date()))")
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
         }

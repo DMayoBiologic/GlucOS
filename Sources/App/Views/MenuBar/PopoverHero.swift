@@ -84,6 +84,8 @@ struct PopoverHero: View {
                           thickness: 5, unit: store.shownUnit)
                     .launchDim(launch, stale: stale)
                 FreshnessRow(reading: cur, launch: launch)
+                // The sensor's last 24 hours: day count and time left, quietly (docs/SensorEnd.md).
+                if let sensor = s.sensor { PopoverSensorCountdown(sensor: sensor) }
             }
         }
         .padding(.horizontal, 16)
@@ -221,11 +223,35 @@ struct PopoverHero: View {
 
     private var accessibilityLabel: String {
         var label = s.accessibilitySummary()
+        if let countdown = s.sensorCountdown() { label += ". " + countdown.spoken() }
         if let note = store.launchPhase().spokenNote { label += ", \(note)" }
         if let streak = s.rangeStreak(), streak.duration >= 5 * 60 {
             label += ", \(streak.range.label) for \(streak.isOpenEnded ? "over " : "")\(PopoverFormat.spokenStreak(streak.duration))"
         }
         return label
+    }
+}
+
+/// The quiet "Sensor day 15 of 15 · 6 h left" line, from 24 hours before the sensor ends. Waits
+/// for that moment without ticking, then redraws once a minute while it shows.
+private struct PopoverSensorCountdown: View {
+    let sensor: SensorInfo
+
+    var body: some View {
+        if SensorEnd.countdown(sensor: sensor) != nil {
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                if let countdown = SensorEnd.countdown(sensor: sensor, at: context.date) {
+                    SensorCountdownLine(countdown: countdown)
+                        .help("Sensor \(sensor.serial) ends \(ClockLabel.dayTime(sensor.expires, now: context.date))")
+                }
+            }
+        } else if let starts = SensorEnd.countdownStarts(sensor: sensor), starts > Date() {
+            TimelineView(.explicit([starts])) { context in
+                if let countdown = SensorEnd.countdown(sensor: sensor, at: context.date) {
+                    SensorCountdownLine(countdown: countdown)
+                }
+            }
+        }
     }
 }
 

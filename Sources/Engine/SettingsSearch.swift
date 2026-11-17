@@ -19,7 +19,7 @@ enum SettingsAnchor: String, CaseIterable, Hashable, Sendable {
     // Alerts
     case alerts, notifications, lowAlerts, highAlert, rapidAlert, staleAlert, sensorEndingAlert
     case predictedLows, predictedHighs, warnAhead, alertRepeat, testAlert
-    case eveningRecap
+    case eveningRecap, sensorEndReminder
     // Lock Screen, sharing, relay
     case liveActivity, shareLive, following, relay
     // Advanced
@@ -169,6 +169,8 @@ enum SettingsCatalog {
         static let repeatAlerts = ["repeat", "quiet", "quiet hours", "cooldown", "snooze", "nag", "how often",
                                    "frequency", "interval", "mute", "silence", "again"]
         static let testAlert = ["test", "try", "check", "sample"]
+        static let sensorReminder = ["sensor", "reminder", "remind", "change sensor", "new sensor", "replace",
+                                     "evening before", "ending", "expiry"]
         static let recap = ["evening", "recap", "summary", "daily", "night", "digest", "report"]
         static let liveActivity = ["live activity", "lock screen", "dynamic island", "standby", "widget"]
         static let share = ["share", "family", "follower", "messages", "imessage", "link", "carer", "parent"]
@@ -203,6 +205,7 @@ enum SettingsCatalog {
         .init(anchor: .alertRepeat, title: "Repeat alerts no more than every", place: "Alerts", keywords: K.repeatAlerts, parent: .alerts),
         .init(anchor: .testAlert, title: "Send test alert", place: "Alerts", keywords: K.testAlert, parent: .alerts),
         .init(anchor: .eveningRecap, title: "Evening recap", place: "Daily recap", keywords: K.recap),
+        .init(anchor: .sensorEndReminder, title: "Sensor change reminder", place: "Sensor", keywords: K.sensorReminder),
         .init(anchor: .liveActivity, title: "Live Activity", place: "Lock Screen", keywords: K.liveActivity),
         .init(anchor: .shareLive, title: "Share live readings", place: "Sharing", keywords: K.share),
         .init(anchor: .following, title: "Following", place: "Following", keywords: K.following),
@@ -250,6 +253,7 @@ enum SettingsCatalog {
         .init(anchor: .alertRepeat, title: "Repeat an ongoing alert every", place: "Alerts › Also Notify Me About", tab: "alerts",
               keywords: K.repeatAlerts),
         .init(anchor: .eveningRecap, title: "Evening recap", place: "Alerts › Daily Recap", tab: "alerts", keywords: K.recap),
+        .init(anchor: .sensorEndReminder, title: "Sensor change reminder", place: "Alerts › Sensor", tab: "alerts", keywords: K.sensorReminder),
         .init(anchor: .syncLogbook, title: "Sync logbook with your other devices", place: "Logging › Sync", tab: "logging", keywords: K.sync),
         .init(anchor: .therapy, title: "How you take insulin", place: "Logging", tab: "logging", keywords: K.therapy + ["insulin"]),
         .init(anchor: .insulins, title: "Your insulins", place: "Logging › Insulins", tab: "logging", keywords: K.insulins, parent: .therapy),

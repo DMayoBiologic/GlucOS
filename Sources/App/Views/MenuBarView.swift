@@ -121,8 +121,9 @@ struct MenuBarView: View {
         let showing = staggerSections(hasNotices: !notices.isEmpty, hasPrompts: showsDose || showsLow || showsWake)
         return VStack(alignment: .leading, spacing: PopoverLayout.stackSpacing) {
             // Redrawn once more when a warm-up runs out with the popover open, so the card gives way.
-            TimelineView(.explicit(warmUpEnd)) { context in
-                heroSlot(warmUp: s.warmUp(at: context.date))
+            // And when the sensor reaches its end, so the ended card takes over (docs/SensorEnd.md).
+            TimelineView(.explicit(heroMoments)) { context in
+                heroSlot(warmUp: s.warmUp(at: context.date), ended: s.sensorEnded(at: context.date), now: context.date)
             }
             .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
             // While an alert is snoozed: until when, and a click turns alerts back on.
@@ -191,10 +192,14 @@ struct MenuBarView: View {
     /// The top card: a new sensor's warm-up countdown, the reading, or what to do with none. The
     /// first reading cross-fades in over the countdown: a fade, so it stays under Reduce Motion
     /// (`.sweep` keeps a short one there).
-    private func heroSlot(warmUp: SensorWarmUp?) -> some View {
+    private func heroSlot(warmUp: SensorWarmUp?, ended: SensorEnd.Ended?, now: Date) -> some View {
         Group {
             if let warmUp {
                 PopoverWarmUpCard(warmUp: warmUp, onRefresh: refresh)
+                    .accessibilitySortPriority(4)
+                    .transition(.opacity)
+            } else if let ended {
+                PopoverSensorEndedCard(ended: ended, now: now, onRefresh: refresh)
                     .accessibilitySortPriority(4)
                     .transition(.opacity)
             } else if s.current != nil {
@@ -207,10 +212,20 @@ struct MenuBarView: View {
             }
         }
         .dsAnimation(.sweep, value: warmUp == nil)
+        .dsAnimation(.sweep, value: ended == nil)
     }
 
-    private var warmUpEnd: [Date] {
-        s.warmUp().map { [$0.endsAt.addingTimeInterval(SensorWarmUp.grace)] } ?? []
+    /// When the top card changes with no new data: a warm-up running out, or the sensor ending.
+    private var heroMoments: [Date] {
+        let now = Date()
+        var out = s.warmUp().map { [$0.endsAt.addingTimeInterval(SensorWarmUp.grace)] } ?? []
+        if let ends = s.sensor?.expires, ends > now { out.append(ends.addingTimeInterval(1)) }
+        // A last reading from after the nominal end goes stale: the sensor has now stopped.
+        if let cur = s.current, let ends = s.sensor?.expires, cur.timestamp >= ends {
+            let stale = cur.timestamp.addingTimeInterval(GlucoseSnapshot.staleAfter + 1)
+            if stale > now { out.append(stale) }
+        }
+        return out.sorted()
     }
 
     /// The sections taking a turn in this opening's stagger.
