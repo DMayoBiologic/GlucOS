@@ -1022,6 +1022,12 @@ struct InsightsSection: View {
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
             Spacer(minLength: DS.Space.md)
+            // Each card with a period shows how its figures moved from the period before
+            // (docs/InsightsCompare.md).
+            InsightsCompareToggle()
+                .toggleStyle(.checkbox)
+                .dsFont(.caption)
+                .help(InsightsCompare.toggleHint)
             Button { customising = true } label: {
                 Label("Customise Cards…", systemImage: "slider.horizontal.3")
             }

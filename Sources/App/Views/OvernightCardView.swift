@@ -26,6 +26,9 @@ struct OvernightCardView: View {
     @State private var shownKey: OvernightSummaryCache.Key?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
+    /// "Compare to previous period" (docs/InsightsCompare.md) and the period before, while it's on.
+    @AppStorage(InsightsCompare.storageKey) private var compare = false
+    @State private var previous: OvernightSummary?
 
     private var period: OvernightSummary.Period { OvernightSummary.Period(rawValue: periodDays) ?? .fortnight }
     /// "3.9 mmol/L".
@@ -75,6 +78,22 @@ struct OvernightCardView: View {
             }
             shownKey = key
         }
+        // The period before, only while the switch is on: worked out off the main thread once per
+        // new figure, and nothing extra shows when it lacks nights.
+        .task(id: compare ? value : nil) {
+            guard compare, let current = value else { previous = nil; return }
+            let readings = readings, low = lowMgdl, high = highMgdl
+            let new = await Task.detached(priority: .utility) {
+                InsightsCompare.previousOvernight(readings: readings, low: low, high: high, current: current)
+            }.value
+            DS.animate(.standard, reduceMotion: reduceMotion) { previous = new }
+        }
+    }
+
+    /// The period before, when the switch is on and it had enough nights.
+    private func before(_ s: OvernightSummary) -> OvernightSummary? {
+        guard compare, let previous, previous.period == s.period else { return nil }
+        return previous
     }
 
     @ViewBuilder
@@ -88,11 +107,17 @@ struct OvernightCardView: View {
                 StatTile("In range", value: OvernightSummaryText.percent(s.timeInRange),
                          caption: OvernightSummaryText.rangeCaption(s),
                          tone: .glucose(.inRange),
-                         rolling: .init(s.timeInRange) { OvernightSummaryText.percent($0) })
+                         rolling: .init(s.timeInRange) { OvernightSummaryText.percent($0) }) {
+                    InsightsDeltaBadge(delta: InsightsCompare.overnightRange(s, before(s)),
+                                       previous: InsightsCompare.previousPhrase(days: s.period.days))
+                }
                 StatTile("Lows", value: LowsSummaryText.countValue(s.lows),
                          caption: OvernightSummaryText.lowsCaption(s),
                          tone: s.lows > 0 ? .glucose(.low) : .neutral,
-                         rolling: .init(Double(s.lows), order: 1) { LowsSummaryText.countValue(Int($0.rounded())) })
+                         rolling: .init(Double(s.lows), order: 1) { LowsSummaryText.countValue(Int($0.rounded())) }) {
+                    InsightsDeltaBadge(delta: InsightsCompare.overnightLows(s, before(s)),
+                                       previous: InsightsCompare.previousPhrase(days: s.period.days))
+                }
                 if let change = s.averageChangeMgdl {
                     StatTile("Average change", value: OvernightSummaryText.changeValue(change, unit: unit),
                              caption: unit.label,
@@ -117,7 +142,10 @@ struct OvernightCardView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(OvernightSummaryText.title)
         .accessibilityValue([OvernightSummaryText.spoken(s, lowLine: lowLine, unit: unit),
-                             InsightsSparkline.overnight(s).spokenLine(label: OvernightSummaryText.sparklineLabel)]
+                             InsightsSparkline.overnight(s).spokenLine(label: OvernightSummaryText.sparklineLabel),
+                             InsightsCompare.spoken([("Overnight time in range", InsightsCompare.overnightRange(s, before(s))),
+                                                     ("Overnight lows", InsightsCompare.overnightLows(s, before(s)))],
+                                                    previous: InsightsCompare.previousPhrase(days: s.period.days))]
             .compactMap { $0 }.joined(separator: " "))
         // The figures open the Logbook too, not just the row under them. The period picker stays
         // its own control.

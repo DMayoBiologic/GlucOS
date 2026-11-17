@@ -119,6 +119,15 @@ struct PhoneInsightsView: View {
                                          padding: DS.Space.lg)
                         .dsReveal("recap", in: reveals, when: .scrolledIntoView)
                 }
+                if !visible.isEmpty {
+                    // Each card with a period shows how its figures moved from the period before
+                    // (docs/InsightsCompare.md).
+                    InsightsCompareToggle()
+                        .dsFont(.callout)
+                        .tint(Palette.brand)
+                        .dsCard(.standard, padding: DS.Space.md)
+                        .dsEntrance(0)
+                }
                 ForEach(Array(visible.enumerated()), id: \.element) { i, card in
                     // Each card rises in the first time it's scrolled into view on this visit,
                     // with any that come into view alongside it a step behind; its figures

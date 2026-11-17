@@ -26,6 +26,9 @@ struct LowsCardView: View {
     @State private var shownKey: LowsSummaryCache.Key?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
+    /// "Compare to previous period" (docs/InsightsCompare.md) and the period before, while it's on.
+    @AppStorage(InsightsCompare.storageKey) private var compare = false
+    @State private var previous: LowsSummary?
 
     private var period: LowsSummary.Period { LowsSummary.Period(rawValue: periodDays) ?? .fortnight }
     /// "3.9 mmol/L".
@@ -77,6 +80,23 @@ struct LowsCardView: View {
             }
             shownKey = key
         }
+        // The period before, only while the switch is on: worked out off the main thread once per
+        // new figure, and nothing extra shows when it lacks readings.
+        .task(id: compare ? value : nil) {
+            guard compare, let current = value else { previous = nil; return }
+            let readings = readings, meals = meals, contexts = contexts, answers = answers, low = lowMgdl
+            let new = await Task.detached(priority: .utility) {
+                InsightsCompare.previousLows(readings: readings, meals: meals, contexts: contexts,
+                                             answers: answers, low: low, current: current)
+            }.value
+            DS.animate(.standard, reduceMotion: reduceMotion) { previous = new }
+        }
+    }
+
+    /// The count against the period before, when the switch is on and it had enough readings.
+    private func lowsDelta(_ s: LowsSummary) -> InsightsDelta? {
+        guard compare, let previous, previous.period == s.period else { return nil }
+        return InsightsCompare.lows(s, previous)
     }
 
     @ViewBuilder
@@ -88,7 +108,9 @@ struct LowsCardView: View {
             DSAccessibleStack(verticalAlignment: .top, spacing: DS.Space.md) {
                 StatTile("Lows", value: LowsSummaryText.countValue(s.count),
                          tone: s.count > 0 ? .glucose(.low) : .neutral,
-                         rolling: .init(Double(s.count)) { LowsSummaryText.countValue(Int($0.rounded())) })
+                         rolling: .init(Double(s.count)) { LowsSummaryText.countValue(Int($0.rounded())) }) {
+                    InsightsDeltaBadge(delta: lowsDelta(s), previous: InsightsCompare.previousPhrase(days: s.period.days))
+                }
                 if let median = s.medianMinutes {
                     StatTile("Typical length", value: LowsSummaryText.duration(median), caption: "Middle value",
                              rolling: .init(median, order: 1) { LowsSummaryText.duration($0) })
@@ -121,7 +143,9 @@ struct LowsCardView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(LowsSummaryText.title)
         .accessibilityValue([LowsSummaryText.spoken(s, lowLine: lowLine),
-                             InsightsSparkline.lows(s).spokenLine(label: LowsSummaryText.sparklineLabel)]
+                             InsightsSparkline.lows(s).spokenLine(label: LowsSummaryText.sparklineLabel),
+                             InsightsCompare.spoken([("Lows", lowsDelta(s))],
+                                                    previous: InsightsCompare.previousPhrase(days: s.period.days))]
             .compactMap { $0 }.joined(separator: " "))
         // The figures open the Logbook too, not just the row under them. The period picker stays
         // its own control.
