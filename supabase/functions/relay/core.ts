@@ -1095,6 +1095,32 @@ export function alertCategory(k: AlertKind): string | null {
   return snoozeLevel(k) === null ? treatOnlyCategory : snoozeAndTreatCategory;
 }
 
+/// The small chart on a low, high or forecast alert (AlertChart.swift): the card's last 3 hours and
+/// forecast, under `chart` in the push. The iPhone's notification content extension draws it.
+/// Null for alerts without buttons, or with fewer than 2 readings. Relay 2.18.0 on.
+export interface AlertChart {
+  readingAt: number;
+  unit: string;
+  lowMgdl: number;
+  highMgdl: number;
+  history: (number | null)[];
+  forecast: number[];
+  forecastLower?: number;
+  forecastUpper?: number;
+}
+
+export function alertChart(k: AlertKind, card: CardState | null | undefined): AlertChart | null {
+  if (!card || alertTreatment(k) === null) return null;
+  if (card.history.filter((v) => v !== null).length < 2) return null;
+  const chart: AlertChart = {
+    readingAt: card.readingAt, unit: card.unit, lowMgdl: card.lowMgdl, highMgdl: card.highMgdl,
+    history: card.history, forecast: card.forecast,
+  };
+  if (card.forecastLower !== undefined) chart.forecastLower = card.forecastLower;
+  if (card.forecastUpper !== undefined) chart.forecastUpper = card.forecastUpper;
+  return chart;
+}
+
 /// A very-high snooze quiets highs too; a high snooze lets a very high through.
 export function silences(s: AlertSnoozes | null | undefined, k: AlertKind, now: number): boolean {
   const level = snoozeLevel(k);

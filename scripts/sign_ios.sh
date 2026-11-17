@@ -87,8 +87,12 @@ if [ "$DESTINATION" = export ]; then
     echo "$AUTHORITY" | grep -q "Apple Distribution" \
       || { echo "::error::$NAME isn't signed with an Apple Distribution certificate"; exit 1; }
     test -f "$B/embedded.mobileprovision" || { echo "::error::$NAME has no provisioning profile"; exit 1; }
-    codesign -d --entitlements - --xml "$B" 2>/dev/null | grep -q "$APP_GROUP" \
-      || { echo "::error::$NAME lost its App Group entitlement in signing"; exit 1; }
+    # Only the bundles that asked for the group (the alert chart extension has no entitlements).
+    SRC=$(find "$ARCHIVE/Products" -maxdepth 6 -name "$NAME" | head -1)
+    if codesign -d --entitlements - --xml "$SRC" 2>/dev/null | grep -q "$APP_GROUP"; then
+      codesign -d --entitlements - --xml "$B" 2>/dev/null | grep -q "$APP_GROUP" \
+        || { echo "::error::$NAME lost its App Group entitlement in signing"; exit 1; }
+    fi
   done
 else
   echo "Uploaded GlucOS $VERSION ($BUILD_NUMBER) to App Store Connect; TestFlight has it once Apple finishes processing."

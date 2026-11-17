@@ -3,7 +3,7 @@
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1";
 import { type PushRequest, type PushResult, type PushSender, importAPNsKey, payloads, providerToken } from "./apns.ts";
 import { cardPriority, claimWindow, newRow, type RelayRow, RelayEngine, type Store, type Tx, rotateAfter, startRetry, urgentPushEvery, urgentPushGap } from "./engine.ts";
-import type { CardState, Reading, Trend } from "./core.ts";
+import { type AlertChart, alertChart, type CardState, type Reading, type Trend } from "./core.ts";
 import type { Account, FetchResult, GlucoseFetcher, LibreSession } from "./libre.ts";
 import { parseFactoryTimestamp } from "./libre.ts";
 import { handle } from "./index.ts";
@@ -283,7 +283,7 @@ Deno.test("status says the relay is delivering once it has fetched", async () =>
   assert(s.hasAccount && s.hasDeviceToken && s.alertsEnabled);
   assertEquals(s.lastFetchAt, t.clock());
   assertEquals(s.lastError, undefined);
-  assertEquals(s.version, "2.17.0");
+  assertEquals(s.version, "2.18.0");
   assertEquals(s.snoozes, {});
 });
 
@@ -439,4 +439,35 @@ Deno.test("history hands back the stored readings since a time, at most 30 days 
   // Asking for everything still stops at 30 days.
   assertEquals((await t.engine.history(0)).readings.length, 3);
   assertEquals((await t.engine.history(Number.NaN)).readings.length, 3);
+});
+
+Deno.test("a low alert push carries the last 3 hours as its chart; followers' copies don't", async () => {
+  const t = await registered();
+  t.fetcher.mgdl = 62;
+  await t.engine.tick();
+  const alert = t.sender.sent.find((p) => p.type === "alert")!;
+  const chart = alert.payload.chart as AlertChart;
+  assertEquals(chart.history.length, 37);
+  assertEquals(chart.history[36], 62);
+  assertEquals([chart.lowMgdl, chart.highMgdl, chart.unit], [70, 180, "mmol"]);
+  // Delivery itself is unchanged: same priority, collapse id and expiry as before.
+  assertEquals([alert.priority, alert.collapseId], [10, "glucos.low"]);
+  const n = { kind: "low" as const, title: "Low", body: "b", critical: false };
+  assertEquals("chart" in payloads.followerAlert(n, "Dec", "share1", false), false);
+});
+
+Deno.test("alertChart: only alerts with buttons, and only with 2 readings or more", () => {
+  const card = {
+    mgdl: 62, trend: 3, readingAt: 1_790_000_000, unit: "mmol", lowMgdl: 70, highMgdl: 180,
+    history: [null, 80, 70, 62], forecast: [58, 55], forecastLower: 45, forecastUpper: 66, source: "relay",
+  };
+  assertEquals(alertChart("low", card), {
+    readingAt: 1_790_000_000, unit: "mmol", lowMgdl: 70, highMgdl: 180,
+    history: [null, 80, 70, 62], forecast: [58, 55], forecastLower: 45, forecastUpper: 66,
+  });
+  assertEquals(alertChart("predictedHigh", card)?.forecast, [58, 55]);
+  assertEquals(alertChart("stale", card), null);
+  assertEquals(alertChart("low", { ...card, history: [null, null, 62] }), null);
+  assertEquals(alertChart("low", null), null);
+  assertEquals("chart" in payloads.alert({ kind: "low", title: "t", body: "b", critical: false }, false), false);
 });

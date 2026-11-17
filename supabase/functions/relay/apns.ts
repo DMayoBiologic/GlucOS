@@ -2,7 +2,7 @@
 // Payload shapes follow Apple's "Sending notification requests to APNs" and "Starting and
 // updating Live Activities with ActivityKit push notifications".
 
-import { alertCategory, type AlertNotice, type CardState, cardRange, cardStaleDate } from "./core.ts";
+import { type AlertChart, alertCategory, type AlertNotice, type CardState, cardRange, cardStaleDate } from "./core.ts";
 
 export interface PushRequest {
   deviceToken: string;
@@ -37,7 +37,8 @@ export const activityAttributesType = "GlucoseActivityAttributes";
 export const followerLowKinds: ReadonlySet<string> = new Set(["urgentLow", "low", "predictedUrgentLow", "predictedLow"]);
 
 export const payloads = {
-  alert(n: AlertNotice, criticalSound: boolean) {
+  /// `chart`: the owner's alert chart (`alertChart`), drawn by the iPhone's content extension.
+  alert(n: AlertNotice, criticalSound: boolean, chart: AlertChart | null = null) {
     const aps: Record<string, unknown> = {
       alert: { title: n.title, body: n.body },
       "thread-id": "glucos.alerts",
@@ -48,7 +49,7 @@ export const payloads = {
     // "Snooze 30 min" and "I'm treating it" (urgent lows: only the second).
     const category = alertCategory(n.kind);
     if (category) aps.category = category;
-    return { aps, kind: n.kind };
+    return chart ? { aps, kind: n.kind, chart } : { aps, kind: n.kind };
   },
 
   /// The owner's alert, on a follower's phone: named for whose readings they are, and grouped
