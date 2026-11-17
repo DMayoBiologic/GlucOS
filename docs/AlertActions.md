@@ -147,9 +147,24 @@ Log treatment and Snooze 30 min, or Log treatment alone for an urgent low.
   as before. Rapid change, no data, sensor and connection alerts, check-ins and a follower's copy of
   someone else's alert always keep the system banner.
 - **Dismissing.** Tap the banner, swipe it up, or the close button; VoiceOver's escape gesture and
-  a "Dismiss" action do the same. A newer alert replaces it. Left alone it goes after 10 minutes
-  (one timer, nothing polls); the notification stays in Notification Center.
-- **Motion.** Slides down once (`DSMotion.emphasized`) and out once; under Reduce Motion it
+  a "Dismiss" action do the same. Dismissing only hides it: it never snoozes or logs anything, and
+  the notification stays in Notification Center. Left alone it goes after 10 minutes (one timer at
+  the next banner's end, nothing polls).
+- **Swipe (round 59).** The banner follows the finger up one to one, and gives a little, resisting,
+  when pulled down (`AlertBannerSwipe`). Let go past 30 pt, or flick it, and it carries on up and
+  out; a shorter swipe springs back (`DSMotion.emphasized`). Under Reduce Motion it stays put and
+  fades as it's swiped instead.
+- **Stacking (round 59).** A second alert arriving while one shows stacks behind it rather than
+  replacing it (`AlertBannerStack`): the newest goes in front, and up to two cards peek out 8 pt
+  below, a little smaller and fainter. The front card says "1 more alert · Tap to show"; tapping it
+  spreads the stack out, one card under another with a Show less button, and each card can then be
+  swiped away or answered on its own. Dismissing the front card brings the next one forward. An
+  urgent low always stays in front. A repeat of a kind already showing replaces it, and at most
+  three show (the oldest goes first, never an urgent low ahead of the others). The stack folds back
+  when one card is left. VoiceOver hears "1 more alert" on the front card and gets a "Show all
+  alerts" action; cards behind are hidden from it until the stack is spread out.
+- **Motion.** Slides down once (`DSMotion.emphasized`) and out once; cards move to their new places
+  with the same spring as alerts arrive, leave or spread out. Under Reduce Motion every change
   cross-fades instead. Nothing loops or pulses.
 - **VoiceOver.** Announced as it arrives: "Alert: Low glucose, 3.6 mmol/L. Falling. Log treatment or
   Snooze 30 minutes at the top of the screen."
