@@ -4842,3 +4842,71 @@ and the lowest `rd.mgdl` in the 3 hours after `f.issued_at`, saved as a JSON lis
 `python3 scripts/back-in-range-calibration.py rows.json`.
 
 **Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.
+
+## 69. Do forecasts lean one way after tagged Logbook entries, and would a per-tag offset help? (17 Nov 2026)
+
+The question: in the 4 hours after an entry with a given tag (the Insights Tags card's window, #258),
+does the forecast run high or low, or miss by more, than in untagged time, and would a per-tag offset
+on the line win held out at 15 and 30 minutes without adding low misses? **It can't be measured yet:
+not one Logbook entry carries a tag. Nothing was tested and nothing shipped; no app or relay code
+changed, so the relay stays as it is.**
+
+**The count.** Run on 18 Nov 2026 at 02:35 Perth time (17 Nov, 18:35 UTC) against `glucos.logbook`:
+
+| What was looked for | Rows |
+|---|---|
+| Live Logbook rows | 188 |
+| Rows with a `labels` key at all, deleted rows included | 0 |
+| Context events whose "What else is going on?" choice counts as a tag (exercise, illness, stress, alcohol) | 0 |
+| Other context choices (not tags: woke up 6, bedtime 1, low treatment 1) | 8 |
+
+So every one of the 607 scored 15-minute and 311 scored 30-minute points in `glucos.forecast_checks`
+(not after-log) sits in untagged time, and there is no tagged window to compare them with. Tags came
+in with #254 on 17 Nov; §57 found the same for Exercise alone.
+
+**Minimum before testing.** The scored points above spread with a standard deviation of about 24.5 mg/dL
+at 15 minutes and 42 at 30. To tell a 5 mg/dL lean from noise (two standard errors) takes about
+(2 × 24.5 ÷ 5)² ≈ 100 points at 15 minutes and (2 × 42 ÷ 5)² ≈ 280 at 30, and points issued inside one
+window share their start, so they have to come from many windows. Per tag, analyse only at:
+
+- at least **100 scored points at 15 minutes and 280 at 30** issued inside that tag's windows, and
+- from at least **18 tagged entries on at least 6 different days**.
+
+**The test, once a tag qualifies.** Window = issue time in [entry, entry + 4 h) for any entry carrying
+the tag via `filterTags` (so tagged context events count), overlaps counted once, as on the Tags card.
+Compare bias (actual − forecast) and mean miss per tag against untagged time at 15 and 30 minutes.
+Candidate: a per-tag offset, the tag's mean bias shrunk by n ÷ (n + 60), fitted leaving one day out.
+Ship only if it beats the current line held out at 15 AND 30 minutes on every qualifying tag, and the
+count of low misses (actual under 70 with the line at or above 70) doesn't go up. Exercise and Sick act
+mostly through insulin sensitivity, so an offset that looks like a sensitivity change for those tags
+is dosing territory and needs Declan's approval first (see §57).
+
+The query was checked by temporarily adding `wokeUp` to its list: 6 entries on 6 days, 98 points at 15
+minutes and 49 at 30, so it counts as intended and today returns no rows.
+
+**Retest.** Run the count query below on **1 Dec 2026**; analyse only the tags that meet the minimum.
+If none does, check again on 15 Dec.
+
+**Dosing.** Not touched.
+
+```sql
+with tagged as (
+  select l.label, to_timestamp((g.payload->>'timestamp')::float) at
+  from glucos.logbook g, lateral jsonb_array_elements_text(coalesce(g.payload->'labels', '[]')) l(label)
+  where not g.deleted and g.payload->>'timestamp' is not null
+  union all
+  select initcap(case t when 'illness' then 'sick' else t end), to_timestamp((g.payload->>'timestamp')::float)
+  from glucos.logbook g, lateral jsonb_array_elements_text(
+    case when jsonb_typeof(g.payload->'tags') = 'array' then g.payload->'tags' else '[]' end) t
+  where not g.deleted and g.kind = 'context' and t in ('exercise', 'illness', 'stress', 'alcohol')
+)
+select t.label, count(distinct t.at) entries,
+  count(distinct date(t.at at time zone 'Australia/Perth')) days,
+  count(distinct (f.id, p->>'minutes')) filter (where (p->>'minutes')::int = 15) pts15,
+  count(distinct (f.id, p->>'minutes')) filter (where (p->>'minutes')::int = 30) pts30
+from tagged t
+left join glucos.forecast_checks f on f.issued_at >= t.at and f.issued_at < t.at + interval '4 hours'
+left join lateral jsonb_array_elements(f.points) p on p->>'actual' is not null
+  and not coalesce((p->>'afterLog')::boolean, false)
+group by 1 order by 2 desc;
+```
