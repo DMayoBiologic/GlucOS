@@ -4103,3 +4103,95 @@ from p where a is not null and not al and sh <> 'false' and m in (15, 30, 45, 60
 ```
 
 Save the array as `points.json` and run `python3 scripts/flat-runs.py points.json`.
+
+## 59. Are forecasts worse just after the trend reverses? (17 Nov 2026)
+
+The question: in the first 15 minutes after the trend changes sign (a rise has just turned into a
+fall, or the other way), does the forecast miss by clearly more at 30 and 60 minutes, and if so
+would damping the trend or widening the range for a short window after the flip help, on days the
+fit hadn't seen? **No. Just after a reversal the 30-minute miss is about 4% higher and the
+60-minute miss isn't higher at all, the range already holds 77–82% there, and neither fix clears
+3% held out at 30 and 60 minutes. The damping that comes closest also makes the 13 Nov 19:05 low
+warning later. Nothing shipped; no app or relay code changed, so the relay stays 2.17.0.**
+
+**How this differs from §45.** §45 eased the trend whenever the last 5 minutes were weaker than the
+20-minute slope (a ratio, any time, mostly rises), and it labelled its turning points by looking 15
+minutes ahead, which the app can't do. §59 uses only what the app has at issue time: an event, the
+sign of a slope flipping, and a window of W minutes after it. It covers both directions, it scores
+30 and 60 minutes (§45 scored 15 and 30), and it tests a wider range as well as a weaker trend. It
+doesn't touch the curve (§39) or noise in the readings (§26).
+
+**The test.** `scripts/trend-reversal.py`, on every live reading from 11–17 Nov (8,190), the same
+replay as §45: the engine's trend (20-minute least-squares slope, 30-minute fade) issued every 5
+minutes at the latest reading in each slot, scored at 15, 30 and 60 minutes, 1,602 points over
+seven Perth days, at the tuner's gains (0.45 Mac and relay, 0.6, 0.7 iPhone). Each minute of the
+last 45 gets a direction from a slope: up at +D mg/dL a minute or more, down at −D or less, else
+none. A point is **just after a reversal** when the latest direction in the last 15 minutes is the
+opposite of the one before it and the flip is at most 15 minutes old. Two slopes: the engine's own
+20-minute trend (`tr20`) and the last 10 minutes (`s10`), with D = 0.3 and 0.5.
+
+| Gain 0.6, mean miss mg/dL (no change / ships / §45 rises-only); inside the band | Points | 15 min | 30 min | 60 min |
+|---|---|---|---|---|
+| tr20, D 0.3, after a reversal | 685 | 17.3 / 18.1 / 17.3; 75% | 25.0 / 25.6 / 24.6; 77% | 39.0 / 39.7 / 38.8; 82% |
+| tr20, D 0.3, the rest | 917 | 15.6 / 14.5 / 14.4; 83% | 25.7 / 24.5 / 24.3; 82% | 40.9 / 41.2 / 40.8; 79% |
+| tr20, D 0.5, after a reversal | 579 | 17.6 / 18.5 / 17.6; 74% | 25.0 / 25.5 / 24.3; 78% | 39.9 / 40.4 / 39.5; 81% |
+| s10, D 0.3, after a reversal | 961 | 16.4 / 17.0 / 16.5; 77% | 24.5 / 25.0 / 24.3; 79% | 38.7 / 39.3 / 38.7; 81% |
+| s10, D 0.3, the rest | 641 | 16.1 / 14.6 / 14.4; 84% | 26.8 / 24.9 / 24.5; 81% | 42.1 / 42.4 / 41.9; 79% |
+
+- **Reversals are common, not rare.** The 20-minute trend has flipped in the last 15 minutes at 36–43%
+  of points, the 10-minute slope at 56–60%: glucose here wanders up and down every half hour or so,
+  so "just after a reversal" is a large share of ordinary forecasting.
+- **It's worse at 15 minutes, barely at 30, not at 60.** 18.1 against 14.5 at 15 minutes (+25%),
+  25.6 against 24.5 at 30 (+4%), 39.7 against 41.2 at 60. After a reversal what ships is about level
+  with "no change" at 30 and 60, and §45's rises-only easing, with nothing fitted, is already closer
+  than either (24.6 / 38.8). It already acts on 201 of the 685 points.
+- **No sign of a short window.** By minutes since the flip, the 30-minute miss is 27.2 (0–4), 25.4
+  (5–9) and 24.2 (10–15) against no change 25.8, 24.3 and 24.9: only the first 5 minutes are worse
+  than no change, by 1.4.
+- **Bias splits by direction.** Just after turning up the forecast runs 5.6 mg/dL high at 30
+  minutes; just after turning down it runs 3.7 low. Each way, the trend that has just turned
+  overshoots.
+
+**The fixes.** Leave one Perth day out, fitted on the 30 + 60-minute miss.
+
+1. **Damp:** for W minutes (5, 10, 15) after the flip, trend × w (1, 0.75, 0.5, 0.25, 0), both
+   directions or rises only (which can't move a low warning).
+2. **Widen:** for W minutes after the flip, the 10th–90th percentile band of what ships' misses on
+   the training days scaled by k (1–2), scored by the 80% interval score.
+
+| tr20, D 0.3, held out | Gain | 30 min, reversal / all | 60 min, reversal / all | Days better (30 / 60) |
+|---|---|---|---|---|
+| Damp, both ways (w 0–0.5, W 10–15) | 0.45 | −0.4% / −0.2% | −0.4% / −0.1% | 5 / 5 of 7 |
+| | 0.6 | −2.2% / −1.0% | −1.3% / −0.6% | 5 / 4 |
+| | 0.7 | −3.9% / −1.7% | −2.6% / −1.1% | 5 / 5 |
+| Damp, rises only | 0.45 | −0.6% / −0.2% | −0.8% / −0.3% | |
+| | 0.6 | −1.8% / −0.8% | −1.6% / −0.7% | |
+| | 0.7 | −2.6% / −1.1% | −2.2% / −0.9% | |
+| Widen | 0.45–0.7 | −0.5 to −0.8% / −0.2 to −0.3% (score) | +0.1 to +0.2% / 0 to +0.1% | k = 1 on 5–6 of 7 days |
+
+The 10-minute definition is the same story (best on reversal points: −3.2% at 30 and −2.4% at 60 at gain 0.7,
+−1.0% and −0.8% at 0.45), and D 0.5 changes nothing material.
+
+- **Widening never fits.** k = 1 (no change) on almost every fold; the band already holds 77–82%
+  after a reversal at 30 and 60 minutes, so it is not short there.
+- **Damping helps a little, mostly where §45 already does.** The only cell over 3% is 30 minutes on
+  reversal points at the iPhone's gain; 60 minutes never gets there, overall it's under 2%, and the
+  Mac and relay, at gain 0.45, get almost nothing (−0.4%). That fails the bar every forecast change
+  has had to clear (3% better at each horizon, §2), at every gain.
+
+**Low warnings.** The §39 check, every reading in the 90 minutes before each of the eight lows under
+70, warning when the trend carried 30 minutes goes under 70. Damping both ways after a reversal
+makes the 13 Nov 19:05 low warning later at every gain (with tr20, w 0: 9–11 → 2 minutes), and with
+s10 the 16 Nov 04:50 one 2 minutes later at 0.6 and 0.7. A fall that has just started is exactly
+the trend a low warning needs, so damping falls is ruled out regardless of the error. Rises only
+can't move a low warning, but it's under 3% everywhere.
+
+**Dosing.** Not touched: the trend feeds only the drawn forecast and predicted alerts, never insulin
+on board, the effect learner or the bolus figure.
+
+**Next.** Nothing new to retest: what helps after a reversal is the same signal §45 uses (the last
+5 minutes already weaker), so retest §45 at three weeks as it says, and look at the reversal split
+again with `scripts/trend-reversal.py` then; only revisit if the 30 and 60-minute misses after a
+reversal are 10%+ above the rest. To rerun: `python3 scripts/trend-reversal.py DIR`, with
+readings.json and logs.json as for §45 (`glucos.readings where trend > 0`, meals and doses from
+`glucos.logbook`, `payload->>'timestamp'` in unix seconds).
