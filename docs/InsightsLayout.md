@@ -21,7 +21,7 @@ Insights screens let them put the cards in their own order and hide the ones the
 - The logging cards (the safety note, insulin action, meals and sites) stay fixed at the top. They
   depend on the therapy setting and read as one block. The movable cards are Week in review, Lows,
   Highs, Overnight, Weekdays and weekends, In-range streaks, Best and toughest days, Tags, Your usual
-  day and Forecast accuracy. Tags is left off both screens until some entry carries a tag; its
+  day, Time in range by hour and Forecast accuracy. Tags is left off both screens until some entry carries a tag; its
   place in the order is kept, and it stays in the Edit list and the customise sheet.
 
 ## Motion

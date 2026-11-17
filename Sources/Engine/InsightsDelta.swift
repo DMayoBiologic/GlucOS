@@ -1,9 +1,9 @@
 import Foundation
 
 // Insights "Compare to previous period": an optional switch on iPhone and Mac Insights. When it's
-// on, the cards with a period (At a glance, Lows, Highs, Overnight, Weekdays and weekends) put a
-// small up or down figure beside their headline numbers: the change from the period of the same
-// length just before.
+// on, the cards with a period (At a glance, Lows, Highs, Overnight, Weekdays and weekends, Time in
+// range by hour) put a small up or down figure beside their headline numbers: the change from the
+// period of the same length just before.
 //
 // Method:
 // 1. The previous period is the same card worked out again on the readings from 2 periods back to
@@ -227,6 +227,19 @@ enum InsightsCompare {
         return prev
     }
 
+    /// Time in range by hour's previous period: the card worked out again on the period before,
+    /// needing readings on 4 of every 7 of its days.
+    static func previousHourly(readings: [GlucoseReading], low: Double, high: Double, current: HourlyInRange,
+                               calendar: Calendar = .autoupdatingCurrent) -> HourlyInRange? {
+        let length = Double(current.period.days) * 86_400
+        let slice = previousSlice(readings, end: current.end, seconds: length)
+        guard let prev = HourlyInRange.compute(readings: slice, low: low, high: high, period: current.period,
+                                               calendar: calendar),
+              isAligned(previousEnd: prev.end, currentEnd: current.end, seconds: length),
+              hasEnough(covered: prev.days, of: current.period.days) else { return nil }
+        return prev
+    }
+
     /// At a glance's previous window: the `hours` before the `hours` up to `now`. It needs readings
     /// spanning 4 of every 7 of its hours, at two or more an hour on average.
     static func previousGlance(readings: [GlucoseReading], hours: Double, now: Date,
@@ -280,6 +293,29 @@ enum InsightsCompare {
     static func glanceAverage(_ current: GlucoseStats, _ previous: GlucoseStats?, unit: GlucoseUnit,
                               low: Double, high: Double) -> InsightsDelta? {
         previous.map { .average(current.meanMgdl, $0.meanMgdl, unit: unit, low: low, high: high) }
+    }
+
+    /// Time in range by hour: the overall figure.
+    static func hourlyRange(_ current: HourlyInRange, _ previous: HourlyInRange?) -> InsightsDelta? {
+        previous.map { .timeInRange(current.timeInRange, $0.timeInRange) }
+    }
+
+    /// Time in range by hour: one hour against the same hour before. Nil when either period lacked
+    /// readings in it.
+    static func hourRange(_ hour: Int, _ current: HourlyInRange, _ previous: HourlyInRange?) -> InsightsDelta? {
+        guard let now = current.hour(hour), let before = previous?.hour(hour) else { return nil }
+        return .timeInRange(now.timeInRange, before.timeInRange)
+    }
+
+    /// Time in range by hour: the hour whose figure moved most from the period before, the earliest
+    /// on a tie. Nil when no hour moved a whole point.
+    static func biggestHourChange(_ current: HourlyInRange, _ previous: HourlyInRange?) -> (hour: Int, delta: InsightsDelta)? {
+        var best: (hour: Int, delta: InsightsDelta)?
+        for h in 0..<HourlyInRange.hoursInDay {
+            guard let d = hourRange(h, current, previous), d.direction != .same else { continue }
+            if best == nil || abs(d.change) > abs(best!.delta.change) { best = (h, d) }
+        }
+        return best
     }
 
     /// The spoken lines for a card's deltas, nil ones left out, joined into one string (nil when

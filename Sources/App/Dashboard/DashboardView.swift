@@ -514,6 +514,7 @@ struct DashboardView: View {
         case .bestStreak: return InRangeStreaksText.title
         case .bestDay: return BestToughestDaysText.title
         case .tagged: return TagInsightsText.title
+        case .hourOfDay: return HourlyInRangeText.title
         default: return chip.title
         }
     }

@@ -25,6 +25,9 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
     /// once something carries a tag.
     case tags
     case dayPattern
+    /// Time in range for each hour of the clock, as a strip of 24 cells; tapping one opens the
+    /// Logbook on that hour across the period's days.
+    case hourlyInRange
     /// iPhone: what GlucOS has learnt about mornings.
     case mornings
     case forecastAccuracy
@@ -45,6 +48,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         case .bestDays: return "Best and toughest days"
         case .tags: return "Tags"
         case .dayPattern: return "Your usual day"
+        case .hourlyInRange: return "Time in range by hour"
         case .mornings: return "Mornings"
         case .forecastAccuracy: return "Forecast accuracy"
         }
@@ -64,6 +68,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         case .bestDays: return "rosette"
         case .tags: return "tag"
         case .dayPattern: return "clock"
+        case .hourlyInRange: return "square.grid.4x3.fill"
         case .mornings: return "sunrise"
         case .forecastAccuracy: return "scope"
         }
@@ -72,7 +77,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
     /// The iPhone Insights screen's cards, in the order they ship.
     static let phoneDefault: [InsightsCard] = [
         .glance, .days, .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks,
-        .bestDays, .tags, .dayPattern, .mornings, .forecastAccuracy,
+        .bestDays, .tags, .dayPattern, .hourlyInRange, .mornings, .forecastAccuracy,
     ]
 
     /// The Mac Dashboard Insights page's movable cards, in the order they ship. The logging cards
@@ -80,7 +85,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
     /// read as one block.
     static let macDefault: [InsightsCard] = [
         .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags,
-        .dayPattern, .forecastAccuracy,
+        .dayPattern, .hourlyInRange, .forecastAccuracy,
     ]
 }
 

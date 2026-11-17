@@ -2,7 +2,7 @@ import Foundation
 
 // Opening the Logbook from somewhere else with a chip and a stretch of time already picked
 // (docs/LogbookSearch.md, "From the Insights cards"). Today that's the Insights Lows, Highs,
-// Overnight, Weekdays and weekends, Week in review, In-range streaks, Best and toughest days and Tags cards: tapping one shows its chip over the
+// Overnight, Weekdays and weekends, Week in review, In-range streaks, Best and toughest days, Tags and Time in range by hour cards: tapping one shows its chip over the
 // same days the card counted.
 
 /// The chip and period the Logbook opens with. Nothing is typed into the search field: the period
@@ -20,8 +20,9 @@ struct LogbookLink: Hashable, Sendable {
         self.tag = tag
     }
 
-    /// The kind chip the Logbook opens on: none for a tag link, so every kind tagged shows.
-    var kindChip: LogbookFilter? { tag == nil ? filter : nil }
+    /// The kind chip the Logbook opens on: none for a tag link, so every kind tagged shows, and none
+    /// for an hour link, whose hour rides on the period chip ("7–8 am · Last 14 days").
+    var kindChip: LogbookFilter? { tag == nil && filter != .hourOfDay ? filter : nil }
 
     /// The Lows card's period, as the Logbook reads it. The card counts the `days` × 24 hours up to
     /// the newest reading (`LowsSummary.compute`), so the Logbook starts there too rather than at
@@ -82,6 +83,18 @@ struct LogbookLink: Hashable, Sendable {
     static func tag(_ tag: String, _ period: TagInsights.Period, newestReading: Date?, now: Date) -> LogbookLink {
         let base = card(.tagged, days: period.days, newestReading: newestReading, now: now)
         return LogbookLink(filter: .tagged, period: base.period, tag: tag)
+    }
+
+    /// One hour of the Time in range by hour card: everything logged in that local clock hour on
+    /// every day of the card's period, read the same way as the Lows card's. No kind chip: the
+    /// period chip names the hour, and its ✕ drops hour and days together.
+    static func hour(_ hour: Int, _ period: HourlyInRange.Period, newestReading: Date?, now: Date) -> LogbookLink {
+        let base = card(.hourOfDay, days: period.days, newestReading: newestReading, now: now)
+        let span = HourlyInRangeText.span(hour)
+        return LogbookLink(filter: .hourOfDay,
+                           period: .init(label: "\(span) · Last \(period.days) days",
+                                         phrase: "between \(HourlyInRangeText.clock(hour)) and \(HourlyInRangeText.clock(hour + 1)) in the last \(period.days) days",
+                                         interval: base.period.interval, hour: hour))
     }
 
     private static func card(_ filter: LogbookFilter, days: Int, newestReading: Date?, now: Date) -> LogbookLink {

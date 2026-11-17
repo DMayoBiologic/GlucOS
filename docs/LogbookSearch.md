@@ -205,6 +205,13 @@ tested in LogbookLinkTests).
   every kind of entry carrying the tag shows (alerts carry no tags, so they drop out). The link's
   `filter` is an unlisted **Tagged** chip (`LogbookFilter.tagged`) that only says where it came
   from: the iPhone zooms from the card on it and the Mac's "‹ Insights" scrolls back to the card.
+- **An hour of the day (round 55).** Each cell on the Insights Time in range by hour card is its own
+  button: it opens the Logbook on everything logged in that local clock hour on every day of the
+  card's 7, 14 or 30 days (`LogbookLink.hour`). There's no kind chip: the hour rides on the period
+  chip ("7–8 am · Last 14 days", `LogbookQuery.Period.hour`), so its ✕ drops hour and days together.
+  The link's `filter` is an unlisted **Hour of day** chip (`LogbookFilter.hourOfDay`) that only says
+  where it came from, for the iPhone zoom and the Mac's "‹ Insights". The hour is read off the clock,
+  so on the night the clocks go back both passes of the repeated hour match.
 
 ## Tags
 
