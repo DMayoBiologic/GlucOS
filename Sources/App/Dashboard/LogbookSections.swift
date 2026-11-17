@@ -1114,6 +1114,11 @@ struct InsightsSection: View {
         case .dayPattern:
             DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
+        case .hourlyInRange:
+            HourlyInRangeCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                                  openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.hourOfDay))
         case .forecastAccuracy:
             ForecastScorecardCard(outlook: outlookStore)
         case .glance, .days, .mornings:
@@ -1170,7 +1175,7 @@ struct InsightsSection: View {
     }
 
     /// "insights.lows", "insights.highs", "insights.overnight", "insights.weekdays",
-    /// "insights.thisWeek", "insights.bestStreak", "insights.bestDay", "insights.tagged": where Back from the Logbook
+    /// "insights.thisWeek", "insights.bestStreak", "insights.bestDay", "insights.tagged", "insights.hourOfDay": where Back from the Logbook
     /// scrolls to. Weekends comes back to the Weekdays and weekends card too, Last week to Week in
     /// review, and Toughest day to Best and toughest days.
     private static func cardID(_ card: LogbookFilter) -> String { "insights.\(card.insightsCard.rawValue)" }

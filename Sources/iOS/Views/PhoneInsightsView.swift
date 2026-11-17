@@ -48,12 +48,12 @@ struct PhoneInsightsRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressScaleStyle())
-        .accessibilityHint("Opens time in range by day, week in review, lows, highs, overnight, weekdays and weekends, your usual day, mornings and forecast accuracy")
+        .accessibilityHint("Opens time in range by day, week in review, lows, highs, overnight, weekdays and weekends, your usual day, time in range by hour, mornings and forecast accuracy")
     }
 }
 
 /// How things have been going: time in range over 24 hours to 14 days, each of the last seven
-/// days side by side, this week against last, lows and when they start, time above range and the longest high, how the nights go, weekdays against weekends, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
+/// days side by side, this week against last, lows and when they start, time above range and the longest high, how the nights go, weekdays against weekends, the usual day by time of day, time in range hour by hour, what GlucOS has learnt about mornings, and how its forecasts turned out.
 struct PhoneInsightsView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var logbook: LogbookStore
@@ -187,6 +187,7 @@ struct PhoneInsightsView: View {
         case .bestDays: PhoneBestToughestDaysCard()
         case .tags: PhoneTagInsightsCard()
         case .dayPattern: PhoneDayPatternCard()
+        case .hourlyInRange: PhoneHourlyInRangeCard()
         case .mornings: PhoneMorningCard(outlook: store.outlook)
         case .forecastAccuracy: PhoneForecastAccuracyCard(outlook: store.outlook)
         }
@@ -478,6 +479,25 @@ struct PhoneTagInsightsCard: View {
             .dsCard(.standard, padding: DS.Space.lg)
         if let navigator {
             card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .tagged)), in: navigator.zoom)
+        } else {
+            card
+        }
+    }
+}
+
+/// Time in range for each hour of the clock as a strip of cells (`HourlyInRangeCardView`). Tapping an
+/// hour zooms the card into the Logbook on that hour across the card's days; Back shrinks it home.
+struct PhoneHourlyInRangeCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @Environment(\.phoneNavigator) private var navigator
+
+    var body: some View {
+        let card = HourlyInRangeCardView(readings: store.archive, unit: store.snapshot.unit,
+                                         lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                         openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
+            .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .hourOfDay)), in: navigator.zoom)
         } else {
             card
         }

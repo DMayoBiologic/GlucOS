@@ -16,6 +16,7 @@ just before. Off by default; the choice is kept per device (`insights.comparePre
 | Highs | Time above, number of highs |
 | Overnight | Time in range, lows |
 | Weekdays and weekends | Each side's time in range |
+| Time in range by hour | Overall time in range; each hour's change in VoiceOver; a line naming the hour that moved most |
 
 Week in review is left as it is: it already sets this week against last week. In-range streaks,
 Best and toughest days, Tags, Your usual day, Mornings and Forecast accuracy have no like-for-like

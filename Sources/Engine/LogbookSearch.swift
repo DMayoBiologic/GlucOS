@@ -6,7 +6,7 @@ import Foundation
 
 /// The Logbook's quick filter chips. One at a time, on top of whatever the search says.
 enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
-    case meals, insulin, lows, highs, overnight, weekdays, weekends, thisWeek, lastWeek, bestStreak, bestDay, toughestDay, tagged, notes, sites, moments, alerts
+    case meals, insulin, lows, highs, overnight, weekdays, weekends, thisWeek, lastWeek, bestStreak, bestDay, toughestDay, tagged, hourOfDay, notes, sites, moments, alerts
 
     var id: String { rawValue }
 
@@ -25,6 +25,7 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .bestDay: return "Best day"
         case .toughestDay: return "Toughest day"
         case .tagged: return "Tagged"
+        case .hourOfDay: return "Hour of day"
         case .notes: return "Notes"
         case .sites: return "Sites"
         case .moments: return "Moments"
@@ -52,6 +53,9 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .bestDay, .toughestDay: return true
         // The Insights Tags card: everything, narrowed by the tag chip it opens with.
         case .tagged: return true
+        // The Insights Time in range by hour card: everything, narrowed to its hour by the period
+        // it opens with (`LogbookQuery.Period.hour`).
+        case .hourOfDay: return true
         case .notes: return !entry.searchNote.isEmpty
         case .sites: if case .siteChange = entry { return true } else { return false }
         case .moments: if case .context = entry { return true } else { return false }
@@ -70,7 +74,7 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .highs: return alert.isHigh
         case .overnight: return OvernightSummary.isOvernight(alert.timestamp)
         case .weekdays, .weekends: return matchesWeekPart(alert.timestamp)
-        case .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay: return true
+        case .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .hourOfDay: return true
         default: return false
         }
     }
@@ -80,10 +84,10 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
     }
 
     /// Whether the chip bar lists this chip by itself. Overnight, Weekdays, Weekends, This week,
-    /// Last week, Longest streak, Best day, Toughest day and Tagged show only when an Insights card opens the
+    /// Last week, Longest streak, Best day, Toughest day, Tagged and Hour of day show only when an Insights card opens the
     /// Logbook on them: they're times, not kinds of entry.
     var isListed: Bool {
-        ![.overnight, .weekdays, .weekends, .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .tagged].contains(self)
+        ![.overnight, .weekdays, .weekends, .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .tagged, .hourOfDay].contains(self)
     }
 
     /// The Insights card that opens the Logbook on this chip, where Back on the Mac scrolls to:
@@ -117,6 +121,16 @@ struct LogbookQuery: Equatable {
         /// How it reads in a sentence: "yesterday", "since last week", "on Friday".
         let phrase: String
         let interval: DateInterval
+        /// One local clock hour (0 to 23) on every day of `interval`, when set: the Insights Time in
+        /// range by hour card opens the Logbook on "7–8 am" across its days.
+        var hour: Int? = nil
+
+        /// Whether a moment is inside the period, and inside its hour when it has one.
+        func contains(_ date: Date, calendar: Calendar = .autoupdatingCurrent) -> Bool {
+            guard interval.contains(date) else { return false }
+            guard let hour else { return true }
+            return calendar.component(.hour, from: date) == hour
+        }
     }
 
     /// Lowercased words, every one of which must be found in an entry.
@@ -283,13 +297,13 @@ enum LogbookSearch {
 
     /// Whether an entry is found by the search: inside its time, and every word somewhere in it.
     static func matches(_ entry: LogEntry, _ query: LogbookQuery, lowIDs: Set<UUID> = []) -> Bool {
-        if let p = query.period, !p.interval.contains(entry.timestamp) { return false }
+        if let p = query.period, !p.contains(entry.timestamp) { return false }
         let text = entry.searchText + (lowIDs.contains(entry.id) ? " low hypo" : "")
         return query.terms.allSatisfy { contains(text, $0) }
     }
 
     static func matches(_ alert: AlertLogRow, _ query: LogbookQuery) -> Bool {
-        if let p = query.period, !p.interval.contains(alert.timestamp) { return false }
+        if let p = query.period, !p.contains(alert.timestamp) { return false }
         return query.terms.allSatisfy { contains(alert.searchText, $0) }
     }
 

@@ -102,6 +102,7 @@ extension LogbookFilter {
         case .bestDay: return "rosette"
         case .toughestDay: return "mountain.2"
         case .tagged: return "tag"
+        case .hourOfDay: return "clock"
         case .notes: return "text.alignleft"
         case .sites: return "bandage"
         case .moments: return "tag"
@@ -116,7 +117,7 @@ extension LogbookFilter {
         case .lows: return Tone.critical.color
         // The text shade: the chip label is amber on a faint wash until picked.
         case .highs: return GlucoseRange.high.textTint
-        case .overnight, .weekdays, .weekends, .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .tagged:
+        case .overnight, .weekdays, .weekends, .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .tagged, .hourOfDay:
             return Palette.brand
         case .notes: return Palette.brand
         case .sites: return Palette.site
