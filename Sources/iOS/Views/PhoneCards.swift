@@ -84,6 +84,9 @@ struct PhoneHeroCard: View {
                                 .accessibilityHidden(true)
                         }
                     }
+                    // Scrolling down shrinks the figure into the bar's title and fades it; scrolling
+                    // back grows it again (round 46, `HeaderCollapse`). Only fades under Reduce Motion.
+                    .todayStageCollapse()
                     RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
                               forecastMgdl: headline?.sample.mgdl, thickness: 6, unit: s.unit)
                         .launchDim(launch, stale: stale)
