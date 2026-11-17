@@ -3605,3 +3605,109 @@ select k, m, we, count(*) n, avg(abs(a - f)) miss,
   sum((a < 70 and lo < 70)::int) low_bottom, sum((a < 70 and lo + d_held_out < 70)::int) low_bottom_held_out
 from r group by rollup ((k, m), (we)) order by 1, 2, 3;
 ```
+
+## 52. Does every drawn horizon beat "no change"? (17 Nov 2026)
+
+The question: score every drawn forecast against simply assuming the reading stays where it is
+("no change", persistence), horizon by horizon, and where a horizon doesn't beat it, would drawing
+the line only as far as the last horizon that does bring the picture closer? **Overall the drawn
+forecasts beat no change by 4–9% at 15 to 45 minutes, tie at 60, and lose at 90 minutes and beyond
+(only 31 checks, all Mac). Cutting the line sooner than §8 already does helps by under 1% overall,
+is worse at 30 minutes, and is better on only some days. Nothing shipped; no app or relay code
+changed, so the relay stays 2.17.0.**
+
+Not a repeat of §8: that section built the live cut (cut a horizon once it is 5% worse than no
+change over 30 checks, bring it back once it is 5% better). This section measures how the drawn
+line now stands against no change and tests stricter versions of that cut.
+
+**The data.** 1,098 clean drawn points (nothing logged after) with a reading, in
+`glucos.forecast_checks`, Mac, iPhone and relay, 12–17 Nov Perth. No change is the reading the
+forecast started from (`start_mgdl`). Miss is the mean absolute error in mg/dL; a negative
+difference means the forecast was closer.
+
+| Horizon | Checks | Forecast | No change | Difference | Forecast closer on |
+|---|---|---|---|---|---|
+| 15 min | 477 | 18.3 | 19.1 | −4.2% | 52% |
+| 30 min | 266 | 31.0 | 34.2 | −9.4% | 59% |
+| 45 min | 180 | 46.8 | 48.9 | −4.3% | 57% |
+| 60 min | 144 | 55.0 | 54.5 | +0.9% | 49% |
+| 90 min | 15 | 75.4 | 66.3 | +13.8% | 40% |
+| 120 / 150 min | 8 / 8 | 77.2 / 69.3 | 67.6 / 59.7 | +14.2 / +16.1% | 25% |
+
+By device and kind, since the §8 cut reached the devices (15 Nov, 8 pm Perth):
+
+| | 15 min | 30 min | 45 min | 60 min |
+|---|---|---|---|---|
+| Mac, insulin and carbs | −12.7% (70) | −9.0% (67) | −5.4% (61) | +0.3% (39) |
+| iPhone, insulin and carbs | −7.1% (16) | −6.7% (15) | not drawn | not drawn |
+| iPhone, trend only | +25.5% (27) | | | |
+| Relay, trend only | +0.2% (137) | | | |
+
+- **The §8 cut is working.** Before it, the iPhone's insulin-and-carb forecasts were 9% and 20%
+  worse than no change at 45 and 60 minutes; since it, they stop at 30 minutes and beat no change
+  at 15 and 30.
+- **What still doesn't beat no change**: the Mac at 60 minutes (a tie), the relay's 15-minute Lock
+  Screen forecast (a tie over 137 checks), the iPhone's trend-only forecast at 15 minutes (27 checks
+  since 15 Nov, most of them on the morning of 17 Nov), and 90 minutes and beyond (31 checks
+  from the first two days, before the cut).
+
+**The test.** I walked forward through every drawn forecast and recomputed the cut from what that
+device had already scored, for that kind of forecast, over the 7 days before. A horizon (and every
+one after it) was cut when it had at least N checks and its miss was at least T times no change's.
+A cut point counts as no change's miss, because with no line the reading itself is the only guide.
+The baseline is the §8 rule (T 1.05, N 30) run the same way, since the stored points from before
+15 Nov were never cut.
+
+| Rule | Points cut | 15 min | 30 min | 45 min | 60 min | All | Days better at 15 / 30 / 60 |
+|---|---|---|---|---|---|---|---|
+| §8: 5% worse, 30 checks (baseline) | 50 | 18.21 | 30.69 | 45.93 | 53.76 | 31.96 | |
+| Not better, 30 checks | 84 | +0.1% | +1.2% | 0.0% | 0.0% | +0.3% | |
+| Not better, 15 checks | 139 | +0.1% | +0.8% | −0.9% | −1.5% | −0.4% | 2/6, 2/6, 3/5 |
+| Not 5% better, 30 checks | 191 | −1.2% | +1.3% | +0.4% | +0.1% | 0.0% | |
+| Not 5% better, 15 checks | 248 | −1.1% | +1.4% | −0.4% | −1.4% | −0.6% | 2/6, 2/6, 3/5 |
+
+- **Cutting harder is worse at 30 minutes in every version** (+0.8 to +1.4%). That is the horizon
+  where the forecast beats no change most clearly, and a cut that follows a bad stretch at 15
+  minutes takes it away too.
+- **The 15-minute gain is one morning.** The strictest rule is 15.6% better on 17 Nov (the iPhone
+  trend-only run above) and 3.0% worse on 15 Nov; the other days are within a point.
+- **The 60-minute gain is about a point and a half**, carried by 8 points on 14 Nov; 16 Nov gets
+  worse.
+- **Points the stricter rules cut** were on average only 0.4–0.7 mg/dL further off than no change at
+  15 and 30 minutes, so hiding them hardly changes what you'd see.
+
+**Low warnings.** Of the drawn points that ended under 70 with a range bottom under 70, every rule
+here, the baseline included, cuts the same one. Nothing shipped, so low warnings (§13, §30) and
+"a low is possible" are exactly as before.
+
+**Dosing.** Not touched: the cut only decides how far the line is drawn. Nothing here changes
+insulin on board, the effect learner or the bolus figure.
+
+**Caveats.** Five and a bit days, 31 checks past 60 minutes, and a walk-forward that treats a
+reading as known from its target time, which can only flatter the stricter rules. The ties that
+remain (relay 15 minutes, Mac 60 minutes) are already the cut's "about the same" band, which §8
+leaves drawn on purpose so a near-tie doesn't make the line flicker. Rerun after two more weeks; take
+a stricter cut only if it is at least 3% better at 15 and 30 minutes, better on most days, and keeps
+the low check unchanged.
+
+```sql
+with p as (select c.id, c.device d, c.basis b, c.issued_at t, c.start_mgdl s, (e->>'minutes')::int m,
+  (e->>'actual')::float a, (e->>'mgdl')::float f, (e->>'lower')::float lo,
+  coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al, coalesce(e->>'shown', 'true') shown
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e),
+cl as (select * from p where a is not null and not al),
+hs as (select distinct m h from cl),
+st as (select c.id, h.h,
+  (select count(*) from cl x where x.d = c.d and x.b = c.b and x.m = h.h
+    and x.t + make_interval(mins => h.h) <= c.t and x.t >= c.t - interval '7 days') n,
+  (select avg(abs(x.a - x.f)) / nullif(avg(abs(x.a - x.s)), 0) from cl x where x.d = c.d and x.b = c.b and x.m = h.h
+    and x.t + make_interval(mins => h.h) <= c.t and x.t >= c.t - interval '7 days') r
+  from (select distinct id, d, b, t from cl) c cross join hs h),
+th(th, nmin) as (values (1.05, 30), (1.00, 30), (0.95, 30), (1.00, 15), (0.95, 15)),
+ev as (select th.th, th.nmin, x.*, exists (select 1 from st where st.id = x.id and st.h <= x.m
+  and st.n >= th.nmin and st.r >= th.th) cut from cl x cross join th where x.shown <> 'false')
+select th, nmin, m, count(*) n, sum(cut::int) cut_n, avg(abs(a - f)) drawn,
+  avg(case when cut then abs(a - s) else abs(a - f) end) rule, avg(abs(a - s)) no_change,
+  sum((a < 70 and lo < 70 and cut)::int) lows_lost
+from ev group by rollup ((th, nmin), m) order by 1 desc, 2 desc, 3;
+```
