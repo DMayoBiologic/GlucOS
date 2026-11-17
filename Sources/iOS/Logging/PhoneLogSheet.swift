@@ -84,6 +84,8 @@ struct PhoneLogSheet: View {
     @State private var confirmingRepeat = false
     /// Saved: the checkmark shows for a moment, then the sheet closes. Nothing more can be logged.
     @State private var saved = false
+    /// The save bar's height before saving: the circle the button shrinks into is this wide.
+    @State private var saveBarHeight: CGFloat = 52
     @FocusState private var focus: LogFieldFocus?
 
     init(target: PhoneLogTarget, origin: LogOrigin? = nil) {
@@ -276,9 +278,17 @@ struct PhoneLogSheet: View {
                         .disabled(saved)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isNew ? "Log" : "Save") { save() }
-                        .fontWeight(.semibold)
-                        .disabled(!canSave || saved)
+                    Button { save() } label: {
+                        if saved {
+                            Image(systemName: "checkmark").transition(.opacity)
+                        } else {
+                            Text(isNew ? "Log" : "Save").transition(.opacity)
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(!canSave && !saved)
+                    .allowsHitTesting(!saved)
+                    .accessibilityLabel(saved ? LogFlow.savedTitle(isNew: isNew) : (isNew ? "Log" : "Save"))
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -290,7 +300,8 @@ struct PhoneLogSheet: View {
             }
         }
         .overlay {
-            if saved {
+            // With the save bar showing, its button turns into the checkmark instead.
+            if saved && needsTherapy {
                 SavedCheckmark(title: LogFlow.savedTitle(isNew: isNew))
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.85)))
             }
@@ -1166,22 +1177,44 @@ struct PhoneLogSheet: View {
 
     // MARK: Save bar
 
+    /// The Log button. Once saved it shrinks into a circle and its label gives way to a checkmark
+    /// that draws itself (`Animation.saveMorph`); under Reduce Motion it keeps its size and the label
+    /// cross-fades to the checkmark.
     private var saveBar: some View {
-        Button { save() } label: {
-            HStack(spacing: DS.Space.sm) {
-                if canSave { Image(systemName: "checkmark.circle.fill") }
-                Text(canSave ? saveSummary : (missing ?? saveSummary)).dsLineLimit(1).minimumScaleFactor(0.8)
-                    .multilineTextAlignment(.center)
+        let shrinks = saved && LogFlow.saveMorphShrinks(reduceMotion: reduceMotion)
+        return Button { save() } label: {
+            ZStack {
+                if saved {
+                    DrawnCheckmark(lineWidth: 3.5, delay: reduceMotion ? 0 : 0.14)
+                        .frame(width: 20, height: 18)
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.6)))
+                } else {
+                    HStack(spacing: DS.Space.sm) {
+                        if canSave { Image(systemName: "checkmark.circle.fill") }
+                        Text(canSave ? saveSummary : (missing ?? saveSummary)).dsLineLimit(1).minimumScaleFactor(0.8)
+                            .multilineTextAlignment(.center)
+                    }
+                    .transition(.opacity)
+                }
             }
             .dsFont(.headline)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, DS.Space.md + 2)
+            .frame(maxWidth: shrinks ? nil : .infinity)
+            .padding(.vertical, saved ? 0 : DS.Space.md + 2)
+            // Saved, it keeps the bar's height either way, so nothing below it jumps.
+            .frame(width: shrinks ? saveBarHeight : nil, height: saved ? saveBarHeight : nil)
             .foregroundStyle(.white)
-            .background(canSave ? AnyShapeStyle(Palette.brandGradient) : AnyShapeStyle(Color.secondary.opacity(0.35)),
-                        in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .background(canSave || saved ? AnyShapeStyle(Palette.brandGradient) : AnyShapeStyle(Color.secondary.opacity(0.35)),
+                        in: RoundedRectangle(cornerRadius: shrinks ? saveBarHeight / 2 : DS.Radius.card, style: .continuous))
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                if !saved, h > 0 { saveBarHeight = h }
+            }
         }
         .buttonStyle(.plain)
-        .disabled(!canSave || saved)
+        // Not `.disabled` once saved: that would grey the checkmark. `save()` ignores taps by then.
+        .disabled(!canSave && !saved)
+        .allowsHitTesting(!saved)
+        .accessibilityLabel(saved ? Text(LogFlow.savedTitle(isNew: isNew)) : Text(canSave ? saveSummary : (missing ?? saveSummary)))
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, DS.Space.lg)
         .padding(.top, DS.Space.sm)
         .padding(.bottom, DS.Space.xs)
@@ -1398,9 +1431,9 @@ struct PhoneLogSheet: View {
     /// logged-twice notice on it), so the checkmark never stands in for a warning.
     private func finishSaving() {
         focus = nil
-        Haptics.play(.done)
+        Haptics.play(.logSaved)
         PhoneLogRouter.shared.noteSaved()
-        DS.animate(.emphasized, reduceMotion: reduceMotion) { saved = true }
+        withAnimation(.saveMorph(reduceMotion: reduceMotion)) { saved = true }
         AccessibilityNotification.Announcement(LogFlow.savedTitle(isNew: isNew)).post()
         DispatchQueue.main.asyncAfter(deadline: .now() + LogFlow.savedHold(reduceMotion: reduceMotion)) { dismiss() }
     }
@@ -1597,7 +1630,7 @@ private struct SavedCheckmark: View {
         VStack(spacing: DS.Space.md) {
             ZStack {
                 Circle().fill(Palette.brandGradient)
-                CheckShape()
+                CheckmarkShape()
                     .trim(from: 0, to: reduceMotion ? 1 : drawn)
                     .stroke(.white, style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
                     .padding(22)
@@ -1614,16 +1647,6 @@ private struct SavedCheckmark: View {
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeOut(duration: 0.3).delay(0.08)) { drawn = 1 }
-        }
-    }
-
-    private struct CheckShape: Shape {
-        func path(in rect: CGRect) -> Path {
-            var p = Path()
-            p.move(to: CGPoint(x: rect.minX, y: rect.midY + rect.height * 0.05))
-            p.addLine(to: CGPoint(x: rect.minX + rect.width * 0.38, y: rect.maxY - rect.height * 0.12))
-            p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.12))
-            return p
         }
     }
 }

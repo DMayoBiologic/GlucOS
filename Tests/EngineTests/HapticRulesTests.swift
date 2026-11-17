@@ -18,6 +18,19 @@ final class HapticRulesTests: XCTestCase {
         XCTAssertEqual(HapticEvent.scrubRangeEdge.feel, .lightImpact(intensity: 0.9))
         XCTAssertEqual(HapticEvent.scrubLogged.feel, .lightImpact(intensity: 0.6))
         XCTAssertEqual(HapticEvent.rangeCrossed.feel, .lightImpact(intensity: 0.7))
+        // Saving from the log sheet is a light tap under the checkmark, not a success buzz.
+        XCTAssertEqual(HapticEvent.logSaved.feel, .lightImpact(intensity: 0.7))
+    }
+
+    func testALogSavedTapIsAnOutcome() {
+        XCTAssertEqual(HapticEvent.logSaved.priority, HapticEvent.done.priority)
+        var gate = HapticGate()
+        XCTAssertTrue(gate.admit(.logSaved, at: t0))
+        // A scrub tick or a second save landing with it doesn't buzz again.
+        XCTAssertFalse(gate.admit(.scrubLogged, at: t0.addingTimeInterval(0.1)))
+        XCTAssertFalse(gate.admit(.logSaved, at: t0.addingTimeInterval(0.2)))
+        // A low warning still gets through.
+        XCTAssertTrue(gate.admit(.enteredLow, at: t0.addingTimeInterval(0.2)))
     }
 
     func testWarningsOutrankOutcomesOutrankAcknowledgements() {
