@@ -5,20 +5,21 @@ import XCTest
 final class HeaderCollapseTests: XCTestCase {
     func testRestAndPullToRefreshStayOpen() {
         XCTAssertEqual(HeaderCollapse.progress(scrolled: 0, stageTop: 0), 0)
+        XCTAssertEqual(HeaderCollapse.progress(scrolled: 0, stageTop: 16), 0)
         XCTAssertEqual(HeaderCollapse.progress(scrolled: -80, stageTop: 0), 0)
         XCTAssertEqual(HeaderCollapse.progress(scrolled: .nan, stageTop: 0), 0)
         XCTAssertEqual(HeaderCollapse.progress(scrolled: 10, stageTop: .infinity), 0)
     }
 
     func testFollowsTheScrollAndClamps() {
-        // Starts 60 pt before the stage's top reaches the bar and takes 140 pt.
-        XCTAssertEqual(HeaderCollapse.progress(scrolled: 50, stageTop: 110), 0)
-        XCTAssertEqual(HeaderCollapse.progress(scrolled: 120, stageTop: 110), 0.5)
-        XCTAssertEqual(HeaderCollapse.progress(scrolled: 190, stageTop: 110), 1)
+        // Starts as the stage's top reaches the bar and takes 120 pt.
+        XCTAssertEqual(HeaderCollapse.progress(scrolled: 110, stageTop: 110), 0)
+        XCTAssertEqual(HeaderCollapse.progress(scrolled: 170, stageTop: 110), 0.5)
+        XCTAssertEqual(HeaderCollapse.progress(scrolled: 230, stageTop: 110), 1)
         XCTAssertEqual(HeaderCollapse.progress(scrolled: 5000, stageTop: 110), 1)
         // Banners above the stage push the fold further down the page.
-        XCTAssertLessThan(HeaderCollapse.progress(scrolled: 120, stageTop: 200),
-                          HeaderCollapse.progress(scrolled: 120, stageTop: 60))
+        XCTAssertLessThan(HeaderCollapse.progress(scrolled: 120, stageTop: 100),
+                          HeaderCollapse.progress(scrolled: 120, stageTop: 20))
     }
 
     func testNeverGoesBackwardsWhileScrollingOneWay() {

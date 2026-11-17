@@ -416,7 +416,7 @@ old, last 6.2." Follower: prefixed with the person's name.
   follows the scroll position rather than swapping at a threshold: the stage's value, unit, trend
   row and needle shrink to 55 % towards the bar and fade over the second half, while the bar's
   compact value and trend arrow grow in from 60 % and the "GlucOS" wordmark fades out first.
-  Scrolling up grows it back. It starts 60 pt before the stage reaches the bar and takes 140 pt,
+  Scrolling up grows it back. It starts as the stage reaches the bar and takes 120 pt,
   measured from the stage's own top so banners above it don't throw it off, and moves in 56 steps
   so only the figure and the title redraw while scrolling, never on a timer. Under Reduce Motion
   nothing scales: the two cross-fade, still following the scroll. VoiceOver reads the reading once,

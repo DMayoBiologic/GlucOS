@@ -11,11 +11,12 @@ import Foundation
 ///
 /// Plain Foundation so `swift test` covers it. The views are `PhoneHomeView` and `PhoneHeroCard`.
 enum HeaderCollapse {
-    /// Where the fold starts, in points of scroll past the stage's top. Negative: it begins while
-    /// the value is still a little below the bar, so it's mostly shrunk by the time it reaches it.
-    static let lead: Double = -60
+    /// Where the fold starts, in points of scroll past the stage's top: as soon as the stage starts
+    /// to pass under the bar. Never negative, or the stage would be part-folded at rest when it is
+    /// the first thing on the page.
+    static let lead: Double = 0
     /// How many points of scrolling the fold takes, start to finish.
-    static let span: Double = 140
+    static let span: Double = 120
     /// Progress is rounded to this many steps, so the screen redraws at most this many times
     /// across the fold, not on every point scrolled (power rule, docs/Redesign.md §4.6).
     static let steps: Double = 56
