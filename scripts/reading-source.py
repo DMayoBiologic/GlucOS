@@ -27,9 +27,11 @@ and by which source the latest reading (the forecast's start) came from. Also: t
 scored against a history point instead of the live reading at the same moment.
 
 Part 3, held out. Candidates, each picked on all but one Perth day by miss at 30 + 60 minutes and
-scored on the left-out day:
+scored on the left-out day (training drops points whose
+60-minute target lands on the left-out day):
   prefer   fit the trend without history points that have a live twin within 90 s (history kept
-           only where it fills a missing minute), and start from the latest live reading when one
+           only where it fills a missing minute; a twin counts only if it had
+           arrived by the forecast's start), and start from the latest live reading when one
            is within 90 s of a history start. Picked against "as ships" per fold.
   scale    in filled windows, scale the trend by w (1 = as ships, 0 = no change), w in 1, 0.75,
            0.5, 0.25, 0.
@@ -104,23 +106,23 @@ if pairs:
 HT = [r[0] for r in hist]
 
 
-def has_twin(t): return nearest(TL, LIVE, t, 90) is not None
-
-
-TWIN = {t: has_twin(t) for t in HT}
+def live_before(t, origin, tol=90):
+    """The live reading nearest t within tol that the app already had at origin."""
+    i, j = bisect.bisect_left(TL, t - tol), bisect.bisect_right(TL, min(t + tol, origin))
+    return min(LIVE[i:j], key=lambda r: abs(r[0] - t), default=None)
 
 
 def fit(t, prefer):
     win = window(t, TREND_W)
-    if prefer: win = [p for p in win if p[2] or not TWIN[t + round(p[0] * 60)]]
+    if prefer: win = [p for p in win if p[2] or live_before(t + round(p[0] * 60), t) is None]
     return win, slope(win)
 
 
 def start(t, prefer):
     i = bisect.bisect_right(T, t) - 1
     if prefer and not R[i][2]:
-        lv = nearest(TL, LIVE, t, 90)
-        if lv and lv[0] <= t: return lv[1]
+        lv = live_before(t, t)
+        if lv: return lv[1]
     return R[i][1]
 
 
@@ -189,7 +191,7 @@ def heldout(gain, options):
     """options: list of (label, kwargs); per fold pick the lowest 30+60 miss on the other days."""
     held, picks = {}, []
     for dd in days:
-        tr_ = [p for p in pts if p["day"] != dd]
+        tr_ = [p for p in pts if p["day"] != dd and day(p["t"] + 3600) != dd]
         lab, kw = min(options, key=lambda o: sum(abs(p["act"][h] - pred(p, h, gain, **o[1])) for p in tr_ for h in (30, 60)))
         picks.append(lab)
         for p in pts:
@@ -238,7 +240,7 @@ def warning(low, gain, **kw):
 lo = [p for p in pts if p["act"][30] < 80]
 for gain in GAINS:
     base = [warning(l, gain) for l in lows]
-    for lab, kw in (("prefer", {"prefer": True}), ("scale w=0.5", {"w": 0.5}), ("scale w=0", {"w": 0.0})):
+    for lab, kw in (("prefer", {"prefer": True}), ("scale w=0.75", {"w": 0.75}), ("scale w=0.5", {"w": 0.5}), ("scale w=0", {"w": 0.0})):
         cand = [warning(l, gain, **kw) for l in lows]
         later = [(perth(l).strftime("%d %H:%M"), round(a, 1), round(b, 1)) for l, a, b in zip(lows, base, cand) if b < a]
         b0 = st.mean(p["act"][30] - pred(p, 30, gain) for p in lo)

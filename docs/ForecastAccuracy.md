@@ -5134,17 +5134,18 @@ the history point instead of the live reading at that moment moves the miss by u
 history is smoother. So the scorecard isn't distorted by which source supplied the "actual".
 
 **Held out.** Two candidates, each picked on seven Perth days by miss at 30 + 60 minutes and scored
-on the eighth:
+on the eighth (training leaves out points whose 60-minute target lands on that day):
 
 - *Prefer live*: fit the trend without history points that have a live twin within 90 s, and start
-  from the live twin when the latest reading is a history point. It changes the trend on almost
+  from the live twin when the latest reading is a history point (a twin counts only if it had
+  arrived by the forecast's start). It changes the trend on almost
   every point, but only by 0.03 mg/dL/min on average, and it is a little worse on all days (gain
   0.6: 16.47 / 25.78 / 41.34 against 16.37 / 25.70 / 41.28). No fold picked it at any gain.
 - *Scale filled*: scale the trend by w in filled windows. Gain 0.45 always keeps w = 1. Gain 0.6
   picks w = 0.75 in 7 folds and is worse at 30 (+0.3%), level at 60. Gain 0.7 picks 0.75 and wins at
-  both, but barely (−0.1% at 30, −0.5% at 60, 5 of 8 days), and lifts lows: at w = 0.5, 6 of the
-  10 lows warn later (15 Nov 17:16 loses 6 minutes) and forecasts where glucose ends under 80 move
-  from −14.6 to −19.2.
+  both, but barely (−0.1% at 30, −0.5% at 60, 5 of 8 days), and lifts lows: at the picked
+  w = 0.75, 5 of the 10 lows warn later and forecasts where glucose ends under 80 move from −14.6
+  to −16.9; at w = 0.5, 6 warn later (15 Nov 17:16 loses 6 minutes) and the bias goes to −19.2.
 
 Neither passes: *prefer live* never wins, and *scale filled* wins only at the iPhone's highest gain,
 by under 1%, and makes low warnings later.
