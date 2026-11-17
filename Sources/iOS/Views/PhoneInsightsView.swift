@@ -10,7 +10,7 @@ struct PhoneInsightsRow: View {
         NavigationLink(value: PhoneRoute.insights) {
             HStack(spacing: DS.Space.md) {
                 if let stats = store.glanceStats(.day) {
-                    let unit = store.snapshot.unit
+                    let unit = store.shownUnit
                     TimeInRangeRing(stats: stats, lineWidth: 5, showsLabel: false, drawsIn: true)
                         .frame(width: 40, height: 40)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
@@ -113,7 +113,7 @@ struct PhoneInsightsView: View {
         return ScrollView {
             VStack(spacing: DS.Space.lg) {
                 if let recapFiredAt {
-                    EveningRecapCardView(readings: store.archive, unit: store.snapshot.unit,
+                    EveningRecapCardView(readings: store.archive, unit: store.shownUnit,
                                          lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl,
                                          recapMinute: settings.eveningRecapMinute, firedAt: recapFiredAt,
                                          padding: DS.Space.lg)
@@ -325,7 +325,7 @@ struct PhoneWeekInReviewCard: View {
     @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        let card = WeekInReviewView(readings: store.archive, unit: store.snapshot.unit,
+        let card = WeekInReviewView(readings: store.archive, unit: store.shownUnit,
                                     lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
                                     openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)
@@ -347,7 +347,7 @@ struct PhoneLowsCard: View {
 
     var body: some View {
         let card = LowsCardView(readings: store.archive, meals: logbook.meals, contexts: logbook.contexts,
-                                answers: logbook.lowAnswers, unit: store.snapshot.unit,
+                                answers: logbook.lowAnswers, unit: store.shownUnit,
                                 lowMgdl: store.snapshot.lowMgdl,
                                 openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)
@@ -366,7 +366,7 @@ struct PhoneHighsCard: View {
     @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        let card = HighsCardView(readings: store.archive, unit: store.snapshot.unit,
+        let card = HighsCardView(readings: store.archive, unit: store.shownUnit,
                                  highMgdl: store.snapshot.highMgdl,
                                  openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)
@@ -386,7 +386,7 @@ struct PhoneOvernightCard: View {
     @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        let card = OvernightCardView(readings: store.archive, unit: store.snapshot.unit,
+        let card = OvernightCardView(readings: store.archive, unit: store.shownUnit,
                                      lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
                                      openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)
@@ -407,7 +407,7 @@ struct PhoneWeekdayWeekendCard: View {
     @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        let card = WeekdayWeekendCardView(readings: store.archive, unit: store.snapshot.unit,
+        let card = WeekdayWeekendCardView(readings: store.archive, unit: store.shownUnit,
                                           lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
                                           openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)
@@ -428,7 +428,7 @@ struct PhoneInRangeStreaksCard: View {
     @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        let card = InRangeStreaksCardView(readings: store.archive, unit: store.snapshot.unit,
+        let card = InRangeStreaksCardView(readings: store.archive, unit: store.shownUnit,
                                           lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
                                           openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)
@@ -449,7 +449,7 @@ struct PhoneBestToughestDaysCard: View {
     @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        let card = BestToughestDaysCardView(readings: store.archive, entries: logbook.entries, unit: store.snapshot.unit,
+        let card = BestToughestDaysCardView(readings: store.archive, entries: logbook.entries, unit: store.shownUnit,
                                             lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
                                             openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)
@@ -472,7 +472,7 @@ struct PhoneTagInsightsCard: View {
     @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        let card = TagInsightsCardView(readings: store.archive, entries: logbook.entries, unit: store.snapshot.unit,
+        let card = TagInsightsCardView(readings: store.archive, entries: logbook.entries, unit: store.shownUnit,
                                        lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
                                        openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)
@@ -489,7 +489,7 @@ struct PhoneDayPatternCard: View {
     @EnvironmentObject var store: GlucoseStore
 
     var body: some View {
-        DayPatternView(readings: store.archive, unit: store.snapshot.unit,
+        DayPatternView(readings: store.archive, unit: store.shownUnit,
                        lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl)
             .dsCard(.standard, padding: DS.Space.lg)
     }

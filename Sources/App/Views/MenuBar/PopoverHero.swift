@@ -73,7 +73,7 @@ struct PopoverHero: View {
             if let cur = s.current {
                 RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
                           forecastMgdl: stale || !settings.showForecast ? nil : s.currentOutlook().flatMap(OutlookFormat.headlineSample)?.sample.mgdl,
-                          thickness: 5, unit: s.unit)
+                          thickness: 5, unit: store.shownUnit)
                     .launchDim(launch, stale: stale)
                 FreshnessRow(reading: cur, launch: launch)
             }
@@ -151,7 +151,7 @@ struct PopoverHero: View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
             // The saved reading cross-fades to the first live one once, rather than rolling.
             LaunchFigure(phase: launch) {
-                Text(s.unit.format(mgdl: cur.mgdl))
+                Text(store.shownUnit.format(mgdl: cur.mgdl))
                     .font(.system(size: (54 * (1 + (textScale.scale - 1) * 0.5)).rounded(), weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(numberStyle(tint)))
@@ -167,7 +167,7 @@ struct PopoverHero: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
             }
-            Text(s.unit.label)
+            Text(store.shownUnit.label)
                 .fontWeight(.semibold).dsFont(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -187,7 +187,7 @@ struct PopoverHero: View {
                     .contentTransition(.opacity)
                     .dsAnimation(.sweep, value: cur.trend)
                 if let d = s.deltaMgdl {
-                    Text(s.unit.formatDelta(mgdl: d))
+                    Text(store.shownUnit.formatDelta(mgdl: d))
                         .fontWeight(.medium).dsFont(.callout)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
