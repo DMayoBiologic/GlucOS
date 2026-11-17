@@ -232,6 +232,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Snoozes count down.** While alerts are snoozed, the chip shows a ring that drains as the snooze runs out and shrinks away when it ends. With Reduce Motion on, it shows the minutes left instead.
 - **See how a period compares.** Turn on Compare to previous period in Insights, and cards like At a glance, Lows and Highs show how their main figures moved from the period before, with colour for better or worse. If the previous period has too few readings, no comparison shows.
 - **A meal and its insulin share a row.** In the Logbook, entries logged within 15 minutes of each other show as one row. Tap it to open out the separate entries, each with its own swipes and menu.
+- **See your day hour by hour.** The Time in range by hour card in Insights colours each of the 24 hours by how much time you spent in range over the period. Tap an hour to see what you logged around then on those days.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
