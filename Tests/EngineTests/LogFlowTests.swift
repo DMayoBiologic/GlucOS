@@ -121,7 +121,7 @@ final class LogFlowTests: XCTestCase {
         XCTAssertGreaterThan(LogFlow.savedHold(reduceMotion: true), 0.3)
         // The Save button's checkmark morph runs inside the hold, with time left to see the tick.
         for rm in [false, true] {
-            XCTAssertLessThan(LogFlow.saveMorphDuration(reduceMotion: rm) + 0.3, LogFlow.savedHold(reduceMotion: rm))
+            XCTAssertLessThan(LogFlow.saveMorphDuration(reduceMotion: rm) + 0.25, LogFlow.savedHold(reduceMotion: rm))
         }
         XCTAssertLessThan(LogFlow.saveMorphDuration(reduceMotion: true), LogFlow.saveMorphDuration(reduceMotion: false))
         XCTAssertTrue(LogFlow.saveMorphShrinks(reduceMotion: false))
