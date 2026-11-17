@@ -108,9 +108,11 @@ struct MenuBarView: View {
             .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
             // While an alert is snoozed: until when, and a click turns alerts back on.
             if snoozeStore.isSnoozing {
-                AlertSnoozeChipView(snoozes: snoozeStore.snoozes) { AlertSnoozeStore.shared.resumeAll() }
-                    .transition(.opacity)
-                    .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
+                AlertSnoozeChipView(snoozes: snoozeStore.snoozes, countdown: snoozeStore.countdown) {
+                    AlertSnoozeStore.shared.resumeAll()
+                }
+                .transition(AlertSnoozeChipView.transition(reduceMotion: reduceMotion))
+                .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
             }
             // During a low, or with one predicted: the alert's Log treatment button, inline.
             if let lowTreat {
@@ -119,7 +121,7 @@ struct MenuBarView: View {
                                    shortcut: KeyboardShortcut("l"),
                                    action: openLowTreatment)
                     .transition(.opacity)
-                    .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
+                .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
             }
             PopoverNotices(notices: notices)
                 .accessibilitySortPriority(3)
