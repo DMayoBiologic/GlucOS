@@ -4724,7 +4724,9 @@ arrival is read three ways:
 **The test.** `scripts/reading-delay.py`: the engine's trend forecast every 5 minutes away from logs
 (nothing logged from 3 h before to the target), 759 points over 11–17 Nov Perth, at the tuner's gains.
 Each candidate draws horizon h at line(h + d), d from −3 to +3 minutes (d > 0 is projecting from arrival
-time). d is picked per horizon on six Perth days by mean miss and scored on the seventh. Scored two ways:
+time). d is picked per horizon on six Perth days by mean miss (leaving out any point whose
+readings touch the held-out day) and scored on the seventh; lines are clamped to 39–401 as the engine
+publishes them. Scored two ways:
 *chart* against the reading h minutes after the reading's time, and *label* against the reading h + a
 minutes after it, a = 0.5 (relay) or 1.0 (apps), which is "in h minutes" from arrival.
 
@@ -4737,7 +4739,7 @@ above 70 / the range bottom at or above 70:
 | 0.45 | label a = 1.0 | 15.35 → 15.26 (−0.6%) | 21.43 → 21.43 | 33.39 → 33.39 | −3 | 4/0 → 4/0 |
 | 0.6 (iPhone) | chart | 15.23 → 15.06 (−1.1%) | 21.41 → 21.39 (−0.1%) | 33.49 → 33.49 | −3 | 1/0 → 3/0 |
 | 0.6 | label a = 1.0 | 15.63 → 15.45 (−1.1%) | 21.76 → 21.74 (−0.1%) | 33.78 → 33.78 | −3 | 2/0 → 4/0 |
-| 0.7 | chart | 15.50 → 15.22 (−1.8%) | 21.75 → 21.72 (−0.1%) | 33.84 → 33.84 | −3 | 1/0 → 1/0 |
+| 0.7 | chart | 15.50 → 15.22 (−1.8%) | 21.74 → 21.71 (−0.1%) | 33.83 → 33.83 | −3 | 1/0 → 1/0 |
 
 Fixed offsets over all days (label a = 0.5, gain 0.45, 15 min): d = −3 15.05, −1 15.10, 0 15.13,
 +0.5 15.15, +1 15.16, +1.5 15.18, +3 15.22; at 30 min every offset is 21.21–21.22. Gains 0.6 and 0.7 show

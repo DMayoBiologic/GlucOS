@@ -76,10 +76,12 @@ def slope(pts, span=9):
 
 def line(g, tr, gain, u):
     u = max(0.0, min(u, FADE))
-    return g + gain * tr * (u - u * u / (2 * FADE))
+    v = g + gain * tr * (u - u * u / (2 * FADE))
+    return min(max(v, 39.0), 401.0)  # engine publishes within sensorRange 40...400 ± 1
 
 def actual(t):
     i = bisect.bisect_left(T, t)
+    if i < len(T) and T[i] == t: return R[i][1]
     if i == 0 or i >= len(T): return None
     a, b_ = i - 1, i
     if T[b_] - T[a] > 150: return None
@@ -96,7 +98,8 @@ for slot in range(T[0] - T[0] % 300 + 300, T[-1] - 3900, 300):
     if tr is None: continue
     act = {(h, a): actual(t + (h + a) * 60) for h in HS for a in AGES}
     if None in act.values(): continue
-    pts.append(dict(t=t, g=R[i][1], tr=tr, act=act, day=perth_day(t)))
+    pts.append(dict(t=t, g=R[i][1], tr=tr, act=act, day=perth_day(t),
+                    span={perth_day(t - TREND_W * 60), perth_day(t + (max(HS) + max(AGES)) * 60)}))
 days = sorted({p["day"] for p in pts})
 print(f"\n== Held out: {len(pts)} clean points over {len(days)} Perth days ({days[0]}–{days[-1]} Nov)")
 
@@ -116,7 +119,9 @@ for gain in GAINS:
             e0 = e1 = n = 0; better = worse = 0; picks = []
             miss0 = miss1 = bm0 = bm1 = nl = 0
             for day in days:
-                tr_ = [p for p in pts if p["day"] != day]; te = [p for p in pts if p["day"] == day]
+                # train only on points whose readings (trend window to last target) never touch the held-out day
+                tr_ = [p for p in pts if day not in p["span"] and p["day"] != day]
+                te = [p for p in pts if p["day"] == day]
                 if not te: continue
                 dd = min(DS, key=lambda x: (mae(tr_, gain, h, a, x), abs(x)))
                 picks.append(dd)
