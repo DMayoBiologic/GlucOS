@@ -14,6 +14,8 @@ enum HapticEvent: String, CaseIterable, Sendable {
     case done
     /// Undo put something back (or took it away again).
     case undone
+    /// Deleted from the Logbook (a swipe, a menu, the open entry). Its Undo toast can bring it back.
+    case deleted
     /// Pull to refresh brought new readings.
     case newData
     /// Scrubbing the chart crossed the low or high line.
@@ -48,7 +50,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         case .choice: return .selection
         case .done, .backInRange, .followerOkay: return .success
         case .enteredLow, .alertBanner, .followerNeedsHelp: return .warning
-        case .undone, .newData: return .lightImpact(intensity: 0.8)
+        case .undone, .deleted, .newData: return .lightImpact(intensity: 0.8)
         case .scrubRangeEdge: return .lightImpact(intensity: 0.9)
         case .scrubLogged: return .lightImpact(intensity: 0.6)
         case .rangeCrossed: return .lightImpact(intensity: 0.7)
@@ -61,7 +63,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         switch self {
         case .enteredLow, .alertBanner, .followerNeedsHelp: return 3
         case .done, .backInRange, .rangeCrossed, .followerOkay: return 2
-        case .choice, .undone, .newData: return 1
+        case .choice, .undone, .deleted, .newData: return 1
         case .scrubRangeEdge, .scrubLogged: return 0
         }
     }

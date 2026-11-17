@@ -355,6 +355,23 @@ enum LogEntry: Identifiable, Hashable {
         case .context(let c): return c.sortedTags.map(\.title).joined(separator: ", ")
         }
     }
+
+    /// "Log again now": the same entry logged again at `time`, with a fresh id so it is a new row
+    /// (and a new sync record) rather than a move of the old one. A straight copy of what was
+    /// logged: units, insulin, site, carbs, food, items, tags and notes are kept exactly. Only
+    /// what described the original moment is left behind on a dose: the bolus calculator's
+    /// working (it was worked out for then, not now) and the answer to "Was it for a meal?", which
+    /// GlucOS may ask again about the new dose. GlucOS never changes an amount here.
+    func copied(at time: Date, id: UUID = UUID()) -> LogEntry {
+        switch self {
+        case .dose(var d):
+            d.id = id; d.timestamp = time; d.calculation = nil; d.purpose = nil
+            return .dose(d)
+        case .meal(var m): m.id = id; m.timestamp = time; return .meal(m)
+        case .siteChange(var s): s.id = id; s.timestamp = time; return .siteChange(s)
+        case .context(var c): c.id = id; c.timestamp = time; return .context(c)
+        }
+    }
 }
 
 /// Valid input ranges. Generous, just enough to catch a slipped decimal point.

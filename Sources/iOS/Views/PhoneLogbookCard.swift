@@ -112,7 +112,10 @@ struct PhoneLogbookCard: View {
         .contextMenu {
             Button("Edit", systemImage: "pencil") { router.edit(entry) }
             Button("Log Again Now", systemImage: "arrow.clockwise") { logbook.duplicate(entry); Haptics.play(.done) }
-            Button("Delete", systemImage: "trash", role: .destructive) { logbook.delete(ids: [entry.id]) }
+            Button("Delete", systemImage: "trash", role: .destructive) {
+                logbook.delete(ids: [entry.id])
+                Haptics.play(.deleted)
+            }
         }
     }
 

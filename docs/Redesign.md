@@ -454,8 +454,9 @@ refreshes, dismissing a card and plain navigation stay silent.
 | Moment | Event | Feel | Where |
 | --- | --- | --- | --- |
 | Picking a chip, tile, stepper value, chart hours, setup step | `choice` | selection | Log sheet, Logbook filters, chart hours, Setup, sharing |
-| Log saved, Log Again, a question answered (low, dose), export ready, check-in sent, signed in | `done` | success | Log sheet `finishSaving()`, Logbook, low and dose questions, Export, Follow |
+| Log saved, Log Again Now (swipe right, menu), a question answered (low, dose), export ready, check-in sent, signed in | `done` | success | Log sheet `finishSaving()`, Logbook, low and dose questions, Export, Follow |
 | Undo (deleted-entry toast, low and dose question cards) | `undone` | light impact 0.8 | `PhoneUndoToast`, question cards |
+| Deleted a Logbook entry (swipe left, menu, open entry); the Undo toast offers it back | `deleted` | light impact 0.8 | `PhoneLogbookView`, `PhoneLogbookCard` |
 | Pull to refresh brought new readings (nothing on no change or failure) | `newData` | light impact 0.8 | `phonePullToRefresh` (#124) |
 | Scrubbing the chart crosses the low or high line | `scrubRangeEdge` | light impact 0.9 | `GlucoseChart` (#107) |
 | Scrubbing the chart passes something logged | `scrubLogged` | light impact 0.6 | `GlucoseChart` (#107) |

@@ -246,14 +246,13 @@ final class LogbookStore: ObservableObject {
         deletedAt = [:]
     }
 
-    /// A copy of `entry` at `time` with a fresh id ("Log again now").
-    func duplicate(_ entry: LogEntry, at time: Date = Date()) {
-        switch entry {
-        case .dose(var d): d.id = UUID(); d.timestamp = time; d.calculation = nil; d.purpose = nil; save(.dose(d))
-        case .meal(var m): m.id = UUID(); m.timestamp = time; save(.meal(m))
-        case .siteChange(var s): s.id = UUID(); s.timestamp = time; save(.siteChange(s))
-        case .context(var c): c.id = UUID(); c.timestamp = time; save(.context(c))
-        }
+    /// A copy of `entry` at `time` with a fresh id ("Log again now", `LogEntry.copied`). Returns the
+    /// copy's id.
+    @discardableResult
+    func duplicate(_ entry: LogEntry, at time: Date = Date()) -> UUID {
+        let copy = entry.copied(at: time)
+        save(copy)
+        return copy.id
     }
 
     // MARK: Insulins
