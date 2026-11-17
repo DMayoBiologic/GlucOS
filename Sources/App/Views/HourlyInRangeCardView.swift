@@ -17,6 +17,8 @@ import SwiftUI
 /// button ("7 am to 8 am, 54 percent in range, ..."). Callers give it their own card surface.
 struct HourlyInRangeCardView: View {
     let readings: [GlucoseReading]
+    /// Insights stepped back to an earlier period (docs/InsightsPeriodStep.md).
+    @Environment(\.insightsStep) private var step
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
@@ -32,6 +34,11 @@ struct HourlyInRangeCardView: View {
     @State private var previous: HourlyInRange?
 
     private var period: HourlyInRange.Period { HourlyInRange.Period(rawValue: periodDays) ?? .fortnight }
+    /// The readings up to where the period ends once Insights is stepped back; all of them on
+    /// the latest.
+    private var shown: [GlucoseReading] {
+        InsightsPeriodStep.readings(readings, days: period.days, back: step.back)
+    }
 
     /// Cells narrower than this go to two rows.
     private static let minimumCellWidth: CGFloat = 22
@@ -39,7 +46,7 @@ struct HourlyInRangeCardView: View {
     private static let cellSpacing: CGFloat = 2
 
     var body: some View {
-        let key = HourlyInRangeCache.key(readings: readings, low: lowMgdl, high: highMgdl, period: period)
+        let key = HourlyInRangeCache.key(readings: shown, low: lowMgdl, high: highMgdl, period: period)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: HourlyInRangeText.title, systemImage: "clock")
             // A shared picture names the period in its footer instead (docs/InsightsShare.md).
@@ -51,6 +58,8 @@ struct HourlyInRangeCardView: View {
                 .labelsHidden()
                 .accessibilityLabel("Period")
             }
+            // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
+            InsightsStepCaption(days: period.days, latest: readings.last?.timestamp)
 
             // While another period is worked out the last one stays up, so its cells cross-fade
             // to the new ones rather than blanking.
@@ -69,7 +78,7 @@ struct HourlyInRangeCardView: View {
             if let hit = HourlyInRangeCache.shared.cached(key) {
                 new = hit
             } else {
-                new = await HourlyInRangeCache.shared.value(for: key, readings: readings)
+                new = await HourlyInRangeCache.shared.value(for: key, readings: shown)
             }
             if value == nil || new == nil {
                 value = new
@@ -82,9 +91,9 @@ struct HourlyInRangeCardView: View {
         // new figure, and nothing extra shows when it lacks days.
         .task(id: compare ? value : nil) {
             guard compare, let current = value else { previous = nil; return }
-            let readings = readings, low = lowMgdl, high = highMgdl
+            let shown = self.shown, low = lowMgdl, high = highMgdl
             let new = await Task.detached(priority: .utility) {
-                InsightsCompare.previousHourly(readings: readings, low: low, high: high, current: current)
+                InsightsCompare.previousHourly(readings: shown, low: low, high: high, current: current)
             }.value
             DS.animate(.standard, reduceMotion: reduceMotion) { previous = new }
         }
@@ -251,14 +260,14 @@ extension HourlyInRangeCardView {
     /// Nothing to show: why, and the shortest longer period that has enough, when one does
     /// (`InsightsEmptyState`, docs/EmptyStates.md). Worked out off the main thread, only while empty.
     fileprivate func emptyNote(_ key: HourlyInRangeCache.Key) -> some View {
-        let readings = readings, low = lowMgdl, high = highMgdl, period = period
+        let shown = self.shown, low = lowMgdl, high = highMgdl, period = period
         return InsightsEmptyNote(id: AnyHashable(key), waiting: HourlyInRangeText.emptyLine(period), decide: {
             let longer = InsightsEmptyState.firstWithData(
                 InsightsEmptyState.longer(than: period.days, in: HourlyInRange.Period.allCases.map(\.days))) { days in
                     guard let p = HourlyInRange.Period(rawValue: days) else { return false }
-                    return HourlyInRange.compute(readings: readings, low: low, high: high, period: p) != nil
+                    return HourlyInRange.compute(readings: shown, low: low, high: high, period: p) != nil
                 }
-            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: HourlyInRange.minimumDays,
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(shown), needed: HourlyInRange.minimumDays,
                                                waiting: HourlyInRangeText.emptyLine(period), currentDays: period.days,
                                                longerWithData: longer)
         }, act: { action in

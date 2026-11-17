@@ -25,6 +25,16 @@ enum InsightsSharePeriod: Equatable, Sendable {
         }
     }
 
+    /// The span without "Last", for an earlier period stepped back to (docs/InsightsPeriodStep.md):
+    /// "24 hours", "14 days".
+    var spanLabel: String {
+        switch self {
+        case .hours(let h): return h == 1 ? "1 hour" : "\(h) hours"
+        case .days(let d): return d == 1 ? "1 day" : "\(d) days"
+        case .twoWeeks, .allStored: return label
+        }
+    }
+
     /// When the span starts, for the date range. Nil when nothing is stored yet.
     func start(now: Date) -> Date? {
         switch self {
@@ -101,10 +111,12 @@ enum InsightsShare {
 
     /// The footer's first line: "Lows · Last 14 days · 3–17 Nov 2026". Only the card's title, the
     /// period and the dates: never a name, email or account.
-    static func footer(card: InsightsCard, period: InsightsSharePeriod, now: Date,
+    /// With `earlier`, the card shows a period stepped back to and `now` is where it ends:
+    /// "Lows · 14 days · 20 Oct – 2 Nov 2026".
+    static func footer(card: InsightsCard, period: InsightsSharePeriod, now: Date, earlier: Bool = false,
                        calendar: Calendar = .autoupdatingCurrent,
                        locale: Locale = .autoupdatingCurrent) -> String {
-        var parts = [card.title, period.label]
+        var parts = [card.title, earlier ? period.spanLabel : period.label]
         if let start = period.start(now: now) {
             parts.append(dateRange(from: start, to: now, calendar: calendar, locale: locale))
         }

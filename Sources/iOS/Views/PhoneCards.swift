@@ -660,6 +660,8 @@ struct PhoneGlanceCard: View {
     @AppStorage(InsightsCompare.storageKey) private var compare = false
     @State private var previous: (window: GlanceWindow, stats: GlucoseStats)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Insights stepped back to an earlier period (docs/InsightsPeriodStep.md).
+    @Environment(\.insightsStep) private var step
 
     private struct TrendKey: Hashable {
         let slot: Int
@@ -671,6 +673,20 @@ struct PhoneGlanceCard: View {
         let trend: TrendKey
         let window: GlanceWindow
         let compare: Bool
+        let back: Int
+    }
+
+    /// Where the window ends: now on the latest, whole days (or hours) earlier once stepped back.
+    private func windowEnd(now: Date = Date()) -> Date {
+        InsightsPeriodStep.end(latest: now, hours: Int(window.hours), back: step.back)
+    }
+
+    /// The window's figures: the store's own on the latest (with the live reading), the readings
+    /// up to the stepped end otherwise.
+    private var stats: GlucoseStats? {
+        guard step.back > 0 else { return store.glanceStats(window) }
+        let slice = InsightsPeriodStep.window(store.archive, end: windowEnd(), hours: window.hours)
+        return GlucoseStats.compute(slice, low: store.snapshot.lowMgdl, high: store.snapshot.highMgdl)
     }
 
     private var trendKey: TrendKey {
@@ -696,7 +712,9 @@ struct PhoneGlanceCard: View {
                     .frame(maxWidth: 180)
                 }
             }
-            if let stats = store.glanceStats(window) {
+            // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
+            InsightsStepCaption(days: max(1, Int(window.hours) / 24), latest: Date())
+            if let stats {
                 GlanceStatsContent(stats: stats, unit: store.shownUnit,
                                    rangeDelta: InsightsCompare.glanceRange(stats, before),
                                    averageDelta: InsightsCompare.glanceAverage(stats, before, unit: store.shownUnit,
@@ -716,9 +734,9 @@ struct PhoneGlanceCard: View {
         .dsCard(.standard, padding: DS.Space.lg)
         // The window before, only while the switch is on: once per 15 minutes of readings or a new
         // window, off the main thread.
-        .task(id: PreviousKey(trend: trendKey, window: window, compare: compare)) {
+        .task(id: PreviousKey(trend: trendKey, window: window, compare: compare, back: step.back)) {
             guard compare else { previous = nil; return }
-            let archive = store.archive, hours = window.hours, now = Date(), shown = window
+            let archive = store.archive, hours = window.hours, now = windowEnd(), shown = window
             let low = store.snapshot.lowMgdl, high = store.snapshot.highMgdl
             let new = await Task.detached(priority: .utility) {
                 InsightsCompare.previousGlance(readings: archive, hours: hours, now: now, low: low, high: high)

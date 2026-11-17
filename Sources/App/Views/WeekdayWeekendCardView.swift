@@ -14,6 +14,8 @@ import SwiftUI
 /// cross-fades to its Logbook section (docs/LogbookSearch.md, "From the Insights cards").
 struct WeekdayWeekendCardView: View {
     let readings: [GlucoseReading]
+    /// Insights stepped back to an earlier period (docs/InsightsPeriodStep.md).
+    @Environment(\.insightsStep) private var step
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
@@ -29,11 +31,16 @@ struct WeekdayWeekendCardView: View {
     @State private var previous: WeekdayWeekend?
 
     private var period: WeekdayWeekend.Period { WeekdayWeekend.Period(rawValue: periodDays) ?? .fortnight }
+    /// The readings up to where the period ends once Insights is stepped back; all of them on
+    /// the latest.
+    private var shown: [GlucoseReading] {
+        InsightsPeriodStep.readings(readings, days: period.days, back: step.back)
+    }
     /// "3.9 mmol/L".
     private var lowLine: String { "\(unit.format(mgdl: lowMgdl)) \(unit.label)" }
 
     var body: some View {
-        let key = WeekdayWeekendCache.key(readings: readings, low: lowMgdl, high: highMgdl, period: period)
+        let key = WeekdayWeekendCache.key(readings: shown, low: lowMgdl, high: highMgdl, period: period)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: WeekdayWeekendText.title, systemImage: "calendar")
             // A shared picture names the period in its footer instead (docs/InsightsShare.md).
@@ -45,6 +52,8 @@ struct WeekdayWeekendCardView: View {
                 .labelsHidden()
                 .accessibilityLabel("Period")
             }
+            // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
+            InsightsStepCaption(days: period.days, latest: readings.last?.timestamp)
 
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.
@@ -63,7 +72,7 @@ struct WeekdayWeekendCardView: View {
             if let hit = WeekdayWeekendCache.shared.cached(key) {
                 new = hit
             } else {
-                new = await WeekdayWeekendCache.shared.value(for: key, readings: readings)
+                new = await WeekdayWeekendCache.shared.value(for: key, readings: shown)
             }
             if value == nil || new == nil {
                 value = new
@@ -76,9 +85,9 @@ struct WeekdayWeekendCardView: View {
         // new figure. A side shows nothing extra when it lacked days before.
         .task(id: compare ? value : nil) {
             guard compare, let current = value else { previous = nil; return }
-            let readings = readings, low = lowMgdl, high = highMgdl
+            let shown = self.shown, low = lowMgdl, high = highMgdl
             let new = await Task.detached(priority: .utility) {
-                InsightsCompare.previousWeekPart(readings: readings, low: low, high: high, current: current)
+                InsightsCompare.previousWeekPart(readings: shown, low: low, high: high, current: current)
             }.value
             DS.animate(.standard, reduceMotion: reduceMotion) { previous = new }
         }
@@ -165,14 +174,14 @@ extension WeekdayWeekendCardView {
     /// Nothing to show: why, and the shortest longer period that has enough, when one does
     /// (`InsightsEmptyState`, docs/EmptyStates.md). Worked out off the main thread, only while empty.
     fileprivate func emptyNote(_ key: WeekdayWeekendCache.Key) -> some View {
-        let readings = readings, low = lowMgdl, high = highMgdl, period = period
+        let shown = self.shown, low = lowMgdl, high = highMgdl, period = period
         return InsightsEmptyNote(id: AnyHashable(key), waiting: WeekdayWeekendText.emptyLine(period), decide: {
             let longer = InsightsEmptyState.firstWithData(
                 InsightsEmptyState.longer(than: period.days, in: WeekdayWeekend.Period.allCases.map(\.days))) { days in
                     guard let p = WeekdayWeekend.Period(rawValue: days) else { return false }
-                    return WeekdayWeekend.compute(readings: readings, low: low, high: high, period: p) != nil
+                    return WeekdayWeekend.compute(readings: shown, low: low, high: high, period: p) != nil
                 }
-            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: WeekdayWeekend.minimumDays * 2,
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(shown), needed: WeekdayWeekend.minimumDays * 2,
                                                waiting: WeekdayWeekendText.emptyLine(period), currentDays: period.days,
                                                longerWithData: longer)
         }, act: { action in

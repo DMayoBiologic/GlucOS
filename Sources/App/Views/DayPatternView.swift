@@ -11,6 +11,8 @@ import Accessibility
 /// surface.
 struct DayPatternView: View {
     let readings: [GlucoseReading]
+    /// Insights stepped back to an earlier period (docs/InsightsPeriodStep.md).
+    @Environment(\.insightsStep) private var step
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
@@ -21,7 +23,12 @@ struct DayPatternView: View {
     @State private var shownKey: DayPatternCache.Key?
 
     private var window: DayPattern.Window { DayPattern.Window(rawValue: windowDays) ?? .fortnight }
-    private var key: DayPatternCache.Key { DayPatternCache.key(readings: readings, window: window) }
+    /// The readings up to where the period ends once Insights is stepped back; all of them on
+    /// the latest.
+    private var shown: [GlucoseReading] {
+        InsightsPeriodStep.readings(readings, days: window.days, back: step.back)
+    }
+    private var key: DayPatternCache.Key { DayPatternCache.key(readings: shown, window: window) }
 
     var body: some View {
         let key = self.key
@@ -36,6 +43,8 @@ struct DayPatternView: View {
                 .labelsHidden()
                 .accessibilityLabel("Period")
             }
+            // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
+            InsightsStepCaption(days: window.days, latest: readings.last?.timestamp)
 
             // While the other period is worked out, the last one stays up so the chart can glide
             // from it rather than blanking.
@@ -71,7 +80,7 @@ struct DayPatternView: View {
             if let hit = DayPatternCache.shared.cached(key) {
                 pattern = hit
             } else {
-                pattern = await DayPatternCache.shared.pattern(for: key, readings: readings)
+                pattern = await DayPatternCache.shared.pattern(for: key, readings: shown)
             }
             shownKey = key
         }
@@ -375,14 +384,14 @@ extension DayPatternView {
     /// Nothing to show: why, and 30 days when that has enough (`InsightsEmptyState`,
     /// docs/EmptyStates.md). Worked out off the main thread, only while empty.
     fileprivate func emptyNote(_ key: DayPatternCache.Key) -> some View {
-        let readings = readings, window = window
+        let shown = self.shown, window = window
         return InsightsEmptyNote(id: AnyHashable(key), waiting: DayPatternText.emptyLine(window), decide: {
             let longer = InsightsEmptyState.firstWithData(
                 InsightsEmptyState.longer(than: window.days, in: DayPattern.Window.allCases.map(\.days))) { days in
                     guard let w = DayPattern.Window(rawValue: days) else { return false }
-                    return DayPattern.compute(readings: readings, window: w) != nil
+                    return DayPattern.compute(readings: shown, window: w) != nil
                 }
-            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings),
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(shown),
                                                needed: DayPattern.minimumDays,
                                                waiting: DayPatternText.emptyLine(window), currentDays: window.days,
                                                longerWithData: longer)

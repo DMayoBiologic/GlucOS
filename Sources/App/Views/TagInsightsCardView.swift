@@ -15,6 +15,8 @@ import SwiftUI
 /// section (docs/LogbookSearch.md, "From the Insights cards").
 struct TagInsightsCardView: View {
     let readings: [GlucoseReading]
+    /// Insights stepped back to an earlier period (docs/InsightsPeriodStep.md).
+    @Environment(\.insightsStep) private var step
     let entries: [LogEntry]
     let unit: GlucoseUnit
     let lowMgdl: Double
@@ -35,9 +37,14 @@ struct TagInsightsCardView: View {
     }
 
     private var period: TagInsights.Period { TagInsights.Period(rawValue: periodDays) ?? .fortnight }
+    /// The readings up to where the period ends once Insights is stepped back; all of them on
+    /// the latest.
+    private var shown: [GlucoseReading] {
+        InsightsPeriodStep.readings(readings, days: period.days, back: step.back)
+    }
 
     var body: some View {
-        let key = TagInsightsCache.key(readings: readings, entries: entries, low: lowMgdl, high: highMgdl, period: period)
+        let key = TagInsightsCache.key(readings: shown, entries: entries, low: lowMgdl, high: highMgdl, period: period)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: TagInsightsText.title, systemImage: "tag")
             // A shared picture names the period in its footer instead (docs/InsightsShare.md).
@@ -49,6 +56,8 @@ struct TagInsightsCardView: View {
                 .labelsHidden()
                 .accessibilityLabel("Period")
             }
+            // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
+            InsightsStepCaption(days: period.days, latest: readings.last?.timestamp)
 
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.
@@ -67,7 +76,7 @@ struct TagInsightsCardView: View {
             if let hit = TagInsightsCache.shared.cached(key) {
                 new = hit
             } else {
-                new = await TagInsightsCache.shared.value(for: key, readings: readings, entries: entries)
+                new = await TagInsightsCache.shared.value(for: key, readings: shown, entries: entries)
             }
             // A newer period or data change took over while this one was worked out: drop it.
             guard !Task.isCancelled else { return }
@@ -151,10 +160,10 @@ extension TagInsightsCardView {
     /// Log Something (`InsightsEmptyState.tags`, docs/EmptyStates.md). No readings at all says so
     /// instead. Worked out off the main thread, only while empty.
     fileprivate func emptyNote(_ key: TagInsightsCache.Key) -> some View {
-        let readings = readings, entries = entries, low = lowMgdl, high = highMgdl, period = period
+        let shown = self.shown, entries = entries, low = lowMgdl, high = highMgdl, period = period
         let canLog = log != nil
         return InsightsEmptyNote(id: AnyHashable(key), waiting: TagInsightsText.emptyLine(period), decide: {
-            let days = InsightsEmptyState.readingDays(readings)
+            let days = InsightsEmptyState.readingDays(shown)
             guard days > 0 else {
                 return InsightsEmptyState.readings(daysSoFar: 0, needed: 1, waiting: TagInsightsText.emptyLine(period),
                                                    currentDays: period.days, longerWithData: nil)
@@ -162,7 +171,7 @@ extension TagInsightsCardView {
             let longer = InsightsEmptyState.firstWithData(
                 InsightsEmptyState.longer(than: period.days, in: TagInsights.Period.allCases.map(\.days))) { days in
                     guard let p = TagInsights.Period(rawValue: days) else { return false }
-                    return TagInsights.compute(readings: readings, entries: entries, low: low, high: high,
+                    return TagInsights.compute(readings: shown, entries: entries, low: low, high: high,
                                                period: p)?.rows.isEmpty == false
                 }
             return InsightsEmptyState.tags(currentDays: period.days, longerWithTags: longer, canLog: canLog)

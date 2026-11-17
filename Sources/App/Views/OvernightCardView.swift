@@ -16,6 +16,8 @@ import SwiftUI
 /// Logbook section (docs/LogbookSearch.md, "From the Insights cards").
 struct OvernightCardView: View {
     let readings: [GlucoseReading]
+    /// Insights stepped back to an earlier period (docs/InsightsPeriodStep.md).
+    @Environment(\.insightsStep) private var step
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
@@ -31,11 +33,16 @@ struct OvernightCardView: View {
     @State private var previous: OvernightSummary?
 
     private var period: OvernightSummary.Period { OvernightSummary.Period(rawValue: periodDays) ?? .fortnight }
+    /// The readings up to where the period ends once Insights is stepped back; all of them on
+    /// the latest.
+    private var shown: [GlucoseReading] {
+        InsightsPeriodStep.readings(readings, days: period.days, back: step.back)
+    }
     /// "3.9 mmol/L".
     private var lowLine: String { "\(unit.format(mgdl: lowMgdl)) \(unit.label)" }
 
     var body: some View {
-        let key = OvernightSummaryCache.key(readings: readings, low: lowMgdl, high: highMgdl, period: period)
+        let key = OvernightSummaryCache.key(readings: shown, low: lowMgdl, high: highMgdl, period: period)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: OvernightSummaryText.title, systemImage: "moon", trailing: OvernightSummaryText.hours)
             // A shared picture names the period in its footer instead (docs/InsightsShare.md).
@@ -47,6 +54,8 @@ struct OvernightCardView: View {
                 .labelsHidden()
                 .accessibilityLabel("Period")
             }
+            // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
+            InsightsStepCaption(days: period.days, latest: readings.last?.timestamp)
 
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.
@@ -65,7 +74,7 @@ struct OvernightCardView: View {
             if let hit = OvernightSummaryCache.shared.cached(key) {
                 new = hit
             } else {
-                new = await OvernightSummaryCache.shared.value(for: key, readings: readings)
+                new = await OvernightSummaryCache.shared.value(for: key, readings: shown)
             }
             // The figures roll by themselves; the sentences and tile colours cross-fade alongside.
             if value == nil || new == nil {
@@ -79,9 +88,9 @@ struct OvernightCardView: View {
         // new figure, and nothing extra shows when it lacks nights.
         .task(id: compare ? value : nil) {
             guard compare, let current = value else { previous = nil; return }
-            let readings = readings, low = lowMgdl, high = highMgdl
+            let shown = self.shown, low = lowMgdl, high = highMgdl
             let new = await Task.detached(priority: .utility) {
-                InsightsCompare.previousOvernight(readings: readings, low: low, high: high, current: current)
+                InsightsCompare.previousOvernight(readings: shown, low: low, high: high, current: current)
             }.value
             DS.animate(.standard, reduceMotion: reduceMotion) { previous = new }
         }
@@ -178,14 +187,14 @@ extension OvernightCardView {
     /// Nothing to show: why, and the shortest longer period that has enough, when one does
     /// (`InsightsEmptyState`, docs/EmptyStates.md). Worked out off the main thread, only while empty.
     fileprivate func emptyNote(_ key: OvernightSummaryCache.Key) -> some View {
-        let readings = readings, low = lowMgdl, high = highMgdl, period = period
+        let shown = self.shown, low = lowMgdl, high = highMgdl, period = period
         return InsightsEmptyNote(id: AnyHashable(key), waiting: OvernightSummaryText.emptyLine(period), decide: {
             let longer = InsightsEmptyState.firstWithData(
                 InsightsEmptyState.longer(than: period.days, in: OvernightSummary.Period.allCases.map(\.days))) { days in
                     guard let p = OvernightSummary.Period(rawValue: days) else { return false }
-                    return OvernightSummary.compute(readings: readings, low: low, high: high, period: p) != nil
+                    return OvernightSummary.compute(readings: shown, low: low, high: high, period: p) != nil
                 }
-            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: OvernightSummary.minimumNights,
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(shown), needed: OvernightSummary.minimumNights,
                                                waiting: OvernightSummaryText.emptyLine(period), currentDays: period.days,
                                                longerWithData: longer)
         }, act: { action in
