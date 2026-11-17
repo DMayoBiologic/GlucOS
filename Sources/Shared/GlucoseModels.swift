@@ -306,6 +306,9 @@ struct GlucoseStats: Codable, Hashable {
 
 struct GlucoseSnapshot: Codable {
     var current: GlucoseReading?
+    /// Where `current` came from, for the reading details card. Nil in snapshots saved before
+    /// round 56, which were all LibreLinkUp's.
+    var source: ReadingSource?
     var history: [GlucoseReading] = []      // oldest → newest, ~12 h
     var sensor: SensorInfo?
     var unit: GlucoseUnit = .mmol

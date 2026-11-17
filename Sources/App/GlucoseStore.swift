@@ -172,6 +172,7 @@ final class GlucoseStore: ObservableObject {
             guard !accountChanged() else { return }
             var s = snapshot
             s.current = r.current
+            s.source = r.current == nil ? nil : .libreLinkUp
             s.history = r.history
             s.sensor = r.sensor
             s.fetchedAt = Date()
