@@ -404,11 +404,14 @@ struct RangeBar: View {
 /// Presets, two thresholds with steppers, and the live range bar. Used by Settings and onboarding.
 /// Pass `readingMgdl` (the latest reading, only while fresh) to show it on the bar, and
 /// `previewReadings` (the reading archive) to preview today's readings against the range as it is
-/// set (`TargetRangePreviewChart`, Settings only).
+/// set (`TargetRangePreviewChart`, Settings only). Pass `alertRecords` (the alert log) as well to
+/// show under the limits how often each would have alerted over the last 7 days
+/// (`AlertCountPreviewLines`, Settings only).
 struct TargetRangeEditor: View {
     @ObservedObject var settings: AppSettings
     var readingMgdl: Double? = nil
     var previewReadings: [GlucoseReading] = []
+    var alertRecords: [AlertRecord]? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -441,6 +444,11 @@ struct TargetRangeEditor: View {
                                                               TargetRangeLimits.high.upperBound),
                                  tint: GlucoseRange.high.tint)
                 Spacer(minLength: 0)
+            }
+            if let alertRecords, !previewReadings.isEmpty {
+                AlertCountPreviewLines(readings: previewReadings, records: alertRecords,
+                                       prefs: settings.alertPreferences,
+                                       lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl)
             }
         }
     }

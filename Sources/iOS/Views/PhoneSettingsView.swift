@@ -285,7 +285,8 @@ struct PhoneSettingsView: View {
                 ForEach(GlucoseUnit.allCases) { Text($0.label).tag($0) }
             }
             .settingsAnchor(.units)
-            TargetRangeEditor(settings: settings, readingMgdl: freshMgdl, previewReadings: store.archive)
+            TargetRangeEditor(settings: settings, readingMgdl: freshMgdl, previewReadings: store.archive,
+                              alertRecords: logbook.alerts)
                 .padding(.vertical, DS.Space.xs)
                 .settingsAnchor(.targetRange)
             Toggle("Show forecast on the chart", isOn: $settings.showForecast)

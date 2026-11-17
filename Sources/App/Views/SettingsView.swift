@@ -390,6 +390,7 @@ struct FollowerAccountHelp: View {
 private struct GlucoseSettingsTab: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var logbook: LogbookStore
 
     /// The latest reading while it's fresh, for the range editor's marker.
     private var freshMgdl: Double? {
@@ -409,7 +410,8 @@ private struct GlucoseSettingsTab: View {
             }
 
             Section {
-                TargetRangeEditor(settings: settings, readingMgdl: freshMgdl, previewReadings: store.archive)
+                TargetRangeEditor(settings: settings, readingMgdl: freshMgdl, previewReadings: store.archive,
+                              alertRecords: logbook.alerts)
                     .padding(.vertical, 4)
                     .settingsAnchor(.targetRange)
             } header: {
