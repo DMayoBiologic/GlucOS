@@ -4000,3 +4000,106 @@ where not deleted and payload->>'timestamp' is not null
                where lower(l) in ('exercise', 'workout', 'walk', 'run', 'gym', 'sport'))
        or (kind = 'context' and payload->'tags' ? 'exercise'));
 ```
+
+## 58. Are forecasts worse when the readings flat-line? (17 Nov 2026)
+
+The question: when several live readings in a row are identical (a steady stretch, or possibly a
+stuck or compressed sensor), does the forecast miss by more, and if so would widening the range or
+holding the trend at zero help? **No. Forecasts are closer and better covered during flat runs
+than anywhere else, every flat run in the history was real steady glucose rather than a stuck
+sensor, and neither fix wins held out at 30 and 60 minutes. Nothing shipped; no app or relay code
+changed, so the relay stays 2.17.0.**
+
+**The data.** 1,086 clean drawn points (nothing logged after, a reading at the target, shown) at
+15, 30, 45 and 60 minutes in `glucos.forecast_checks`, Mac, iPhone and relay, 11–17 Nov Perth.
+Readings are live only: LinkUp graph points (trend 0 within 30 s of another reading, §23) are
+dropped, otherwise every graph point would break or fake a run. A **streak** is the number of
+identical live readings in a row (each within 2 minutes of the last) ending within 3 minutes before
+the issue time. **flat10** means 6+ live readings in the 10 minutes before issue spanning 1 or
+2 mg/dL at most.
+
+**How often.** 8,462 live readings since 10 Nov. Runs of 5+ identical readings happen 81 times,
+10+ only 6 times (longest 15, at 133 on 13 Nov 15:00). Only 34 of 494 15-minute points start on a
+streak of 3+, and 6 on 5+.
+
+| Definition | Horizon | Flat: points / days / drawn / no change / covered / score | Rest: drawn / no change / covered / score |
+|---|---|---|---|
+| streak ≥ 3 | 15 | 34 / 6 / 13.2 / 12.5 / 91% / 65.7 | 18.5 / 19.6 / 75% / 93.1 |
+| streak ≥ 3 | 30 | 22 / 5 / 21.2 / 24.3 / 82% / 113.5 | 31.7 / 35.1 / 69% / 160.3 |
+| streak ≥ 3 | 60 | 12 / 5 / 45.3 / 43.1 / 75% / 238.4 | 55.9 / 55.5 / 67% / 254.1 |
+| streak ≥ 5 | 15 | 6 / 3 / 13.0 / 10.8 / 83% / 47.7 | 18.2 / 19.2 / 76% / 91.7 |
+| streak ≥ 5 | 30 | 5 / 3 / 21.7 / 18.5 / 80% / 94.2 | 31.1 / 34.5 / 70% / 157.7 |
+| flat10, span ≤ 2 | 15 | 17 / 5 / 9.9 / 10.9 / 82% / 45.4 | 18.4 / 19.4 / 75% / 92.8 |
+| flat10, span ≤ 2 | 30 | 11 / 3 / 12.5 / 14.6 / 82% / 62.8 | 31.7 / 35.1 / 70% / 160.5 |
+
+Errors are mean absolute mg/dL; score is the 80% interval score (width plus 10 × any miss
+distance, lower is better).
+
+- **Flat starts miss by less, not more**: 13 vs 18.5 mg/dL at 15 minutes, 21 vs 32 at 30, 45 vs
+  56 at 60 for streak ≥ 3, and coverage is at or above the 80% target where the rest sits at
+  67–75%. The range is already wide enough there.
+- **No stuck-sensor signature.** Every one of the 12 runs of 8+ readings ended with a 1 mg/dL step
+  to the next reading a minute later, never a gap or a jump. They sit at plateaus (221 at 21:16 on
+  11 Nov, 133 mid-afternoon 13 Nov, 79–81 the morning of 16 Nov) and one real low nadir (53 for
+  11 minutes from 19:18 on 13 Nov, then 76 ten minutes later and 124 at 30 after treatment).
+  A forecast that held the trend at zero there would have been right to; one that widened the
+  range would have been wrong to.
+
+**The tests.** Leave one Perth day out, as §54: choices fitted on every other day and scored on
+the held-out day.
+
+1. **Hold the trend at zero**: the line becomes `start + w × (forecast − start)`, w from 1 (as
+   drawn) to 0 (no change). For trend-only forecasts w = 0 is exactly a zero trend.
+2. **Widen the range**: both sides scaled by k from 1 to 2 around the drawn line, scored by the
+   interval score.
+
+| Definition | Horizon | Points | Line held out (drawn → test) | Range held out (score) |
+|---|---|---|---|---|
+| streak ≥ 3 | 15 | 34 | 13.2 → 14.0 (+6.2%) | 65.7 → 65.7 (0%, k = 1 every day) |
+| streak ≥ 3 | 30 | 22 | 21.2 → 21.3 (+0.4%) | 113.5 → 123.6 (+8.8%) |
+| streak ≥ 3 | 45 | 16 | 44.7 → 47.1 (+5.3%) | 202.4 → 214.1 (+5.8%) |
+| streak ≥ 3 | 60 | 12 | 45.3 → 43.1 (−4.7%) | 238.4 → 273.8 (+14.9%) |
+| streak ≥ 5 | 15 | 6 | 13.0 → 10.8 (−17.2%) | 47.7 → 51.7 (+8.5%) |
+| streak ≥ 5 | 30 | 5 | 21.7 → 19.8 (−8.7%) | 94.2 → 103.8 (+10.1%) |
+| flat10, span ≤ 2 | 15 | 17 | 9.9 → 11.0 (+11.7%) | 45.4 → 46.6 (+2.7%) |
+| flat10, span ≤ 2 | 30 | 11 | 12.5 → 12.5 (0%, w = 1 every day) | 62.8 → 66.7 (+6.2%) |
+
+- **Widening loses everywhere** (0 to +15%), as the coverage table predicts.
+- **A zero trend is level at 30 minutes for streak ≥ 3** (+0.4%) and the −4.7% at 60 is 12 points.
+  The streak ≥ 5 wins at 15 and 30 are 5–6 points on 3 days; 60 minutes has 3 points on 2 days and
+  can't be tested. Nothing clears the bar of 3% better held out at 30 AND 60 minutes.
+
+**Low warnings.** Nothing shipped, so the predicted-low check (§13, §30) and "a low is possible"
+are unchanged. The 13 Nov nadir shows why a flat run must never suppress a low warning: it was a
+real low that held flat for 11 minutes.
+
+**Dosing.** Not touched.
+
+**Next.** Retest at three weeks (~8 Dec) with `scripts/flat-runs.py`; the only candidate is a zero
+trend after 5+ identical readings, and only with 30+ points at 30 and 60 minutes. If a stuck sensor
+does show up (a run that ends in a jump of 10+ mg/dL or a gap), that is a sensor-health signal for
+the readings pipeline, not a forecast rule.
+
+```sql
+with r as (select at, mgdl from glucos.readings x where not (coalesce(trend, 0) = 0 and exists
+    (select 1 from glucos.readings y where y.at <> x.at and abs(extract(epoch from y.at - x.at)) < 30))),
+q as (select at, mgdl, case when mgdl = lag(mgdl) over (order by at)
+    and at - lag(at) over (order by at) < interval '2 min' then 0 else 1 end brk from r),
+s as (select at, mgdl, sum(brk) over (order by at) grp from q),
+sr as (select s.*, row_number() over (partition by grp order by at) k from s),
+c as (select c.id, c.device d, c.basis b, c.issued_at t, c.start_mgdl st, c.trend_per_minute tr,
+    c.app_version av, c.points from glucos.forecast_checks c),
+f as (select c.*,
+    (select sr.k from sr where sr.at <= c.t and sr.at > c.t - interval '3 min' order by sr.at desc limit 1) streak,
+    (select max(mgdl) - min(mgdl) from r where r.at <= c.t and r.at > c.t - interval '10 min') span10,
+    (select count(*) from r where r.at <= c.t and r.at > c.t - interval '10 min') n10 from c),
+p as (select f.id, f.d, f.b, f.t, f.st, f.tr, f.av, f.streak, f.span10, f.n10, (e->>'minutes')::int m,
+    (e->>'actual')::float a, (e->>'mgdl')::float fc, (e->>'lower')::float lo, (e->>'upper')::float hi,
+    coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al, coalesce(e->>'shown', 'true') sh
+    from f, jsonb_array_elements(f.points) e)
+select json_agg(json_build_array(id, d, b, extract(epoch from t)::bigint, st, round(tr::numeric, 3), av,
+    streak, span10, n10, m, a, round(fc::numeric, 1), round(lo::numeric, 1), round(hi::numeric, 1)))
+from p where a is not null and not al and sh <> 'false' and m in (15, 30, 45, 60);
+```
+
+Save the array as `points.json` and run `python3 scripts/flat-runs.py points.json`.
