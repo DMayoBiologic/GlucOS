@@ -155,6 +155,9 @@ struct InsulinDose: Codable, Identifiable, Hashable {
     /// What the dose was for, when the user said. GlucOS asks once after a fast-acting dose with
     /// no food logged near it (`DoseMealCheck`). Nil when nobody asked or it hasn't been answered.
     var purpose: DosePurpose? = nil
+    /// The user's tags ("Exercise", "Sick", their own), for finding entries later (`LogbookTags`).
+    /// Nil or empty when there are none. Labels only: nothing in Insights or the forecast reads them.
+    var labels: [String]? = nil
 
     var displayName: String { name.isEmpty ? kind.title : name }
 }
@@ -196,6 +199,8 @@ struct MealEntry: Codable, Identifiable, Hashable {
     /// The foods picked from the food list, when the meal was built from it. `carbs` is what the
     /// user confirmed, which may differ from the items' total if they changed it.
     var items: [MealItem]? = nil
+    /// The user's tags (`LogbookTags`). See `InsulinDose.labels`.
+    var labels: [String]? = nil
 }
 
 /// A pump infusion set (or patch pump) moved to a new site.
@@ -204,6 +209,8 @@ struct SiteChange: Codable, Identifiable, Hashable {
     var timestamp: Date
     var site: InjectionSite
     var note: String = ""
+    /// The user's tags (`LogbookTags`). See `InsulinDose.labels`.
+    var labels: [String]? = nil
 }
 
 /// Something going on that changes how glucose responds. Examples affected by a tag are set
@@ -293,6 +300,9 @@ struct ContextEvent: Codable, Identifiable, Hashable {
     var timestamp: Date
     var tags: Set<ContextTag>
     var note: String = ""
+    /// The user's own tags (`LogbookTags`), separate from `tags` above, which say what's going on
+    /// for Insights. See `InsulinDose.labels`.
+    var labels: [String]? = nil
 
     /// Tags in a stable order for display.
     var sortedTags: [ContextTag] { ContextTag.allCases.filter(tags.contains) }
@@ -300,11 +310,12 @@ struct ContextEvent: Codable, Identifiable, Hashable {
     /// Marks when the user woke up.
     var isWake: Bool { tags.contains(.wokeUp) }
 
-    init(id: UUID = UUID(), timestamp: Date, tags: Set<ContextTag>, note: String = "") {
+    init(id: UUID = UUID(), timestamp: Date, tags: Set<ContextTag>, note: String = "", labels: [String]? = nil) {
         self.id = id
         self.timestamp = timestamp
         self.tags = tags
         self.note = note
+        self.labels = labels
     }
 
     /// A tag from a newer version of GlucOS is skipped rather than failing the whole entry (and,
@@ -315,6 +326,7 @@ struct ContextEvent: Codable, Identifiable, Hashable {
         timestamp = try c.decode(Date.self, forKey: .timestamp)
         tags = Set(try c.decode([String].self, forKey: .tags).compactMap(ContextTag.init(rawValue:)))
         note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+        labels = try c.decodeIfPresent([String].self, forKey: .labels)
     }
 }
 

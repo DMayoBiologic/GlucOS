@@ -335,6 +335,7 @@ struct PhoneLogRow: View {
         var parts: [String] = []
         if case .dose = entry, let site { parts.append(site.title) }
         if case .dose(let d) = entry, let purpose = d.purpose?.label { parts.append(purpose) }
+        if !entry.labels.isEmpty { parts.append(LogbookTags.line(entry.labels)) }
         let note = entry.phoneNote
         if !note.isEmpty { parts.append(note) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")

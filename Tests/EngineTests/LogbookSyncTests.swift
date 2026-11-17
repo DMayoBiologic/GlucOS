@@ -189,6 +189,26 @@ final class LogbookSyncTests: XCTestCase {
         XCTAssertFalse(text.contains("\"rev\""), "pushes don't send a change counter")
     }
 
+    /// Tags (docs/LogbookTags.md) ride on the entry: added on one device, changed on the other.
+    func testTagsSyncBothWaysWithTheEntry() {
+        let server = FakeServer()
+        var mac = Device(name: "Mac"), phone = Device(name: "iPhone")
+        var d = dose(4)
+        d.labels = ["Exercise", "Travel"]
+        mac.add(d, at: 1000)
+        mac.sync(server)
+        phone.sync(server)
+        XCTAssertEqual(phone.contents.doses.first?.labels, ["Exercise", "Travel"])
+
+        var edited = d
+        edited.labels = ["Travel"]
+        phone.add(edited, at: 2000)
+        phone.sync(server)
+        mac.sync(server)
+        XCTAssertEqual(mac.contents.doses.first?.labels, ["Travel"])
+        XCTAssertEqual(mac.contents, phone.contents)
+    }
+
     func testSwitchingAccountStartsOverAndKeepsLocalEdits() {
         var state = LogbookSyncState(userID: "u1", cursor: 40, lastFullPull: 1, pending: [:])
         let contents = LogbookContents(doses: [dose(4)])
