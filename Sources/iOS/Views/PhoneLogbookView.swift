@@ -27,6 +27,13 @@ enum PhoneRoute: Hashable {
         case .insightsToday: return AnyHashable(PhoneRoute.insights)
         }
     }
+
+    /// Whether it zooms out of its source. The "while you were away" line fades soon after it's
+    /// tapped, so there'd be nothing to shrink back into: a plain push.
+    var zooms: Bool {
+        if case .logbookLink(let link) = self, link.filter == .whileAway { return false }
+        return true
+    }
 }
 
 /// Pushes a screen onto the home screen's stack from a card further in (Insights → Logbook), with
