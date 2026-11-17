@@ -166,6 +166,7 @@ struct HighsCardView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .keyStop("insights.highs.open", kind: .control, radius: DS.Radius.control) { open(s) }
             .accessibilityHint(HighsSummaryText.logbookHint)
         }
     }

@@ -96,7 +96,7 @@ final class LogKeyboardTests: XCTestCase {
         let on = ShortcutCatalog.popover(globalKey: .suggested)
         XCTAssertEqual(on.last?.rows, [ShortcutRow(keys: "⌃⌥⌘L", action: "Open the log window")])
         XCTAssertEqual(ShortcutCatalog.logSheet(momentCount: 6, globalKey: .suggested).count, 2)
-        XCTAssertEqual(ShortcutCatalog.dashboard(globalKey: nil).count, 1)
+        XCTAssertEqual(ShortcutCatalog.dashboard(globalKey: nil).count, 2)
         // ⌘F searches the Logbook from anywhere in the dashboard; ⌃⌘F stays full screen.
         let dashboardKeys = ShortcutCatalog.dashboard(globalKey: nil).flatMap(\.rows).map(\.keys)
         XCTAssertTrue(dashboardKeys.contains("⌘F"))

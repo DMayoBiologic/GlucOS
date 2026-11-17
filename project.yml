@@ -189,6 +189,8 @@ targets:
       - path: Sources/App/Views/MenuBar/PopoverInsights.swift
       - path: Sources/App/Views/InsightsShareView.swift
       - path: Sources/App/Views/InsightsPeriodStepViews.swift
+      # Keyboard focus stops on the shared Insights cards (no-ops on iPhone).
+      - path: Sources/App/Views/KeyFocus.swift
       - path: Sources/App/Export/LogbookPDF.swift
     dependencies:
       - target: GlucOSiOSWidget

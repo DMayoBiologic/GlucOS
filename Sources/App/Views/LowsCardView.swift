@@ -172,6 +172,7 @@ struct LowsCardView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .keyStop("insights.lows.open", kind: .control, radius: DS.Radius.control) { open(s) }
             .accessibilityHint(LowsSummaryText.logbookHint)
         }
     }

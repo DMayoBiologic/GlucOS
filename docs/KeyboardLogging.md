@@ -20,6 +20,9 @@ Logging on the Mac can be done without touching the mouse.
   - If another app already holds the combination, Settings says so under the switch.
   - Pressing it while the log window is open brings it to the front and keeps the entry being typed.
 
+Moving round the popover, Insights and the Logbook with Tab, the arrow keys, Return and Esc is in
+docs/KeyboardNavigation.md.
+
 ## In the log sheet
 
 A new entry opens with the keyboard on "What's happening?".

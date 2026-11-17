@@ -876,6 +876,8 @@ private struct AdvancedSettingsTab: View {
 private struct KeyboardLoggingSection: View {
     @EnvironmentObject var settings: AppSettings
     @ObservedObject private var hotKey = GlobalLogShortcut.shared
+    /// Every shortcut, and how Tab and the arrow keys move round (docs/KeyboardNavigation.md).
+    @State private var showsShortcuts = false
 
     var body: some View {
         Section {
@@ -890,10 +892,23 @@ private struct KeyboardLoggingSection: View {
                     .foregroundStyle(.orange)
                     .font(.callout)
             }
+            LabeledContent("Keyboard shortcuts") {
+                Button("Show All…") { showsShortcuts = true }
+            }
+            .settingsAnchor(.shortcutList)
+            .sheet(isPresented: $showsShortcuts) {
+                ScrollView {
+                    ShortcutListView(groups: ShortcutCatalog.all(
+                        momentCount: LogFlow.moments(logsInsulin: settings.therapy.logsInsulin,
+                                                     pump: settings.therapy == .pump).count,
+                        globalKey: settings.activeGlobalLogShortcut)) { showsShortcuts = false }
+                }
+                .frame(width: 520, height: 560)
+            }
         } header: {
             Text("Keyboard")
         } footer: {
-            Text("In GlucOS, ⌘L logs (during a low, it opens Log treatment) and ⌘? lists every shortcut. In the log window, the arrow keys move between moments, Return picks one and moves on, and Space picks several.")
+            Text("In GlucOS, ⌘L logs (during a low, it opens Log treatment) and ⌘? lists every shortcut. Tab and the arrow keys move a focus ring through the menu bar, Insights and the Logbook; Return or Space does what a click would, and Esc closes. In the log window, the arrow keys move between moments, Return picks one and moves on, and Space picks several.")
                 .foregroundStyle(.secondary)
         }
     }

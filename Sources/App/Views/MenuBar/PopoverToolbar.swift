@@ -22,6 +22,9 @@ struct PopoverToolbar: View {
     /// moves under Reduce Motion.
     @State private var taps: [String: Int] = [:]
 
+    /// The toolbar's buttons sit in one row of the popover's arrow-key order.
+    private static let row = "popover.toolbar"
+
     var body: some View {
         HStack(spacing: 6) {
             Button { tapped("log"); onLog() } label: {
@@ -31,6 +34,7 @@ struct PopoverToolbar: View {
             }
             .buttonStyle(PillIconButtonStyle(prominent: true))
             .keyboardShortcut(lowTreatmentHoldsLogKey ? nil : KeyboardShortcut("l"))
+            .keyStop("popover.toolbar.log", row: Self.row, kind: .control, radius: 15) { tapped("log"); onLog() }
             .help(lowTreatmentHoldsLogKey ? "Log insulin or food" : "Log insulin or food (⌘L)")
             .overlay(alignment: .bottom) { if !lowTreatmentHoldsLogKey { badge("⌘L") } }
 
@@ -45,6 +49,10 @@ struct PopoverToolbar: View {
             .buttonStyle(PillIconButtonStyle())
             .disabled(store.isRefreshing)
             .keyboardShortcut("r")
+            .keyStop("popover.toolbar.refresh", row: Self.row, kind: .control, radius: 15) {
+                guard !store.isRefreshing else { return }
+                tapped("refresh"); onRefresh()
+            }
             .help("Refresh (⌘R)")
             .accessibilityLabel(store.isRefreshing ? "Refreshing" : "Refresh")
             .overlay(alignment: .bottom) { badge("⌘R") }
@@ -99,6 +107,7 @@ struct PopoverToolbar: View {
             Image(systemName: systemImage).symbolBounce(on: taps[title, default: 0])
         }
         .buttonStyle(PillIconButtonStyle())
+        .keyStop("popover.toolbar.\(title)", row: Self.row, kind: .control, radius: 15) { tapped(title); action() }
         .help("\(title) (\(shortcut))")
         .accessibilityLabel(title)
         .overlay(alignment: .bottom) { badge(shortcut) }

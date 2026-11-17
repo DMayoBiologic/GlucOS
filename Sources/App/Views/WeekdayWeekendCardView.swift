@@ -154,6 +154,7 @@ struct WeekdayWeekendCardView: View {
         return Button { open(side, w) } label: { tile.contentShape(Rectangle()) }
             .buttonStyle(.plain)
             .disabled(openLogbook == nil)
+            .keyStop("insights.weekdayWeekend.\(side)", row: "insights.weekdayWeekend.sides", kind: .control, radius: DS.Radius.tile) { open(side, w) }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(side.title)
             .accessibilityValue([WeekdayWeekendText.spoken(side, w, lowLine: lowLine, unit: unit),

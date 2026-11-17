@@ -54,6 +54,7 @@ struct InsightsCustomiseSheet: View {
                     .keyboardShortcut(.defaultAction)
             }
             .padding(DS.Space.lg)
+            .closesOnEscape { dismiss() }
         }
         .frame(width: 420, height: 520)
     }

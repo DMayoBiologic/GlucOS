@@ -116,6 +116,7 @@ struct WeekInReviewView: View {
         return Button { open(side, w) } label: { tile.contentShape(Rectangle()) }
             .buttonStyle(.plain)
             .disabled(openLogbook == nil)
+            .keyStop("insights.weekInReview.\(side)", row: "insights.weekInReview.sides", kind: .control, radius: DS.Radius.tile) { open(side, w) }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(side.title)
             .accessibilityValue(WeekInReviewText.spoken(side, w, unit: unit) ?? "")

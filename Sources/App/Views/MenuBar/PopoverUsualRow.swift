@@ -57,6 +57,7 @@ struct PopoverUsualRow: View {
         // The low treatment stands out by fill, not colour alone, as in the sheet.
         .buttonStyle(ChipButtonStyle(selected: u.kind == .lowTreatment, tint: u.tint))
         .usualShortcut(index)
+        .keyStop("popover.usual.\(index)", row: "popover.usual", kind: .control, radius: 14) { open(u) }
         .help(help(u, index: index))
         .accessibilityLabel(u.spokenLabel)
         .accessibilityHint("Opens the log window filled in. Check it, then log.")

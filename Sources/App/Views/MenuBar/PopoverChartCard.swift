@@ -68,6 +68,8 @@ struct PopoverChartCard: View {
                 .focusable()
                 .focused($chartFocused)
                 .focusEffectDisabled()
+                // In the popover's arrow-key order: ↑ ↓ leave the chart, ← → still step readings.
+                .keyStop("popover.chart", kind: .native)
                 .overlay {
                     if chartFocused && pinned != nil {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
