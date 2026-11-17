@@ -141,6 +141,30 @@ Round 44 adds a compact month calendar to the Logbook, on iPhone and Mac (`Logbo
   land on (`LogbookJump.plan`). On the Mac, a day outside the toolbar's period moves the period
   so it ends with that day (24 hours at least), and that day's rows light once as they arrive.
 
+## Folding a day
+
+Round 63 lets a day fold down to its header, on iPhone and Mac (`LogbookCollapse`,
+`LogbookFolds` and `LogbookFolding`, Engine, tested in LogbookCollapseTests).
+
+- **Where.** On iPhone, tap the chevron before a day header's name. The name still opens the
+  calendar and the bar still opens the day's chart. On the Mac, click the chevron in the Day
+  column, or right-click any line of the day for Collapse Day. A folded day is one line there;
+  double-click or Return on it (or Expand Day) opens it.
+- **What stays.** The header keeps its time-in-range bar and adds how many rows it holds:
+  "4 entries · 1 alert · 14 u · 120 g carbs" on iPhone, "4 entries · 1 alert" in the Mac's Entry
+  column. The count is what the chips and search leave listed for that day.
+- **Motion.** The rows below slide up on the emphasized spring and come back down on reopen; the
+  chevron turns with them. Under Reduce Motion the list dips out, switches and fades back, so
+  nothing slides. VoiceOver reads the header's value as "Collapsed, 4 entries" or "Expanded",
+  offers Collapse Day / Expand Day as an action, and says "Yesterday collapsed, 4 entries" once.
+- **Kept.** Folded days are kept per device in UserDefaults (`logbook.collapsedDays`), not
+  synced, for 120 days. Today never starts folded: each time the Logbook opens, today is taken
+  out. A search has its own folds that start with every day open, so every match shows; clearing
+  it brings the kept folds back. Jumping to a date, or opening an entry from elsewhere (the "last
+  logged" line, the Mac popover), reopens that day.
+- **Safety.** Folding hides rows, nothing else: export, sync and the day totals still see every
+  entry, and a folded day's lines leave the Mac selection, so Delete never reaches them.
+
 ## From the Insights cards
 
 Round 34 joined the Insights Lows card to the Logbook, on iPhone and Mac (`LogbookLink`, Engine,
