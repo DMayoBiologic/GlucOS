@@ -225,10 +225,11 @@ struct PhoneSettingsView: View {
             TargetRangeEditor(settings: settings, readingMgdl: freshMgdl)
                 .padding(.vertical, DS.Space.xs)
             Toggle("Show forecast on the chart", isOn: $settings.showForecast)
+            Toggle("Show yesterday on the chart", isOn: $settings.showYesterdayLine)
         } header: {
             Text("Display")
         } footer: {
-            Text("The target range colours every reading, chart and alert, here and on the Lock Screen.")
+            Text("The target range colours every reading, chart and alert, here and on the Lock Screen. Yesterday shows as a faint grey line at the same time of day; touch and hold the chart to turn it on or off.")
         }
     }
 

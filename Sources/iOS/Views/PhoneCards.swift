@@ -534,10 +534,13 @@ struct PhoneChartCard: View {
                 GlucoseChart(readings: store.readings(lastHours: Self.longest), unit: s.unit, lowMgdl: s.lowMgdl,
                              highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
                              forecast: forecast, forecastReveal: reveal, events: events(hours: Self.longest),
-                             timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true, ripplesNewReading: true)
+                             timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true, ripplesNewReading: true,
+                             yesterday: yesterday)
             }
                 .frame(height: 260)
                 .chartHoursPinch($settings.chartHours)
+                // Touch and hold for yesterday's faint line (also in Settings → Display).
+                .yesterdayLineMenu($settings.showYesterdayLine)
                 .accessibilityAction(named: "Show fewer hours") {
                     settings.chartHours = ChartHours.shorter(than: settings.chartHours)
                 }
@@ -550,6 +553,11 @@ struct PhoneChartCard: View {
             if let outlook, !outlook.forecast.isEmpty { forecastLine(outlook, unit: s.unit) }
         }
         .dsCard(.standard, padding: DS.Space.lg)
+    }
+
+    /// Readings back to a day before the longest span, for yesterday's line, while it's on.
+    private var yesterday: [GlucoseReading] {
+        settings.showYesterdayLine ? store.readings(lastHours: YesterdayLine.hoursNeeded(forSpan: Self.longest)) : []
     }
 
     private func events(hours: Double) -> [ChartLogMarker] {
@@ -581,6 +589,15 @@ struct PhoneChartCard: View {
                 }
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
+            }
+            if settings.showYesterdayLine {
+                HStack(spacing: DS.Space.xs) {
+                    Capsule().fill(Color.primary.opacity(0.2)).frame(width: 12, height: 2)
+                    Text("Yesterday")
+                }
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+                .transition(.opacity)
             }
             Spacer(minLength: 0)
         }

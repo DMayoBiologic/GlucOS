@@ -49,8 +49,12 @@ struct OutlookSection: View {
                     // jumping (as in the popover). Under Reduce Motion it just changes.
                     ForecastMotion(forecast: current?.forecast ?? [], drawInDelay: Self.forecastDelay) { forecast, reveal in
                         GlucoseChart(readings: recent, unit: unit, lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl,
-                                     hours: 3, interactive: true, forecast: forecast, forecastReveal: reveal)
+                                     hours: 3, interactive: true, forecast: forecast, forecastReveal: reveal,
+                                     yesterday: settings.showYesterdayLine
+                                        ? GlucoseAnalytics.slice(store.archive, from: now.addingTimeInterval(-29 * 3600), to: now)
+                                        : [])
                     }
+                        .yesterdayLineMenu($settings.showYesterdayLine)
                         .frame(height: layout.chartHeight(reserving: 420, minimum: 220, maximum: 380))
                     legend(current)
                     // Why it's trend-only, shorter or wider. No forecast at all has its own banner below.

@@ -42,6 +42,10 @@ struct GlucoseChart: View {
     /// iPhone Today and the Mac popover. Interactive charts only; never under Reduce Motion, in the
     /// background, or while a closed Mac popover keeps its chart.
     var ripplesNewReading: Bool = false
+    /// Readings from the day before (and up to now: today's own drop out), drawn as a faint grey
+    /// line at the same clock time today (`YesterdayLine`), behind the trace. Empty, the default,
+    /// draws nothing. Pass them only while `AppSettings.showYesterdayLine` is on.
+    var yesterday: [GlucoseReading] = []
 
     @State private var hoverDate: Date?
     /// Whether a finger (or the pointer) is on the chart, as opposed to the readout gliding back
@@ -99,15 +103,15 @@ struct GlucoseChart: View {
     /// past the left edge, so they never poke out of the top or bottom as they leave). Extra data
     /// plotted only while the range changes doesn't count, so the axis rescales in the same
     /// movement as the time axis.
-    private func yDomainMgdl(_ onScreen: ArraySlice<GlucoseReading>) -> ClosedRange<Double> {
-        let values = onScreen.map(\.mgdl) + [lowMgdl, highMgdl] + forecast.map(\.mgdl)
+    private func yDomainMgdl(_ onScreen: ArraySlice<GlucoseReading>, extra: [Double]) -> ClosedRange<Double> {
+        let values = onScreen.map(\.mgdl) + [lowMgdl, highMgdl] + forecast.map(\.mgdl) + extra
         let lo = min(values.min() ?? 60, 60) - 10
         let hi = max(values.max() ?? 200, 200) + 10
         return lo...hi
     }
 
-    private func yDomain(_ onScreen: ArraySlice<GlucoseReading>) -> ClosedRange<Double> {
-        let mg = yDomainMgdl(onScreen)
+    private func yDomain(_ onScreen: ArraySlice<GlucoseReading>, extra: [Double] = []) -> ClosedRange<Double> {
+        let mg = yDomainMgdl(onScreen, extra: extra)
         return unit.value(fromMgdl: mg.lowerBound)...unit.value(fromMgdl: mg.upperBound)
     }
 
@@ -304,6 +308,15 @@ struct GlucoseChart: View {
         withTransaction(Transaction(animation: nil)) { flights.removeAll { $0.id == flight.id } }
     }
 
+    /// " Yesterday at this time: 6.2 millimoles per litre." while the line is shown and there was a
+    /// reading then; otherwise nothing.
+    private func yesterdaySpoken(newest: GlucoseReading?) -> String {
+        guard !yesterday.isEmpty,
+              let line = YesterdayLine.spoken(YesterdayLine.reading(at: newest?.timestamp ?? Date(), in: yesterday), unit: unit)
+        else { return "" }
+        return " " + line
+    }
+
     private func color(for mgdl: Double) -> Color {
         GlucoseRange.classify(mgdl: mgdl, low: lowMgdl, high: highMgdl).color
     }
@@ -316,7 +329,14 @@ struct GlucoseChart: View {
         // data plotted only while the span changes.
         let onScreen = ChartSpan(readings: readings, domainHours: (range ?? .init(hours: hours)).domainHours,
                                    dataHours: 0, forecastEnd: forecast.last?.date, lead: lead)?.plotted ?? []
-        let yd = yDomain(onScreen)
+        // Yesterday's faint line, over what's plotted (and on under the forecast), so it moves with
+        // the trace when the span changes. Its highs and lows count towards the glucose axis, so
+        // it's never cut off at the top or bottom.
+        let domain = cw?.domain ?? Date().addingTimeInterval(-hours * 3600)...Date()
+        let ghost = yesterday.isEmpty ? [] : YesterdayLine.points(
+            readings: yesterday, from: min(plotted.first?.timestamp ?? domain.lowerBound, domain.lowerBound),
+            to: domain.upperBound)
+        let yd = yDomain(onScreen, extra: ghost.map(\.mgdl))
         let floor = yd.lowerBound
         let hovered = interactive ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
         // The gradient is stretched over the drawn line, so its stops follow what's plotted.
@@ -344,6 +364,19 @@ struct GlucoseChart: View {
             RuleMark(y: .value("High", unit.value(fromMgdl: highMgdl)))
                 .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
                 .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.45))
+
+            // Yesterday at the same clock time: thin, grey and behind everything, so it reads as
+            // a reference and never as a reading. Broken where yesterday's readings were.
+            ForEach(ghost) { p in
+                LineMark(
+                    x: .value("Time", p.date),
+                    y: .value("Yesterday", unit.value(fromMgdl: p.mgdl)),
+                    series: .value("Series", "Yesterday \(p.segment)")
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(Color.primary.opacity(0.2))
+                .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            }
 
             // Soft glow under the trace, tinted with the current range.
             ForEach(plotted) { r in
@@ -439,7 +472,8 @@ struct GlucoseChart: View {
                 .annotation(position: .top, spacing: 6,
                             overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                     ChartReadout(reading: h, previous: Self.previous(to: h, in: window), unit: unit,
-                                 range: GlucoseRange.classify(mgdl: h.mgdl, low: lowMgdl, high: highMgdl))
+                                 range: GlucoseRange.classify(mgdl: h.mgdl, low: lowMgdl, high: highMgdl),
+                                 yesterday: yesterday.isEmpty ? nil : YesterdayLine.reading(at: h.timestamp, in: yesterday))
                     .padding(.horizontal, DS.Space.sm)
                     .padding(.vertical, DS.Space.xs)
                     .background { DSSurface(style: .standard, radius: DS.Radius.control) }
@@ -449,7 +483,7 @@ struct GlucoseChart: View {
         }
         // Both axes are set rather than worked out by Charts, so a change of span or a new
         // reading moves them (and the marks with them) instead of redrawing the chart.
-        .chartXScale(domain: cw?.domain ?? Date().addingTimeInterval(-hours * 3600)...Date())
+        .chartXScale(domain: domain)
         .chartYScale(domain: yd)
         // Readings past the left edge (sliding in or out) are hidden; everything else keeps
         // room to overhang, as before: the newest reading's halo, the "Now" label, the readout.
@@ -534,9 +568,11 @@ struct GlucoseChart: View {
         .accessibilityValue(ChartSummary.sentence(.init(
             readings: window, lowMgdl: lowMgdl, highMgdl: highMgdl, unit: unit, hours: hours, stale: stale,
             forecastEnd: projection.last,
-            loggedCount: events.filter { $0.date >= (window.first?.timestamp ?? .distantFuture) }.count)))
+            loggedCount: events.filter { $0.date >= (window.first?.timestamp ?? .distantFuture) }.count))
+            + yesterdaySpoken(newest: window.last))
         .accessibilityChartDescriptor(GlucoseAudioGraph(readings: window, forecast: projection, unit: unit,
-                                                        lowMgdl: lowMgdl, highMgdl: highMgdl, yDomain: yd))
+                                                        lowMgdl: lowMgdl, highMgdl: highMgdl, yDomain: yd,
+                                                        yesterday: ghost.filter { $0.date >= domain.lowerBound }))
     }
 }
 
@@ -552,6 +588,8 @@ struct GlucoseAudioGraph: AXChartDescriptorRepresentable {
     let lowMgdl: Double
     let highMgdl: Double
     let yDomain: ClosedRange<Double>
+    /// Yesterday's line, when it's shown, as a third series at today's times.
+    var yesterday: [YesterdayLine.Point] = []
 
     func makeChartDescriptor() -> AXChartDescriptor {
         let unit = self.unit
@@ -587,6 +625,13 @@ struct GlucoseAudioGraph: AXChartDescriptorRepresentable {
                 name: "Forecast, an estimate",
                 isContinuous: true,
                 dataPoints: forecast.map { AXDataPoint(x: $0.date.timeIntervalSince1970, y: unit.value(fromMgdl: $0.mgdl)) }
+            ))
+        }
+        if !yesterday.isEmpty {
+            series.append(AXDataSeriesDescriptor(
+                name: "Yesterday at the same time",
+                isContinuous: true,
+                dataPoints: yesterday.map { AXDataPoint(x: $0.date.timeIntervalSince1970, y: unit.value(fromMgdl: $0.mgdl)) }
             ))
         }
         return AXChartDescriptor(
@@ -790,6 +835,8 @@ private struct ChartReadout: View {
     let previous: GlucoseReading?
     let unit: GlucoseUnit
     let range: GlucoseRange
+    /// Yesterday's reading at the same clock time, while yesterday's line is shown.
+    var yesterday: GlucoseReading? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -811,6 +858,12 @@ private struct ChartReadout: View {
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
+            if let yesterday {
+                Text("Yesterday \(unit.format(mgdl: yesterday.mgdl))")
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
         }
         .lineLimit(1)
         .fixedSize()
