@@ -299,8 +299,8 @@ struct PhoneLogbookView: View {
                 onEdit: { router.edit(entry) },
                 // Both wait for the card to land back in its row, so the list moves after it does:
                 // the copy slides in lit, or the row folds away with Undo, as from a swipe.
-                onLogAgain: { opener.close { logbook.duplicate(entry); Haptics.play(.done) } },
-                onDelete: { opener.close { logbook.delete(ids: [entry.id]) } }
+                onLogAgain: { opener.close { logAgain(entry) } },
+                onDelete: { opener.close { delete(entry) } }
             )
         }
     }
@@ -540,22 +540,38 @@ struct PhoneLogbookView: View {
         }
         .buttonStyle(.plain)
         .accessibilityHint("Show details")
+        // Swipe left to delete (a full swipe works, since the Undo toast can bring it back); swipe
+        // right for "Log Again Now". That one needs a tap on the button, never a full swipe, so a
+        // dose can't be logged twice by a flick. VoiceOver offers both as actions on the row.
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive) { logbook.delete(ids: [entry.id]) } label: {
+            Button(role: .destructive) { delete(entry) } label: {
                 Label("Delete", systemImage: "trash")
             }
         }
-        .swipeActions(edge: .leading) {
-            Button { logbook.duplicate(entry); Haptics.play(.done) } label: {
-                Label("Log Again", systemImage: "arrow.clockwise")
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button { logAgain(entry) } label: {
+                Label("Log Again Now", systemImage: "arrow.clockwise")
             }
             .tint(entry.part.logbookTint)
         }
         .contextMenu {
             Button("Edit", systemImage: "pencil") { router.edit(entry) }
-            Button("Log Again Now", systemImage: "arrow.clockwise") { logbook.duplicate(entry); Haptics.play(.done) }
-            Button("Delete", systemImage: "trash", role: .destructive) { logbook.delete(ids: [entry.id]) }
+            Button("Log Again Now", systemImage: "arrow.clockwise") { logAgain(entry) }
+            Button("Delete", systemImage: "trash", role: .destructive) { delete(entry) }
         }
+    }
+
+    /// The same entry logged again at the current time (`LogEntry.copied`: nothing about it changes
+    /// but the time). The copy slides in at the top of today.
+    private func logAgain(_ entry: LogEntry) {
+        logbook.duplicate(entry)
+        Haptics.play(.done)
+    }
+
+    /// Deletes one entry. The row folds away and the shared Undo toast offers it back (#111).
+    private func delete(_ entry: LogEntry) {
+        logbook.delete(ids: [entry.id])
+        Haptics.play(.deleted)
     }
 
     /// What the search understood, and how much it found: "Since last week · 3 found", with a way to

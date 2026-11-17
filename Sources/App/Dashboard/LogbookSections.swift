@@ -237,7 +237,7 @@ struct LogbookSection: View {
             let chosen = selectedEntries
             if chosen.count == 1, let id = chosen.first, let entry = logbook.entry(id: id) {
                 Button("Edit…") { open(.edit(entry)) }
-                Button("Log Again Now") { logbook.duplicate(entry) }
+                Button("Log Again Now") { logAgain(entry) }
                     .help("Log a copy of this entry at the current time")
             }
             if !chosen.isEmpty {
@@ -430,6 +430,14 @@ struct LogbookSection: View {
         }
     }
 
+    /// The right-click menu's "Log Again Now" (the iPhone's swipe right): the same entry logged
+    /// again at the current time, nothing changed but the time (`LogEntry.copied`). The copy slides
+    /// in lit, as any arrival does, and becomes the selection, so ⌫ takes it straight back off.
+    private func logAgain(_ entry: LogEntry) {
+        let copy = DS.animate(.standard, reduceMotion: reduceMotion) { logbook.duplicate(entry) }
+        selection = [copy]
+    }
+
     private func deleteSelection() {
         let ids = selectedEntries
         guard !ids.isEmpty else { return }
@@ -537,7 +545,8 @@ struct LogbookSection: View {
             let ids = picked.filter { logbook.entry(id: $0) != nil }
             if ids.count == 1, let id = ids.first, let entry = logbook.entry(id: id) {
                 Button("Edit…") { open(.edit(entry)) }
-                Button("Log Again Now") { logbook.duplicate(entry) }
+                Button("Log Again Now") { logAgain(entry) }
+                    .help("Log a copy of this entry at the current time")
                 Divider()
             }
             if !ids.isEmpty {
