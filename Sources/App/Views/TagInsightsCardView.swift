@@ -142,7 +142,7 @@ struct TagInsightsCardView: View {
         return Button { open(row, t) } label: { tile.contentShape(Rectangle()) }
             .buttonStyle(.plain)
             .disabled(openLogbook == nil)
-            .keyStop("insights.tags.\(row.tag)", row: "insights.tags.rows", kind: .control, radius: DS.Radius.tile) { open(row, t) }
+            .keyStop("insights.tags.\(row.tag)", kind: .control, radius: DS.Radius.tile) { open(row, t) }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(row.tag)
             .accessibilityValue(TagInsightsText.spoken(row, in: t, unit: unit))

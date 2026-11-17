@@ -133,19 +133,24 @@ final class KeyNavigationTests: XCTestCase {
     func testLogbookBarsAreRowsAboveTheTable() {
         let stops = [
             KeyStop("logbook.back"),
-            KeyStop("logbook.search", row: "logbook.searchBar"),
+            KeyStop("logbook.search", row: "logbook.searchBar", keeps: [.left, .right]),
             KeyStop("logbook.calendar", row: "logbook.searchBar"),
             KeyStop("logbook.edit", row: "logbook.searchBar"),
             KeyStop("logbook.filter", row: "logbook.filters"),
             KeyStop("logbook.alerts", row: "logbook.filters"),
             KeyStop("logbook.tag.Exercise", row: "logbook.filters"),
-            KeyStop("logbook.table"),
+            KeyStop("logbook.table", keeps: [.up, .down, .left, .right]),
         ]
         XCTAssertEqual(go("logbook.back", .down, stops), "logbook.search")
         XCTAssertEqual(go("logbook.edit", .down, stops), "logbook.tag.Exercise")
         XCTAssertEqual(go("logbook.alerts", .down, stops), "logbook.table")
         XCTAssertEqual(go("logbook.filter", .right, stops), "logbook.alerts")
         XCTAssertEqual(go("logbook.calendar", .left, stops), "logbook.search")
+        // The search field keeps ← → for its cursor; ↓ still leaves it.
+        XCTAssertNil(go("logbook.search", .right, stops))
+        XCTAssertEqual(go("logbook.search", .down, stops), "logbook.filter")
+        // The table keeps every arrow for its rows: ↑ on it never jumps to the filter bar.
+        for move in KeyNavigation.Move.allCases { XCTAssertNil(go("logbook.table", move, stops)) }
     }
 
     // MARK: When the ring shows

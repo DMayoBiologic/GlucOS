@@ -14,11 +14,15 @@ struct KeyStop: Equatable, Hashable, Sendable {
     let row: String
     /// The card this stop sits in (a side of Weekdays and weekends), if any.
     var parent: String?
+    /// Arrow keys this stop uses itself, so they never move the ring off it: ← → in a text field,
+    /// all four in a table.
+    var keeps: Set<KeyNavigation.Move> = []
 
-    init(_ id: String, row: String? = nil, parent: String? = nil) {
+    init(_ id: String, row: String? = nil, parent: String? = nil, keeps: Set<KeyNavigation.Move> = []) {
         self.id = id
         self.row = row ?? id
         self.parent = parent
+        self.keeps = keeps
     }
 
     /// The stops inside a card, in layout order, owned by it: the card goes first, then each of
@@ -33,7 +37,7 @@ struct KeyStop: Equatable, Hashable, Sendable {
 }
 
 enum KeyNavigation {
-    enum Move: Sendable, Equatable {
+    enum Move: Sendable, Hashable, CaseIterable {
         case up, down, left, right
     }
 
@@ -66,9 +70,11 @@ enum KeyNavigation {
     /// - ↑ and ↓ go to the row above or below, to the stop nearest the same place along it. They
     ///   never wrap: ↓ on the last row is left alone.
     /// - ← and → move along a row and stop at its ends.
+    /// - A stop that keeps an arrow key (a text field's ← →, a table's rows) is left with it.
     /// - With focus somewhere that isn't a stop (a text field, a system control) the key is left
     ///   alone, so it never yanks the cursor out of a field.
     static func target(from current: String?, _ move: Move, in stops: [KeyStop]) -> String? {
+        if let stop = stops.first(where: { $0.id == current }), stop.keeps.contains(move) { return nil }
         let rows = rows(stops)
         guard let current, let r = rows.firstIndex(where: { $0.contains(current) }),
               let c = rows[r].firstIndex(of: current) else { return nil }

@@ -52,6 +52,9 @@ struct OvernightCardView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                // One stop on the Mac: ← → pick the period beside it.
+                .keyStop("insights.overnight.period", radius: DS.Radius.control)
+                .keyCycle($periodDays, through: OvernightSummary.Period.allCases.map(\.rawValue))
                 .accessibilityLabel("Period")
             }
             // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).

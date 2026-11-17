@@ -165,7 +165,7 @@ struct LogbookSection: View {
                         table(lines, terms: terms)
                             // Tab reaches the table; ↑ ↓ then move through its rows and Return
                             // opens one, as a double-click does.
-                            .keyStop("logbook.table", kind: .native)
+                            .keyStop("logbook.table", kind: .native, keeps: [.up, .down, .left, .right])
                             // Return on one selected entry edits it (if the table hasn't already
                             // taken Return as its double-click).
                             .onKeyPress(.return) {
@@ -295,7 +295,7 @@ struct LogbookSection: View {
                     .textFieldStyle(.plain)
                     .autocorrectionDisabled()
                     .focused($searchFocused)
-                    .keyStop("logbook.search", row: Self.searchRow, kind: .native)
+                    .keyStop("logbook.search", row: Self.searchRow, kind: .native, keeps: [.left, .right])
                     .onExitCommand { clearFilters() }
                 if !search.isEmpty {
                     Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }

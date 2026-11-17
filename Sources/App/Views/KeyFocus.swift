@@ -29,7 +29,9 @@ extension View {
     func keyNavigation(_ focus: FocusState<String?>.Binding) -> some View { self }
 
     func keyStop(_ id: String, row: String? = nil, kind: KeyStopKind = .card, radius: CGFloat = DS.Radius.card,
-                 enabled: Bool = true, action: (() -> Void)? = nil) -> some View { self }
+                 keeps: Set<KeyNavigation.Move> = [], enabled: Bool = true, action: (() -> Void)? = nil) -> some View { self }
+
+    func keyCycle<V: Hashable>(_ selection: Binding<V>, through options: [V]) -> some View { self }
 }
 #else
 
@@ -103,8 +105,22 @@ extension View {
     /// `action` is what a click does, for Return and Space. `radius` is the corner radius of the
     /// thing it rings. `enabled` false leaves the view as it is (for a card that may draw nothing).
     func keyStop(_ id: String, row: String? = nil, kind: KeyStopKind = .card, radius: CGFloat = DS.Radius.card,
-                 enabled: Bool = true, action: (() -> Void)? = nil) -> some View {
-        modifier(KeyStopModifier(stop: KeyStop(id, row: row), kind: kind, radius: radius, enabled: enabled, action: action))
+                 keeps: Set<KeyNavigation.Move> = [], enabled: Bool = true, action: (() -> Void)? = nil) -> some View {
+        modifier(KeyStopModifier(stop: KeyStop(id, row: row, keeps: keeps), kind: kind, radius: radius,
+                                 enabled: enabled, action: action))
+    }
+
+    /// ← → step `selection` through `options` (a segmented period picker made one stop), then
+    /// let the ring move on along the row at either end.
+    func keyCycle<V: Hashable>(_ selection: Binding<V>, through options: [V]) -> some View {
+        onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+            guard press.modifiers.intersection([.command, .option, .control, .shift]).isEmpty,
+                  let i = options.firstIndex(of: selection.wrappedValue) else { return .ignored }
+            let j = press.key == .leftArrow ? i - 1 : i + 1
+            guard options.indices.contains(j) else { return .ignored }
+            selection.wrappedValue = options[j]
+            return .handled
+        }
     }
 }
 
