@@ -36,6 +36,15 @@ final class LogbookStore: ObservableObject {
     /// When each entry in `lastDeleted` was deleted, as pushed, so sync can tell this device's own
     /// tombstone coming back from a newer change made elsewhere (`LogbookUndo`).
     private var deletedAt: [UUID: Double] = [:]
+    /// The last edit saved from a log sheet, kept in memory so it can be undone (`LogbookEditUndo`).
+    /// Never set at the same time as `lastDeleted`: the toast offers one Undo at a time.
+    @Published private(set) var lastEdit: LogbookEditUndo?
+
+    /// What the undo toast offers, if anything.
+    var undoOffer: LogbookUndoOffer? {
+        if let lastEdit { return .edited(lastEdit) }
+        return lastDeleted.isEmpty ? nil : .deleted(lastDeleted)
+    }
 
     /// Set by the menu bar popover to have the dashboard open the log sheet.
     @Published var logSheetRequested = false
@@ -130,6 +139,9 @@ final class LogbookStore: ObservableObject {
     /// Adds the entry, or replaces the one with the same id.
     func save(_ entry: LogEntry) {
         var entry = entry
+        // A later change to the edited entry (another edit, an answer to "Was it for a meal?")
+        // ends its Undo, so Undo never throws that change away.
+        if lastEdit?.before.id == entry.id { lastEdit = nil }
         if case .dose(let d) = entry {
             // Only a new name is added to the list: editing an old dose's note mustn't bring back
             // an insulin the user deleted.
@@ -223,6 +235,8 @@ final class LogbookStore: ObservableObject {
         guard !ids.isEmpty else { return }
         let removed = ids.compactMap { self.entry(id: $0) }
         guard !removed.isEmpty else { return }
+        // One Undo at a time: the delete's replaces a pending edit's.
+        lastEdit = nil
         // Accumulate while the undo banner is up, so Undo restores every delete since.
         lastDeleted += removed
         doses.removeAll { ids.contains($0.id) }
@@ -255,6 +269,36 @@ final class LogbookStore: ObservableObject {
     func clearUndo() {
         lastDeleted = []
         deletedAt = [:]
+        lastEdit = nil
+    }
+
+    /// After a log sheet saves an edit: offers Undo for it, if the entry changed. `before` is the
+    /// entry as the sheet found it, read just before saving. Replaces a pending delete's Undo.
+    func offerEditUndo(before: LogEntry?) {
+        guard let before,
+              let offer = LogbookEditUndo.offer(before: before, after: entry(id: before.id),
+                                                editedAt: syncState.pending[before.id]?.modified)
+        else { return }
+        lastDeleted = []
+        deletedAt = [:]
+        lastEdit = offer
+    }
+
+    /// Puts the last edited entry back exactly as it was before the edit, under the same id, with a
+    /// fresh edit time so it syncs to the other devices like any edit. Does nothing if the entry
+    /// has gone since.
+    func undoEdit() {
+        guard let edit = lastEdit else { return }
+        lastEdit = nil
+        guard let restored = edit.restore(current: entry(id: edit.before.id)) else { return }
+        upsert(restored)
+        touch(restored.id, kind: restored.recordKind)
+        persist()
+    }
+
+    /// Undo on the toast: the last edit, or the last delete.
+    func undo() {
+        if lastEdit != nil { undoEdit() } else { undoDelete() }
     }
 
     /// A copy of `entry` at `time` with a fresh id ("Log again now", `LogEntry.copied`). Returns the
@@ -566,6 +610,7 @@ final class LogbookStore: ObservableObject {
         }
         // An entry changed or deleted elsewhere after it was deleted here can't be undone any
         // more. Our own tombstone coming back from the server leaves Undo alone.
+        if let edit = lastEdit, edit.superseded(by: records) { lastEdit = nil }
         let gone = LogbookUndo.superseded(by: records, deletedAt: deletedAt)
         if !gone.isEmpty {
             lastDeleted.removeAll { gone.contains($0.id) }

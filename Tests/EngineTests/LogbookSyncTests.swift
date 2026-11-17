@@ -340,4 +340,111 @@ extension LogbookSyncTests {
         let empty = LogEntry.context(ContextEvent(timestamp: Date(timeIntervalSince1970: 1_790_000_000), tags: []))
         XCTAssertEqual(LogbookUndo.title([empty]), "Entry deleted")
     }
+
+    // MARK: Undo an edit
+
+    func testEditUndoOffersOnlyARealChangeToTheSameEntry() {
+        let id = UUID()
+        let before = LogEntry.dose(dose(4, id: id))
+        let after = LogEntry.dose(dose(5, id: id))
+        let offer = LogbookEditUndo.offer(before: before, after: after, editedAt: 2000)
+        XCTAssertEqual(offer?.before, before)
+        XCTAssertEqual(offer?.after, after)
+        XCTAssertEqual(offer?.title, "Edited dose")
+        // Saved with nothing changed: nothing to undo.
+        XCTAssertNil(LogbookEditUndo.offer(before: before, after: before, editedAt: 2000))
+        // Never a different entry, by id or by kind.
+        XCTAssertNil(LogbookEditUndo.offer(before: before, after: .dose(dose(5)), editedAt: 2000))
+        let meal = LogEntry.meal(MealEntry(id: id, timestamp: Date(timeIntervalSince1970: 1_790_000_000), carbs: 45, food: "Toast"))
+        XCTAssertNil(LogbookEditUndo.offer(before: before, after: meal, editedAt: 2000))
+        // Gone, or never there.
+        XCTAssertNil(LogbookEditUndo.offer(before: before, after: nil, editedAt: 2000))
+        XCTAssertNil(LogbookEditUndo.offer(before: nil, after: after, editedAt: 2000))
+    }
+
+    func testEditUndoRestoresExactlyWhatWasSavedBefore() {
+        let id = UUID()
+        var old = dose(4.35, id: id)
+        old.note = "before lunch"
+        old.calculation = nil
+        var edited = old
+        edited.units = 6
+        edited.note = ""
+        edited.timestamp = old.timestamp.addingTimeInterval(600)
+        let offer = LogbookEditUndo.offer(before: .dose(old), after: .dose(edited), editedAt: 2000)!
+        // The amount comes back only as it was saved: 4.35 u, not worked out from anything.
+        guard case .dose(let back)? = offer.restore(current: .dose(edited)) else { return XCTFail("no restore") }
+        XCTAssertEqual(back, old)
+        XCTAssertEqual(back.units, 4.35)
+        // Changed again since (here on the Mac, pulled in): still the same entry, so Undo restores
+        // the old values over it only while the offer stands; sync ends it (see below).
+        XCTAssertEqual(offer.restore(current: .dose(dose(9, id: id))), .dose(old))
+        // Deleted since, or a different entry: nothing is restored.
+        XCTAssertNil(offer.restore(current: nil))
+        XCTAssertNil(offer.restore(current: .dose(dose(5))))
+    }
+
+    func testEditUndoSurvivesItsOwnEchoButNotANewerChangeElsewhere() {
+        let id = UUID()
+        let offer = LogbookEditUndo.offer(before: .dose(dose(4, id: id)), after: .dose(dose(5, id: id)), editedAt: 2000)!
+        let echo = LogbookRecord(id: id, kind: "dose", payload: nil, deleted: false, modified: 2000.0000004, rev: 8)
+        let capped = LogbookRecord(id: id, kind: "dose", payload: nil, deleted: false, modified: 1700, rev: 8)
+        XCTAssertFalse(offer.superseded(by: [echo, capped]))
+        let newer = LogbookRecord(id: id, kind: "dose", payload: nil, deleted: false, modified: 2005, rev: 9)
+        XCTAssertTrue(offer.superseded(by: [newer]))
+        let deletedOnMac = LogbookRecord(id: id, kind: "dose", payload: nil, deleted: true, modified: 2005, rev: 9)
+        XCTAssertTrue(offer.superseded(by: [deletedOnMac]))
+        let other = LogbookRecord(id: UUID(), kind: "dose", payload: nil, deleted: false, modified: 9000, rev: 10)
+        XCTAssertFalse(offer.superseded(by: [other]))
+    }
+
+    func testUndoneEditSyncsBackToTheOtherDevice() {
+        let server = FakeServer()
+        var mac = Device(name: "Mac"), phone = Device(name: "iPhone")
+        let id = UUID()
+        let old = dose(4, id: id), edited = dose(6, id: id)
+        phone.add(old, at: 1000)
+        phone.sync(server)
+        mac.sync(server)
+
+        // Edited on the phone; the Mac gets 6 u.
+        phone.add(edited, at: 2000)
+        let offer = LogbookEditUndo.offer(before: .dose(old), after: .dose(edited),
+                                          editedAt: phone.state.pending[id]?.modified)!
+        phone.sync(server)
+        mac.sync(server)
+        XCTAssertEqual(mac.contents.doses, [edited])
+        // The phone's own edit coming back keeps Undo.
+        XCTAssertFalse(offer.superseded(by: server.pull(since: 0).filter { $0.id == id }))
+
+        // Undo: the old values go back under the same id with a newer edit time.
+        guard case .dose(let restored)? = offer.restore(current: .dose(edited)) else { return XCTFail("no restore") }
+        phone.add(restored, at: 2003)
+        phone.sync(server)
+        mac.sync(server)
+        XCTAssertEqual(mac.contents.doses, [old], "the Mac has the dose as it was before the edit")
+        XCTAssertEqual(phone.contents.doses, [old])
+    }
+
+    func testUndoToastOffersOneThingAtATime() {
+        let d = LogEntry.dose(dose(4))
+        let deleted = LogbookUndoOffer.deleted([d])
+        XCTAssertEqual(deleted.title, "Deleted 4 u NovoRapid")
+        XCTAssertEqual(deleted.ids, [d.id])
+        XCTAssertEqual(deleted.symbol, "trash")
+        let id = UUID(), token = UUID()
+        let meal = { (carbs: Double) in LogEntry.meal(MealEntry(id: id, timestamp: Date(timeIntervalSince1970: 1_790_000_000), carbs: carbs, food: "Toast")) }
+        let edit = LogbookEditUndo.offer(before: meal(45), after: meal(30), editedAt: nil, token: token)!
+        let edited = LogbookUndoOffer.edited(edit)
+        XCTAssertEqual(edited.title, "Edited meal")
+        XCTAssertEqual(edited.symbol, "pencil")
+        // Each edit restarts the countdown, even a second edit to the same entry.
+        XCTAssertEqual(edited.ids, [token])
+        let again = LogbookEditUndo.offer(before: meal(30), after: meal(35), editedAt: nil)!
+        XCTAssertTrue(UndoCountdown.restarts(from: edited.ids, to: LogbookUndoOffer.edited(again).ids))
+        XCTAssertEqual(LogEntry.siteChange(SiteChange(timestamp: Date(), site: .abdomenLeft)).kindNoun, "site change")
+        XCTAssertEqual(LogEntry.context(ContextEvent(timestamp: Date(), tags: [])).kindNoun, "event")
+        // No timing to go by: a pulled record never ends it.
+        XCTAssertFalse(edit.superseded(by: [LogbookRecord(id: id, kind: "meal", payload: nil, deleted: false, modified: 9000, rev: 1)]))
+    }
 }

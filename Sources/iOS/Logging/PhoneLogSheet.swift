@@ -1411,6 +1411,9 @@ struct PhoneLogSheet: View {
             if !tags.isEmpty { ids.append(contextID) }
             LoggedElsewhere.shared.record(ids, from: origin)
         }
+        // An edit can be taken back from the undo toast: the entry exactly as it was, read before
+        // anything is saved (`LogbookStore.offerEditUndo`).
+        let beforeEdit = isNew ? nil : editingID.flatMap { logbook.entry(id: $0) }
         if logsInsulin, let units {
             // An edited dose keeps its calculator record only while it's still the dose that was worked out.
             let existing = editing == .insulin ? logbook.doses.first { $0.id == doseID } : nil
@@ -1444,6 +1447,7 @@ struct PhoneLogSheet: View {
                                          food: logsFood ? foodText : "",
                                          tags: logsTags ? tags : []))
         }
+        logbook.offerEditUndo(before: beforeEdit)
         finishSaving()
     }
 

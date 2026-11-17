@@ -35,6 +35,17 @@ LibreLinkUp account they already use.
   the toast fades in and out in place, doesn't follow the finger, and the bar steps down once a
   second instead of gliding. VoiceOver users can dismiss with the escape gesture or the Dismiss
   action. One drain per toast, nothing loops.
+- **Undo an edit.** Saving an edit from the log sheet (iPhone or Mac) brings up the same toast,
+  "Edited meal" (or dose, site change, event), with Undo, the same countdown and the same swipe.
+  Undo saves the entry back exactly as it was before the edit, under the same id and with a fresh
+  edit time, so it syncs to the other devices like any edit (`LogbookEditUndo`,
+  `LogbookStore.undoEdit`); the row cross-fades back to its old values. It only ever touches the
+  edited entry, and amounts come back only as they were saved; nothing is worked out. The toast
+  offers one Undo at a time: an edit replaces a pending delete's Undo and a delete replaces a
+  pending edit's. A later save to that entry on this device (another edit, an answer to "Was it for
+  a meal?"), its delete, or a newer change to it pulled from another device ends the Undo; this
+  device's own edit coming back from the server doesn't. Saving with nothing changed offers none.
+  Under Reduce Motion the restore and the toast fade in place.
 - **First sync.** A device's existing entries are uploaded as older than anything already on the
   server: entries the server lacks are added, and a delete made elsewhere still wins.
 - **Sign-in.** The `account` edge function checks the LibreLinkUp login with Abbott once, finds or
