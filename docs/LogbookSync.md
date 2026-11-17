@@ -24,8 +24,17 @@ LibreLinkUp account they already use.
   deleted-then-undone entry reappears on the Mac rather than staying gone). This device's own
   tombstone coming back on the next pull leaves Undo available; only a change made elsewhere after
   the delete ends it (`LogbookUndo`). On iPhone and Mac the Undo toast stays up 5 seconds after the
-  last delete (20 under VoiceOver); on the Mac, ⌘Z undoes and holding the pointer over the toast
-  keeps it up.
+  last delete (20 under VoiceOver); on the Mac, ⌘Z undoes.
+- **Undo toast countdown.** A thin bar along the bottom of the toast drains over those 5 seconds
+  (`UndoCountdownBar`, clock in `Sources/Shared/UndoCountdown.swift`). A finger on the toast
+  (iPhone) or the pointer over it (Mac) pauses the bar, and letting go carries on from where it
+  stopped, with at least a second left. Swipe the toast sideways or down (drag it on the Mac) to
+  dismiss it early; it follows the finger with a little give upward and springs back from a short
+  drag (`UndoSwipe`). Dismissing never undoes. Only a new delete restarts the bar and is announced
+  to VoiceOver, once; pauses, a partial Undo or sync trimming the buffer don't. Under Reduce Motion
+  the toast fades in and out in place, doesn't follow the finger, and the bar steps down once a
+  second instead of gliding. VoiceOver users can dismiss with the escape gesture or the Dismiss
+  action. One drain per toast, nothing loops.
 - **First sync.** A device's existing entries are uploaded as older than anything already on the
   server: entries the server lacks are added, and a delete made elsewhere still wins.
 - **Sign-in.** The `account` edge function checks the LibreLinkUp login with Abbott once, finds or
