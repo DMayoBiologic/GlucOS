@@ -4687,7 +4687,7 @@ lows? The bar was a held-out win at both 15 and 30 minutes with no extra missed 
 arrive under a minute late and the delay is mostly the relay's and apps' own polling, not LinkUp. Every
 forward offset is worse at 15 minutes and identical at 30 and 60. The only offset that wins goes the
 other way (draw the line as if the reading were 3 minutes older), which is just less trend: it wins
-0.6–1.8% at 15 minutes, nothing at 30, and at gain 0.6 misses two more lows. Nothing shipped; no app or
+0.5–1.7% at 15 minutes, nothing at 30, and at gain 0.6 misses two more lows. Nothing shipped; no app or
 relay code changed, so the relay stays 2.17.0.**
 
 This rechecks §47 with 2 more days and adds what §47 didn't test: offsets in both directions picked held
@@ -4725,7 +4725,7 @@ arrival is read three ways:
 (nothing logged from 3 h before to the target), 759 points over 11–17 Nov Perth, at the tuner's gains.
 Each candidate draws horizon h at line(h + d), d from −3 to +3 minutes (d > 0 is projecting from arrival
 time). d is picked per horizon on six Perth days by mean miss (leaving out any point whose
-readings touch the held-out day) and scored on the seventh; lines are clamped to 39–401 as the engine
+readings touch the held-out day) and scored on the seventh's points whose readings all fall on it; lines are clamped to 39–401 as the engine
 publishes them. Scored two ways:
 *chart* against the reading h minutes after the reading's time, and *label* against the reading h + a
 minutes after it, a = 0.5 (relay) or 1.0 (apps), which is "in h minutes" from arrival.
@@ -4735,11 +4735,11 @@ above 70 / the range bottom at or above 70:
 
 | Gain | Score | 15 min | 30 min | 60 min | Pick | Missed lows at 15 |
 |---|---|---|---|---|---|---|
-| 0.45 (Mac, relay) | chart | 14.97 → 14.88 (−0.6%), 6/1 days | 21.06 → 21.06 | 33.09 → 33.09 | −3 every fold | 3/0 → 3/0 |
-| 0.45 | label a = 1.0 | 15.35 → 15.26 (−0.6%) | 21.43 → 21.43 | 33.39 → 33.39 | −3 | 4/0 → 4/0 |
-| 0.6 (iPhone) | chart | 15.23 → 15.06 (−1.1%) | 21.41 → 21.39 (−0.1%) | 33.49 → 33.49 | −3 | 1/0 → 3/0 |
-| 0.6 | label a = 1.0 | 15.63 → 15.45 (−1.1%) | 21.76 → 21.74 (−0.1%) | 33.78 → 33.78 | −3 | 2/0 → 4/0 |
-| 0.7 | chart | 15.50 → 15.22 (−1.8%) | 21.74 → 21.71 (−0.1%) | 33.83 → 33.83 | −3 | 1/0 → 1/0 |
+| 0.45 (Mac, relay) | chart | 14.81 → 14.74 (−0.5%), 5/2 days | 21.10 → 21.09 | 31.85 → 31.85 | −3 every fold | 3/0 → 3/0 |
+| 0.45 | label a = 1.0 | 15.17 → 15.10 (−0.5%) | 21.47 → 21.46 | 32.09 → 32.09 | −3 | 4/0 → 4/0 |
+| 0.6 (iPhone) | chart | 15.02 → 14.88 (−0.9%) | 21.49 → 21.47 (−0.1%) | 32.32 → 32.32 | −3 | 1/0 → 3/0 |
+| 0.6 | label a = 1.0 | 15.42 → 15.26 (−1.0%) | 21.83 → 21.82 (−0.1%) | 32.56 → 32.56 | −3 | 2/0 → 4/0 |
+| 0.7 | chart | 15.27 → 15.02 (−1.7%) | 21.85 → 21.82 (−0.1%) | 32.70 → 32.70 | −3 | 1/0 → 1/0 |
 
 Fixed offsets over all days (label a = 0.5, gain 0.45, 15 min): d = −3 15.05, −1 15.10, 0 15.13,
 +0.5 15.15, +1 15.16, +1.5 15.18, +3 15.22; at 30 min every offset is 21.21–21.22. Gains 0.6 and 0.7 show
@@ -4749,7 +4749,7 @@ the same order, steeper.
   a little at 15 minutes and nothing at 30 or 60.
 - **The backward offset is the trend gain in disguise.** The 30-minute fade means d < 0 just carries
   less of the trend over the first minutes, and it hits the edge of the grid every time. That's the
-  trend tuner's job, and §61 found its learned 0.45 still wins; at 0.45 the offset is worth 0.09 mg/dL.
+  trend tuner's job, and §61 found its learned 0.45 still wins; at 0.45 the offset is worth 0.07 mg/dL.
 - **It fails the bar**: no win at 30 minutes (0.0–0.1%), none at 60 (the trend has faded by then and
   the forecasts at 60 are identical), and at gain 0.6 the line misses 2 more of the 9 lows at 15.
 - **The delay itself costs little**: scoring the shipped line at arrival rather than reading time

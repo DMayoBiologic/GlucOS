@@ -121,7 +121,7 @@ for gain in GAINS:
             for day in days:
                 # train only on points whose readings (trend window to last target) never touch the held-out day
                 tr_ = [p for p in pts if day not in p["span"] and p["day"] != day]
-                te = [p for p in pts if p["day"] == day]
+                te = [p for p in pts if p["span"] == {day}]  # trend window and targets all on the held-out day
                 if not te: continue
                 dd = min(DS, key=lambda x: (mae(tr_, gain, h, a, x), abs(x)))
                 picks.append(dd)
