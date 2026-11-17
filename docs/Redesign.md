@@ -527,6 +527,19 @@ moment it changes on its own (the reading going stale, then each minute of its a
 carries a light and a dark rendering and picks one when drawn, so it follows the menu bar's
 appearance without redrawing.
 
+**Hover preview** (round 62, `MenuBarHoverPreview`, MenuBarHoverPanel.swift). Resting the pointer
+on the item for 0.6 s drops a 232 pt card 4 pt below it: the reading with its unit, trend arrow and
+age ("3 min ago"), the last two hours as a line over the target band (breaking at gaps over
+15 min, the latest reading as a dot), "Up 2.1 over two hours", and the old tooltip's extra lines
+(back in range, alerts snoozed). It replaces the plain tooltip while on. The panel fades in over
+0.16 s and out over 0.12 s; under Reduce Motion it appears and goes at once, a still image. Any
+click (the popover still opens), key, scroll or window coming forward closes it until the pointer
+leaves, and it never opens while the popover is open. It ignores the mouse, can't become key and is
+hidden from VoiceOver, since the item's own label already says the reading. Nothing runs until the
+pointer is on the item: a tracking area, one one-shot timer, and one drawing per opening (again only
+if a new reading lands while it's open). Settings › General › Menu Bar › "Preview the last 2 hours
+on hover", on by default.
+
 ### 8.2 Popover
 
 - **Hero** sits on a `RangeField` (not live drift: the popover is short-lived, so the field holds

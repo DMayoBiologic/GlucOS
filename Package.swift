@@ -56,6 +56,7 @@ let package = Package(
                 "Shared/HeaderCollapse.swift",
                 "Shared/HapticRules.swift",
                 "Shared/MenuBarGlance.swift",
+                "Shared/MenuBarHoverPreview.swift",
                 "Shared/WidgetGlance.swift",
                 "Shared/SpokenGlucose.swift",
                 "Shared/ReadingDetails.swift",

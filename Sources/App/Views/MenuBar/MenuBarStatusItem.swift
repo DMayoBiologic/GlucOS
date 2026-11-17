@@ -33,6 +33,8 @@ final class MenuBarStatusModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var nextChangeTimer: Timer?
     private var animation: Task<Void, Never>?
+    /// The hover preview (MenuBarHoverPanel.swift). Idle until the pointer rests on the item.
+    private var hover: MenuBarHoverController?
 
     /// Frames per second for a value change. Low on purpose: it is an 8 pt slide in the menu bar.
     private static let framesPerSecond = 24.0
@@ -71,7 +73,23 @@ final class MenuBarStatusModel: ObservableObject {
             .sink { [weak self] _ in self?.refresh() }
             .store(in: &cancellables)
 
+        hover = MenuBarHoverController(store: store, settings: settings) { [weak self] now in
+            self?.hoverPreview(now: now)
+        }
         refresh()
+    }
+
+    /// Puts the hover preview's pointer tracking on the status bar button, once it exists.
+    func attachHover() { hover?.attach() }
+
+    /// The preview at the moment it opens: two hours of readings, plus the tooltip's extra lines
+    /// (back in range, alerts snoozed), since the preview stands in for the tooltip.
+    private func hoverPreview(now: Date) -> MenuBarHoverPreview? {
+        guard var preview = MenuBarHoverPreview.make(snapshot: store.snapshot,
+                                                     recent: recent(MenuBarHoverPreview.chartSpan, now: now),
+                                                     now: now) else { return nil }
+        preview.notes = toolTip.split(separator: "\n").dropFirst().map(String.init)
+        return preview
     }
 
     /// Works out the glance and redraws only if it differs from what's showing.
@@ -79,7 +97,7 @@ final class MenuBarStatusModel: ObservableObject {
         let snapshot = store.snapshot
         let snooze = AlertSnoozeStore.shared.snoozes.badge(at: now)
         let next = MenuBarGlance.make(snapshot: snapshot,
-                                      recent: settings.showMenuBarSparkline ? lastHour(now: now) : [],
+                                      recent: settings.showMenuBarSparkline ? recent(MenuBarGlance.sparklineWindow, now: now) : [],
                                       hasCredentials: settings.hasCredentials,
                                       showDelta: settings.showDeltaInMenuBar,
                                       showSparkline: settings.showMenuBarSparkline,
@@ -93,7 +111,10 @@ final class MenuBarStatusModel: ObservableObject {
         if label != accessibilityLabel { accessibilityLabel = label }
         toolTip = MenuBarGlance.toolTip(snapshot: snapshot, hasCredentials: settings.hasCredentials,
                                         showForecast: settings.showForecast, snooze: snooze, now: now)
-        StatusItemToolTip.apply(toolTip)
+        // The hover preview shows all of this and more, so the plain tooltip would only pop up on top
+        // of it. With the preview off the tooltip comes back.
+        StatusItemToolTip.apply(settings.showMenuBarHoverPreview ? "" : toolTip)
+        hover?.attach()
 
         guard force || next != glance else { return }
         // VoiceOver hears a new trend once. The menu bar item is the one place on the Mac that says
@@ -154,10 +175,10 @@ final class MenuBarStatusModel: ObservableObject {
         nextChangeTimer = timer
     }
 
-    /// The archive's last hour, read from the end (it holds up to 90 days, oldest first), plus any
-    /// newer readings in the snapshot.
-    private func lastHour(now: Date) -> [GlucoseReading] {
-        let cutoff = now.addingTimeInterval(-MenuBarGlance.sparklineWindow)
+    /// The archive's last `span` (an hour for the sparkline, two for the hover preview), read from
+    /// the end (it holds up to 90 days, oldest first), plus any newer readings in the snapshot.
+    private func recent(_ span: TimeInterval, now: Date) -> [GlucoseReading] {
+        let cutoff = now.addingTimeInterval(-span)
         var out: [GlucoseReading] = []
         for r in store.archive.reversed() {
             if r.timestamp < cutoff { break }
@@ -217,11 +238,21 @@ final class MenuBarStatusModel: ObservableObject {
 /// different one and is left alone.
 @MainActor
 enum StatusItemToolTip {
+    /// An empty `text` takes the tooltip off (the hover preview stands in for it).
     static func apply(_ text: String) {
+        let tip: String? = text.isEmpty ? nil : text
         for window in NSApp.windows where String(describing: type(of: window)).contains("NSStatusBarWindow") {
             guard let button = statusButton(in: window.contentView) else { continue }
-            if button.toolTip != text { button.toolTip = text }
+            if button.toolTip != tip { button.toolTip = tip }
         }
+    }
+
+    /// GlucOS's status bar button, once the label is in the menu bar.
+    static func button() -> NSStatusBarButton? {
+        for window in NSApp.windows where String(describing: type(of: window)).contains("NSStatusBarWindow") {
+            if let button = statusButton(in: window.contentView) { return button }
+        }
+        return nil
     }
 
     private static func statusButton(in view: NSView?) -> NSStatusBarButton? {

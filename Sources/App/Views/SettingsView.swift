@@ -70,6 +70,9 @@ private struct GeneralSettingsTab: View {
                     .settingsAnchor(.menuBarColour)
                 Toggle("Show the last hour as a sparkline", isOn: $settings.showMenuBarSparkline)
                     .settingsAnchor(.menuBarSparkline)
+                Toggle("Preview the last 2 hours on hover", isOn: $settings.showMenuBarHoverPreview)
+                    .help("Rest the pointer on the menu bar reading to see the last two hours, the trend and how long ago it was taken.")
+                    .settingsAnchor(.menuBarHover)
                 Picker("Popover chart", selection: $settings.chartHours) {
                     Text("Last 3 hours").tag(3)
                     Text("Last 6 hours").tag(6)

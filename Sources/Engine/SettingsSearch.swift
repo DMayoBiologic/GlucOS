@@ -12,7 +12,7 @@ enum SettingsAnchor: String, CaseIterable, Hashable, Sendable {
     case account, readSensor
     // Display / menu bar
     case units, targetRange, showForecast, showYesterday
-    case menuBarDelta, menuBarColour, menuBarSparkline, popoverChart, textSize
+    case menuBarDelta, menuBarColour, menuBarSparkline, menuBarHover, popoverChart, textSize
     case launchAtLogin, desktopWidget, setupAssistant
     // Logging
     case therapy, insulins, bolus, presets, syncLogbook, keyboardShortcut, shortcutList
@@ -222,6 +222,8 @@ enum SettingsCatalog {
               keywords: ["color", "colour", "tint", "menu bar"]),
         .init(anchor: .menuBarSparkline, title: "Show the last hour as a sparkline", place: "General › Menu Bar", tab: "general",
               keywords: ["sparkline", "mini chart", "graph", "menu bar"]),
+        .init(anchor: .menuBarHover, title: "Preview the last 2 hours on hover", place: "General › Menu Bar", tab: "general",
+              keywords: ["hover", "tooltip", "preview", "pointer", "mouse", "menu bar"]),
         .init(anchor: .popoverChart, title: "Popover chart", place: "General › Menu Bar", tab: "general",
               keywords: ["hours", "chart", "time window", "zoom", "3", "6", "12", "24"]),
         .init(anchor: .showForecast, title: "Show the forecast on the popover chart", place: "General › Menu Bar", tab: "general",
