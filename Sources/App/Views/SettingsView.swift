@@ -431,6 +431,7 @@ private struct AlertSettingsTab: View {
 
     @State private var notificationsAllowed: Bool?
     @State private var permissionChecked = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let cooldownChoices = [5, 10, 15, 20, 30, 45, 60, 90, 120]
 
@@ -438,7 +439,12 @@ private struct AlertSettingsTab: View {
         let u = settings.unit
         Form {
             Section {
-                Toggle("Glucose alerts", isOn: $settings.alertsEnabled)
+                // The sections below dim and undim with it, and the "can't reach you" banner
+                // expands in place (DependentRows).
+                Toggle("Glucose alerts", isOn: $settings.alertsEnabled.revealingRows(
+                    shown: { notificationsAllowed == false && settings.alertsEnabled },
+                    rows: { ["Alerts can't reach you"] },
+                    reduceMotion: reduceMotion))
                     .settingsAnchor(.alerts)
                 LabeledContent("macOS notifications") {
                     HStack(spacing: 6) {
@@ -472,6 +478,7 @@ private struct AlertSettingsTab: View {
                                  },
                                  density: .compact)
                         .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        .dependentRow()
                 }
                 LabeledContent("Check it works") {
                     Button("Send Test Alert") { store.alerts.sendTest() }
@@ -509,17 +516,19 @@ private struct AlertSettingsTab: View {
 
             Section {
                 AlertRow(title: "Low predicted", detail: "When the forecast goes below \(u.format(mgdl: settings.lowMgdl, withUnit: true)), or urgent low, within the time below",
-                         tint: GlucoseRange.low.tint, systemImage: "arrow.down.forward.and.arrow.up.backward", isOn: $settings.alertOnPredictedLow)
+                         tint: GlucoseRange.low.tint, systemImage: "arrow.down.forward.and.arrow.up.backward",
+                         isOn: $settings.alertOnPredictedLow.revealingRows(shown: { showsWarnAhead }, reduceMotion: reduceMotion))
                     .settingsAnchor(.predictedLows)
                 AlertRow(title: "High predicted", detail: settings.alertOnHigh
                             ? "When the forecast goes above \(u.format(mgdl: settings.highMgdl, withUnit: true)) or very high"
                             : "When the forecast goes above \(u.format(mgdl: 250, withUnit: true)) (high alerts are off)",
-                         tint: GlucoseRange.high.tint, systemImage: "arrow.up.forward", isOn: $settings.alertOnPredictedHigh)
+                         tint: GlucoseRange.high.tint, systemImage: "arrow.up.forward",
+                         isOn: $settings.alertOnPredictedHigh.revealingRows(shown: { showsWarnAhead }, reduceMotion: reduceMotion))
                     .settingsAnchor(.predictedHighs)
                 Picker("Warn me up to", selection: $settings.predictiveAlertMinutes) {
                     ForEach([10, 15, 20, 30], id: \.self) { m in Text("\(m) minutes ahead").tag(m) }
                 }
-                .disabled(!settings.alertOnPredictedLow && !settings.alertOnPredictedHigh)
+                .disabled(!showsWarnAhead)
                 .settingsAnchor(.warnAhead)
             } header: {
                 Text("Forecast")
@@ -555,7 +564,8 @@ private struct AlertSettingsTab: View {
             .disabled(!settings.alertsEnabled)
 
             Section {
-                Toggle("Evening recap", isOn: $settings.eveningRecapEnabled)
+                Toggle("Evening recap", isOn: $settings.eveningRecapEnabled.revealingRows(
+                    shown: { settings.eveningRecapEnabled }, reduceMotion: reduceMotion))
                     .onChange(of: settings.eveningRecapEnabled) { _, on in
                         if on { store.alerts.requestAuthorization() }
                     }
@@ -577,6 +587,9 @@ private struct AlertSettingsTab: View {
             Task { await refreshNotificationStatus() }
         }
     }
+
+    /// "Warn me up to" is usable while either predicted alert is on.
+    private var showsWarnAhead: Bool { settings.alertOnPredictedLow || settings.alertOnPredictedHigh }
 
     private func refreshNotificationStatus() async {
         notificationsAllowed = await AlertManager.notificationsAllowed()
@@ -630,26 +643,31 @@ private struct AlertRow: View {
 /// Logbook sync on or off, and how it's going.
 private struct LogbookSyncSection: View {
     @EnvironmentObject var sync: LogbookSyncService
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Section {
-            Toggle("Sync logbook with your other devices", isOn: $sync.enabled)
+            Toggle("Sync logbook with your other devices", isOn: $sync.enabled.revealingRows(
+                shown: { sync.enabled }, rows: { ["Sync status", "Sync now"] }, reduceMotion: reduceMotion))
                 .settingsAnchor(.syncLogbook)
             if sync.enabled {
-                LabeledContent("Status") {
-                    HStack(spacing: DS.Space.xs) {
-                        if sync.status == .syncing { ProgressView().controlSize(.small) }
-                        Text(sync.summary)
-                            .foregroundStyle(sync.isProblem ? Tone.warning.textColor : Color.secondary)
-                            .multilineTextAlignment(.trailing)
+                Group {
+                    LabeledContent("Status") {
+                        HStack(spacing: DS.Space.xs) {
+                            if sync.status == .syncing { ProgressView().controlSize(.small) }
+                            Text(sync.summary)
+                                .foregroundStyle(sync.isProblem ? Tone.warning.textColor : Color.secondary)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    Button("Sync Now") { sync.requestSync() }
+                        .disabled(sync.status == .syncing || sync.status == .needsAccount)
+                    if sync.isProblem {
+                        SendReportButton(feature: LogbookSyncService.diagnosticFeature, step: "sync", message: sync.summary)
+                            .id(sync.summary)
                     }
                 }
-                Button("Sync Now") { sync.requestSync() }
-                    .disabled(sync.status == .syncing || sync.status == .needsAccount)
-                if sync.isProblem {
-                    SendReportButton(feature: LogbookSyncService.diagnosticFeature, step: "sync", message: sync.summary)
-                        .id(sync.summary)
-                }
+                .dependentRow()
             }
         } header: {
             Text("Sync")
@@ -669,12 +687,16 @@ private struct LoggingSettingsTab: View {
     @State private var renaming: LogPreset?
     @State private var newName = ""
     @State private var editingBolus = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Form {
             LogbookSyncSection()
             Section {
-                Picker("Therapy", selection: $settings.therapy) {
+                Picker("Therapy", selection: $settings.therapy.revealingRows(
+                    shown: { settings.therapy.logsInsulin },
+                    rows: { ["Your insulins", "Bolus calculator"] },
+                    reduceMotion: reduceMotion)) {
                     if settings.therapy == .notSet { Text("Choose…").tag(TherapyType.notSet) }
                     ForEach([TherapyType.injections, .pump, .noInsulin]) { Label($0.title, systemImage: $0.systemImage).tag($0) }
                 }
@@ -690,6 +712,7 @@ private struct LoggingSettingsTab: View {
 
             if settings.therapy.logsInsulin {
                 InsulinListSection()
+                    .dependentRow()
             }
 
             KeyboardLoggingSection()
@@ -708,6 +731,7 @@ private struct LoggingSettingsTab: View {
                     Text("Uses only the settings you enter and confirm. Shared with GlucOS on your iPhone. Not medical advice.")
                         .foregroundStyle(.secondary)
                 }
+                .dependentRow()
             }
 
             Section {
@@ -878,10 +902,14 @@ private struct KeyboardLoggingSection: View {
     @ObservedObject private var hotKey = GlobalLogShortcut.shared
     /// Every shortcut, and how Tab and the arrow keys move round (docs/KeyboardNavigation.md).
     @State private var showsShortcuts = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Section {
-            Toggle("Open the log window from any app", isOn: $settings.globalLogShortcutEnabled)
+            Toggle("Open the log window from any app", isOn: $settings.globalLogShortcutEnabled.revealingRows(
+                shown: { settings.globalLogShortcutEnabled && hotKey.failure != nil },
+                rows: { hotKey.failure.map { [$0] } ?? [] },
+                reduceMotion: reduceMotion))
                 .settingsAnchor(.keyboardShortcut)
             LabeledContent("Shortcut") {
                 ShortcutRecorder(key: $settings.globalLogShortcut)
@@ -891,6 +919,7 @@ private struct KeyboardLoggingSection: View {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .font(.callout)
+                    .dependentRow()
             }
             LabeledContent("Keyboard shortcuts") {
                 Button("Show All…") { showsShortcuts = true }
