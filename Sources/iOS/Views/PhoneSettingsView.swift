@@ -174,6 +174,7 @@ struct PhoneSettingsView: View {
             if !logbook.presets.isEmpty { presetsSection }
             syncSection
             alertsSection
+            recapSection
             lockScreenSection
             sharingSection
             FollowingSettingsSection()
@@ -351,6 +352,23 @@ struct PhoneSettingsView: View {
             Text("Lows and very highs always alert while alerts are on; urgent lows repeat every 5 minutes. \(services.relayStatus?.isDeliveringAlerts() == true ? "Your push relay is sending these, so they arrive even when GlucOS is closed." : "Without the push relay, alerts can only come while GlucOS is open or briefly refreshing in the background.")")
         }
         .id(Jump.alerts)
+    }
+
+    /// The evening recap (docs/EveningRecap.md): one notification a day, off until turned on.
+    private var recapSection: some View {
+        Section {
+            Toggle("Evening recap", isOn: $settings.eveningRecapEnabled)
+                .onChange(of: settings.eveningRecapEnabled) { _, on in
+                    if on { store.alerts.requestAuthorization() }
+                }
+            if settings.eveningRecapEnabled {
+                DatePicker("Time", selection: settings.eveningRecapTime, displayedComponents: .hourAndMinute)
+            }
+        } header: {
+            Text("Daily recap")
+        } footer: {
+            Text(EveningRecapText.settingsFooter(minute: settings.eveningRecapMinute) + " Tap it to open Insights on today. It uses the readings GlucOS had when it last refreshed, and says which hours it covers.")
+        }
     }
 
     private var lockScreenSection: some View {

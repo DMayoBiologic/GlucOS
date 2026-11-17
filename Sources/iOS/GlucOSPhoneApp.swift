@@ -121,7 +121,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         }
     }
 
-    /// Buttons on a notification: "Snooze 30 min" and "Log treatment" on alerts, check-ins ("I'm
+    /// Buttons on a notification: a tap on the evening recap opens Insights on today; "Snooze 30 min" and "Log treatment" on alerts, check-ins ("I'm
     /// okay", "I need help", "Check in") and "Was that dose for a meal?" (Meal, Correction).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
@@ -129,7 +129,10 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let userInfo = response.notification.request.content.userInfo
         let date = response.notification.date
         Task { @MainActor in
-            if let tap = AlertNotifications.button(action: action, userInfo: userInfo) {
+            if EveningRecapScheduler.isRecap(userInfo) {
+                // The evening recap: Insights, opened on today (docs/EveningRecap.md).
+                if action == UNNotificationDefaultActionIdentifier { EveningRecapRoute.shared.open(firedAt: date) }
+            } else if let tap = AlertNotifications.button(action: action, userInfo: userInfo) {
                 AlertLogRecorder.shared.tapped(tap, userInfo: userInfo, firedAt: date)
                 await PhoneAlertActions.handle(tap)
                 // While iOS keeps the app awake, so the Mac's Logbook shows the tap too.

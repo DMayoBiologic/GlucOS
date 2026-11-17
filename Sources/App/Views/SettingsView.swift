@@ -516,6 +516,20 @@ private struct AlertSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
             .disabled(!settings.alertsEnabled)
+
+            Section {
+                Toggle("Evening recap", isOn: $settings.eveningRecapEnabled)
+                    .onChange(of: settings.eveningRecapEnabled) { _, on in
+                        if on { store.alerts.requestAuthorization() }
+                    }
+                DatePicker("Time", selection: settings.eveningRecapTime, displayedComponents: .hourAndMinute)
+                    .disabled(!settings.eveningRecapEnabled)
+            } header: {
+                Text("Daily Recap")
+            } footer: {
+                Text(EveningRecapText.settingsFooter(minute: settings.eveningRecapMinute) + " Click it to open Insights on today.")
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .task { await refreshNotificationStatus() }

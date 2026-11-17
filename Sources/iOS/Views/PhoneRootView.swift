@@ -254,6 +254,7 @@ struct PhoneHomeView: View {
                     case .insights: PhoneInsightsView()
                     case .logbookLink(let link): PhoneLogbookView(link: link)
                     case .logbookEntry(let id): PhoneLogbookView(opening: id)
+                    case .insightsToday(let firedAt): PhoneInsightsView(recapFiredAt: firedAt)
                     }
                 }
                 if reduceMotion {
@@ -282,6 +283,16 @@ struct PhoneHomeView: View {
             path = NavigationPath()
             showsSettings = false
             showsSharing = false
+        }
+        // A tap on the evening recap: Insights on today, from the top of the stack, out of
+        // Settings or Sharing (docs/EveningRecap.md). Also catches the tap that launched the app.
+        .onReceive(EveningRecapRoute.shared.$request) { request in
+            guard request != nil, let firedAt = EveningRecapRoute.shared.take() else { return }
+            showsSettings = false
+            showsSharing = false
+            var stack = NavigationPath()
+            stack.append(PhoneRoute.insightsToday(firedAt))
+            path = stack
         }
         .onChange(of: router.request?.id) { _, id in
             // A log link arriving while Settings or Sharing is open: show the log sheet instead.

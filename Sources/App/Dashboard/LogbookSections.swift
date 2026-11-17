@@ -748,6 +748,8 @@ struct InsightsSection: View {
     /// The Lows, Highs, Overnight, Weekdays and weekends or Week in review card was tapped: open the Logbook on its chip and days.
     let openLogbook: (LogbookLink) -> Void
     let onLog: () -> Void
+    /// Opened from the evening recap notification: its Today card goes on top (docs/EveningRecap.md).
+    var recapFiredAt: Date? = nil
 
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
@@ -770,6 +772,11 @@ struct InsightsSection: View {
                                   low: lowMgdl, high: highMgdl,
                                   siteOf: { logbook.site(of: $0) })
         DashboardPage(maxContentWidth: DashboardMetrics.readableWidth) { layout in
+            if let recapFiredAt {
+                EveningRecapCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                                     recapMinute: settings.eveningRecapMinute, firedAt: recapFiredAt)
+                    .dsEntrance(0)
+            }
             if let insights {
                 SafetyNote().dsEntrance(0)
                 if logbook.isEmpty {

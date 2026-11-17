@@ -56,6 +56,9 @@ struct PhoneInsightsRow: View {
 /// days side by side, this week against last, lows and when they start, time above range and the longest high, how the nights go, weekdays against weekends, the usual day by time of day, what GlucOS has learnt about mornings, and how its forecasts turned out.
 struct PhoneInsightsView: View {
     @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var settings: AppSettings
+    /// Opened from the evening recap notification: its Today card goes on top (docs/EveningRecap.md).
+    var recapFiredAt: Date? = nil
     /// The person's order and hidden cards, kept on this iPhone (docs/InsightsLayout.md). Held in
     /// state so a change animates, and written back on every change.
     @State private var layout = InsightsLayout(stored: UserDefaults.standard.string(forKey: InsightsLayout.phoneKey) ?? "")
@@ -93,6 +96,13 @@ struct PhoneInsightsView: View {
         let visible = layout.visible(defaults)
         return ScrollView {
             VStack(spacing: DS.Space.lg) {
+                if let recapFiredAt {
+                    EveningRecapCardView(readings: store.archive, unit: store.snapshot.unit,
+                                         lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl,
+                                         recapMinute: settings.eveningRecapMinute, firedAt: recapFiredAt,
+                                         padding: DS.Space.lg)
+                        .dsEntrance(0)
+                }
                 ForEach(Array(visible.enumerated()), id: \.element) { i, card in
                     view(for: card)
                         .dsEntrance(i)
