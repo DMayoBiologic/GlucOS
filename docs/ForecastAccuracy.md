@@ -4677,3 +4677,93 @@ basis (for example §45's turning-point easing) adds visible jitter; rerun this 
 `DIR` holds readings.json (`[[unix, mgdl], ...]` from `glucos.readings where trend > 0`).
 
 **Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.
+
+## 67. How late do readings arrive, and should the forecast project from arrival time? (17 Nov 2026)
+
+The question: LibreLinkUp readings reach the relay and the apps some seconds after the time they carry.
+Would projecting from arrival time (the reading's time plus its delay), or from any other fixed offset,
+bring the 15, 30 and 60-minute forecasts closer on days they weren't picked on, without missing more
+lows? The bar was a held-out win at both 15 and 30 minutes with no extra missed lows. **No. Readings
+arrive under a minute late and the delay is mostly the relay's and apps' own polling, not LinkUp. Every
+forward offset is worse at 15 minutes and identical at 30 and 60. The only offset that wins goes the
+other way (draw the line as if the reading were 3 minutes older), which is just less trend: it wins
+0.6–1.8% at 15 minutes, nothing at 30, and at gain 0.6 misses two more lows. Nothing shipped; no app or
+relay code changed, so the relay stays 2.17.0.**
+
+This rechecks §47 with 2 more days and adds what §47 didn't test: offsets in both directions picked held
+out, scored both on the chart (reading time) and on the "in N min" label (arrival time). Nothing here
+touches dosing, the insulin or carb effects, the alerts, `web/`, post-meal peaks or sensor-day ranges.
+
+**How late readings arrive.** `glucos.readings` keeps only the sample time and `glucos.diagnostics` has
+no `linkup.fetch` reports at all (no LinkUp fetch has failed since diagnostics began on 12 Nov), so
+arrival is read three ways:
+
+- *The relay row.* Two fetches tonight (14:51 and 14:53 UTC) were 24 seconds after their reading's
+  time; §47's six on 16 Nov were 30–31 seconds.
+- *The second of the minute readings carry drifts about 7 seconds a day*: :49 on 11 Nov, :55, :04,
+  :10, :18, :26, :33 on 17 Nov. The relay ticks at about :01, so how old a reading is at the relay is
+  set by that phase (12 s on 11 Nov, 24 s tonight) and will cycle through every value from 0 to 60 s
+  about every 9 days. That is the sensor's (or uploader's) clock, not lateness.
+- *Missed minutes against the margin* from the reading's time to the next relay tick, 8,631 steps:
+
+| Margin to next tick | Steps | One-minute misses |
+|---|---|---|
+| 0–9 s | 1,737 | 7.9% |
+| 10–19 s | 863 | 3.4% |
+| 20–29 s | 804 | 3.2% |
+| 30–39 s | 1,703 | 3.6% |
+| 40–49 s | 1,728 | 3.5% |
+| 50–59 s | 1,778 | 3.8% |
+
+  A reading LinkUp hasn't got yet when the relay ticks is skipped, so misses double only when the
+  margin is under 10 seconds: LinkUp nearly always has a reading within 10 seconds of its time, and the
+  steady ~3.5% of misses at longer margins are the uploader, not the delay. So the relay sees a reading
+  0–60 s (phase-set) after its time and the apps, polling every 60 s from wherever they started, about
+  30 s on average and at most about 70.
+
+**The test.** `scripts/reading-delay.py`: the engine's trend forecast every 5 minutes away from logs
+(nothing logged from 3 h before to the target), 759 points over 11–17 Nov Perth, at the tuner's gains.
+Each candidate draws horizon h at line(h + d), d from −3 to +3 minutes (d > 0 is projecting from arrival
+time). d is picked per horizon on six Perth days by mean miss and scored on the seventh. Scored two ways:
+*chart* against the reading h minutes after the reading's time, and *label* against the reading h + a
+minutes after it, a = 0.5 (relay) or 1.0 (apps), which is "in h minutes" from arrival.
+
+Held-out mean miss, shipped (d = 0) → held-out pick; missed lows are actual under 70 with the line at or
+above 70 / the range bottom at or above 70:
+
+| Gain | Score | 15 min | 30 min | 60 min | Pick | Missed lows at 15 |
+|---|---|---|---|---|---|---|
+| 0.45 (Mac, relay) | chart | 14.97 → 14.88 (−0.6%), 6/1 days | 21.06 → 21.06 | 33.09 → 33.09 | −3 every fold | 3/0 → 3/0 |
+| 0.45 | label a = 1.0 | 15.35 → 15.26 (−0.6%) | 21.43 → 21.43 | 33.39 → 33.39 | −3 | 4/0 → 4/0 |
+| 0.6 (iPhone) | chart | 15.23 → 15.06 (−1.1%) | 21.41 → 21.39 (−0.1%) | 33.49 → 33.49 | −3 | 1/0 → 3/0 |
+| 0.6 | label a = 1.0 | 15.63 → 15.45 (−1.1%) | 21.76 → 21.74 (−0.1%) | 33.78 → 33.78 | −3 | 2/0 → 4/0 |
+| 0.7 | chart | 15.50 → 15.22 (−1.8%) | 21.75 → 21.72 (−0.1%) | 33.84 → 33.84 | −3 | 1/0 → 1/0 |
+
+Fixed offsets over all days (label a = 0.5, gain 0.45, 15 min): d = −3 15.05, −1 15.10, 0 15.13,
++0.5 15.15, +1 15.16, +1.5 15.18, +3 15.22; at 30 min every offset is 21.21–21.22. Gains 0.6 and 0.7 show
+the same order, steeper.
+
+- **Projecting from arrival time loses.** No fold ever picked a forward offset; every forward step adds
+  a little at 15 minutes and nothing at 30 or 60.
+- **The backward offset is the trend gain in disguise.** The 30-minute fade means d < 0 just carries
+  less of the trend over the first minutes, and it hits the edge of the grid every time. That's the
+  trend tuner's job, and §61 found its learned 0.45 still wins; at 0.45 the offset is worth 0.09 mg/dL.
+- **It fails the bar**: no win at 30 minutes (0.0–0.1%), none at 60 (the trend has faded by then and
+  the forecasts at 60 are identical), and at gain 0.6 the line misses 2 more of the 9 lows at 15.
+- **The delay itself costs little**: scoring the shipped line at arrival rather than reading time
+  adds 0.4 mg/dL at 15 minutes and 0.4 at 30 for a 1-minute-old reading.
+
+**Decision.** Keep the forecast anchored on the reading's own time (`GlucoseForecaster` t0 =
+`latest.timestamp`, relay `latest.t`). Don't re-propose arrival-time or fixed-offset projection. If the
+relay's fetch phase ever lands in the 0–9 s margin for days at a time (about 20–21 Nov on the current
+drift), the missed-minute rate roughly doubles; that is a fetch-timing question, not a forecast one, and
+the place to look is the relay tick offset. **Retest ~1 Dec** with two weeks more readings, alongside
+§61's tuner drift recheck: the candidate then is only whether a lower trend gain than 0.45 wins held out
+at 15 and 30 minutes.
+
+Rerun with `python3 scripts/reading-delay.py DIR`: readings.json (`[[unix, mgdl], ...]` from
+`glucos.readings where trend > 0`), logs.json (`[[unix, kind], ...]` from `glucos.logbook` meals, doses
+and context, `payload->>'timestamp'`), optional samples.json (`[[reading_t, fetched_at], ...]` from the
+relay row's `work->'current'->'t'` and `work->>'lastFetchAt'`).
+
+**Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.
