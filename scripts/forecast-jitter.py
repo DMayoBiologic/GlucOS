@@ -33,7 +33,7 @@ FADE, MAX, HS = 30.0, 4.0, (30, 60)
 def slope(i, minutes=20, span=9):
     j = bisect.bisect_left(T, T[i] - minutes * 60)
     pts = [((T[k] - T[i]) / 60, G[k]) for k in range(j, i + 1)]
-    if len(pts) < 3 or pts[-1][0] - pts[0][0] < span: return None
+    if len(pts) < 2 or pts[-1][0] - pts[0][0] < span: return None  # engine: GlucoseSeries.slope needs 2
     mx = st.mean(p[0] for p in pts); my = st.mean(p[1] for p in pts)
     sxx = sum((p[0] - mx) ** 2 for p in pts)
     return max(-MAX, min(MAX, sum((p[0] - mx) * (p[1] - my) for p in pts) / sxx)) if sxx else None
@@ -44,7 +44,7 @@ def offset(tr, gain, h):  # f − g at horizon h
 def at(t, tol=120):
     i = bisect.bisect_left(T, t)
     best = min((j for j in (i - 1, i) if 0 <= j < len(T)), key=lambda j: abs(T[j] - t), default=None)
-    return G[best] if best is not None and abs(T[best] - t) <= tol else None
+    return best if best is not None and abs(T[best] - t) <= tol else None
 
 def perth(t): return dt.datetime.fromtimestamp(t + 8 * 3600, dt.UTC).strftime("%d")
 
@@ -52,7 +52,10 @@ base = []  # one row per reading with a trend
 for i in range(len(T)):
     tr = slope(i)
     if tr is None: continue
-    base.append(dict(i=i, t=T[i], g=G[i], tr=tr, day=perth(T[i]), act={h: at(T[i] + h * 60) for h in HS}))
+    hit = {h: at(T[i] + h * 60) for h in HS}
+    base.append(dict(i=i, t=T[i], g=G[i], tr=tr, day=perth(T[i]),
+                     act={h: None if hit[h] is None else G[hit[h]] for h in HS},
+                     actday={h: None if hit[h] is None else perth(T[hit[h]]) for h in HS}))
 
 def shown(gain, kind=None, p=None):
     """Shown offsets per row for horizons 30, 31 (for revise) and 60."""
@@ -90,8 +93,9 @@ def errors(d, rows=None):
     for k, r in enumerate(base):
         if rows is not None and r["day"] not in rows: continue
         for h in HS:
+            if rows is not None and r["actday"][h] not in rows: continue  # actual on the same held-out days
             if r["act"][h] is not None: e[h].append(abs(r["act"][h] - (r["g"] + d[k][h])))
-    return {h: st.mean(e[h]) for h in HS}, {h: len(e[h]) for h in HS}
+    return {h: st.mean(e[h]) if e[h] else float("nan") for h in HS}, {h: len(e[h]) for h in HS}
 
 # Real turns: local extreme with ≥15 mg/dL swing on both sides within 30 min, at least 30 min apart.
 turns = []
@@ -127,7 +131,7 @@ for gain in (0.45, 0.6):
     def row(name, d):
         jj, ff = jitter(d); ee, _ = errors(d); ll = lags(d)
         print(f"  {name:10s} " + "  ".join(f"{h}m jump {jj[h][0]:4.2f} (p90 {jj[h][1]:4.1f}) excess {jj[h][2]:4.2f} revise {jj[h][3]:4.2f} mae {ee[h]:5.2f}" for h in HS)
-              + f"  flips/h {ff:4.2f}  turn lag mean {st.mean(ll):4.1f} med {st.median(ll):4.1f} min")
+              + (f"  flips/h {ff:4.2f}  turn lag mean {st.mean(ll):4.1f} med {st.median(ll):4.1f} min" if ll else f"  flips/h {ff:4.2f}  turn lag n/a (no turns)"))
     row("shipped", ship)
     for c in CANDS: row(f"{c[0]} {c[1]}", shown(gain, *c))
     # leave one day out
@@ -135,6 +139,8 @@ for gain in (0.45, 0.6):
     tot = {h: [0, 0, 0] for h in HS}; better = {h: [0, 0] for h in HS}
     for dd in days:
         others = set(days) - {dd}
+        if any(errors(ship, {dd})[1][h] == 0 for h in HS):
+            print(f"    {dd} Nov: no scoreable 30/60-min actuals, skipped"); continue
         best = min([None] + CANDS, key=lambda c: sum(errors(ship if c is None else shown(gain, *c), others)[0].values()))
         dsel = ship if best is None else shown(gain, *best)
         b0, n0 = errors(ship, {dd}); b1, _ = errors(dsel, {dd})

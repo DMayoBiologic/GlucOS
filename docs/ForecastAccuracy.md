@@ -4616,16 +4616,20 @@ from p where h in (30, 60) and not al and not meal1h and tr >= 1.5 group by 1 or
 
 **Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.
 
-## 66. How much does the shown forecast jump between readings, and would smoothing help? (17 Nov 2026)
+## 66. How much does the forecast's trend line jump between readings, and would smoothing help? (17 Nov 2026)
 
 The worry: the app redraws the forecast at every reading, so if the 30- and 60-minute points hop about
 from one minute to the next the line looks nervous and is hard to trust. The candidate is light output
 smoothing, blending each new forecast with the one shown a minute before. The bar: less jitter, no worse
-error on held-out days at 30 and 60 minutes, and no later reaction to real turns. **The line barely
-jumps, and smoothing it only adds lag. Nothing ships; no app or relay code changed, so the relay stays
+error on held-out days at 30 and 60 minutes, and no later reaction to real turns. **The trend line
+barely jumps, and smoothing it only adds lag. Nothing ships; no app or relay code changed, so the relay stays
 2.17.0.**
 
 Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
+
+Scope: the replay models the trend term only. On the `trendInsulinCarbs` basis the drawn line also carries
+the insulin and carb effects (and the morning adjustment), which are smooth functions of time since each
+log but aren't replayed here, so jitter of the full drawn line on that basis is not measured directly.
 
 **The accuracy log.** It keeps one check per 15 minutes (plus 5-minute extras since 16 Nov), so it
 can't see minute-to-minute jumps. The closest pairs, Mac checks at most 7 minutes apart (39 pairs), moved
@@ -4657,9 +4661,9 @@ The reading itself moves 1.82 mg/dL a minute on average; the line's own offset c
 smoother, so there is little jitter left to remove.
 
 **Held out.** Picking the blend on six Perth days by 30 + 60 minute miss and scoring the seventh: at gain
-0.45 the pick was "none" on 4 days and the heaviest blend on 3, held-out 25.46 → 25.54 (+0.3%) at 30 and
-41.57 → 41.67 (+0.3%) at 60, better on 0 days and worse on 3 at each. At 0.6: +0.2% and +0.4%, better on 1
-and 0, worse on 3 and 4.
+0.45 the pick was "none" on 4 days and the heaviest blend on 3, held-out 25.35 → 25.43 (+0.3%) at 30 and
+41.63 → 41.73 (+0.2%) at 60, better on 0 days and worse on 3 at each. At 0.6: +0.2% and +0.4%, better on 1
+and 0, worse on 3 and 4. Held-out scores count only actuals that land on the held-out day.
 
 **Why.** Smoothing a forecast that is already a 20-minute fit mostly lags it: a blend that removes a tenth
 of the jump costs 1–2.5 minutes at each real turn, which is when the forecast matters most (§45, §59), and
