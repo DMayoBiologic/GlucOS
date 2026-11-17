@@ -432,8 +432,8 @@ struct LogbookSection: View {
         link = nil
         search = ""
         allDates = false
-        filter = l.filter
-        tagFilter = nil
+        filter = l.kindChip
+        tagFilter = l.tag
         linked = l.period
     }
 
@@ -857,7 +857,7 @@ struct InsightsSection: View {
             }
             customiseRow
             ScrollViewReader { proxy in
-                let visible = cardLayout.visible(Self.defaults)
+                let visible = cardLayout.visible(Self.defaults).filter(onScreen)
                 VStack(alignment: .leading, spacing: layout.gutter) {
                     ForEach(Array(visible.enumerated()), id: \.element) { i, card in
                         view(for: card)
@@ -887,6 +887,12 @@ struct InsightsSection: View {
         .onChange(of: cardLayout) { _, new in
             UserDefaults.standard.set(new.stored, forKey: InsightsLayout.macKey)
         }
+    }
+
+    /// Whether a showing card is on screen now. The Tags card stays out until something carries a
+    /// tag; its place in the order is kept.
+    private func onScreen(_ card: InsightsCard) -> Bool {
+        card != .tags || TagInsightsCardView.shows(logbook.entries)
     }
 
     @ViewBuilder
@@ -927,6 +933,11 @@ struct InsightsSection: View {
                                      highMgdl: highMgdl, openLogbook: openLogbook)
                 .dashboardCard()
                 .id(Self.cardID(.bestDay))
+        case .tags:
+            TagInsightsCardView(readings: readings, entries: logbook.entries, unit: unit, lowMgdl: lowMgdl,
+                                highMgdl: highMgdl, openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.tagged))
         case .dayPattern:
             DayPatternView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
                 .dashboardCard()
@@ -958,9 +969,9 @@ struct InsightsSection: View {
     /// Right-click a card: move it a place, hide it, or open the customise sheet.
     @ViewBuilder
     private func menu(_ card: InsightsCard, index: Int, count: Int) -> some View {
-        Button("Move Up") { change { $0.move(card, by: -1, defaults: Self.defaults) } }
+        Button("Move Up") { change { $0.move(card, by: -1, defaults: Self.defaults, onScreen: onScreen) } }
             .disabled(index == 0)
-        Button("Move Down") { change { $0.move(card, by: 1, defaults: Self.defaults) } }
+        Button("Move Down") { change { $0.move(card, by: 1, defaults: Self.defaults, onScreen: onScreen) } }
             .disabled(index >= count - 1)
         Button("Hide \(card.title)") { change { $0.hide(card, defaults: Self.defaults) } }
         Divider()
@@ -973,7 +984,7 @@ struct InsightsSection: View {
     }
 
     /// "insights.lows", "insights.highs", "insights.overnight", "insights.weekdays",
-    /// "insights.thisWeek", "insights.bestStreak", "insights.bestDay": where Back from the Logbook
+    /// "insights.thisWeek", "insights.bestStreak", "insights.bestDay", "insights.tagged": where Back from the Logbook
     /// scrolls to. Weekends comes back to the Weekdays and weekends card too, Last week to Week in
     /// review, and Toughest day to Best and toughest days.
     private static func cardID(_ card: LogbookFilter) -> String { "insights.\(card.insightsCard.rawValue)" }

@@ -6,7 +6,7 @@ import Foundation
 
 /// The Logbook's quick filter chips. One at a time, on top of whatever the search says.
 enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
-    case meals, insulin, lows, highs, overnight, weekdays, weekends, thisWeek, lastWeek, bestStreak, bestDay, toughestDay, notes, sites, moments, alerts
+    case meals, insulin, lows, highs, overnight, weekdays, weekends, thisWeek, lastWeek, bestStreak, bestDay, toughestDay, tagged, notes, sites, moments, alerts
 
     var id: String { rawValue }
 
@@ -24,6 +24,7 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .bestStreak: return "Longest streak"
         case .bestDay: return "Best day"
         case .toughestDay: return "Toughest day"
+        case .tagged: return "Tagged"
         case .notes: return "Notes"
         case .sites: return "Sites"
         case .moments: return "Moments"
@@ -49,6 +50,8 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .bestStreak: return true
         // The Insights Best and toughest days card's two days: everything, over the day itself.
         case .bestDay, .toughestDay: return true
+        // The Insights Tags card: everything, narrowed by the tag chip it opens with.
+        case .tagged: return true
         case .notes: return !entry.searchNote.isEmpty
         case .sites: if case .siteChange = entry { return true } else { return false }
         case .moments: if case .context = entry { return true } else { return false }
@@ -77,10 +80,10 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
     }
 
     /// Whether the chip bar lists this chip by itself. Overnight, Weekdays, Weekends, This week,
-    /// Last week, Longest streak, Best day and Toughest day show only when an Insights card opens the
+    /// Last week, Longest streak, Best day, Toughest day and Tagged show only when an Insights card opens the
     /// Logbook on them: they're times, not kinds of entry.
     var isListed: Bool {
-        ![.overnight, .weekdays, .weekends, .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay].contains(self)
+        ![.overnight, .weekdays, .weekends, .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .tagged].contains(self)
     }
 
     /// The Insights card that opens the Logbook on this chip, where Back on the Mac scrolls to:

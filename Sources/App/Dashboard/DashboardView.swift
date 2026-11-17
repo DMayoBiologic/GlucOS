@@ -513,6 +513,7 @@ struct DashboardView: View {
         case .thisWeek: return WeekInReviewText.title
         case .bestStreak: return InRangeStreaksText.title
         case .bestDay: return BestToughestDaysText.title
+        case .tagged: return TagInsightsText.title
         default: return chip.title
         }
     }

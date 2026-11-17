@@ -4,8 +4,9 @@ import Foundation
 // user's own ("Travel", "Night shift"). Picked from chips in the log sheet, kept on each entry as
 // `labels`, synced with the entry, and offered back as filter chips in Logbook search.
 //
-// Tags are labels for finding entries. Nothing in Insights, the forecast or the bolus calculator
-// reads them: the log sheet's "What else is going on?" choices (`ContextTag`) still do that job.
+// Tags are labels for finding entries. The forecast and the bolus calculator never read them, and
+// Insights only describes what followed them (the Tags card, `TagInsights`): the log sheet's "What
+// else is going on?" choices (`ContextTag`) still decide which examples Insights sets aside.
 
 enum LogbookTags {
     /// The chips the log sheet always offers, in this order.

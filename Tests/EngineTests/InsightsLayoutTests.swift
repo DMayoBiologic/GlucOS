@@ -17,7 +17,7 @@ final class InsightsLayoutTests: XCTestCase {
         var layout = InsightsLayout.standard
         // Drag Lows (index 1) to the top.
         layout.moveVisible(fromOffsets: IndexSet(integer: 1), toOffset: 0, defaults: mac)
-        XCTAssertEqual(layout.visible(mac), [.lows, .weekInReview, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .dayPattern, .forecastAccuracy])
+        XCTAssertEqual(layout.visible(mac), [.lows, .weekInReview, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .dayPattern, .forecastAccuracy])
         // Drag Week in review (now index 1) to the end: onMove reports the count as the destination.
         layout.moveVisible(fromOffsets: IndexSet(integer: 1), toOffset: mac.count, defaults: mac)
         XCTAssertEqual(layout.visible(mac).last, .weekInReview)
@@ -70,10 +70,10 @@ final class InsightsLayoutTests: XCTestCase {
         let layout = InsightsLayout(order: ["dayPattern", "weekInReview", "lows", "highs", "forecastAccuracy"],
                                     hidden: ["highs"])
         XCTAssertEqual(layout.arranged(mac),
-                       [.dayPattern, .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .forecastAccuracy])
+                       [.dayPattern, .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy])
         // New cards are never hidden.
         XCTAssertEqual(layout.visible(mac),
-                       [.dayPattern, .weekInReview, .lows, .overnight, .weekdayWeekend, .streaks, .bestDays, .forecastAccuracy])
+                       [.dayPattern, .weekInReview, .lows, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy])
     }
 
     func testStreaksArriveAfterWeekdaysAndWeekendsInASavedLayout() {
@@ -101,6 +101,39 @@ final class InsightsLayoutTests: XCTestCase {
         let phoneLayout = InsightsLayout(order: InsightsCard.phoneDefault.filter { $0 != .bestDays }.map(\.rawValue),
                                          hidden: [])
         XCTAssertEqual(phoneLayout.visible(phone), phone)
+    }
+
+    func testTagsArriveAfterBestDaysInASavedLayout() {
+        // A layout saved before the Tags card shipped, with Best and toughest days moved to the top:
+        // Tags shows straight after it, not hidden.
+        let saved = ["bestDays", "weekInReview", "lows", "highs", "overnight", "weekdayWeekend", "streaks",
+                     "dayPattern", "forecastAccuracy"]
+        let layout = InsightsLayout(order: saved, hidden: ["lows"])
+        XCTAssertEqual(Array(layout.arranged(mac).prefix(2)), [.bestDays, .tags])
+        XCTAssertFalse(layout.isHidden(.tags))
+        XCTAssertEqual(InsightsCard(rawValue: "tags"), .tags)
+        XCTAssertEqual(InsightsCard.tags.title, "Tags")
+        let phoneLayout = InsightsLayout(order: InsightsCard.phoneDefault.filter { $0 != .tags }.map(\.rawValue),
+                                         hidden: [])
+        XCTAssertEqual(phoneLayout.visible(phone), phone)
+    }
+
+    func testMoveSkipsACardLeftOffTheScreen() {
+        // Nothing tagged: Tags isn't drawn, so Move Up on Your usual day swaps it with Best and
+        // toughest days, and Tags keeps its slot after Best and toughest days.
+        var layout = InsightsLayout.standard
+        let onScreen: (InsightsCard) -> Bool = { $0 != .tags }
+        layout.move(.dayPattern, by: -1, defaults: mac, onScreen: onScreen)
+        let shown = layout.visible(mac).filter(onScreen)
+        XCTAssertEqual(Array(shown.suffix(4)), [.streaks, .dayPattern, .bestDays, .forecastAccuracy])
+        XCTAssertEqual(Array(layout.visible(mac).suffix(4)), [.dayPattern, .bestDays, .tags, .forecastAccuracy])
+        // And back down past the hidden slot.
+        layout.move(.dayPattern, by: 1, defaults: mac, onScreen: onScreen)
+        XCTAssertEqual(layout.visible(mac).filter(onScreen), mac.filter(onScreen))
+        // Ends still stop.
+        let before = layout
+        layout.move(.forecastAccuracy, by: 1, defaults: mac, onScreen: onScreen)
+        XCTAssertEqual(layout, before)
     }
 
     func testNewCardFirstInShippedOrderGoesToTheTop() {

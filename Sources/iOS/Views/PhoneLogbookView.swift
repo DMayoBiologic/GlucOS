@@ -107,7 +107,8 @@ struct PhoneLogbookView: View {
     /// Opened from a card (`LogbookLink`): its chip picked and its period above the list. Opened on
     /// an entry (`opening`): that entry's row opens into its detail once the push has landed.
     init(link: LogbookLink? = nil, opening: UUID? = nil) {
-        _kind = State(initialValue: link?.filter)
+        _kind = State(initialValue: link?.kindChip)
+        _tagFilter = State(initialValue: link?.tag)
         _linked = State(initialValue: link?.period)
         _opening = State(initialValue: opening)
     }

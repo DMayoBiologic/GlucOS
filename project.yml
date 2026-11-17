@@ -170,6 +170,7 @@ targets:
       - path: Sources/App/Views/WeekdayWeekendCardView.swift
       - path: Sources/App/Views/InRangeStreaksCardView.swift
       - path: Sources/App/Views/BestToughestDaysCardView.swift
+      - path: Sources/App/Views/TagInsightsCardView.swift
       - path: Sources/App/Views/TodaySoFarView.swift
       - path: Sources/App/Views/EveningRecapCardView.swift
       - path: Sources/App/EveningRecapScheduler.swift

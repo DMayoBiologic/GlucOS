@@ -186,6 +186,11 @@ tested in LogbookLinkTests).
   "Sat 12 Sep"). The chips keep every entry and alert, so the period does the narrowing. Listed only
   while the card has opened on them; on iPhone either day zooms from the card, and on the Mac
   "‹ Insights" scrolls back to the card from either.
+- **A tag (round 48).** Each tag on the Insights Tags card is its own button: it opens the Logbook
+  on that tag's chip over the card's 7, 14 or 30 days (`LogbookLink.tag`), with no kind chip, so
+  every kind of entry carrying the tag shows (alerts carry no tags, so they drop out). The link's
+  `filter` is an unlisted **Tagged** chip (`LogbookFilter.tagged`) that only says where it came
+  from: the iPhone zooms from the card on it and the Mac's "‹ Insights" scrolls back to the card.
 
 ## Tags
 

@@ -2,7 +2,7 @@ import Foundation
 
 // Opening the Logbook from somewhere else with a chip and a stretch of time already picked
 // (docs/LogbookSearch.md, "From the Insights cards"). Today that's the Insights Lows, Highs,
-// Overnight, Weekdays and weekends, Week in review and In-range streaks cards: tapping one shows its chip over the
+// Overnight, Weekdays and weekends, Week in review, In-range streaks, Best and toughest days and Tags cards: tapping one shows its chip over the
 // same days the card counted.
 
 /// The chip and period the Logbook opens with. Nothing is typed into the search field: the period
@@ -10,6 +10,18 @@ import Foundation
 struct LogbookLink: Hashable, Sendable {
     let filter: LogbookFilter
     let period: LogbookQuery.Period
+    /// The tag chip to pick (the Tags card). With one, the Logbook opens on that tag chip alone,
+    /// with no kind chip: `filter` is then `.tagged`, which only says where the link came from.
+    var tag: String? = nil
+
+    init(filter: LogbookFilter, period: LogbookQuery.Period, tag: String? = nil) {
+        self.filter = filter
+        self.period = period
+        self.tag = tag
+    }
+
+    /// The kind chip the Logbook opens on: none for a tag link, so every kind tagged shows.
+    var kindChip: LogbookFilter? { tag == nil ? filter : nil }
 
     /// The Lows card's period, as the Logbook reads it. The card counts the `days` × 24 hours up to
     /// the newest reading (`LowsSummary.compute`), so the Logbook starts there too rather than at
@@ -63,6 +75,13 @@ struct LogbookLink: Hashable, Sendable {
         return LogbookLink(filter: .bestStreak,
                            period: .init(label: span, phrase: InRangeStreaksText.phrase(run, now: now, calendar: calendar),
                                          interval: run.interval))
+    }
+
+    /// One tag on the Tags card, over the card's period read the same way as the Lows card's: the
+    /// Logbook opens on that tag's chip, every kind of entry carrying it.
+    static func tag(_ tag: String, _ period: TagInsights.Period, newestReading: Date?, now: Date) -> LogbookLink {
+        let base = card(.tagged, days: period.days, newestReading: newestReading, now: now)
+        return LogbookLink(filter: .tagged, period: base.period, tag: tag)
     }
 
     private static func card(_ filter: LogbookFilter, days: Int, newestReading: Date?, now: Date) -> LogbookLink {

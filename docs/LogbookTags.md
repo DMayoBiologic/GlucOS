@@ -37,8 +37,29 @@ Exercise, Unwell (as Sick), Stress and Alcohol moments show under those chips to
 Tags are also searched as words, and shown in the row's detail line (iPhone), the opened entry's
 detail ("Tags"), and the Mac table's Details column.
 
+## The Insights Tags card
+
+Round 48 added a **Tags** card to Insights on iPhone and Mac, after Best and toughest days
+(`Sources/Engine/TagInsights.swift`, `TagInsightsCardView`, tests in `TagInsightsTests`). Over the
+last 7, 14 or 30 days it lists each tag used in that time, most used first (up to six), with time in
+range and the average in the **4 hours after** the entries carrying it, beside every reading over
+the same days.
+
+- Readings go into 5-minute buckets, as on the other cards. A bucket counts as after a tag when it
+  overlaps the 4 hours after any entry carrying it, so two entries an hour apart share their
+  overlap once.
+- A tag needs an hour of readings after it before its figures show ("waiting for readings").
+- Within 5 points of the period's time in range reads as "about the same".
+- Tags are read as the Logbook's chip reads them, so an Exercise moment counts as Exercise.
+- Tap a tag to open the Logbook on that tag's chip over the same days.
+- The card stays off the screen until something carries a tag, and can be moved or hidden like
+  any other card (docs/InsightsLayout.md).
+
+It describes what happened after entries the person tagged. It never suggests a change to insulin,
+food or a setting.
+
 ## What tags don't do
 
-Tags are labels for finding things. Insights, the forecast and the bolus calculator never read
-them. The "What else is going on?" choices (`ContextTag`) still decide which examples Insights sets
+Tags are labels for finding things. Apart from the descriptive Tags card above, Insights, the
+forecast and the bolus calculator never read them. The "What else is going on?" choices (`ContextTag`) still decide which examples Insights sets
 aside.
