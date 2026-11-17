@@ -33,6 +33,17 @@ final class HapticRulesTests: XCTestCase {
         XCTAssertTrue(gate.admit(.enteredLow, at: t0.addingTimeInterval(0.2)))
     }
 
+    func testPickingASpanIsALightTapThatFollowsAScrub() {
+        XCTAssertEqual(HapticEvent.spanPicked.feel, .lightImpact(intensity: 0.5))
+        XCTAssertFalse(HapticEvent.spanPicked.isTick)
+        var gate = HapticGate()
+        // The one-finger readout was ticking just before the second finger landed: the span still taps.
+        XCTAssertTrue(gate.admit(.scrubLogged, at: t0))
+        XCTAssertTrue(gate.admit(.spanPicked, at: t0.addingTimeInterval(0.1)))
+        // A low warning landing with it still gets through.
+        XCTAssertTrue(gate.admit(.enteredLow, at: t0.addingTimeInterval(0.2)))
+    }
+
     func testWarningsOutrankOutcomesOutrankAcknowledgements() {
         XCTAssertGreaterThan(HapticEvent.enteredLow.priority, HapticEvent.backInRange.priority)
         XCTAssertGreaterThan(HapticEvent.done.priority, HapticEvent.newData.priority)

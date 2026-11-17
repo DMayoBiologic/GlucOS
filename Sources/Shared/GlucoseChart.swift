@@ -50,8 +50,24 @@ struct GlucoseChart: View {
     /// small card saying what it was, how long ago and the reading then, gone when the finger lifts;
     /// hover one on the Mac for the same card as a tooltip. Interactive charts only.
     var peeksMarkers: Bool = false
+    /// Whether a stretch of the chart can be picked out for its figures (`ChartSpanStats`): rest
+    /// two fingers on the chart and drag them, and a band covers the span with a small card of its
+    /// average, lowest, highest, time in range and change, gone when the fingers lift. VoiceOver
+    /// swipes up and down through spans ending at the newest reading instead (`ChartSpanVoiceOver`).
+    /// iPhone Today only; interactive charts only.
+    var selectsSpans: Bool = false
 
     @State private var hoverDate: Date?
+    /// What Charts' two-finger range selection last reported, armed or not.
+    @State private var rawSpan: ClosedRange<Date>?
+    /// The two-finger touch while it's deciding whether it's a span or a pinch (`ChartSpanHold`).
+    @State private var spanTouch: SpanTouch?
+    /// The span shown, once the touch has armed. Nil while it's still deciding, or was a pinch.
+    @State private var span: ClosedRange<Date>?
+    /// Counts two-finger touches, so a hold timer from one that's lifted never arms a later one.
+    @State private var spanGeneration = 0
+    /// VoiceOver's chosen span, in minutes back from the newest reading. Nil: the chart's summary.
+    @State private var voSpanMinutes: Int?
     /// The marker being peeked at, while a finger holds it (iPhone) or the pointer is over it (Mac).
     @State private var peeked: UUID?
     /// Whether a finger is down on a marker, before or during a peek. The yesterday-line menu
@@ -167,8 +183,9 @@ struct GlucoseChart: View {
     private func selection(newest: Date?) -> Binding<Date?> {
         Binding(get: { hoverDate }, set: { new in
             if let new {
-                // A peek has the finger: the readout stays away until it lifts.
-                guard peeked == nil else { return }
+                // A peek has the finger, or two fingers are picking a span: the readout stays
+                // away until they lift.
+                guard peeked == nil, span == nil, spanTouch == nil else { return }
                 if !touching { touching = true; scrubbedFrom = nil }
                 touchGeneration += 1
                 hoverDate = new
@@ -199,6 +216,99 @@ struct GlucoseChart: View {
         } completion: {
             guard touchGeneration == generation else { return }
             withAnimation(DSMotion.quick.animation) { hoverDate = nil }
+        }
+    }
+
+    // MARK: Span stats
+
+    /// What Charts' range selection (two fingers on iPhone) reads and writes.
+    private var spanSelection: Binding<ClosedRange<Date>?> {
+        Binding(get: { rawSpan }, set: { spanChanged($0) })
+    }
+
+    /// The fingers moved, landed or lifted. A new touch waits `ChartSpanHold.holdDuration` before it
+    /// can become a span; if the gap between the fingers changes much before then, it was a pinch.
+    private func spanChanged(_ new: ClosedRange<Date>?) {
+        guard let new else { endSpanTouch(); return }
+        rawSpan = new
+        let width = new.upperBound.timeIntervalSince(new.lowerBound)
+        if span != nil {
+            withTransaction(Transaction(animation: nil)) { span = new }
+            return
+        }
+        if var touch = spanTouch {
+            if !touch.wasPinch, ChartSpanHold.isPinch(firstWidth: touch.firstWidth, currentWidth: width) {
+                touch.wasPinch = true
+                spanTouch = touch
+            }
+            return
+        }
+        spanGeneration += 1
+        let generation = spanGeneration
+        spanTouch = SpanTouch(firstWidth: width)
+        DispatchQueue.main.asyncAfter(deadline: .now() + ChartSpanHold.holdDuration) {
+            armSpan(generation: generation)
+        }
+    }
+
+    /// The fingers have rested long enough: if they still mean a span, show it, with a light tap.
+    private func armSpan(generation: Int) {
+        guard generation == spanGeneration, let touch = spanTouch, let raw = rawSpan, span == nil,
+              ChartSpanHold.arms(held: ChartSpanHold.holdDuration, firstWidth: touch.firstWidth,
+                                 currentWidth: raw.upperBound.timeIntervalSince(raw.lowerBound),
+                                 wasPinch: touch.wasPinch)
+        else { return }
+        withTransaction(Transaction(animation: nil)) {
+            hoverDate = nil
+            touching = false
+            scrubbedFrom = nil
+            voSpanMinutes = nil
+        }
+        withAnimation(ChartSpanCard.animation(showing: true, reduceMotion: reduceMotion)) { span = raw }
+        #if os(iOS)
+        Haptics.play(.spanPicked)
+        #endif
+    }
+
+    /// The fingers lifted: the band and card fade away.
+    private func endSpanTouch() {
+        spanGeneration += 1
+        spanTouch = nil
+        rawSpan = nil
+        guard span != nil else { return }
+        withAnimation(ChartSpanCard.animation(showing: false, reduceMotion: reduceMotion)) { span = nil }
+    }
+
+    /// The span VoiceOver has chosen, ending at the newest reading.
+    private func voiceOverSpan(newest: Date?) -> ClosedRange<Date>? {
+        guard let minutes = voSpanMinutes else { return nil }
+        let end = newest ?? Date()
+        return end.addingTimeInterval(-Double(minutes) * 60)...end
+    }
+
+    /// VoiceOver swiped up (a longer span) or down (a shorter one, then back to the summary).
+    private func adjustVoiceOverSpan(_ direction: AccessibilityAdjustmentDirection) {
+        let up: Bool
+        switch direction {
+        case .increment: up = true
+        case .decrement: up = false
+        @unknown default: return
+        }
+        let next = ChartSpanVoiceOver.step(voSpanMinutes, up: up, hours: hours)
+        guard next != voSpanMinutes else { return }
+        withAnimation(ChartSpanCard.animation(showing: next != nil, reduceMotion: reduceMotion)) { voSpanMinutes = next }
+    }
+
+    /// The band over the span and the card with its figures, while a span is shown.
+    @ViewBuilder
+    private func spanOverlay(proxy: ChartProxy, window: [GlucoseReading]) -> some View {
+        if selectsSpans, interactive, let shown = span ?? voiceOverSpan(newest: window.last?.timestamp) {
+            ChartSpanBand(proxy: proxy, range: shown)
+                .transition(.opacity)
+            ChartSpanCard(proxy: proxy, range: shown, unit: unit, reduceMotion: reduceMotion,
+                          stats: ChartSpanStats.compute(readings: window, from: shown.lowerBound, to: shown.upperBound,
+                                                        lowMgdl: lowMgdl, highMgdl: highMgdl))
+                .transition(ChartSpanCard.transition(reduceMotion: reduceMotion))
         }
     }
 
@@ -347,7 +457,18 @@ struct GlucoseChart: View {
         rippleBeat &+= 1
     }
 
+    /// What VoiceOver reads while it has a span chosen; nil otherwise.
+    private func voiceOverSpanSentence(window: [GlucoseReading]) -> String? {
+        guard selectsSpans, interactive, let minutes = voSpanMinutes,
+              let range = voiceOverSpan(newest: window.last?.timestamp) else { return nil }
+        let stats = ChartSpanStats.compute(readings: window, from: range.lowerBound, to: range.upperBound,
+                                           lowMgdl: lowMgdl, highMgdl: highMgdl)
+        return ChartSpanVoiceOver.spoken(stats, minutes: minutes, unit: unit)
+    }
+
     private func disappeared() {
+        voSpanMinutes = nil
+        endSpanTouch()
         onScreen = false
         glows = []
         peeked = nil
@@ -388,7 +509,8 @@ struct GlucoseChart: View {
             to: domain.upperBound)
         let yd = yDomain(onScreen, extra: ghost.map(\.mgdl))
         let floor = yd.lowerBound
-        let hovered = interactive && peeked == nil ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
+        let hovered = interactive && peeked == nil && span == nil
+            ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
         // The gradient is stretched over the drawn line, so its stops follow what's plotted.
         let lineStyle = ThresholdGradient.style(minMgdl: plotted.map(\.mgdl).min() ?? lowMgdl,
                                                 maxMgdl: plotted.map(\.mgdl).max() ?? highMgdl,
@@ -594,8 +716,11 @@ struct GlucoseChart: View {
             if peeksMarkers, interactive {
                 markerPeek(proxy: proxy, yd: yd, window: window)
             }
+            spanOverlay(proxy: proxy, window: window)
         }
         .preference(key: MarkerPeekPressKey.self, value: pressingMarker)
+        // While a span is shown, the pinch for hours and the yesterday-line menu stand down.
+        .preference(key: ChartSpanActiveKey.self, value: span != nil)
         // Under Reduce Motion a new span replaces the chart, cross-fading (`changeRange`). Only
         // ever bumped there, so otherwise the chart keeps its identity and its axes move.
         .id(spanFade)
@@ -605,9 +730,15 @@ struct GlucoseChart: View {
         .onChange(of: events.map(\.id)) { _, _ in
             markersChanged(visibleFrom: window.first?.timestamp ?? .distantFuture)
         }
-        .onChange(of: hours) { old, new in changeRange(from: old, to: new) }
+        .onChange(of: hours) { old, new in
+            changeRange(from: old, to: new)
+            // Hours changing under two fingers means they were pinching, not picking a span.
+            if var touch = spanTouch { touch.wasPinch = true; spanTouch = touch }
+            voSpanMinutes = ChartSpanVoiceOver.clamped(voSpanMinutes, hours: new)
+        }
         .onChange(of: readings.last?.timestamp) { old, new in newestChanged(from: old, to: new) }
         .hoverSelection(interactive, selection(newest: window.last?.timestamp))
+        .spanSelection(interactive && selectsSpans, spanSelection)
         .onChange(of: hovered?.timestamp) { _, new in scrubbed(to: new, readings: window) }
         .scrubFeedback(interactive, trigger: scrubTick)
         // A new reading slides the trace (and the time axis) along by one reading instead of
@@ -619,11 +750,12 @@ struct GlucoseChart: View {
         // the forecast as a second series) as an audio graph under "Chart Details" in the rotor.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(projection.isEmpty ? "Glucose chart" : "Glucose chart, with an estimated forecast")
-        .accessibilityValue(ChartSummary.sentence(.init(
+        .accessibilityValue(voiceOverSpanSentence(window: window) ?? (ChartSummary.sentence(.init(
             readings: window, lowMgdl: lowMgdl, highMgdl: highMgdl, unit: unit, hours: hours, stale: stale,
             forecastEnd: projection.last,
             loggedCount: events.filter { $0.date >= (window.first?.timestamp ?? .distantFuture) }.count))
-            + yesterdaySpoken(newest: window.last))
+            + yesterdaySpoken(newest: window.last)))
+        .spanAdjustable(interactive && selectsSpans, adjustVoiceOverSpan)
         .accessibilityChartDescriptor(GlucoseAudioGraph(readings: window, forecast: projection, unit: unit,
                                                         lowMgdl: lowMgdl, highMgdl: highMgdl, yDomain: yd,
                                                         yesterday: ghost.filter { $0.date >= domain.lowerBound }))
@@ -1023,6 +1155,32 @@ private extension View {
             self
         }
     }
+
+    /// Charts' range selection, which on iPhone is two fingers on the chart. iPhone only: on the
+    /// Mac it would be a click and drag, and the popover's pointer reads single readings.
+    @ViewBuilder
+    func spanSelection(_ enabled: Bool, _ range: Binding<ClosedRange<Date>?>) -> some View {
+        #if os(iOS)
+        if enabled {
+            chartXSelection(range: range)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
+    /// Swipe up or down with VoiceOver for a span's figures (`ChartSpanVoiceOver`).
+    @ViewBuilder
+    func spanAdjustable(_ enabled: Bool, _ adjust: @escaping (AccessibilityAdjustmentDirection) -> Void) -> some View {
+        if enabled {
+            accessibilityAdjustableAction(adjust)
+                .accessibilityHint("Swipe up or down to hear the average, range and change over a span.")
+        } else {
+            self
+        }
+    }
 }
 
 // MARK: - Marker peek
@@ -1214,5 +1372,160 @@ private struct MarkerPeekCard: View {
         .padding(.vertical, DS.Space.xs + 2)
         .background { DSSurface(style: .standard, radius: DS.Radius.control) }
         .dsShadow(.medium)
+    }
+}
+
+// MARK: - Span stats
+
+/// Whether the chart is showing a span picked out with two fingers (`GlucoseChart.selectsSpans`).
+/// `chartHoursPinch` and `yesterdayLineMenu` read it and stand down meanwhile, so moving the
+/// fingers changes the span rather than the hours.
+struct ChartSpanActiveKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+/// A two-finger touch that hasn't yet turned into a span (`ChartSpanHold`).
+private struct SpanTouch {
+    /// How far apart the fingers were, in chart time, when they landed.
+    let firstWidth: TimeInterval
+    /// The gap changed too much before the hold was up, or the hours changed: a pinch.
+    var wasPinch = false
+}
+
+/// A soft brand-tinted band over the span, with hairline edges, drawn over the trace. Fades in and
+/// out (`.opacity`), which moves nothing, so it's the same under Reduce Motion.
+private struct ChartSpanBand: View {
+    let proxy: ChartProxy
+    let range: ClosedRange<Date>
+
+    var body: some View {
+        GeometryReader { geo in
+            if let plot = proxy.plotFrame,
+               let x0 = proxy.position(forX: range.lowerBound),
+               let x1 = proxy.position(forX: range.upperBound) {
+                let frame = geo[plot]
+                let left = max(min(x0, x1), 0), right = min(max(x0, x1), frame.width)
+                if right > left {
+                    Rectangle()
+                        .fill(Palette.brand.opacity(0.12))
+                        .overlay(alignment: .leading) { Rectangle().fill(Palette.brand.opacity(0.55)).frame(width: 1) }
+                        .overlay(alignment: .trailing) { Rectangle().fill(Palette.brand.opacity(0.55)).frame(width: 1) }
+                        .frame(width: right - left, height: frame.height)
+                        .offset(x: frame.minX + left, y: frame.minY)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The span's figures, at the top of the chart over the band: when, how long, then average,
+/// lowest, highest, time in range and change. The figures roll to new values as the fingers move;
+/// under Reduce Motion they just change. Hidden from VoiceOver, which reads the same figures as the
+/// chart's value (`ChartSpanVoiceOver`).
+private struct ChartSpanCard: View {
+    let proxy: ChartProxy
+    let range: ClosedRange<Date>
+    let unit: GlucoseUnit
+    let reduceMotion: Bool
+    let stats: ChartSpanStats?
+
+    static let maxWidth: CGFloat = 320
+
+    static func animation(showing: Bool, reduceMotion: Bool) -> Animation {
+        if reduceMotion { return .easeInOut(duration: 0.15) }
+        return showing ? DSMotion.quick.animation : .easeIn(duration: 0.16)
+    }
+
+    /// Drops in a little from above and fades; under Reduce Motion it only fades.
+    static func transition(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .scale(scale: 0.94, anchor: .top).combined(with: .opacity)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            if let plot = proxy.plotFrame,
+               let x0 = proxy.position(forX: range.lowerBound),
+               let x1 = proxy.position(forX: range.upperBound) {
+                let frame = geo[plot]
+                let width = min(Self.maxWidth, frame.width)
+                let mid = frame.minX + (x0 + x1) / 2
+                let left = min(max(mid - width / 2, frame.minX), frame.maxX - width)
+                card
+                    .frame(width: width)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .offset(x: left, y: frame.minY + DS.Space.xs)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(range.lowerBound.formatted(date: .omitted, time: .shortened)) – \(range.upperBound.formatted(date: .omitted, time: .shortened))")
+                    .dsFont(.caption)
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: DS.Space.xs)
+                Text(Self.durationText(range.upperBound.timeIntervalSince(range.lowerBound)))
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+            if let s = stats {
+                HStack(alignment: .top, spacing: DS.Space.sm) {
+                    figure("Avg", unit.format(mgdl: s.averageMgdl), value: s.averageMgdl)
+                    figure("Low", unit.format(mgdl: s.lowestMgdl), value: s.lowestMgdl)
+                    figure("High", unit.format(mgdl: s.highestMgdl), value: s.highestMgdl)
+                    figure("In range", s.inRangeText, value: s.inRange, tint: GlucoseRange.inRange.textTint)
+                    figure("Change", s.changeText(unit: unit), value: s.changeMgdl ?? 0)
+                }
+            } else {
+                Text("No readings in this stretch")
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, DS.Space.sm)
+        .padding(.vertical, DS.Space.xs + 2)
+        .background { DSSurface(style: .standard, radius: DS.Radius.control) }
+        .dsShadow(.medium)
+    }
+
+    private func figure(_ title: String, _ text: String, value: Double, tint: Color? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title)
+                .dsFont(.eyebrow)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(text)
+                .dsFont(.callout)
+                .fontWeight(.bold)
+                .monospacedDigit()
+                .foregroundStyle(tint ?? .primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                // Each figure rolls to its new value as the span moves; under Reduce Motion it just
+                // changes.
+                .contentTransition(reduceMotion ? .identity : .numericText(value: value))
+                .animation(reduceMotion ? nil : DSMotion.quick.animation, value: text)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "45 min", "2 h", "2 h 5 min".
+    static func durationText(_ seconds: TimeInterval) -> String {
+        let minutes = max(0, Int((seconds / 60).rounded()))
+        if minutes < 60 { return "\(minutes) min" }
+        let h = minutes / 60, m = minutes % 60
+        return m == 0 ? "\(h) h" : "\(h) h \(m) min"
     }
 }
