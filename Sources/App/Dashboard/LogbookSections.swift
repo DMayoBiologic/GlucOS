@@ -972,6 +972,8 @@ struct InsightsSection: View {
     /// plays them again.
     @State private var reveals = CardReveals()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Set by the toolbar's Earlier and Later (docs/InsightsPeriodStep.md).
+    @Environment(\.insightsStep) private var step
 
     private static let defaults = InsightsCard.macDefault
 
@@ -1056,10 +1058,13 @@ struct InsightsSection: View {
             InsightsSharePreview(card: card,
                                  period: InsightsShare.period(for: card, firstReading: readings.first?.timestamp),
                                  content: AnyView(view(for: card)
+                                    .environment(\.insightsStep, step)
                                     .environmentObject(logbook)
                                     .environmentObject(settings)
                                     .environmentObject(outlookStore)
-                                    .environmentObject(store)))
+                                    .environmentObject(store)),
+                                 periodEnd: card.stepEnd(step, newestReading: readings.last?.timestamp,
+                                                         firstReading: readings.first?.timestamp))
         }
     }
 

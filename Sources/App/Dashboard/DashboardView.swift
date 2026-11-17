@@ -28,6 +28,9 @@ struct DashboardView: View {
     @State private var inlineEdit: LogEntry?
     /// End of the period on screen. Nil follows the latest readings.
     @State private var periodEnd: Date?
+    /// How many periods back the Insights cards are (docs/InsightsPeriodStep.md): ⌘[ and ⌘] or the
+    /// toolbar arrows while Insights is on screen. Insights keeps its own step, apart from the range.
+    @State private var insightsStep = InsightsStep.latest
     @State private var showShortcuts = false
     /// The Logbook export for a clinic visit (⇧⌘E).
     @State private var showLogbookExport = false
@@ -99,7 +102,9 @@ struct DashboardView: View {
                     .allowsHitTesting(false)
             }
             .navigationTitle(section.title)
-            .navigationSubtitle(section.usesRange ? data.periodTitle : section == .outlook ? "Estimates, not readings" : "All stored history")
+            .navigationSubtitle(section.usesRange ? data.periodTitle : section == .outlook ? "Estimates, not readings"
+                                : section == .insights && insightsStep.back > 0 ? InsightsPeriodStep.label(back: insightsStep.back)
+                                : "All stored history")
         }
         .toolbar { toolbarContent(data) }
         .background(shortcutButtons)
@@ -197,6 +202,8 @@ struct DashboardView: View {
             InsightsSection(readings: store.archive, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl,
                             returnTo: $returnToCard, openLogbook: { openLogbook($0) },
                             onLog: { logSheet = .new }, recapFiredAt: recapFiredAt)
+                // Cards with a period show the one this many periods back; their figures roll to it.
+                .environment(\.insightsStep, insightsStep)
         default:
             if store.archive.isEmpty {
                 if store.isRefreshing && settings.hasCredentials {
@@ -349,21 +356,47 @@ struct DashboardView: View {
     private func toolbarContent(_ data: DashboardData) -> some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
             ControlGroup {
-                Button { step(-1, data) } label: {
-                    Label("Earlier", systemImage: "chevron.left")
-                }
-                .keyboardShortcut("[", modifiers: .command)
-                .disabled(!section.usesRange || !data.canGoEarlier)
-                .help("Show the previous \(range.periodNoun) (⌘[)")
+                if section == .insights {
+                    // Insights: each card with a period steps by its own length.
+                    Button { stepInsights(-1) } label: {
+                        Label("Earlier", systemImage: "chevron.left")
+                    }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(!insightsCanGoEarlier)
+                    .help("Show each card's previous period (⌘[)")
 
-                Button { step(1, data) } label: {
-                    Label("Later", systemImage: "chevron.right")
+                    Button { stepInsights(1) } label: {
+                        Label("Later", systemImage: "chevron.right")
+                    }
+                    .keyboardShortcut("]", modifiers: .command)
+                    .disabled(insightsStep.back == 0)
+                    .help("Show each card's next period (⌘])")
+                } else {
+                    Button { step(-1, data) } label: {
+                        Label("Earlier", systemImage: "chevron.left")
+                    }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(!section.usesRange || !data.canGoEarlier)
+                    .help("Show the previous \(range.periodNoun) (⌘[)")
+
+                    Button { step(1, data) } label: {
+                        Label("Later", systemImage: "chevron.right")
+                    }
+                    .keyboardShortcut("]", modifiers: .command)
+                    .disabled(!section.usesRange || data.isLive)
+                    .help("Show the next \(range.periodNoun) (⌘])")
                 }
-                .keyboardShortcut("]", modifiers: .command)
-                .disabled(!section.usesRange || data.isLive)
-                .help("Show the next \(range.periodNoun) (⌘])")
             }
             .controlGroupStyle(.navigation)
+            // VoiceOver: one adjustable control on Insights, up for later and down for earlier.
+            .modifier(InsightsStepAccessibility(active: section == .insights, back: insightsStep.back,
+                                                move: stepInsights))
+
+            if section == .insights && insightsStep.back > 0 {
+                Button("Latest") { stepInsightsToLatest() }
+                    .keyboardShortcut("j", modifiers: .command)
+                    .help("Jump back to the latest periods (⌘J)")
+            }
 
             if !data.isLive && section.usesRange {
                 // In the Logbook ⌘J jumps to a date instead (its calendar has Latest).
@@ -583,6 +616,25 @@ struct DashboardView: View {
     private func backToInsights(_ card: LogbookFilter) {
         returnToCard = card
         select(.insights)
+    }
+
+    private var insightsCanGoEarlier: Bool {
+        InsightsPeriodStep.canGoEarlier(back: insightsStep.back, firstReading: store.archive.first?.timestamp,
+                                        latest: store.archive.last?.timestamp)
+    }
+
+    /// Insights one period earlier (-1) or later (+1), never past the latest: the figures roll and
+    /// each card's dates cross in from the side the period came from (a cross-fade under Reduce Motion).
+    private func stepInsights(_ direction: Int) {
+        let back = InsightsPeriodStep.step(insightsStep.back, by: direction, firstReading: store.archive.first?.timestamp,
+                                           latest: store.archive.last?.timestamp)
+        guard back != insightsStep.back else { return }
+        DS.animate(.standard, reduceMotion: reduceMotion) { insightsStep = InsightsStep(back: back, direction: direction) }
+    }
+
+    private func stepInsightsToLatest() {
+        guard insightsStep.back > 0 else { return }
+        DS.animate(.standard, reduceMotion: reduceMotion) { insightsStep = InsightsStep(back: 0, direction: 1) }
     }
 
     /// Moves a whole period earlier or later.
@@ -1036,6 +1088,34 @@ extension DashboardRange {
         case .d7: return "week"
         case .d14: return "2 weeks"
         case .d30: return "30 days"
+        }
+    }
+}
+
+/// On Insights the toolbar's Earlier and Later read to VoiceOver as one adjustable "Period"
+/// control: swipe up for a later period, down for an earlier one (docs/InsightsPeriodStep.md).
+/// Everywhere else the two buttons stay as they are.
+private struct InsightsStepAccessibility: ViewModifier {
+    let active: Bool
+    let back: Int
+    let move: (Int) -> Void
+
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Period")
+                .accessibilityValue(InsightsPeriodStep.label(back: back))
+                .accessibilityHint("Each card steps by its own length.")
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: move(1)
+                    case .decrement: move(-1)
+                    @unknown default: break
+                    }
+                }
+        } else {
+            content
         }
     }
 }

@@ -14,6 +14,8 @@ import SwiftUI
 /// into it; the Mac cross-fades to its Logbook section (docs/LogbookSearch.md, "From the Insights cards").
 struct LowsCardView: View {
     let readings: [GlucoseReading]
+    /// Insights stepped back to an earlier period (docs/InsightsPeriodStep.md).
+    @Environment(\.insightsStep) private var step
     let meals: [MealEntry]
     let contexts: [ContextEvent]
     let answers: [LowAnswer]
@@ -31,11 +33,16 @@ struct LowsCardView: View {
     @State private var previous: LowsSummary?
 
     private var period: LowsSummary.Period { LowsSummary.Period(rawValue: periodDays) ?? .fortnight }
+    /// The readings up to where the period ends once Insights is stepped back; all of them on
+    /// the latest.
+    private var shown: [GlucoseReading] {
+        InsightsPeriodStep.readings(readings, days: period.days, back: step.back)
+    }
     /// "3.9 mmol/L".
     private var lowLine: String { "\(unit.format(mgdl: lowMgdl)) \(unit.label)" }
 
     var body: some View {
-        let key = LowsSummaryCache.key(readings: readings, meals: meals, contexts: contexts, answers: answers,
+        let key = LowsSummaryCache.key(readings: shown, meals: meals, contexts: contexts, answers: answers,
                                        low: lowMgdl, period: period)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: LowsSummaryText.title, systemImage: "arrow.down.to.line", trailing: "Below \(lowLine)")
@@ -48,6 +55,8 @@ struct LowsCardView: View {
                 .labelsHidden()
                 .accessibilityLabel("Period")
             }
+            // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
+            InsightsStepCaption(days: period.days, latest: readings.last?.timestamp)
 
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.
@@ -66,7 +75,7 @@ struct LowsCardView: View {
             if let hit = LowsSummaryCache.shared.cached(key) {
                 new = hit
             } else {
-                new = await LowsSummaryCache.shared.value(for: key, readings: readings, meals: meals,
+                new = await LowsSummaryCache.shared.value(for: key, readings: shown, meals: meals,
                                                           contexts: contexts, answers: answers)
             }
             // The figures roll by themselves; the sentences and tile colours cross-fade alongside.
@@ -81,9 +90,9 @@ struct LowsCardView: View {
         // new figure, and nothing extra shows when it lacks readings.
         .task(id: compare ? value : nil) {
             guard compare, let current = value else { previous = nil; return }
-            let readings = readings, meals = meals, contexts = contexts, answers = answers, low = lowMgdl
+            let shown = self.shown, meals = meals, contexts = contexts, answers = answers, low = lowMgdl
             let new = await Task.detached(priority: .utility) {
-                InsightsCompare.previousLows(readings: readings, meals: meals, contexts: contexts,
+                InsightsCompare.previousLows(readings: shown, meals: meals, contexts: contexts,
                                              answers: answers, low: low, current: current)
             }.value
             DS.animate(.standard, reduceMotion: reduceMotion) { previous = new }
@@ -232,14 +241,14 @@ extension LowsCardView {
     /// Nothing to show: why, and the shortest longer period that has enough, when one does
     /// (`InsightsEmptyState`, docs/EmptyStates.md). Worked out off the main thread, only while empty.
     fileprivate func emptyNote(_ key: LowsSummaryCache.Key) -> some View {
-        let readings = readings, meals = meals, contexts = contexts, answers = answers, low = lowMgdl, period = period
+        let shown = self.shown, meals = meals, contexts = contexts, answers = answers, low = lowMgdl, period = period
         return InsightsEmptyNote(id: AnyHashable(key), waiting: LowsSummaryText.emptyLine(period), decide: {
             let longer = InsightsEmptyState.firstWithData(
                 InsightsEmptyState.longer(than: period.days, in: LowsSummary.Period.allCases.map(\.days))) { days in
                     guard let p = LowsSummary.Period(rawValue: days) else { return false }
-                    return LowsSummary.compute(readings: readings, meals: meals, contexts: contexts, answers: answers, low: low, period: p) != nil
+                    return LowsSummary.compute(readings: shown, meals: meals, contexts: contexts, answers: answers, low: low, period: p) != nil
                 }
-            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: 1,
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(shown), needed: 1,
                                                waiting: LowsSummaryText.emptyLine(period), currentDays: period.days,
                                                longerWithData: longer)
         }, act: { action in

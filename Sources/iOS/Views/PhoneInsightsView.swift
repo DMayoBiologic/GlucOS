@@ -73,6 +73,8 @@ struct PhoneInsightsView: View {
     @State private var reveals = CardReveals()
     /// The card whose picture is being shared (docs/InsightsShare.md).
     @State private var sharing: InsightsCard?
+    /// How many periods back the cards are (docs/InsightsPeriodStep.md). Latest each visit.
+    @State private var step = InsightsStep.latest
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let defaults = InsightsCard.phoneDefault
@@ -101,9 +103,12 @@ struct PhoneInsightsView: View {
             InsightsSharePreview(card: card,
                                  period: InsightsShare.period(for: card, firstReading: store.archive.first?.timestamp),
                                  content: AnyView(view(for: card)
+                                    .environment(\.insightsStep, step)
                                     .environmentObject(store)
                                     .environmentObject(logbook)
-                                    .environmentObject(settings)))
+                                    .environmentObject(settings)),
+                                 periodEnd: card.stepEnd(step, newestReading: store.archive.last?.timestamp,
+                                                         firstReading: store.archive.first?.timestamp))
                 .presentationDetents([.large])
         }
     }
@@ -126,6 +131,12 @@ struct PhoneInsightsView: View {
                         .dsFont(.callout)
                         .tint(Palette.brand)
                         .dsCard(.standard, padding: DS.Space.md)
+                        .dsEntrance(0)
+                    // Which period the cards show, with earlier and later; swiping the screen
+                    // sideways does the same (docs/InsightsPeriodStep.md).
+                    InsightsStepControl(step: step, canGoEarlier: canGoEarlier, move: move, toLatest: toLatest)
+                        .padding(.horizontal, DS.Space.xs)
+                        .dsCard(.standard, padding: DS.Space.sm)
                         .dsEntrance(0)
                 }
                 ForEach(Array(visible.enumerated()), id: \.element) { i, card in
@@ -164,6 +175,42 @@ struct PhoneInsightsView: View {
         // from the old figure to the new one when a period changes. Once per appearance, never a
         // loop; still under Reduce Motion.
         .environment(\.figuresCountUp, true)
+        // Cards with a period show the one `step` periods back; their figures roll to it.
+        .environment(\.insightsStep, step)
+        // A sideways swipe steps: right for the period before, left for the one after. Clearly
+        // sideways only, so scrolling up and down never steps, and not from the screen's left
+        // edge, which goes back.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    guard value.startLocation.x > 28,
+                          let direction = InsightsPeriodStep.swipeDirection(dx: value.translation.width,
+                                                                            dy: value.translation.height)
+                    else { return }
+                    move(direction)
+                }
+        )
+    }
+
+    private var canGoEarlier: Bool {
+        InsightsPeriodStep.canGoEarlier(back: step.back, firstReading: store.archive.first?.timestamp,
+                                        latest: store.archive.last?.timestamp)
+    }
+
+    /// One period earlier (-1) or later (+1). The figures roll and the captions slide in from the
+    /// side the period came from; a light tick each time it moves, nothing at either end.
+    private func move(_ direction: Int) {
+        let back = InsightsPeriodStep.step(step.back, by: direction, firstReading: store.archive.first?.timestamp,
+                                           latest: store.archive.last?.timestamp)
+        guard back != step.back else { return }
+        Haptics.play(.choice)
+        DS.animate(.standard, reduceMotion: reduceMotion) { step = InsightsStep(back: back, direction: direction) }
+    }
+
+    private func toLatest() {
+        guard step.back > 0 else { return }
+        Haptics.play(.choice)
+        DS.animate(.standard, reduceMotion: reduceMotion) { step = InsightsStep(back: 0, direction: 1) }
     }
 
     /// Whether a showing card is on screen now. The Tags card stays out until something carries a

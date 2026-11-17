@@ -15,6 +15,8 @@ import SwiftUI
 /// it; the Mac cross-fades to its Logbook section (docs/LogbookSearch.md, "From the Insights cards").
 struct BestToughestDaysCardView: View {
     let readings: [GlucoseReading]
+    /// Insights stepped back to an earlier period (docs/InsightsPeriodStep.md).
+    @Environment(\.insightsStep) private var step
     /// What was logged, marked along the bottom of each day's chart.
     var entries: [LogEntry] = []
     let unit: GlucoseUnit
@@ -29,11 +31,16 @@ struct BestToughestDaysCardView: View {
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
 
     private var period: BestToughestDays.Period { BestToughestDays.Period(rawValue: periodDays) ?? .fortnight }
+    /// The readings up to where the period ends once Insights is stepped back; all of them on
+    /// the latest.
+    private var shown: [GlucoseReading] {
+        InsightsPeriodStep.readings(readings, days: period.days, back: step.back)
+    }
     /// "3.9–10.0 mmol/L".
     private var rangeLine: String { "\(unit.format(mgdl: lowMgdl))–\(unit.format(mgdl: highMgdl)) \(unit.label)" }
 
     var body: some View {
-        let key = BestToughestDaysCache.key(readings: readings, low: lowMgdl, high: highMgdl, period: period)
+        let key = BestToughestDaysCache.key(readings: shown, low: lowMgdl, high: highMgdl, period: period)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: BestToughestDaysText.title, systemImage: "rosette")
             // A shared picture names the period in its footer instead (docs/InsightsShare.md).
@@ -45,6 +52,8 @@ struct BestToughestDaysCardView: View {
                 .labelsHidden()
                 .accessibilityLabel("Period")
             }
+            // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
+            InsightsStepCaption(days: period.days, latest: readings.last?.timestamp)
 
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.
@@ -63,7 +72,7 @@ struct BestToughestDaysCardView: View {
             if let hit = BestToughestDaysCache.shared.cached(key) {
                 new = hit
             } else {
-                new = await BestToughestDaysCache.shared.value(for: key, readings: readings)
+                new = await BestToughestDaysCache.shared.value(for: key, readings: shown)
             }
             if value == nil || new == nil {
                 value = new
@@ -187,14 +196,14 @@ extension BestToughestDaysCardView {
     /// Nothing to show: why, and the shortest longer period that has enough, when one does
     /// (`InsightsEmptyState`, docs/EmptyStates.md). Worked out off the main thread, only while empty.
     fileprivate func emptyNote(_ key: BestToughestDaysCache.Key) -> some View {
-        let readings = readings, low = lowMgdl, high = highMgdl, period = period
+        let shown = self.shown, low = lowMgdl, high = highMgdl, period = period
         return InsightsEmptyNote(id: AnyHashable(key), waiting: BestToughestDaysText.emptyLine(period), decide: {
             let longer = InsightsEmptyState.firstWithData(
                 InsightsEmptyState.longer(than: period.days, in: BestToughestDays.Period.allCases.map(\.days))) { days in
                     guard let p = BestToughestDays.Period(rawValue: days) else { return false }
-                    return BestToughestDays.compute(readings: readings, low: low, high: high, period: p) != nil
+                    return BestToughestDays.compute(readings: shown, low: low, high: high, period: p) != nil
                 }
-            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: BestToughestDays.minimumDays,
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(shown), needed: BestToughestDays.minimumDays,
                                                waiting: BestToughestDaysText.emptyLine(period), currentDays: period.days,
                                                longerWithData: longer)
         }, act: { action in

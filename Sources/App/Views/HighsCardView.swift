@@ -14,6 +14,8 @@ import SwiftUI
 /// Highs cards").
 struct HighsCardView: View {
     let readings: [GlucoseReading]
+    /// Insights stepped back to an earlier period (docs/InsightsPeriodStep.md).
+    @Environment(\.insightsStep) private var step
     let unit: GlucoseUnit
     let highMgdl: Double
     var openLogbook: ((LogbookLink) -> Void)? = nil
@@ -28,12 +30,17 @@ struct HighsCardView: View {
     @State private var previous: HighsSummary?
 
     private var period: HighsSummary.Period { HighsSummary.Period(rawValue: periodDays) ?? .fortnight }
+    /// The readings up to where the period ends once Insights is stepped back; all of them on
+    /// the latest.
+    private var shown: [GlucoseReading] {
+        InsightsPeriodStep.readings(readings, days: period.days, back: step.back)
+    }
     /// "10.0 mmol/L".
     private var highLine: String { "\(unit.format(mgdl: highMgdl)) \(unit.label)" }
     private func peak(_ mgdl: Double) -> String { "\(unit.format(mgdl: mgdl)) \(unit.label)" }
 
     var body: some View {
-        let key = HighsSummaryCache.key(readings: readings, high: highMgdl, period: period)
+        let key = HighsSummaryCache.key(readings: shown, high: highMgdl, period: period)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: HighsSummaryText.title, systemImage: "arrow.up.to.line", trailing: "Above \(highLine)")
             // A shared picture names the period in its footer instead (docs/InsightsShare.md).
@@ -45,6 +52,8 @@ struct HighsCardView: View {
                 .labelsHidden()
                 .accessibilityLabel("Period")
             }
+            // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
+            InsightsStepCaption(days: period.days, latest: readings.last?.timestamp)
 
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.
@@ -63,7 +72,7 @@ struct HighsCardView: View {
             if let hit = HighsSummaryCache.shared.cached(key) {
                 new = hit
             } else {
-                new = await HighsSummaryCache.shared.value(for: key, readings: readings)
+                new = await HighsSummaryCache.shared.value(for: key, readings: shown)
             }
             // The figures roll by themselves; the sentences and tile colours cross-fade alongside.
             if value == nil || new == nil {
@@ -77,9 +86,9 @@ struct HighsCardView: View {
         // new figure, and nothing extra shows when it lacks readings.
         .task(id: compare ? value : nil) {
             guard compare, let current = value else { previous = nil; return }
-            let readings = readings, high = highMgdl
+            let shown = self.shown, high = highMgdl
             let new = await Task.detached(priority: .utility) {
-                InsightsCompare.previousHighs(readings: readings, high: high, current: current)
+                InsightsCompare.previousHighs(readings: shown, high: high, current: current)
             }.value
             DS.animate(.standard, reduceMotion: reduceMotion) { previous = new }
         }
@@ -172,14 +181,14 @@ extension HighsCardView {
     /// Nothing to show: why, and the shortest longer period that has enough, when one does
     /// (`InsightsEmptyState`, docs/EmptyStates.md). Worked out off the main thread, only while empty.
     fileprivate func emptyNote(_ key: HighsSummaryCache.Key) -> some View {
-        let readings = readings, high = highMgdl, period = period
+        let shown = self.shown, high = highMgdl, period = period
         return InsightsEmptyNote(id: AnyHashable(key), waiting: HighsSummaryText.emptyLine(period), decide: {
             let longer = InsightsEmptyState.firstWithData(
                 InsightsEmptyState.longer(than: period.days, in: HighsSummary.Period.allCases.map(\.days))) { days in
                     guard let p = HighsSummary.Period(rawValue: days) else { return false }
-                    return HighsSummary.compute(readings: readings, high: high, period: p) != nil
+                    return HighsSummary.compute(readings: shown, high: high, period: p) != nil
                 }
-            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: 1,
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(shown), needed: 1,
                                                waiting: HighsSummaryText.emptyLine(period), currentDays: period.days,
                                                longerWithData: longer)
         }, act: { action in

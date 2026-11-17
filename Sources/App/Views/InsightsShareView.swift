@@ -153,6 +153,9 @@ struct InsightsSharePreview: View {
     /// The card itself, with whatever its view needs from the environment already attached: the
     /// renderer draws it away from the screen's hierarchy.
     let content: AnyView
+    /// Where the card's period ends when Insights is stepped back to an earlier one
+    /// (docs/InsightsPeriodStep.md); nil on the latest.
+    var periodEnd: Date? = nil
 
     @StateObject private var snapshot = InsightsCardSnapshot()
     @State private var now = Date()
@@ -166,7 +169,9 @@ struct InsightsSharePreview: View {
     private let width: CGFloat = 560
     #endif
 
-    private var footer: String { InsightsShare.footer(card: card, period: period, now: now) }
+    private var footer: String {
+        InsightsShare.footer(card: card, period: period, now: periodEnd ?? now, earlier: periodEnd != nil)
+    }
 
     var body: some View {
         VStack(spacing: DS.Space.lg) {
