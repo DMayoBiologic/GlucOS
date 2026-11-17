@@ -5115,7 +5115,7 @@ includes one or two history points next to their live twins. The apps' archive k
 per 5-minute slot.
 
 **Error by source.** `scripts/reading-source.py` replays the engine's trend forecast (20-minute
-slope clamped at ±4, 30-minute fade) every 5 minutes on all stored readings, 11–18 Nov, 1,855
+slope clamped at ±4, 30-minute fade, output held to the 40–400 sensor range ± 1) every 5 minutes on all stored readings, 11–18 Nov, 1,855
 points over 8 Perth days, scored at 15, 30 and 60 minutes against the nearest live reading. A point
 is *live* when no live minute is missing from its 20-minute window, *filled* when at least one
 live gap over 90 s is bridged by a history point or by nothing. Gain 0.6, mean miss in mg/dL, no
@@ -5140,12 +5140,12 @@ on the eighth (training leaves out points whose 60-minute target lands on that d
   from the live twin when the latest reading is a history point (a twin counts only if it had
   arrived by the forecast's start). It changes the trend on almost
   every point, but only by 0.03 mg/dL/min on average, and it is a little worse on all days (gain
-  0.6: 16.47 / 25.78 / 41.34 against 16.37 / 25.70 / 41.28). No fold picked it at any gain.
+  0.6: 16.47 / 25.77 / 41.34 against 16.37 / 25.69 / 41.28). No fold picked it at any gain.
 - *Scale filled*: scale the trend by w in filled windows. Gain 0.45 always keeps w = 1. Gain 0.6
   picks w = 0.75 in 7 folds and is worse at 30 (+0.3%), level at 60. Gain 0.7 picks 0.75 and wins at
   both, but barely (−0.1% at 30, −0.5% at 60, 5 of 8 days), and lifts lows: at the picked
-  w = 0.75, 5 of the 10 lows warn later and forecasts where glucose ends under 80 move from −14.6
-  to −16.9; at w = 0.5, 6 warn later (15 Nov 17:16 loses 6 minutes) and the bias goes to −19.2.
+  w = 0.75, 5 of the 10 lows warn later and forecasts where glucose ends under 80 move from −14.8
+  to −17.0; at w = 0.5, 6 warn later (15 Nov 17:16 loses 6 minutes) and the bias goes to −19.3.
 
 Neither passes: *prefer live* never wins, and *scale filled* wins only at the iPhone's highest gain,
 by under 1%, and makes low warnings later.

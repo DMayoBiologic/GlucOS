@@ -47,6 +47,7 @@ T = [r[0] for r in R]
 LIVE = [r for r in R if r[2] == 1]
 TL = [r[0] for r in LIVE]
 FADE, TREND_W, MAX = 30.0, 20, 4.0
+LO, HI = 39.0, 401.0  # the engine emits within its 40...400 sensor range, ± 1
 GAINS = (0.45, 0.6, 0.7)
 H = (15, 30, 60)
 WS = (1.0, 0.75, 0.5, 0.25, 0.0)
@@ -73,7 +74,7 @@ def line(g, trend, gain, minutes=60):
     while u < minutes:
         g += max(0, 1 - (u + 0.5) / FADE) * gain * trend
         u += 1
-        out[u] = g
+        out[u] = min(HI, max(LO, g))
     return out
 
 
