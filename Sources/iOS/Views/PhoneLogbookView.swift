@@ -9,6 +9,8 @@ enum PhoneRoute: Hashable {
     case logbookLink(LogbookLink)
     /// The Logbook opened on one entry, from the "last logged" line under Today's chart.
     case logbookEntry(UUID)
+    /// The Logbook opened on one entry, from Open in Logbook on a chart marker's callout.
+    case chartMarkerEntry(UUID)
     /// Insights with the evening recap's Today card on top, from a tap on the recap notification
     /// (when it went out).
     case insightsToday(Date)
@@ -23,14 +25,17 @@ enum PhoneRoute: Hashable {
         case .logbook, .insights: return AnyHashable(self)
         case .logbookLink(let link): return AnyHashable(link.sourceID)
         case .logbookEntry: return AnyHashable(Self.lastLoggedSource)
+        case .chartMarkerEntry(let id): return AnyHashable(id)
         // Grows from the home screen's Insights row, like Insights itself.
         case .insightsToday: return AnyHashable(PhoneRoute.insights)
         }
     }
 
     /// Whether it zooms out of its source. The "while you were away" line fades soon after it's
-    /// tapped, so there'd be nothing to shrink back into: a plain push.
+    /// tapped, so there'd be nothing to shrink back into: a plain push. So does a chart marker's
+    /// callout, which closes as the Logbook opens.
     var zooms: Bool {
+        if case .chartMarkerEntry = self { return false }
         if case .logbookLink(let link) = self, link.filter == .whileAway { return false }
         return true
     }

@@ -16,13 +16,17 @@ private struct YesterdayLineMenu: ViewModifier {
     @State private var markerHeld = false
     /// Two fingers are picking out a span (`ChartSpanActiveKey`): no menu meanwhile either.
     @State private var spanShown = false
+    /// A marker's callout is open (`MarkerCalloutOpenKey`): the next touch only closes it, so no
+    /// menu meanwhile either.
+    @State private var calloutOpen = false
 
     func body(content: Content) -> some View {
         content
             .onPreferenceChange(MarkerPeekPressKey.self) { markerHeld = $0 }
             .onPreferenceChange(ChartSpanActiveKey.self) { spanShown = $0 }
+            .onPreferenceChange(MarkerCalloutOpenKey.self) { calloutOpen = $0 }
             .contextMenu {
-                if !markerHeld && !spanShown {
+                if !markerHeld && !spanShown && !calloutOpen {
                     Button(action: toggle) {
                         Label(YesterdayLine.menuTitle(showing: isOn), systemImage: "clock.arrow.circlepath")
                     }

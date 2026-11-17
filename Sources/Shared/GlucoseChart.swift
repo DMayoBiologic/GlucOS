@@ -56,6 +56,14 @@ struct GlucoseChart: View {
     /// swipes up and down through spans ending at the newest reading instead (`ChartSpanVoiceOver`).
     /// iPhone Today only; interactive charts only.
     var selectsSpans: Bool = false
+    /// Opens an entry in the Logbook. Given, a tap (iPhone) or click (Mac) on a logged marker opens
+    /// a small callout springing out of it (`MarkerCallout`): what it was, the amount, when, any
+    /// note, and an Open in Logbook button that calls this. A tap elsewhere on the chart or Esc
+    /// closes it. VoiceOver reads each marker as a button. iPhone Today and the Mac popover;
+    /// interactive charts only.
+    var openInLogbook: ((UUID) -> Void)? = nil
+    /// Bump to close an open callout from outside, e.g. Esc while the chart around it has focus.
+    var closesCallout: Int = 0
 
     @State private var hoverDate: Date?
     /// What Charts' two-finger range selection last reported, armed or not.
@@ -73,6 +81,14 @@ struct GlucoseChart: View {
     /// Whether a finger is down on a marker, before or during a peek. The yesterday-line menu
     /// stands down meanwhile (`MarkerPeekPressKey`), so holding a marker never opens it.
     @State private var pressingMarker = false
+    /// The marker whose callout is open, after a tap or click on it (`MarkerCallout`).
+    @State private var callout: UUID?
+    /// VoiceOver moves onto an open callout, so what was logged is read straight away.
+    @AccessibilityFocusState private var calloutVoiceOverFocus: Bool
+    #if os(macOS)
+    /// The open callout takes keyboard focus on the Mac, so Esc closes it.
+    @FocusState private var calloutKeyFocus: Bool
+    #endif
     /// Whether a finger (or the pointer) is on the chart, as opposed to the readout gliding back
     /// to the newest reading after a scrub, which mustn't tick.
     @State private var touching = false
@@ -185,6 +201,8 @@ struct GlucoseChart: View {
             if let new {
                 // A peek has the finger, or two fingers are picking a span: the readout stays
                 // away until they lift.
+                // A scrub starting while a callout is open only closes it.
+                if callout != nil { closeCallout(); return }
                 guard peeked == nil, span == nil, spanTouch == nil else { return }
                 if !touching { touching = true; scrubbedFrom = nil }
                 touchGeneration += 1
@@ -402,13 +420,24 @@ struct GlucoseChart: View {
         return events.filter { $0.date >= start && !inFlight.contains($0.id) }
     }
 
-    /// The layer that finds a held (iPhone) or hovered (Mac) marker, and the card over it.
+    /// Whether a tap on a marker opens its callout.
+    private var opensCallouts: Bool { interactive && openInLogbook != nil }
+
+    /// The layer that finds a held (iPhone) or hovered (Mac) marker, and the card over it. With
+    /// callouts on, it also finds a tapped or clicked one.
     @ViewBuilder
     private func markerPeek(proxy: ChartProxy, yd: ClosedRange<Double>, window: [GlucoseReading]) -> some View {
         let markers = peekable(window)
-        MarkerPeekLayer(proxy: proxy, markers: markers.map { (marker: $0, value: markerY(lane: $0.lane, yd: yd)) },
-                        pressing: { pressingMarker = $0 }, peek: setPeek)
-        if let id = peeked, let marker = markers.first(where: { $0.id == id }) {
+        let placed = markers.map { (marker: $0, value: markerY(lane: $0.lane, yd: yd)) }
+        if callout != nil {
+            // Under the markers, over the rest of the chart: a tap anywhere else closes the
+            // callout and does nothing more.
+            MarkerCalloutDismissLayer(close: closeCallout)
+        }
+        MarkerPeekLayer(proxy: proxy, markers: placed,
+                        pressing: { pressingMarker = $0 }, peek: setPeek,
+                        tap: opensCallouts ? { tapMarker($0) } : nil)
+        if peeksMarkers, let id = peeked, let marker = markers.first(where: { $0.id == id }) {
             MarkerPeekCard(proxy: proxy, marker: marker, value: markerY(lane: marker.lane, yd: yd),
                            detail: MarkerPeek.detail(date: marker.date, now: Date(), readings: window, unit: unit))
                 .id(id)
@@ -418,7 +447,16 @@ struct GlucoseChart: View {
 
     /// A peek starts or ends. Starting one clears the scrub readout; on iPhone it ticks once.
     private func setPeek(_ id: UUID?) {
-        guard id != peeked else { return }
+        guard peeksMarkers, id != peeked else { return }
+        if id != nil, callout != nil {
+            #if os(iOS)
+            // A hold peeks as before; the open callout makes way.
+            closeCallout()
+            #else
+            // Hovering while a callout is open shows nothing more.
+            return
+            #endif
+        }
         if id != nil {
             withTransaction(Transaction(animation: nil)) {
                 hoverDate = nil
@@ -430,6 +468,116 @@ struct GlucoseChart: View {
             #endif
         }
         withAnimation(MarkerPeekCard.animation(showing: id != nil, reduceMotion: reduceMotion)) { peeked = id }
+    }
+
+    // MARK: Marker callout
+
+    /// A tap (iPhone) or click (Mac) on a marker: its callout opens, moves to it from another
+    /// marker, or closes when it was already open (`MarkerCallout.toggled`).
+    private func tapMarker(_ id: UUID) {
+        let next = MarkerCallout.toggled(open: callout, tapped: id)
+        guard next != nil else { closeCallout(); return }
+        withTransaction(Transaction(animation: nil)) {
+            hoverDate = nil
+            touching = false
+            scrubbedFrom = nil
+            peeked = nil
+        }
+        #if os(iOS)
+        Haptics.play(.scrubLogged)
+        #endif
+        withAnimation(MarkerCalloutMotion.animation(showing: true, reduceMotion: reduceMotion)) { callout = next }
+        // Once it's in place, VoiceOver reads it, and on the Mac it takes the keyboard for Esc.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard callout == next else { return }
+            calloutVoiceOverFocus = true
+            #if os(macOS)
+            calloutKeyFocus = true
+            #endif
+        }
+    }
+
+    private func closeCallout() {
+        guard callout != nil else { return }
+        withAnimation(MarkerCalloutMotion.animation(showing: false, reduceMotion: reduceMotion)) { callout = nil }
+        calloutVoiceOverFocus = false
+        #if os(macOS)
+        calloutKeyFocus = false
+        #endif
+    }
+
+    /// Open in Logbook: the callout goes at once, without its own animation, as the Logbook opens.
+    private func openCalloutEntry(_ id: UUID) {
+        withTransaction(Transaction(animation: nil)) { callout = nil }
+        openInLogbook?(id)
+    }
+
+    /// VoiceOver's marker buttons and the open callout. A second chart overlay, added after the
+    /// chart's own single VoiceOver element, so these are elements of their own rather than folded
+    /// into its summary.
+    @ViewBuilder
+    private func calloutLayer(proxy: ChartProxy, yd: ClosedRange<Double>, window: [GlucoseReading]) -> some View {
+        if opensCallouts {
+            let markers = peekable(window).filter { $0.callout != nil }
+            GeometryReader { geo in
+                if let plotFrame = proxy.plotFrame {
+                    let plot = geo[plotFrame]
+                    let point = { (m: ChartLogMarker) -> CGPoint? in
+                        guard let x = proxy.position(forX: m.date),
+                              let y = proxy.position(forY: markerY(lane: m.lane, yd: yd)) else { return nil }
+                        return CGPoint(x: plot.minX + x, y: plot.minY + y)
+                    }
+                    ForEach(markers) { m in
+                        if let p = point(m), let content = m.callout {
+                            MarkerVoiceOverButton(label: MarkerCallout.spoken(content, date: m.date),
+                                                  open: callout == m.id) { tapMarker(m.id) }
+                                .position(p)
+                        }
+                    }
+                    if let id = callout, let m = markers.first(where: { $0.id == id }), let content = m.callout,
+                       let p = point(m) {
+                        calloutCard(m, content: content, marker: p, plot: plot)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The card over its marker, kept inside the plot, growing out of the marker.
+    @ViewBuilder
+    private func calloutCard(_ m: ChartLogMarker, content: MarkerCallout.Content, marker: CGPoint, plot: CGRect) -> some View {
+        let width = MarkerCalloutMotion.width
+        let cx = MarkerCallout.centerX(markerX: Double(marker.x), plotMinX: Double(plot.minX),
+                                       plotMaxX: Double(plot.maxX), width: Double(width))
+        let grow = UnitPoint(x: MarkerCallout.anchorX(markerX: Double(marker.x), centerX: cx, width: Double(width)), y: 1)
+        // Its bottom edge just above the marker, so the finger doesn't cover it.
+        let bottom = max(marker.y - 14, 0)
+        MarkerCalloutCard(marker: m, content: content, time: MarkerCallout.timeLine(m.date, now: Date()),
+                          voiceOverFocus: $calloutVoiceOverFocus,
+                          open: { openCalloutEntry(m.id) }, close: closeCallout)
+            .calloutKeyFocus(calloutKeyFocusBinding)
+            .frame(width: width)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: width, height: bottom, alignment: .bottom)
+            .transition(MarkerCalloutMotion.transition(growingFrom: grow, reduceMotion: reduceMotion))
+            .position(x: CGFloat(cx), y: bottom / 2)
+            .id(m.id)
+    }
+
+    #if os(macOS)
+    private var calloutKeyFocusBinding: FocusState<Bool>.Binding? { $calloutKeyFocus }
+    /// On the Mac, a click elsewhere in the popover (or another window) takes focus from the open
+    /// callout, which closes it. Only once it had focus: a callout that never got it stays.
+    private var calloutKeyFocusChanged: Bool? { calloutKeyFocus }
+    #else
+    private var calloutKeyFocusBinding: FocusState<Bool>.Binding? { nil }
+    private var calloutKeyFocusChanged: Bool? { nil }
+    #endif
+
+    /// The open callout's marker went (deleted, slid off the left edge, the span changed).
+    private func calloutMarkersChanged(_ ids: [UUID]) {
+        if let id = callout, !ids.contains(id) { closeCallout() }
     }
 
     private func appeared(visibleFrom start: Date) {
@@ -473,6 +621,7 @@ struct GlucoseChart: View {
         glows = []
         peeked = nil
         pressingMarker = false
+        callout = nil
     }
 
     private func landed(_ flight: MarkerFlight) {
@@ -509,7 +658,7 @@ struct GlucoseChart: View {
             to: domain.upperBound)
         let yd = yDomain(onScreen, extra: ghost.map(\.mgdl))
         let floor = yd.lowerBound
-        let hovered = interactive && peeked == nil && span == nil
+        let hovered = interactive && peeked == nil && callout == nil && span == nil
             ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
         // The gradient is stretched over the drawn line, so its stops follow what's plotted.
         let lineStyle = ThresholdGradient.style(minMgdl: plotted.map(\.mgdl).min() ?? lowMgdl,
@@ -522,7 +671,7 @@ struct GlucoseChart: View {
         // What's drawn of it so far. Indexed rather than keyed by time, so the marks keep their
         // identity while a new forecast slides and bends into place (`ForecastMotion`).
         let drawn = Array(ForecastMorph.revealed(projection, progress: forecastReveal).enumerated())
-        Chart {
+        let chart = Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
                 yStart: .value("Low", unit.value(fromMgdl: lowMgdl)),
@@ -713,7 +862,7 @@ struct GlucoseChart: View {
                 }
             }
             markerOverlays(proxy: proxy, yd: yd)
-            if peeksMarkers, interactive {
+            if interactive, peeksMarkers || opensCallouts {
                 markerPeek(proxy: proxy, yd: yd, window: window)
             }
             spanOverlay(proxy: proxy, window: window)
@@ -759,6 +908,24 @@ struct GlucoseChart: View {
         .accessibilityChartDescriptor(GlucoseAudioGraph(readings: window, forecast: projection, unit: unit,
                                                         lowMgdl: lowMgdl, highMgdl: highMgdl, yDomain: yd,
                                                         yesterday: ghost.filter { $0.date >= domain.lowerBound }))
+        withCallouts(chart, window: window, yd: yd)
+    }
+
+    /// The marker callout's overlay and the moments that close it, kept out of `body`'s chain so it
+    /// still type-checks in reasonable time.
+    private func withCallouts(_ chart: some View, window: [GlucoseReading], yd: ClosedRange<Double>) -> some View {
+        chart
+            // After the chart's own VoiceOver element, so its marker buttons and the callout are
+            // elements of their own rather than folded into the summary.
+            .chartOverlay { proxy in calloutLayer(proxy: proxy, yd: yd, window: window) }
+            .preference(key: MarkerCalloutOpenKey.self, value: callout != nil)
+            .onChange(of: peekable(window).map(\.id)) { _, ids in calloutMarkersChanged(ids) }
+            .onChange(of: closesCallout) { _, _ in closeCallout() }
+            .onChange(of: hours) { _, _ in closeCallout() }
+            .onChange(of: calloutKeyFocusChanged) { old, new in
+                if old == true, new == false { closeCallout() }
+            }
+            .onChange(of: scenePhase) { _, phase in if phase == .background { closeCallout() } }
     }
 }
 
@@ -839,6 +1006,8 @@ struct ChartLogMarker: Identifiable {
     let label: String
     /// What it is, for "Meal added to chart" (`MarkerPop`). `nil` says nothing.
     var kind: MarkerPop.Kind? = nil
+    /// What a tap on it shows (`MarkerCallout`). `nil`: it can still be peeked, but not opened.
+    var callout: MarkerCallout.Content? = nil
 }
 
 /// A marker logged from elsewhere, glowing once.
@@ -1202,9 +1371,13 @@ private struct MarkerPeekLayer: View {
     let markers: [(marker: ChartLogMarker, value: Double)]
     let pressing: (Bool) -> Void
     let peek: (UUID?) -> Void
+    /// A tap (iPhone) or click (Mac) on a marker, when callouts are on (`MarkerCallout`).
+    var tap: ((UUID) -> Void)? = nil
     #if os(iOS)
     @State private var hold: Task<Void, Never>?
     @State private var down: CGPoint?
+    @State private var downAt: Date?
+    @State private var downOn: UUID?
     @State private var peeking = false
     #endif
 
@@ -1232,8 +1405,10 @@ private struct MarkerPeekLayer: View {
     fileprivate func touched(_ value: DragGesture.Value, spots: [MarkerPeek.Spot]) {
         if down == nil {
             down = value.startLocation
+            downAt = Date()
             guard let id = MarkerPeek.hit(x: Double(value.startLocation.x), y: Double(value.startLocation.y), in: spots)
             else { return }
+            downOn = id
             pressing(true)
             hold = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(MarkerPeek.holdDuration))
@@ -1244,18 +1419,28 @@ private struct MarkerPeekLayer: View {
         } else if !peeking, !MarkerPeek.isHolding(dx: Double(value.translation.width), dy: Double(value.translation.height)) {
             hold?.cancel()
             hold = nil
+            downOn = nil
             pressing(false)
         }
     }
 
-    /// The finger lifted (or the system took the touch): any peek goes.
-    fileprivate func lifted() {
+    /// The finger lifted (or the system took the touch): any peek goes. Lifted off a marker before
+    /// the peek, without sliding off it, it was a tap (`MarkerCallout.isTap`).
+    fileprivate func lifted(_ value: DragGesture.Value?) {
+        let tapped: UUID? = {
+            guard !peeking, let id = downOn, let at = downAt, let value else { return nil }
+            return MarkerCallout.isTap(heldFor: Date().timeIntervalSince(at), dx: Double(value.translation.width),
+                                       dy: Double(value.translation.height)) ? id : nil
+        }()
         hold?.cancel()
         hold = nil
         down = nil
+        downAt = nil
+        downOn = nil
         if peeking { peek(nil) }
         peeking = false
         pressing(false)
+        if let tapped, let tap { tap(tapped) }
     }
     #endif
 
@@ -1265,6 +1450,13 @@ private struct MarkerPeekLayer: View {
         case .active(let p): peek(MarkerPeek.hit(x: Double(p.x), y: Double(p.y), in: spots))
         case .ended: peek(nil)
         }
+    }
+
+    /// A click on a marker opens its callout.
+    fileprivate func clicked(_ p: CGPoint, spots: [MarkerPeek.Spot]) {
+        guard let tap, let id = MarkerPeek.hit(x: Double(p.x), y: Double(p.y), in: spots) else { return }
+        peek(nil)
+        tap(id)
     }
     #endif
 }
@@ -1277,10 +1469,11 @@ private extension View {
         simultaneousGesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .local)
                 .onChanged { layer.touched($0, spots: spots) }
-                .onEnded { _ in layer.lifted() }
+                .onEnded { layer.lifted($0) }
         )
         #elseif os(macOS)
         onContinuousHover(coordinateSpace: .local) { layer.hovered($0, spots: spots) }
+            .gesture(SpatialTapGesture(coordinateSpace: .local).onEnded { layer.clicked($0.location, spots: spots) })
         #else
         self
         #endif
@@ -1372,6 +1565,154 @@ private struct MarkerPeekCard: View {
         .padding(.vertical, DS.Space.xs + 2)
         .background { DSSurface(style: .standard, radius: DS.Radius.control) }
         .dsShadow(.medium)
+    }
+}
+
+// MARK: - Marker callout
+
+/// Whether a marker's callout is open (`GlucoseChart.openInLogbook`). The Mac popover reads it so
+/// Esc closes the callout first, while the chart around it has focus, before it closes anything else.
+struct MarkerCalloutOpenKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+/// How the callout comes and goes: it springs out of its marker, growing from the marker's side of
+/// the card, and drops back quickly. A plain cross-fade under Reduce Motion.
+enum MarkerCalloutMotion {
+    static let width: CGFloat = 224
+
+    static func animation(showing: Bool, reduceMotion: Bool) -> Animation {
+        if reduceMotion { return showing ? .easeOut(duration: 0.18) : .easeIn(duration: 0.12) }
+        return showing ? .spring(response: 0.34, dampingFraction: 0.7) : .easeIn(duration: 0.14)
+    }
+
+    static func transition(growingFrom anchor: UnitPoint, reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .scale(scale: 0.3, anchor: anchor).combined(with: .opacity)
+    }
+}
+
+/// Over the chart, under the markers, while a callout is open: a tap (iPhone) or click (Mac)
+/// anywhere else on the chart closes it and does nothing more. Only a tap, so the page still
+/// scrolls; a scrub starting closes it too (`GlucoseChart.selection`).
+private struct MarkerCalloutDismissLayer: View {
+    let close: () -> Void
+
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture { close() }
+            .accessibilityHidden(true)
+    }
+}
+
+/// One marker as VoiceOver sees it: a button reading what was logged ("Meal, 45 grams, Toast,
+/// 12:56 pm, has a note") that opens or closes its callout. Not drawn and not touchable: the chart
+/// draws the marker, and the peek layer takes touches.
+private struct MarkerVoiceOverButton: View {
+    let label: String
+    let open: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Color.primary.opacity(0.001)
+            .frame(width: 28, height: 28)
+            .allowsHitTesting(false)
+            .accessibilityElement()
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(open ? "Closes what was logged." : "Shows what was logged, with Open in Logbook.")
+            .accessibilityAction { action() }
+    }
+}
+
+/// The callout: the marker's own symbol, what it was, the amount, when, the note, and Open in
+/// Logbook. It only repeats what was logged.
+private struct MarkerCalloutCard: View {
+    let marker: ChartLogMarker
+    let content: MarkerCallout.Content
+    let time: String
+    var voiceOverFocus: AccessibilityFocusState<Bool>.Binding
+    let open: () -> Void
+    let close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            HStack(alignment: .top, spacing: DS.Space.sm) {
+                EventSymbol(event: marker)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(content.title)
+                        .dsFont(.callout)
+                        .fontWeight(.semibold)
+                    if let amount = content.amount {
+                        Text(amount)
+                            .dsFont(.callout)
+                            .lineLimit(2)
+                            .accessibilityLabel(MarkerCallout.spokenAmount(amount))
+                    }
+                    Text(time)
+                        .dsFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    if let note = content.note {
+                        Text(note)
+                            .dsFont(.caption)
+                            .lineLimit(3)
+                            .padding(.top, 2)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityFocused(voiceOverFocus)
+            Button(action: open) {
+                HStack(spacing: 2) {
+                    Text("Open in Logbook")
+                    Image(systemName: "chevron.right")
+                        .imageScale(.small)
+                        .accessibilityHidden(true)
+                }
+                .dsFont(.label)
+                .fontWeight(.semibold)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .padding(.leading, 16 + DS.Space.sm)
+            .accessibilityLabel("Open in Logbook")
+        }
+        .padding(.horizontal, DS.Space.sm)
+        .padding(.vertical, DS.Space.xs + 2)
+        .background { DSSurface(style: .standard, radius: DS.Radius.control) }
+        .dsShadow(.medium)
+        // A touch on the card itself stays on it, rather than reaching the chart under it.
+        .contentShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(.escape) { close() }
+        .onKeyPress(.escape) {
+            close()
+            return .handled
+        }
+    }
+}
+
+private extension View {
+    /// On the Mac the open callout holds keyboard focus, so Esc reaches it.
+    @ViewBuilder
+    func calloutKeyFocus(_ focus: FocusState<Bool>.Binding?) -> some View {
+        #if os(macOS)
+        if let focus {
+            focusable()
+                .focused(focus)
+                .focusEffectDisabled()
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
 

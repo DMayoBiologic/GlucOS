@@ -11,12 +11,17 @@ extension ChartLogMarker {
             out.append(ChartLogMarker(id: d.id, date: d.timestamp, systemImage: d.viaPump ? "cross.vial.fill" : "syringe.fill",
                                       tint: Palette.insulin,
                                       label: "\(LogFormat.units(d.units)) \(d.displayName) at \(ClockLabel.time(d.timestamp))",
-                                      kind: .insulin))
+                                      kind: .insulin,
+                                      callout: .init(title: "Insulin",
+                                                     amount: MarkerCallout.doseAmount(units: LogFormat.units(d.units),
+                                                                                      name: d.displayName, viaPump: d.viaPump),
+                                                     note: d.note)))
         }
         for c in contexts where c.isWake && c.timestamp >= cutoff {
             out.append(ChartLogMarker(id: c.id, date: c.timestamp, systemImage: ContextTag.wokeUp.systemImage,
                                       tint: Palette.context, lane: 2,
-                                      label: "Woke up at \(ClockLabel.time(c.timestamp))", kind: .wake))
+                                      label: "Woke up at \(ClockLabel.time(c.timestamp))", kind: .wake,
+                                      callout: .init(title: "Woke up", note: c.note)))
         }
         let treatments = contexts.filter { $0.tags.contains(.hypoTreatment) }.map(\.timestamp)
         for m in meals where m.timestamp >= cutoff {
@@ -24,7 +29,11 @@ extension ChartLogMarker {
             out.append(ChartLogMarker(id: m.id, date: m.timestamp, systemImage: "fork.knife", tint: Palette.food, lane: 1,
                                       label: m.carbs > 0 ? "\(LogFormat.grams(m.carbs)) carbs at \(ClockLabel.time(m.timestamp))"
                                                          : "Food at \(ClockLabel.time(m.timestamp))",
-                                      kind: treats ? .treatment : .meal))
+                                      kind: treats ? .treatment : .meal,
+                                      callout: .init(title: treats ? "Treatment" : "Meal",
+                                                     amount: MarkerCallout.mealAmount(grams: m.carbs > 0 ? LogFormat.grams(m.carbs) : nil,
+                                                                                      food: m.food),
+                                                     note: m.note)))
         }
         return out
     }

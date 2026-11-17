@@ -601,7 +601,8 @@ struct PhoneChartCard: View {
                              highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
                              forecast: forecast, forecastReveal: reveal, events: events(hours: Self.longest),
                              timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true, ripplesNewReading: true,
-                             yesterday: yesterday, peeksMarkers: true, selectsSpans: true)
+                             yesterday: yesterday, peeksMarkers: true, selectsSpans: true,
+                             openInLogbook: navigator.map { nav in { (id: UUID) in nav.push(.chartMarkerEntry(id)) } })
             }
                 .frame(height: 260)
                 .chartHoursPinch($settings.chartHours)
