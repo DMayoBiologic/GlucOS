@@ -37,10 +37,7 @@ struct InRangeStreaksCardView: View {
             if let value {
                 content(value)
             } else if shownKey == key {
-                Text(InRangeStreaksText.emptyLine)
-                    .dsFont(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                emptyNote(key)
             } else {
                 // Working it out: hold the space without a spinner.
                 Color.clear.frame(height: 120)
@@ -184,5 +181,17 @@ private struct StreakDots: View {
             Circle().strokeBorder(tint, style: StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
                 .frame(width: size, height: size)
         }
+    }
+}
+
+extension InRangeStreaksCardView {
+    /// Nothing to show: no readings yet, or how many days so far (`InsightsEmptyState`,
+    /// docs/EmptyStates.md). The card has no period to widen, so there's no button.
+    fileprivate func emptyNote(_ key: InRangeStreaksCache.Key) -> some View {
+        let readings = readings
+        return InsightsEmptyNote(id: AnyHashable(key), waiting: InRangeStreaksText.emptyLine, decide: {
+            InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: InRangeStreaks.minimumDays,
+                                        waiting: InRangeStreaksText.emptyLine, currentDays: nil, longerWithData: nil)
+        })
     }
 }

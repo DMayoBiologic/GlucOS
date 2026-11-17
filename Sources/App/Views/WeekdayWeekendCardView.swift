@@ -51,10 +51,7 @@ struct WeekdayWeekendCardView: View {
             if let value {
                 content(value)
             } else if shownKey == key {
-                Text(WeekdayWeekendText.emptyLine(period))
-                    .dsFont(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                emptyNote(key)
             } else {
                 // Working it out: hold the space without a spinner.
                 Color.clear.frame(height: 120)
@@ -161,5 +158,25 @@ struct WeekdayWeekendCardView: View {
     private func open(_ side: WeekdayWeekend.Side, _ w: WeekdayWeekend) {
         guard let openLogbook else { return }
         openLogbook(.weekPart(side, w.period, newestReading: w.end, now: Date()))
+    }
+}
+
+extension WeekdayWeekendCardView {
+    /// Nothing to show: why, and the shortest longer period that has enough, when one does
+    /// (`InsightsEmptyState`, docs/EmptyStates.md). Worked out off the main thread, only while empty.
+    fileprivate func emptyNote(_ key: WeekdayWeekendCache.Key) -> some View {
+        let readings = readings, low = lowMgdl, high = highMgdl, period = period
+        return InsightsEmptyNote(id: AnyHashable(key), waiting: WeekdayWeekendText.emptyLine(period), decide: {
+            let longer = InsightsEmptyState.firstWithData(
+                InsightsEmptyState.longer(than: period.days, in: WeekdayWeekend.Period.allCases.map(\.days))) { days in
+                    guard let p = WeekdayWeekend.Period(rawValue: days) else { return false }
+                    return WeekdayWeekend.compute(readings: readings, low: low, high: high, period: p) != nil
+                }
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: WeekdayWeekend.minimumDays * 2,
+                                               waiting: WeekdayWeekendText.emptyLine(period), currentDays: period.days,
+                                               longerWithData: longer)
+        }, act: { action in
+            if case .showPeriod(let days) = action { periodDays = days }
+        })
     }
 }

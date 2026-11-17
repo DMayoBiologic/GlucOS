@@ -54,10 +54,7 @@ struct LowsCardView: View {
             if let value {
                 content(value)
             } else if shownKey == key {
-                Text(LowsSummaryText.emptyLine(period))
-                    .dsFont(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                emptyNote(key)
             } else {
                 // Working it out: hold the space without a spinner.
                 Color.clear.frame(height: 160)
@@ -228,5 +225,25 @@ private struct LowsTimeOfDayBars: View {
                 DispatchQueue.main.async { grown = true }
             }
         }
+    }
+}
+
+extension LowsCardView {
+    /// Nothing to show: why, and the shortest longer period that has enough, when one does
+    /// (`InsightsEmptyState`, docs/EmptyStates.md). Worked out off the main thread, only while empty.
+    fileprivate func emptyNote(_ key: LowsSummaryCache.Key) -> some View {
+        let readings = readings, meals = meals, contexts = contexts, answers = answers, low = lowMgdl, period = period
+        return InsightsEmptyNote(id: AnyHashable(key), waiting: LowsSummaryText.emptyLine(period), decide: {
+            let longer = InsightsEmptyState.firstWithData(
+                InsightsEmptyState.longer(than: period.days, in: LowsSummary.Period.allCases.map(\.days))) { days in
+                    guard let p = LowsSummary.Period(rawValue: days) else { return false }
+                    return LowsSummary.compute(readings: readings, meals: meals, contexts: contexts, answers: answers, low: low, period: p) != nil
+                }
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: 1,
+                                               waiting: LowsSummaryText.emptyLine(period), currentDays: period.days,
+                                               longerWithData: longer)
+        }, act: { action in
+            if case .showPeriod(let days) = action { periodDays = days }
+        })
     }
 }

@@ -20,6 +20,8 @@ struct TagInsightsCardView: View {
     let lowMgdl: Double
     let highMgdl: Double
     var openLogbook: ((LogbookLink) -> Void)? = nil
+    /// Opens the log sheet, for the empty state's Log Something (docs/EmptyStates.md).
+    var log: (() -> Void)? = nil
 
     @AppStorage("insights.tagsDays") private var periodDays = TagInsights.Period.fortnight.rawValue
     @State private var value: TagInsights?
@@ -53,10 +55,7 @@ struct TagInsightsCardView: View {
             if let value, !value.rows.isEmpty {
                 content(value)
             } else if value != nil || shownKey == key {
-                Text(TagInsightsText.emptyLine(period))
-                    .dsFont(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                emptyNote(key)
             } else {
                 // Working it out: hold the space without a spinner.
                 Color.clear.frame(height: 120)
@@ -144,5 +143,34 @@ struct TagInsightsCardView: View {
     private func open(_ row: TagInsights.Row, _ t: TagInsights) {
         guard let openLogbook else { return }
         openLogbook(.tag(row.tag, t.period, newestReading: t.end, now: Date()))
+    }
+}
+
+extension TagInsightsCardView {
+    /// Nothing tagged in this period: a longer period with a tag when there is one, otherwise
+    /// Log Something (`InsightsEmptyState.tags`, docs/EmptyStates.md). No readings at all says so
+    /// instead. Worked out off the main thread, only while empty.
+    fileprivate func emptyNote(_ key: TagInsightsCache.Key) -> some View {
+        let readings = readings, entries = entries, low = lowMgdl, high = highMgdl, period = period
+        let canLog = log != nil
+        return InsightsEmptyNote(id: AnyHashable(key), waiting: TagInsightsText.emptyLine(period), decide: {
+            let days = InsightsEmptyState.readingDays(readings)
+            guard days > 0 else {
+                return InsightsEmptyState.readings(daysSoFar: 0, needed: 1, waiting: TagInsightsText.emptyLine(period),
+                                                   currentDays: period.days, longerWithData: nil)
+            }
+            let longer = InsightsEmptyState.firstWithData(
+                InsightsEmptyState.longer(than: period.days, in: TagInsights.Period.allCases.map(\.days))) { days in
+                    guard let p = TagInsights.Period(rawValue: days) else { return false }
+                    return TagInsights.compute(readings: readings, entries: entries, low: low, high: high,
+                                               period: p)?.rows.isEmpty == false
+                }
+            return InsightsEmptyState.tags(currentDays: period.days, longerWithTags: longer, canLog: canLog)
+        }, act: { action in
+            switch action {
+            case .showPeriod(let days): periodDays = days
+            case .log: log?()
+            }
+        })
     }
 }

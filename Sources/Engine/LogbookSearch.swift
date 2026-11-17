@@ -355,6 +355,25 @@ enum LogbookSearch {
         return s + "."
     }
 
+    /// The empty state's one button when nothing matched, named for what it takes away
+    /// (docs/EmptyStates.md): "Clear Search" for words alone, "Clear Filter" for one chip,
+    /// "Show All Dates" for a day alone (a typed day or an Insights card's days), and
+    /// "Clear Filters" when more than one thing narrowed it. The Mac goes back to its toolbar's
+    /// period rather than every date, so it passes `toAllDates: false` and a day alone reads
+    /// "Clear Search".
+    static func clearTitle(_ query: LogbookQuery, filter: LogbookFilter?, tag: String? = nil,
+                           toAllDates: Bool = true) -> String {
+        let words = !query.terms.isEmpty
+        let day = query.period != nil
+        let chips = (filter == nil ? 0 : 1) + (tag == nil ? 0 : 1)
+        switch (words, day, chips) {
+        case (true, false, 0): return "Clear Search"
+        case (false, false, 1): return "Clear Filter"
+        case (false, true, 0): return toAllDates ? "Show All Dates" : "Clear Search"
+        default: return "Clear Filters"
+        }
+    }
+
     // MARK: The Mac Logbook (docs/LogbookSearch.md, "On the Mac")
 
     /// Whether the Mac Logbook looks past the toolbar's period. Any search does: the words, and the

@@ -51,10 +51,7 @@ struct BestToughestDaysCardView: View {
             if let value {
                 content(value)
             } else if shownKey == key {
-                Text(BestToughestDaysText.emptyLine(period))
-                    .dsFont(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                emptyNote(key)
             } else {
                 // Working it out: hold the space without a spinner.
                 Color.clear.frame(height: 220)
@@ -183,5 +180,25 @@ private struct DayChartDrawIn: ViewModifier {
         DispatchQueue.main.async {
             withAnimation(reduceMotion ? .easeInOut(duration: 0.25) : .smooth(duration: 0.7)) { drawn = day }
         }
+    }
+}
+
+extension BestToughestDaysCardView {
+    /// Nothing to show: why, and the shortest longer period that has enough, when one does
+    /// (`InsightsEmptyState`, docs/EmptyStates.md). Worked out off the main thread, only while empty.
+    fileprivate func emptyNote(_ key: BestToughestDaysCache.Key) -> some View {
+        let readings = readings, low = lowMgdl, high = highMgdl, period = period
+        return InsightsEmptyNote(id: AnyHashable(key), waiting: BestToughestDaysText.emptyLine(period), decide: {
+            let longer = InsightsEmptyState.firstWithData(
+                InsightsEmptyState.longer(than: period.days, in: BestToughestDays.Period.allCases.map(\.days))) { days in
+                    guard let p = BestToughestDays.Period(rawValue: days) else { return false }
+                    return BestToughestDays.compute(readings: readings, low: low, high: high, period: p) != nil
+                }
+            return InsightsEmptyState.readings(daysSoFar: InsightsEmptyState.readingDays(readings), needed: BestToughestDays.minimumDays,
+                                               waiting: BestToughestDaysText.emptyLine(period), currentDays: period.days,
+                                               longerWithData: longer)
+        }, act: { action in
+            if case .showPeriod(let days) = action { periodDays = days }
+        })
     }
 }
