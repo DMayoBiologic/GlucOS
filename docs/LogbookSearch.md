@@ -209,3 +209,32 @@ tested in LogbookLinkTests).
 ## Tags
 
 Each tag in use gets its own chip after the kind chips, on iPhone and Mac. See docs/LogbookTags.md.
+
+## Grouped rows
+
+A meal and the insulin for it, logged within 15 minutes of each other, show as one row in the
+Logbook on iPhone and Mac: "Meal and insulin", what each part was ("45 g · Toast + 4 u NovoRapid")
+and the time. The rules are `LogbookGrouping` in Sources/Engine/LogbookGrouping.swift, tested in
+LogbookGroupingTests.
+
+- **What groups.** Only meals and doses, and a group needs at least one of each. Two doses close
+  together never fold into one row, so a second dose is always its own row; two meals alone don't
+  group either. Site changes, moments and alerts always stand alone.
+- **When.** Neighbouring rows only: anything listed between two entries (an alert, a moment) keeps
+  them apart, so nothing moves out of time order. A group starts at its first entry and takes in
+  what follows while the whole group fits in 15 minutes, on the same day.
+- **Filters stay per entry.** Grouping runs on what the chips, tags and search leave showing. The
+  Insulin chip shows the doses alone; a search that finds only the meal shows the meal alone.
+- **Opening a group.** iPhone: tap the row, and the entries open out under it, indented, each
+  with its own swipes (Log Again Now, Delete), menu and card. The combined row's long-press menu
+  has Edit, Log Again Now and Delete for each entry. Mac: click the chevron, double-click the line
+  or press Return; the right-click menu has each entry's actions, and Delete on a selected group
+  line deletes its entries (with Undo). Opening and closing uses the list's usual motion, instant
+  under Reduce Motion.
+- **Going to one entry.** The "last logged" line on iPhone and the popover's reveal on the Mac open
+  the entry's group first, so the entry itself opens or is selected.
+- **VoiceOver** reads a group as one item ("Meal and insulin, 2 entries: 45 g · Toast, 4 u
+  NovoRapid", then the time and Collapsed or Expanded), with Expand or Collapse as its action, and
+  says "Showing 2 entries" or "Entries grouped" once after.
+- **Export and sync** are untouched: the PDF, the CSV and the sync records stay one per entry.
+  Grouping never changes an entry; the totals are the logged amounts added up, as the day headers do.
