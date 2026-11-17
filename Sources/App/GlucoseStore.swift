@@ -6,6 +6,7 @@ import AppKit
 import UIKit
 #endif
 import WidgetKit
+import SwiftUI
 
 /// Owns the poll loop. Fetches from LibreLinkUp, writes the shared snapshot for the widget,
 /// reloads widget timelines, and runs alerts.
@@ -24,6 +25,13 @@ final class GlucoseStore: ObservableObject {
     @Published private(set) var fetchedThisLaunch = false
     /// Every reading kept on disk (up to 90 days), oldest → newest. Feeds the dashboard window.
     @Published private(set) var archive: [GlucoseReading]
+    /// The unit the iPhone's Today and Insights screens and the Mac popover draw their figures in.
+    /// It follows Settings, except that a change is held while Settings covers those screens and
+    /// shown when they're back in view, so the figures morph where they can be seen (`UnitSwitch`).
+    /// The snapshot (widgets, Live Activity, alerts) always takes the new unit at once.
+    @Published private(set) var shownUnit: GlucoseUnit
+    /// True while Settings covers the screens that read `shownUnit`.
+    private var holdsShownUnit = false
 
     let settings = AppSettings.shared
     let alerts = AlertManager()
@@ -61,6 +69,7 @@ final class GlucoseStore: ObservableObject {
         snapshot = SharedStore.load() ?? .empty
         historyArchive = HistoryArchive.load()
         archive = historyArchive.readings
+        shownUnit = AppSettings.shared.unit
         client = LibreLinkUpClient(region: settings.region,
                                    clientVersion: settings.clientVersion,
                                    sensorLifetimeDays: settings.sensorLifetimeDays)
@@ -335,7 +344,27 @@ final class GlucoseStore: ObservableObject {
         snapshot.unit = settings.unit
         snapshot.lowMgdl = settings.lowMgdl
         snapshot.highMgdl = settings.highMgdl
+        showUnit(UnitSwitch.shown(current: shownUnit, chosen: settings.unit, held: holdsShownUnit))
         publish()
+    }
+
+    /// Holds unit changes back from the screens that read `shownUnit` while Settings covers them.
+    func holdUnitChanges() { holdsShownUnit = true }
+
+    /// Lets a held unit change through, now that its screens are in view. They morph to it once,
+    /// or simply change under Reduce Motion (`View.unitMorph`).
+    func revealUnit() {
+        holdsShownUnit = false
+        showUnit(settings.unit)
+    }
+
+    private func showUnit(_ unit: GlucoseUnit) {
+        guard let line = UnitSwitch.announcement(from: shownUnit, to: unit) else { return }
+        shownUnit = unit
+        // Once per switch, after the figures have started changing.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            AccessibilityNotification.Announcement(line).post()
+        }
     }
 
     /// Called after every change to the snapshot. The iPhone app updates its Live Activity here.

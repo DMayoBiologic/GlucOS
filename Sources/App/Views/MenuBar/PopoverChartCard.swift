@@ -59,7 +59,7 @@ struct PopoverChartCard: View {
             // bends into each new one.
             ForecastMotion(forecast: settings.showForecast ? (outlook?.forecast ?? []) : [],
                            drawInDelay: forecastDelay) { forecast, reveal in
-                GlucoseChart(readings: plotted, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
+                GlucoseChart(readings: plotted, unit: store.shownUnit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                              hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
                              forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true, ripplesNewReading: true,
                              yesterday: yesterday)
@@ -100,7 +100,7 @@ struct PopoverChartCard: View {
             LastLoggedLine(entries: logbook.entries, open: openInLogbook)
             if let outlook, outlook.showsInsulin || (settings.showForecast && !outlook.forecast.isEmpty) {
                 OutlookSummaryRow(outlook: settings.showForecast ? outlook : withoutForecast(outlook),
-                                  unit: s.unit, lowMgdl: s.lowMgdl)
+                                  unit: store.shownUnit, lowMgdl: s.lowMgdl)
             }
             // Above range only, never with a low expected, and only while this Mac's own checks
             // of the estimate stay within 15 minutes (`GlucoseSnapshot.backInRange`).
@@ -108,7 +108,7 @@ struct PopoverChartCard: View {
                 BackInRangeNote(minutes: back.minutes)
                     .dsFont(.label)
                     .foregroundStyle(.secondary)
-                    .help("Forecast, not a reading: when the forecast comes back down to \(s.unit.format(mgdl: s.highMgdl, withUnit: true)). Shown only while this Mac's past estimates were typically within 15 minutes.")
+                    .help("Forecast, not a reading: when the forecast comes back down to \(store.shownUnit.format(mgdl: s.highMgdl, withUnit: true)). Shown only while this Mac's past estimates were typically within 15 minutes.")
                     .transition(.opacity)
             }
         }
@@ -156,7 +156,7 @@ struct PopoverChartCard: View {
         let index = window.firstIndex(where: { $0.timestamp == r.timestamp }) ?? 0
         return HStack(spacing: 8) {
             Capsule().fill(range.tint.gradient).frame(width: 4, height: 16)
-            Text(s.unit.format(mgdl: r.mgdl, withUnit: true))
+            Text(store.shownUnit.format(mgdl: r.mgdl, withUnit: true))
                 .dsFont(.sectionTitle)
                 .monospacedDigit()
             Text(range.label)
@@ -197,7 +197,7 @@ struct PopoverChartCard: View {
         guard let reading else { return .ignored }
         pinned = reading.timestamp
         let range = GlucoseRange.classify(mgdl: reading.mgdl, low: s.lowMgdl, high: s.highMgdl)
-        VoiceOver.announce("\(s.unit.format(mgdl: reading.mgdl)) \(s.unit.spokenLabel), \(range.label), at \(reading.timestamp.formatted(date: .omitted, time: .shortened))")
+        VoiceOver.announce("\(store.shownUnit.format(mgdl: reading.mgdl)) \(store.shownUnit.spokenLabel), \(range.label), at \(reading.timestamp.formatted(date: .omitted, time: .shortened))")
         return .handled
     }
 
@@ -206,15 +206,15 @@ struct PopoverChartCard: View {
     private func chartSummary(_ window: [GlucoseReading]) -> String {
         if let date = pinned, let r = window.first(where: { $0.timestamp == date }) {
             let range = GlucoseRange.classify(mgdl: r.mgdl, low: s.lowMgdl, high: s.highMgdl)
-            return "\(s.unit.format(mgdl: r.mgdl)) \(s.unit.spokenLabel) at \(ClockLabel.time(r.timestamp)), \(range.spokenLabel)"
+            return "\(store.shownUnit.format(mgdl: r.mgdl)) \(store.shownUnit.spokenLabel) at \(ClockLabel.time(r.timestamp)), \(range.spokenLabel)"
         }
         let outlook = settings.showForecast && !s.isStale() ? s.currentOutlook() : nil
         let cutoff = (window.last?.timestamp ?? Date()).addingTimeInterval(-Double(settings.chartHours) * 3600)
         let sentence = ChartSummary.sentence(.init(readings: window.filter { $0.timestamp >= cutoff }, lowMgdl: s.lowMgdl,
-                                                   highMgdl: s.highMgdl, unit: s.unit, hours: Double(settings.chartHours),
+                                                   highMgdl: s.highMgdl, unit: store.shownUnit, hours: Double(settings.chartHours),
                                                    stale: s.isStale(), forecastEnd: outlook?.forecast.last))
         guard settings.showYesterdayLine,
-              let line = YesterdayLine.spoken(YesterdayLine.reading(at: window.last?.timestamp ?? Date(), in: yesterday), unit: s.unit)
+              let line = YesterdayLine.spoken(YesterdayLine.reading(at: window.last?.timestamp ?? Date(), in: yesterday), unit: store.shownUnit)
         else { return sentence }
         return sentence + " " + line
     }

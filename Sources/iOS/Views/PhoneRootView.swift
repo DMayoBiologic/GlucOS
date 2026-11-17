@@ -177,7 +177,7 @@ struct PhoneHomeView: View {
                         .dsEntrance(3)
                     // Today against the same hours on a usual day; hidden until today has an
                     // hour of readings. Below the logbook, so logging stays near the top.
-                    TodaySoFarView(readings: store.archive, unit: store.snapshot.unit,
+                    TodaySoFarView(readings: store.archive, unit: store.shownUnit,
                                    lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
                                    padding: DS.Space.lg)
                         .dsEntrance(4)
@@ -282,9 +282,13 @@ struct PhoneHomeView: View {
         .environment(\.phoneNavigator, PhoneNavigator(push: { path.append($0) }, zoom: routes))
         // One countdown for the undo toast, whichever screen it's showing on.
         .phoneUndoCountdown()
+        // A unit picked in Settings is held while the sheet covers Today and Insights, then their
+        // figures and chart axes morph to it once the sheet has gone (`UnitSwitch`).
+        .unitMorph(store.shownUnit)
+        .onChange(of: showsSettings) { _, open in if open { store.holdUnitChanges() } }
         // On the stack rather than its root, so the log sheet also opens over a pushed screen
         // (editing a row in the full logbook).
-        .sheet(isPresented: $showsSettings) {
+        .sheet(isPresented: $showsSettings, onDismiss: { store.revealUnit() }) {
             NavigationStack { PhoneSettingsView(scrollTo: settingsAnchor) }
         }
         .sheet(isPresented: $showsSharing) {
@@ -366,7 +370,7 @@ private struct PhoneTitleReading: View {
                 // Rolls and cross-fades like the stage's figure; just changes under Reduce Motion.
                 // The saved reading cross-fades to the first live one once.
                 LaunchFigure(phase: launch) {
-                    Text(s.unit.format(mgdl: cur.mgdl))
+                    Text(store.shownUnit.format(mgdl: cur.mgdl))
                         .font(.system(.headline, design: .rounded).weight(.bold))
                         .monospacedDigit()
                         .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))

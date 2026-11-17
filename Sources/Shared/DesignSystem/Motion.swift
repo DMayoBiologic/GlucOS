@@ -589,3 +589,25 @@ private struct SymbolWiggleOnce: ViewModifier {
         }
     }
 }
+
+// MARK: - Unit switch
+
+private struct UnitMorph: ViewModifier {
+    let unit: GlucoseUnit
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        // The figures that already roll (`readingChange`, `RollingFigure`) morph digit by digit,
+        // other text cross-fades, and charts glide their points and axis labels to the new scale.
+        // Under Reduce Motion the change carries no animation, so everything simply swaps.
+        content.animation(reduceMotion ? nil : DSMotion.emphasized.animation, value: unit)
+    }
+}
+
+extension View {
+    /// Morphs this screen's figures and chart axes when the unit shown changes (`UnitSwitch`). Put
+    /// it once at a screen's root, keyed on `GlucoseStore.shownUnit`. App screens only.
+    func unitMorph(_ unit: GlucoseUnit) -> some View {
+        modifier(UnitMorph(unit: unit))
+    }
+}

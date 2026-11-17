@@ -86,11 +86,15 @@ struct MenuBarView: View {
         .animation(PopoverMotion.standard(reduceMotion), value: snoozeStore.isSnoozing)
         .animation(PopoverMotion.standard(reduceMotion), value: lowTreat != nil)
         .task { await store.checkNotificationPermission() }
-        .onAppear { commandKey.start(); staggerSectionsIn() }
+        .onAppear { commandKey.start(); staggerSectionsIn(); revealUnitChange() }
         .onDisappear {
             commandKey.stop(); showsShortcutList = false
             sectionsIn = true
+            // Units are changed in the Settings window, with the popover closed: hold the change
+            // until the popover is open again, so its figures can be seen morphing.
+            store.holdUnitChanges()
         }
+        .unitMorph(store.shownUnit)
         .environment(\.dsDensity, .compact)
     }
 
@@ -207,6 +211,14 @@ struct MenuBarView: View {
         // On the next turn, so the hidden first frame is drawn before they start moving. Each
         // section's own delayed animation (`popoverEntrance`) does the staggering.
         DispatchQueue.main.async { sectionsIn = true }
+    }
+
+    /// Shows a unit change made while the popover was closed: the sections come in with the old
+    /// figures, then they morph to the new unit (`UnitSwitch`). Under Reduce Motion it's simply
+    /// the new unit from the start.
+    private func revealUnitChange() {
+        guard !reduceMotion else { store.revealUnit(); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + UnitSwitch.popoverRevealDelay) { store.revealUnit() }
     }
 
     /// Leaves room for the menu bar and a margin above the Dock, on the display the popover is

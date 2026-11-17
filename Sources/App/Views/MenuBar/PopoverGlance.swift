@@ -177,7 +177,7 @@ struct PopoverSummaryCard: View {
     private func details(_ st: GlucoseStats) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                tile("Average", s.unit.format(mgdl: st.meanMgdl), unit: s.unit.label,
+                tile("Average", store.shownUnit.format(mgdl: st.meanMgdl), unit: store.shownUnit.label,
                      help: "Mean glucose over the \(window.spokenLabel)")
                 tile("Variability", Format.percent(st.coefficientOfVariation), unit: "CV",
                      warn: st.coefficientOfVariation > 0.36,
@@ -186,8 +186,8 @@ struct PopoverSummaryCard: View {
                     tile("GMI", String(format: "%.1f%%", st.gmiPercent), unit: "est. A1c",
                          help: "Glucose Management Indicator, an estimate of A1c from 14 days of readings")
                 } else {
-                    tile("Range", "\(s.unit.format(mgdl: st.minMgdl))–\(s.unit.format(mgdl: st.maxMgdl))",
-                         unit: s.unit.label,
+                    tile("Range", "\(store.shownUnit.format(mgdl: st.minMgdl))–\(store.shownUnit.format(mgdl: st.maxMgdl))",
+                         unit: store.shownUnit.label,
                          help: "Lowest and highest reading over the \(window.spokenLabel)")
                 }
             }

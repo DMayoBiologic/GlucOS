@@ -88,11 +88,11 @@ struct PhoneHeroCard: View {
                     // back grows it again (round 46, `HeaderCollapse`). Only fades under Reduce Motion.
                     .todayStageCollapse()
                     RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,
-                              forecastMgdl: headline?.sample.mgdl, thickness: 6, unit: s.unit)
+                              forecastMgdl: headline?.sample.mgdl, thickness: 6, unit: store.shownUnit)
                         .launchDim(launch, stale: stale)
                         .padding(.vertical, DS.Space.xxs)
                     if let outlook, headline != nil || outlook.lowExpectedAt != nil {
-                        ForecastNote(unit: s.unit, headline: headline.map { (minutes: $0.minutes, mgdl: $0.sample.mgdl) },
+                        ForecastNote(unit: store.shownUnit, headline: headline.map { (minutes: $0.minutes, mgdl: $0.sample.mgdl) },
                                      lowExpectedAt: outlook.lowExpectedAt, readingDate: cur.timestamp, wraps: true)
                             .dsFont(.callout)
                             .foregroundStyle(.secondary)
@@ -167,7 +167,7 @@ struct PhoneHeroCard: View {
                 Text("–.–")
                     .font(.system(size: 64, weight: .bold, design: .rounded))
                     .foregroundStyle(.quaternary)
-                Text(s.unit.label).dsFont(.callout).fontWeight(.semibold).foregroundStyle(.tertiary)
+                Text(store.shownUnit.label).dsFont(.callout).fontWeight(.semibold).foregroundStyle(.tertiary)
             }
             if let empty = emptyStep {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
@@ -213,7 +213,7 @@ struct PhoneHeroCard: View {
         DSAccessibleStack(verticalAlignment: .firstTextBaseline, spacing: DS.Space.xs + 2) {
             // The saved reading cross-fades to the first live one once, rather than rolling.
             LaunchFigure(phase: launch) {
-                Text(s.unit.format(mgdl: cur.mgdl))
+                Text(store.shownUnit.format(mgdl: cur.mgdl))
                     // Already very large: it stops growing at xxxLarge (about 115 pt), so even
                     // "22.2" fits a small phone at AX5 without shrinking much.
                     .font(.system(size: (96 * (1 + (min(textScale.scale, 1.5) - 1) * 0.4)).rounded(), weight: .bold, design: .rounded))
@@ -229,7 +229,7 @@ struct PhoneHeroCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
             }
-            Text(s.unit.label)
+            Text(store.shownUnit.label)
                 .dsFont(.callout)
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
@@ -252,7 +252,7 @@ struct PhoneHeroCard: View {
                         .dsAnimation(.sweep, value: cur.trend)
                 }
                 if let d = s.deltaMgdl {
-                    Text(s.unit.formatDelta(mgdl: d)).monospacedDigit().foregroundStyle(.secondary)
+                    Text(store.shownUnit.formatDelta(mgdl: d)).monospacedDigit().foregroundStyle(.secondary)
                         .contentTransition(reduceMotion ? .identity : .numericText(value: d))
                         .dsAnimation(.arrival, value: d)
                 }
@@ -270,7 +270,7 @@ struct PhoneHeroCard: View {
         }
         var out = ""
         if let headline {
-            out = ". Forecast about \(s.unit.format(mgdl: headline.sample.mgdl)) in \(headline.minutes) minutes"
+            out = ". Forecast about \(store.shownUnit.format(mgdl: headline.sample.mgdl)) in \(headline.minutes) minutes"
         }
         if let back = backInRange(outlook) {
             out += ". " + BackInRangeText.spoken(minutes: BackInRangeText.minutes(back, from: cur.timestamp))
@@ -372,7 +372,7 @@ struct PhoneOnBoardCard: View {
                     insulinTile(onBoard, now: now)
                 }
                 carbsTile(onBoard, now: now)
-                forecastTile(s.currentOutlook(at: now), unit: s.unit, lowMgdl: s.lowMgdl, stale: s.isStale(at: now))
+                forecastTile(s.currentOutlook(at: now), unit: store.shownUnit, lowMgdl: s.lowMgdl, stale: s.isStale(at: now))
             }
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -531,7 +531,7 @@ struct PhoneChartCard: View {
             // The forecast draws in from "Now" once the card has come in, and bends into each new
             // one rather than jumping (as in the Mac popover). Under Reduce Motion it just changes.
             ForecastMotion(forecast: outlook?.forecast ?? [], drawInDelay: Self.forecastDelay) { forecast, reveal in
-                GlucoseChart(readings: store.readings(lastHours: Self.longest), unit: s.unit, lowMgdl: s.lowMgdl,
+                GlucoseChart(readings: store.readings(lastHours: Self.longest), unit: store.shownUnit, lowMgdl: s.lowMgdl,
                              highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
                              forecast: forecast, forecastReveal: reveal, events: events(hours: Self.longest),
                              timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true, ripplesNewReading: true,
@@ -550,7 +550,7 @@ struct PhoneChartCard: View {
             legend(outlook)
             lastLogged
             ForecastCaveatLine(caveat: caveat(s, outlook: outlook))
-            if let outlook, !outlook.forecast.isEmpty { forecastLine(outlook, unit: s.unit) }
+            if let outlook, !outlook.forecast.isEmpty { forecastLine(outlook, unit: store.shownUnit) }
         }
         .dsCard(.standard, padding: DS.Space.lg)
     }
@@ -686,9 +686,9 @@ struct PhoneGlanceCard: View {
                 }
             }
             if let stats = store.glanceStats(window) {
-                GlanceStatsContent(stats: stats, unit: store.snapshot.unit,
+                GlanceStatsContent(stats: stats, unit: store.shownUnit,
                                    rangeDelta: InsightsCompare.glanceRange(stats, before),
-                                   averageDelta: InsightsCompare.glanceAverage(stats, before, unit: store.snapshot.unit,
+                                   averageDelta: InsightsCompare.glanceAverage(stats, before, unit: store.shownUnit,
                                                                                low: store.snapshot.lowMgdl,
                                                                                high: store.snapshot.highMgdl),
                                    previous: InsightsCompare.previousPhrase(hours: window.hours))
