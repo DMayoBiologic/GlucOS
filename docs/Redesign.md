@@ -411,9 +411,16 @@ old, last 6.2." Follower: prefixed with the person's name.
   new side, so a reading hovering at the edge never repeats it. Nothing cues on the first reading,
   a stale or saved one, the same reading redrawn, or a moved target range. Under Reduce Motion the
   tap stays and the wash doesn't draw. Alerts are separate and unchanged.
-- **Collapsing header.** Scrolling up shrinks the stage; once its value scrolls under the navigation
-  bar, the bar's title becomes the value and trend arrow in the range colour (iOS 18
-  `onScrollGeometryChange`), so the reading is never off screen.
+- **Collapsing header.** Scrolling down folds the stage into the navigation bar, so the reading is
+  never off screen (iOS 18 `onScrollGeometryChange`). Since round 46 (`HeaderCollapse`) the fold
+  follows the scroll position rather than swapping at a threshold: the stage's value, unit, trend
+  row and needle shrink to 55 % towards the bar and fade over the second half, while the bar's
+  compact value and trend arrow grow in from 60 % and the "GlucOS" wordmark fades out first.
+  Scrolling up grows it back. It starts 60 pt before the stage reaches the bar and takes 140 pt,
+  measured from the stage's own top so banners above it don't throw it off, and moves in 56 steps
+  so only the figure and the title redraw while scrolling, never on a timer. Under Reduce Motion
+  nothing scales: the two cross-fade, still following the scroll. VoiceOver reads the reading once,
+  from the stage; the bar's copy is hidden from it.
 - Below the stage, unchanged order: banners, follows, On board, Chart, Logbook, Insights row, Sensor.
 - **Chart card**: hour chips with a sliding selection; the chart's axes glide to the new span when
   hours change (§4.1). The forecast draws in from "Now" once the card has come in (0.4 s,

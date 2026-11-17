@@ -43,6 +43,7 @@ let package = Package(
                 "Shared/TrendTurn.swift",
                 "Shared/LaunchReading.swift",
                 "Shared/PullRefresh.swift",
+                "Shared/HeaderCollapse.swift",
                 "Shared/HapticRules.swift",
                 "Shared/MenuBarGlance.swift",
                 "Shared/WidgetGlance.swift",

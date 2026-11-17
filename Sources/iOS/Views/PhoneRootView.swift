@@ -118,8 +118,8 @@ struct PhoneHomeView: View {
     @State private var showsSettings = false
     @State private var settingsAnchor: PhoneSettingsView.Jump?
     @State private var showsSharing = false
-    /// The stage has scrolled under the navigation bar, so the bar shows the reading instead.
-    @State private var stageHidden = false
+    /// How far the stage has folded into the navigation bar (`HeaderCollapse`, round 46).
+    @State private var collapse = TodayHeaderCollapse()
     @Namespace private var routes
     /// The stack's screens, so a card further in (Insights → Logbook) can push one.
     @State private var path = NavigationPath()
@@ -143,7 +143,11 @@ struct PhoneHomeView: View {
                     // Someone's asking if they're okay: above everything, until they answer.
                     PhoneCheckInBanner()
                     // Cards assemble top to bottom on launch rather than popping in at once.
-                    PhoneHeroCard().dsEntrance(0)
+                    PhoneHeroCard()
+                        .onGeometryChange(for: Double.self) {
+                            Double($0.frame(in: .named(TodayHeaderCollapse.space)).minY)
+                        } action: { collapse.update(stageTop: $0) }
+                        .dsEntrance(0)
                     // While an alert is snoozed: until when, and a tap turns alerts back on.
                     if snoozeStore.isSnoozing {
                         AlertSnoozeChipView(snoozes: snoozeStore.snoozes, error: services.snoozeResumeError) {
@@ -189,6 +193,8 @@ struct PhoneHomeView: View {
                 }
                 .padding(.horizontal, DS.Space.lg)
                 .padding(.bottom, DS.Space.lg)
+                .coordinateSpace(.named(TodayHeaderCollapse.space))
+                .environment(collapse)
                 // The snoozed chip fades in and out once; instant under Reduce Motion.
                 .animation(DSMotion.standard.animation(reduceMotion: reduceMotion), value: snoozeStore.isSnoozing)
                 .animation(DSMotion.standard.animation(reduceMotion: reduceMotion), value: lowTreat != nil)
@@ -200,11 +206,13 @@ struct PhoneHomeView: View {
                               rapid: !store.snapshot.isStale() && (store.snapshot.current?.trend.isRapid ?? false),
                               range: store.snapshot.isStale() ? nil : store.snapshot.range)
             }
-            // Once the stage's value has scrolled under the bar, the bar's title becomes the reading.
-            .onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.contentInsets.top > 190
-            } action: { _, hidden in
-                DS.animate(.standard, reduceMotion: reduceMotion) { stageHidden = hidden }
+            // As the stage scrolls towards the bar its figure shrinks into the bar's title, and grows
+            // back on the way down: tied to the scroll position, so it never jumps or plays on its
+            // own. Whole points only; the fold itself moves in `HeaderCollapse.steps` steps.
+            .onScrollGeometryChange(for: Double.self) { geo in
+                Double(geo.contentOffset.y + geo.contentInsets.top).rounded()
+            } action: { _, scrolled in
+                collapse.update(scrolled: scrolled)
             }
             // The same fetches as opening the app (relay readings, then LibreLinkUp), never extra
             // polling: a pull joins a fetch in flight and skips one that has just finished.
@@ -228,12 +236,9 @@ struct PhoneHomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    if stageHidden, store.snapshot.current != nil, store.snapshot.warmUp() == nil {
+                    PhoneCollapsingTitle(collapse: collapse,
+                                         showsReading: store.snapshot.current != nil && store.snapshot.warmUp() == nil) {
                         PhoneTitleReading()
-                            .transition(DS.Transition.swap(reduceMotion: reduceMotion))
-                    } else {
-                        Text("GlucOS").font(.headline)
-                            .transition(.opacity)
                     }
                 }
                 ToolbarItem(placement: .topBarLeading) {
@@ -332,7 +337,8 @@ struct PhoneBackdrop: View {
 }
 
 /// The reading in the navigation bar while the stage is scrolled away: value and arrow in the
-/// range's colour, grey when stale.
+/// range's colour, grey when stale. Hidden from VoiceOver (`PhoneCollapsingTitle`): the stage
+/// already reads the reading, so it is heard once.
 private struct PhoneTitleReading: View {
     @EnvironmentObject var store: GlucoseStore
 
@@ -365,8 +371,6 @@ private struct PhoneTitleReading: View {
         .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
         .dsAnimation(.sweep, value: tone)
         .launchDim(launch, stale: stale)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(s.accessibilitySummary() + (launch.spokenNote.map { ". \($0)" } ?? ""))
     }
 }
 
