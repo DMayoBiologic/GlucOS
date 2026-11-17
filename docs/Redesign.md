@@ -173,6 +173,12 @@ what made the apps drain batteries before this was fixed (November 2026). Breath
 `RapidHalo`) are one beat on a `PulseBeat` clock: 6 s for the dot and ring, 3.5 s for the rapid halo,
 hidden between beats. Clocks that only change text tick with `TimelineView(.periodic)`.
 
+On iPhone Today and the Mac popover the chart's end ring doesn't breathe at all: the current-reading
+dot gives one soft ripple (2.2×, 0.55 opacity, 1.4 s) when a newer reading lands, then nothing until
+the next (`NewReadingRipple`, `GlucoseChart(ripplesNewReading:)`). No ripple when the chart opens, for
+a stale or backfilled reading, in the background, while a closed Mac popover keeps its chart, or
+under Reduce Motion. Other charts keep the 6 s breath.
+
 ### 4.5 Navigation
 
 - iPhone pushes from a card to its full screen use the zoom transition (iOS 18

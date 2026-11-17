@@ -37,6 +37,11 @@ struct GlucoseChart: View {
     /// and a deleted one shrinks out, with VoiceOver told which (`MarkerPop`). For the one chart
     /// the user logs against on each device: iPhone Today and the Mac popover. Interactive charts only.
     var popsMarkers: Bool = false
+    /// Whether the current-reading dot gives one soft ripple when a newer reading lands, then holds
+    /// still until the next one (`NewReadingRipple`), instead of breathing every few seconds. For
+    /// iPhone Today and the Mac popover. Interactive charts only; never under Reduce Motion, in the
+    /// background, or while a closed Mac popover keeps its chart.
+    var ripplesNewReading: Bool = false
 
     @State private var hoverDate: Date?
     /// Whether a finger (or the pointer) is on the chart, as opposed to the readout gliding back
@@ -64,7 +69,11 @@ struct GlucoseChart: View {
     /// Between `onAppear` and `onDisappear`. A Mac popover that's closed keeps its chart, so a
     /// highlight waits for it to open again rather than playing where no one can see it.
     @State private var onScreen = false
+    /// Bumped once per newly arrived reading that ripples (`ripplesNewReading`). The ring's phase
+    /// animator plays once per change and is hidden in between.
+    @State private var rippleBeat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     /// The real reading nearest the pointer. Only actual readings are ever shown, never an
     /// interpolated value between two of them. Over a gap in the data (sensor warm-up, phone out
@@ -271,6 +280,21 @@ struct GlucoseChart: View {
         glowLoggedElsewhere(events.filter { $0.date >= start }, pop: nil)
     }
 
+    /// A newer reading has landed: the current-reading dot ripples once if it should.
+    private func newestChanged(from old: Date?, to new: Date?) {
+        guard ripplesNewReading, interactive else { return }
+        #if os(iOS)
+        let appActive = scenePhase == .active
+        #else
+        // A menu bar popover can report inactive while it's open; only the background is ruled out.
+        let appActive = scenePhase != .background
+        #endif
+        guard NewReadingRipple.plays(previous: old, newest: new, now: Date(), staleAfter: GlucoseSnapshot.staleAfter,
+                                     appActive: appActive, onScreen: onScreen, reduceMotion: reduceMotion)
+        else { return }
+        rippleBeat &+= 1
+    }
+
     private func disappeared() {
         onScreen = false
         glows = []
@@ -474,7 +498,13 @@ struct GlucoseChart: View {
             // screens only: widgets and the Live Activity don't animate, and it holds still (it
             // isn't drawn) under Reduce Motion or once the reading is stale.
             if interactive, !stale, !reduceMotion, let last = window.last {
-                TracePulse(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl), tint: currentTint)
+                if ripplesNewReading {
+                    // Once per new reading, then nothing until the next (see `newestChanged`).
+                    ReadingDotRipple(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl),
+                                     tint: currentTint, beat: rippleBeat)
+                } else {
+                    TracePulse(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl), tint: currentTint)
+                }
             }
             markerOverlays(proxy: proxy, yd: yd)
         }
@@ -488,6 +518,7 @@ struct GlucoseChart: View {
             markersChanged(visibleFrom: window.first?.timestamp ?? .distantFuture)
         }
         .onChange(of: hours) { old, new in changeRange(from: old, to: new) }
+        .onChange(of: readings.last?.timestamp) { old, new in newestChanged(from: old, to: new) }
         .hoverSelection(interactive, selection(newest: window.last?.timestamp))
         .onChange(of: hovered?.timestamp) { _, new in scrubbed(to: new, readings: window) }
         .scrubFeedback(interactive, trigger: scrubTick)
@@ -808,6 +839,35 @@ private struct TracePulse: View {
                         .pulse(beat: beat, scale: 2.6, opacity: 0.8, duration: 1.8)
                 }
                 .position(x: origin.x + x, y: origin.y + y)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The current-reading dot's one soft ripple when a new reading lands (`NewReadingRipple`). Placed
+/// with the chart's proxy like `TracePulse`. Not drawn until the first beat, and hidden again once
+/// it has faded, so nothing sits on screen or redraws between readings.
+private struct ReadingDotRipple: View {
+    let proxy: ChartProxy
+    let date: Date
+    let value: Double
+    let tint: Color
+    let beat: Int
+
+    var body: some View {
+        GeometryReader { geo in
+            if let plot = proxy.plotFrame,
+               let x = proxy.position(forX: date),
+               let y = proxy.position(forY: value) {
+                let origin = geo[plot].origin
+                Circle()
+                    .strokeBorder(tint, lineWidth: 1.5)
+                    .frame(width: 12, height: 12)
+                    .pulse(beat: beat, scale: NewReadingRipple.scale, opacity: NewReadingRipple.startOpacity,
+                           duration: NewReadingRipple.duration)
+                    .position(x: origin.x + x, y: origin.y + y)
             }
         }
         .allowsHitTesting(false)
