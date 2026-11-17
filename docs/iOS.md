@@ -210,6 +210,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **StandBy shows your glucose at a glance.** When the iPhone is charging on its side, the Glucose widget in StandBy shows a large reading, the trend arrow and a thin range band. It dims under the red Night Mode tint and updates without flicker.
 - **An evening recap, if you want one.** Turn it on in Settings and pick a time (9 pm by default). Each evening a notification gives the day's time in range, average, lows and highs; tap it to open Insights on a Today card.
 - **Tag entries to find them later.** In the log sheet, add a tag such as Exercise, Sick, Stress, Alcohol or one of your own. Each tag becomes a filter chip in Logbook search, and tags sync with the Mac.
+- **See what your tags do.** Once you've tagged entries, a Tags card in Insights shows time in range and average glucose in the 4 hours after each tag, next to all your readings. Tap a tag to open the Logbook on it.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
