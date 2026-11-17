@@ -4925,7 +4925,8 @@ and `scripts/scorecard-sampling.py`. The recorded side is every clean iPhone and
 `glucos.forecast_checks` at 15, 30 and 60 minutes, extras included as on the card (12–17 Nov). The
 other side replays the engine's trend line (20-minute slope clamped at ±4, 30-minute fade, gain 0.55)
 and "no change" at **every live reading** over the same span, about 6,800 moments, clean meaning no
-meal or dose logged up to the target. The replay scored at only the recorded moments lands within
+meal, dose or non-wake event logged before the target (the ledger's own rule). Recorded points
+take their trend band from the matched replay moment, so both sides of a cell use one trend. The replay scored at only the recorded moments lands within
 about 1 mg/dL of what the card itself shows (Mac 18.0 vs 17.6 at 15 minutes, 32.3 vs 31.6 at 30, 56.8
 vs 57.0 at 60), so it's a fair stand-in for the forecast. The replay at every reading then shows what
 the card would say if every moment counted.
@@ -4935,8 +4936,8 @@ the card would say if every moment counted.
 | | Night 0–6 | Morning 6–12 | Afternoon 12–18 | Evening 18–24 | Fast trend (≥ 2/min) |
 |---|---|---|---|---|---|
 | Every reading | 25% | 22% | 25% | 28% | 18% |
-| iPhone recorded | 13% | 19% | 38% | 31% | 25% |
-| Mac recorded | 9% | 6% | 43% | 41% | 24% |
+| iPhone recorded | 13% | 19% | 38% | 31% | 24% |
+| Mac recorded | 9% | 6% | 43% | 41% | 23% |
 
 Days are lopsided too: 113 of the Mac's 201 points at 15 minutes are from 15–16 Nov.
 
@@ -4944,10 +4945,10 @@ Days are lopsided too: 113 of the Mac's 201 points at 15 minutes are from 15–1
 
 | | 15 min | 30 min | 60 min |
 |---|---|---|---|
-| Every reading (replay) | 17.2 (0.96) | 26.8 (0.97) | 43.3 (0.99) |
+| Every reading (replay) | 17.1 (0.96) | 26.8 (0.97) | 43.2 (0.99) |
 | Replay at the Mac's moments | 18.0 (0.87) | 32.3 (0.90) | 56.8 (0.96) |
 | Mac card as recorded | 17.6 (0.87) | 31.6 (0.88) | 57.0 (0.98) |
-| Replay at the iPhone's moments | 18.5 (0.96) | 29.8 (0.93) | 39.8 (1.05) |
+| Replay at the iPhone's moments | 18.6 (0.96) | 29.8 (0.94) | 39.8 (1.05) |
 | iPhone card as recorded | 19.0 (1.04) | 28.5 (0.92) | 42.2 (1.17) |
 
 So the Mac's card both **overstates the typical miss** (±1.8 mmol/L at 30 minutes against ±1.5 over
@@ -4955,7 +4956,7 @@ every moment, ±3.2 against ±2.4 at 60) and **flatters the forecast against no 
 minutes, which the card words "Closer than no change", against 0.96 over every moment, which it would
 word "About the same"). The Mac is mostly awake in the afternoon and evening, when glucose moves more:
 bigger misses for everything, and more of the moving stretches where following the trend beats no
-change. The iPhone is close to unbiased at 15 and 30 minutes (ratio 0.96 vs 0.96, 0.93 vs 0.97); its
+change. The iPhone is close to unbiased at 15 and 30 minutes (ratio 0.96 vs 0.96, 0.94 vs 0.97); its
 60-minute row has only 34 points.
 
 **Gaps.** The first check after an hour or more without one (the app just woken or opened) isn't
@@ -4973,15 +4974,18 @@ It doesn't:
 
 | Device, horizon | Truth | Sampled | Reweighted by time × trend | by time only | by trend only |
 |---|---|---|---|---|---|
-| Mac 15 | 17.2 (0.96) | 18.0 (0.87) | 17.7 (0.92) | 18.0 (0.90) | 17.7 (0.90) |
-| Mac 30 | 26.8 (0.97) | 32.3 (0.90) | 30.8 (0.90) | 30.5 (0.89) | 31.8 (0.91) |
-| Mac 60 | 43.3 (0.99) | 56.8 (0.96) | 54.7 (0.96) | 52.7 (0.96) | 56.7 (0.97) |
-| iPhone 15 | 17.2 (0.96) | 18.5 (0.96) | 19.6 (1.02) | 19.9 (1.00) | 17.9 (0.97) |
-| iPhone 30 | 26.8 (0.97) | 29.8 (0.93) | 29.1 (0.99) | 29.7 (0.95) | 29.5 (0.94) |
+| Mac 15 | 17.1 (0.96) | 18.0 (0.87) | 18.3 (0.91) | 18.0 (0.90) | 17.7 (0.89) |
+| Mac 30 | 26.8 (0.97) | 32.3 (0.90) | 30.5 (0.89) | 30.4 (0.89) | 31.7 (0.91) |
+| Mac 60 | 43.2 (0.99) | 56.8 (0.96) | 54.0 (0.96) | 52.7 (0.96) | 55.9 (0.97) |
+| iPhone 15 | 17.1 (0.96) | 18.6 (0.96) | 18.8 (1.00) | 19.8 (1.00) | 17.6 (0.96) |
+| iPhone 30 | 26.8 (0.97) | 29.8 (0.94) | 28.3 (0.97) | 29.7 (0.95) | 28.7 (0.94) |
 
-On the Mac only the 15-minute ratio gets about halfway (0.87 to 0.92, against 0.96); at 30 and 60
-minutes at most a quarter of the miss gap closes and the ratio doesn't move. On the iPhone it makes 15
-minutes worse. Most of the bias sits inside the cells: the Mac's afternoons and
+On the Mac only the 15-minute ratio gets about halfway (0.87 to 0.91, against 0.96), while its miss
+moves away from the truth (18.0 to 18.3); at 30 and 60 minutes at most a third of the miss gap closes
+and the ratio doesn't move. On the iPhone it makes the 15-minute miss worse. It isn't missing
+coverage: every cell with weight at 15 and 30 minutes has recorded points (none of the all-readings
+weight is dropped; 3% for the Mac and 25% for the iPhone at 60), and the every-reading figure over
+just the covered cells is the same as the full one. The bias sits inside the cells: the Mac's afternoons and
 evenings were the volatile ones of a few particular days, not a typical afternoon. Several cells hold
 fewer than 5 points, so the weights would also make the card jump about. The ship bar (move the
 sampled figure at least halfway to the truth at 15 and 30 minutes on both devices, ratio included) is
