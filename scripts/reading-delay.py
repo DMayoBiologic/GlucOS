@@ -99,7 +99,8 @@ for slot in range(T[0] - T[0] % 300 + 300, T[-1] - 3900, 300):
     act = {(h, a): actual(t + (h + a) * 60) for h in HS for a in AGES}
     if None in act.values(): continue
     pts.append(dict(t=t, g=R[i][1], tr=tr, act=act, day=perth_day(t),
-                    span={perth_day(t - TREND_W * 60), perth_day(t + (max(HS) + max(AGES)) * 60)}))
+                    # +150 s covers the reading after the last target used to interpolate it
+                    span={perth_day(t - TREND_W * 60), perth_day(t + (max(HS) + max(AGES)) * 60 + 150)}))
 days = sorted({p["day"] for p in pts})
 print(f"\n== Held out: {len(pts)} clean points over {len(days)} Perth days ({days[0]}–{days[-1]} Nov)")
 
