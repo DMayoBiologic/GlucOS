@@ -70,6 +70,13 @@ struct PhoneLogbookView: View {
     /// A tag chip, if one is picked (`LogbookTags`): only entries carrying that tag show, within
     /// whatever the kind chip and the search say.
     @State private var tagFilter: String?
+    /// The chips the list is showing. It follows `kind` and `tagFilter` a moment behind, so the
+    /// old rows can fade out while the highlight slides to the new chip (`settleFilter`).
+    @State private var listed: LogbookFilterPick
+    /// The rows' opacity, dipped while the list switches to a new chip's rows.
+    @State private var rowsFade = 1.0
+    /// Where the chip highlights slide: one for the kind chips, one for the tag chips.
+    @Namespace private var chipSpace
     /// Low and high alerts show as quiet rows between the entries unless turned off here.
     @AppStorage(AlertLogRow.showsKey) private var showsAlerts = true
     /// The first rows have played their entrance; rows built after this (scrolled to, filtered in)
@@ -109,6 +116,7 @@ struct PhoneLogbookView: View {
     init(link: LogbookLink? = nil, opening: UUID? = nil) {
         _kind = State(initialValue: link?.kindChip)
         _tagFilter = State(initialValue: link?.tag)
+        _listed = State(initialValue: LogbookFilterPick(kind: link?.kindChip, tag: link?.tag))
         _linked = State(initialValue: link?.period)
         _opening = State(initialValue: opening)
     }
@@ -120,7 +128,7 @@ struct PhoneLogbookView: View {
         let search: LogbookQuery = LogbookQuery.parse(query, now: Date()).linked(linked)
         let lowIDs: Set<UUID> = LogbookSearch.lowTreatmentIDs(all)
         let shown: [PhoneLogbookItem] = PhoneLogbookItem.merge(all, alerts)
-            .filter { $0.matches(kind, search, lowIDs: lowIDs) && $0.matches(tag: tagFilter) }
+            .filter { $0.matches(listed.kind, search, lowIDs: lowIDs) && $0.matches(tag: listed.tag) }
         let shownIDs: [UUID] = shown.map(\.id)
         let allIDs: [UUID] = all.map(\.id)
         list(all: all, kinds: kinds, shown: shown, search: search)
@@ -153,11 +161,10 @@ struct PhoneLogbookView: View {
         // Undo, just above the bottom edge. The countdown that sends it away runs on the home
         // screen's stack, so it keeps time across both screens.
         .overlay(alignment: .bottom) { PhoneUndoToast() }
-        .animation(DSMotion.quick.animation, value: kind)
-        .animation(DSMotion.quick.animation, value: tagFilter)
         // New rows slide in and deleted rows fold away, whether from here, an undo or a sync.
-        // Instant under Reduce Motion.
+        // Instant under Reduce Motion. A chip switch doesn't slide rows: it fades them over.
         .dsAnimation(.standard, value: shownIDs)
+        .task(id: LogbookFilterPick(kind: kind, tag: tagFilter)) { await settleFilter() }
         .onChange(of: allIDs) { old, new in
             markFresh(Set(new).subtracting(old))
         }
@@ -220,12 +227,14 @@ struct PhoneLogbookView: View {
             if !search.isEmpty && !all.isEmpty {
                 Section {
                     searchSummary(search, found: shown.count)
+                        .opacity(rowsFade)
                         .listRowBackground(Color.clear)
                 }
             }
             if shown.isEmpty {
                 Section {
                     emptyState(hasEntries: !all.isEmpty, search: search)
+                        .opacity(rowsFade)
                         .listRowBackground(Color.clear)
                 }
             } else {
@@ -259,11 +268,13 @@ struct PhoneLogbookView: View {
                 ForEach(Array(day.items.enumerated()), id: \.element.id) { j, item in
                     // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
                     itemRow(item, order: starts[i] + j, terms: terms)
+                        .opacity(rowsFade)
                 }
             } header: {
                 // Day headers stay pinned, on a blur, while their day scrolls under them.
                 dayHeader(day, totals: totals[day.id] ?? day.totals, range: ranges[day.start], all: all, now: now,
                           shownDays: shownDays)
+                    .opacity(rowsFade)
                     .padding(.horizontal, DS.Space.lg)
                     .padding(.vertical, DS.Space.xs + 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -339,6 +350,42 @@ struct PhoneLogbookView: View {
         }
     }
 
+    /// The chips changed (a tap, Clear Filters, a card's link): the old rows fade out, the list
+    /// switches to the new chips' rows without sliding them, and those fade in. VoiceOver then says
+    /// how many there are, once; a quick run of taps only speaks for the last. Under Reduce Motion
+    /// the list just switches.
+    private func settleFilter() async {
+        let pick = LogbookFilterPick(kind: kind, tag: tagFilter)
+        guard pick != listed else {
+            // Back to the rows already listed (or nothing to do): just make sure they show.
+            if rowsFade < 1 { withAnimation(.easeOut(duration: LogbookFilterPick.fadeIn)) { rowsFade = 1 } }
+            return
+        }
+        if !reduceMotion {
+            withAnimation(.easeIn(duration: LogbookFilterPick.fadeOut)) { rowsFade = 0 }
+            try? await Task.sleep(for: .seconds(LogbookFilterPick.fadeOut))
+            guard !Task.isCancelled else { return }
+        }
+        var quiet = Transaction()
+        quiet.disablesAnimations = true
+        withTransaction(quiet) { listed = pick }
+        if !reduceMotion {
+            withAnimation(.easeOut(duration: LogbookFilterPick.fadeIn)) { rowsFade = 1 }
+        }
+        AccessibilityNotification.Announcement(LogbookFilterPick.announcement(count: shownCount(pick))).post()
+    }
+
+    /// How many rows the chips leave showing, with the search as it stands.
+    private func shownCount(_ pick: LogbookFilterPick) -> Int {
+        let all = logbook.entries
+        let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
+        let search = LogbookQuery.parse(query, now: Date()).linked(linked)
+        let lowIDs = LogbookSearch.lowTreatmentIDs(all)
+        return PhoneLogbookItem.merge(all, alerts)
+            .filter { $0.matches(pick.kind, search, lowIDs: lowIDs) && $0.matches(tag: pick.tag) }
+            .count
+    }
+
     private func clearFilters() {
         query = ""
         kind = nil
@@ -359,11 +406,11 @@ struct PhoneLogbookView: View {
     private func filterBar(_ kinds: [LogbookFilter], tags: [String]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.sm) {
-                chip("All", systemImage: nil, tint: Palette.brand, selected: kind == nil) { kind = nil }
+                chip("All", systemImage: nil, tint: Palette.brand, selected: kind == nil, slide: "kind") { kind = nil }
                 // The chip a card opened with stays offered even when it has nothing to show, so
                 // the empty list says what it's filtered by (the Mac's bar does the same).
                 ForEach(LogbookFilter.allCases.filter { kinds.contains($0) || $0 == kind }) { k in
-                    chip(k.title, systemImage: k.symbol, tint: k.tint, selected: kind == k) {
+                    chip(k.title, systemImage: k.symbol, tint: k.tint, selected: kind == k, slide: "kind") {
                         kind = kind == k ? nil : k
                     }
                 }
@@ -374,6 +421,10 @@ struct PhoneLogbookView: View {
                 }
             }
             .padding(.horizontal, DS.Space.lg)
+            // The highlight slides from the old chip to the new one on a spring. Instant under
+            // Reduce Motion.
+            .animation(reduceMotion ? nil : DSMotion.emphasized.animation, value: kind)
+            .animation(reduceMotion ? nil : DSMotion.emphasized.animation, value: tagFilter.map(LogbookTags.key))
         }
     }
 
@@ -386,13 +437,16 @@ struct PhoneLogbookView: View {
 
     private func tagChip(_ t: String) -> some View {
         let selected = tagFilter.map { LogbookTags.key($0) == LogbookTags.key(t) } ?? false
-        return chip(t, systemImage: LogbookTags.symbol(t), tint: Palette.context, selected: selected) {
+        return chip(t, systemImage: LogbookTags.symbol(t), tint: Palette.context, selected: selected, slide: "tag") {
             tagFilter = selected ? nil : t
         }
         .accessibilityLabel("Tagged \(t)")
     }
 
-    private func chip(_ title: String, systemImage: String?, tint: Color, selected: Bool,
+    /// A chip. The picked one in each row (`slide`: the kind chips, or the tag chips) wears a
+    /// filled highlight that's one view moving between chips (matched geometry), so a new pick
+    /// slides it across rather than swapping two fills.
+    private func chip(_ title: String, systemImage: String?, tint: Color, selected: Bool, slide: String,
                       action: @escaping () -> Void) -> some View {
         Button {
             action()
@@ -406,7 +460,12 @@ struct PhoneLogbookView: View {
             .padding(.horizontal, DS.Space.md)
             .padding(.vertical, DS.Space.xs + 2)
             .foregroundStyle(selected ? AnyShapeStyle(Color.white) : AnyShapeStyle(tint))
-            .background(selected ? AnyShapeStyle(tint) : AnyShapeStyle(tint.opacity(0.14)), in: Capsule())
+            .background {
+                if selected {
+                    Capsule().fill(tint).matchedGeometryEffect(id: slide, in: chipSpace)
+                }
+            }
+            .background(tint.opacity(0.14), in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(PressScaleStyle())
@@ -524,6 +583,8 @@ struct PhoneLogbookView: View {
             kind = nil
             tagFilter = nil
             linked = nil
+            // The list switches at once and quietly: the landing does the moving and the talking.
+            listed = LogbookFilterPick(kind: nil, tag: nil)
             jumping = LogbookJumpRequest(day: d)
         case .none:
             break

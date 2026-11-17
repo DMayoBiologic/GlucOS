@@ -48,6 +48,13 @@ struct LogbookSection: View {
     @State private var filter: LogbookFilter?
     /// A tag chip, if one is picked (`LogbookTags`), on top of the filter chip and the search.
     @State private var tagFilter: String?
+    /// The chips the table is showing. It follows `filter` and `tagFilter` a moment behind, so the
+    /// old rows fade out while the highlight slides to the new chip (`settleFilter`).
+    @State private var listed = LogbookFilterPick(kind: nil, tag: nil)
+    /// The rows' opacity, dipped while the table switches to a new chip's rows.
+    @State private var rowsFade = 1.0
+    /// Where the tag chips' highlight slides (the kind chips' picker slides its own).
+    @Namespace private var tagChipSpace
     @State private var search = ""
     /// The period the Logbook was opened with (the Lows card's days), until ✕ or Clear Filters.
     @State private var linked: LogbookQuery.Period?
@@ -86,7 +93,7 @@ struct LogbookSection: View {
         let kinds = LogbookFilter.available(entries: logbook.entries, alerts: allAlerts)
         let scope = pastPeriod ? LogbookTableRow.merge(logbook.entries, allAlerts)
                                : LogbookTableRow.merge(inRange, alertsInRange)
-        let rows = scope.filter { $0.matches(filter, query, lowIDs: lowIDs) && $0.matches(tag: tagFilter) }
+        let rows = scope.filter { $0.matches(listed.kind, query, lowIDs: lowIDs) && $0.matches(tag: listed.tag) }
         let terms = query.terms
         // The newest row of the day a jump is heading for, once the table lists it.
         let jumpTarget: UUID? = pendingJump.flatMap { r in
@@ -139,10 +146,11 @@ struct LogbookSection: View {
                 if rows.isEmpty {
                     emptyState(query, pastPeriod: pastPeriod)
                         .frame(maxHeight: .infinity)
+                        .opacity(rowsFade)
                 } else {
                     ScrollViewReader { proxy in
                         table(rows, terms: terms)
-                            .opacity(tableFade)
+                            .opacity(tableFade * rowsFade)
                             .task(id: jumpTarget) { await land(on: jumpTarget, rows: rows, proxy: proxy) }
                     }
                 }
@@ -186,6 +194,37 @@ struct LogbookSection: View {
         .onChange(of: showsAlerts) { _, on in
             if !on, filter == .alerts { filter = nil }
         }
+        // A chip switch fades the table over to its new rows (`settleFilter`).
+        .task(id: LogbookFilterPick(kind: filter, tag: tagFilter)) {
+            await settleFilter(count: { pick in
+                scope.filter { $0.matches(pick.kind, query, lowIDs: lowIDs) && $0.matches(tag: pick.tag) }.count
+            })
+        }
+    }
+
+    /// The chips changed (a click, Clear Filters, a card's link): the old rows fade out, the table
+    /// switches to the new chips' rows without animating them, and those fade in. VoiceOver then
+    /// says how many there are, once; a quick run of clicks only speaks for the last. Under Reduce
+    /// Motion the table just switches. `count` counts the rows a pick leaves, as the body does.
+    private func settleFilter(count: (LogbookFilterPick) -> Int) async {
+        let pick = LogbookFilterPick(kind: filter, tag: tagFilter)
+        guard pick != listed else {
+            // Back to the rows already listed (or nothing to do): just make sure they show.
+            if rowsFade < 1 { withAnimation(.easeOut(duration: LogbookFilterPick.fadeIn)) { rowsFade = 1 } }
+            return
+        }
+        if !reduceMotion {
+            withAnimation(.easeIn(duration: LogbookFilterPick.fadeOut)) { rowsFade = 0 }
+            try? await Task.sleep(for: .seconds(LogbookFilterPick.fadeOut))
+            guard !Task.isCancelled else { return }
+        }
+        var quiet = Transaction()
+        quiet.disablesAnimations = true
+        withTransaction(quiet) { listed = pick }
+        if !reduceMotion {
+            withAnimation(.easeOut(duration: LogbookFilterPick.fadeIn)) { rowsFade = 1 }
+        }
+        AccessibilityNotification.Announcement(LogbookFilterPick.announcement(count: count(pick))).post()
     }
 
     private var alertsToggle: some View {
@@ -281,6 +320,8 @@ struct LogbookSection: View {
             pendingJump = LogbookJumpRequest(day: d)
         case .clearFiltersThenScroll(let d):
             clearFilters()
+            // The table switches at once and quietly: the landing does the moving and the talking.
+            listed = LogbookFilterPick(kind: nil, tag: nil)
             let calendar = Calendar.autoupdatingCurrent
             let inPeriod = logbook.entries.contains {
                 data.domain.contains($0.timestamp) && calendar.isDate($0.timestamp, inSameDayAs: d)
@@ -370,17 +411,17 @@ struct LogbookSection: View {
             Spacer(minLength: 0)
         }
         .controlSize(.small)
-        .animation(.smooth(duration: 0.2), value: tagFilter)
     }
 
     private func tagChip(_ t: String) -> some View {
         let selected = tagFilter.map { LogbookTags.key($0) == LogbookTags.key(t) } ?? false
         return Button {
-            tagFilter = selected ? nil : t
+            // The highlight slides to the new tag on a spring; instant under Reduce Motion.
+            DS.animate(.emphasized, reduceMotion: reduceMotion) { tagFilter = selected ? nil : t }
         } label: {
             Label(t, systemImage: LogbookTags.symbol(t))
         }
-        .buttonStyle(ChipButtonStyle(selected: selected, tint: Palette.context))
+        .buttonStyle(ChipButtonStyle(selected: selected, tint: Palette.context, highlight: tagChipSpace))
         .help(selected ? "Show entries with any tag" : "Show only entries tagged \(t)")
         .accessibilityLabel("Tagged \(t)")
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -435,6 +476,8 @@ struct LogbookSection: View {
         filter = l.kindChip
         tagFilter = l.tag
         linked = l.period
+        // Arriving from a card shows its rows straight away, as the iPhone does.
+        listed = LogbookFilterPick(kind: l.kindChip, tag: l.tag)
     }
 
     /// Opened on one entry (the popover's "last logged" line): nothing filtered out, so its row is
@@ -448,6 +491,8 @@ struct LogbookSection: View {
         filter = nil
         tagFilter = nil
         linked = nil
+        // Listed at once, so the selection isn't dropped as a hidden row.
+        listed = LogbookFilterPick(kind: nil, tag: nil)
         selection = [id]
         Task { @MainActor in
             // After the section's cross-fade, so the light is seen.

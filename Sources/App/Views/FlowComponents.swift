@@ -9,15 +9,20 @@ import SwiftUI
 struct ChipButtonStyle: ButtonStyle {
     var selected: Bool = false
     var tint: Color = Palette.brand
+    /// When set, the picked chip's fill and border are one view that slides between the chips
+    /// sharing this namespace (matched geometry) instead of each chip swapping its own. Animate the
+    /// pick for it to slide.
+    var highlight: Namespace.ID? = nil
 
     func makeBody(configuration: Configuration) -> some View {
-        ChipBody(configuration: configuration, selected: selected, tint: tint)
+        ChipBody(configuration: configuration, selected: selected, tint: tint, highlight: highlight)
     }
 
     private struct ChipBody: View {
         let configuration: ButtonStyleConfiguration
         let selected: Bool
         let tint: Color
+        let highlight: Namespace.ID?
         @Environment(\.isEnabled) private var isEnabled
         @State private var hovering = false
 
@@ -29,10 +34,21 @@ struct ChipButtonStyle: ButtonStyle {
                 .padding(.vertical, 5)
                 .foregroundStyle(selected ? AnyShapeStyle(tint) : AnyShapeStyle(Color.primary))
                 .background {
-                    Capsule().fill(selected ? tint.opacity(0.16) : Color.primary.opacity(hovering ? 0.10 : 0.05))
+                    if selected, let highlight {
+                        Capsule().fill(tint.opacity(0.16))
+                            .overlay { Capsule().strokeBorder(tint.opacity(0.55), lineWidth: 0.75) }
+                            .matchedGeometryEffect(id: "chip.highlight", in: highlight)
+                    }
+                }
+                .background {
+                    if !(selected && highlight != nil) {
+                        Capsule().fill(selected ? tint.opacity(0.16) : Color.primary.opacity(hovering ? 0.10 : 0.05))
+                    }
                 }
                 .overlay {
-                    Capsule().strokeBorder(selected ? tint.opacity(0.55) : Color.primary.opacity(0.08), lineWidth: 0.75)
+                    if !(selected && highlight != nil) {
+                        Capsule().strokeBorder(selected ? tint.opacity(0.55) : Color.primary.opacity(0.08), lineWidth: 0.75)
+                    }
                 }
                 .contentShape(Capsule())
                 .opacity(isEnabled ? 1 : 0.45)

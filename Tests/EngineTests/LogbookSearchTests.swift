@@ -214,4 +214,24 @@ final class LogbookSearchTests: XCTestCase {
         XCTAssertFalse(LogbookSearch.offersAllDates(parse(""), filter: .notes, allDates: true))
         XCTAssertFalse(LogbookSearch.offersAllDates(parse(""), filter: nil, allDates: false))
     }
+
+    // MARK: Switching chips
+
+    func testAPickComparesTagsTheWayTagsMatch() {
+        XCTAssertEqual(LogbookFilterPick(kind: .meals, tag: "exercise"), LogbookFilterPick(kind: .meals, tag: " Exercise "))
+        XCTAssertNotEqual(LogbookFilterPick(kind: .meals, tag: nil), LogbookFilterPick(kind: .insulin, tag: nil))
+        XCTAssertNotEqual(LogbookFilterPick(kind: nil, tag: "Sick"), LogbookFilterPick(kind: nil, tag: nil))
+        XCTAssertEqual(LogbookFilterPick(kind: nil, tag: nil), LogbookFilterPick(kind: nil, tag: nil))
+    }
+
+    func testTheSwitchSaysHowManyRowsAreLeft() {
+        XCTAssertEqual(LogbookFilterPick.announcement(count: 0), "No matches")
+        XCTAssertEqual(LogbookFilterPick.announcement(count: 1), "1 entry")
+        XCTAssertEqual(LogbookFilterPick.announcement(count: 12), "12 entries")
+    }
+
+    func testTheFadeIsShorterThanTheHighlightSpring() {
+        // The rows settle before the highlight does, so the eye follows the chip.
+        XCTAssertLessThan(LogbookFilterPick.fadeOut + LogbookFilterPick.fadeIn, 0.5)
+    }
 }
