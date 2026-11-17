@@ -4769,3 +4769,76 @@ and context, `payload->>'timestamp'`), optional samples.json (`[[reading_t, fetc
 relay row's `work->'current'->'t'` and `work->>'lastFetchAt'`).
 
 **Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.
+
+## 68. "Back in range ≈ X min", rechecked: would a calibration help? (17 Nov 2026)
+
+The question: §24's estimate ("Back in range ≈ 20 min", highs only) now has 6 more days of checks. Does
+it still clear its bar, and would a calibration picked on other days beat it on the held-out day, either
+a bias offset (or scale) on the time, or a wider "about" range? The bar was a held-out win without
+promising an earlier return than really happened on the highs that went on to fall low. **No. The
+estimate is doing better than at §24 (typical miss 5.2 minutes, 15 of 19 within 15), and it runs late:
+14 of 19 highs were back before the time shown. An offset learned held out (about 3 minutes earlier)
+halves the median miss but barely moves the mean (12.8 → 12.3), wins on 11 checks and loses on 8, is
+worse on 2 of 6 held-out days, and turns 4 more calls into "back sooner than it was", 2 of them on falls
+that went on under 70. A ±80% range covered only 14 of 19 held out at ±11 minutes. Nothing shipped; no
+app or relay code changed, so the relay stays 2.17.0.**
+
+Nothing here touches dosing, the insulin or carb effects, the alerts, `web/`, post-meal peaks or
+sensor-day ranges. Lows still get no estimate (§24 rule 1), and nothing below changes that.
+
+**The data.** §24's query (unchanged rules: estimate from the stored, shown points with the start at 0;
+actual = first live reading at 70–180 whose next reading within 20 minutes is too, up to 6 hours on),
+plus the logbook count in the 3 hours after the forecast and the lowest reading in those 3 hours.
+`glucos.forecast_checks` now has 222 forecasts that started above 180 (12 Nov 15:08 – 18 Nov 00:36
+Perth), up from 102. 19 came back within their drawn points and have an actual return (13 from §24,
+which this reproduces exactly: 5.8 / 17.6 / 9 of 13; and 6 new, 16–17 Nov).
+
+| | Checks | Typical miss (median) | Mean miss | Within 15 min | Back before the estimate |
+|---|---|---|---|---|---|
+| All | 19 | **5.2 min** | 12.8 min | 15 of 19 | 14 |
+| New since §24 (16–17 Nov) | 6 | 2.0 min | 2.3 min | 6 of 6 | 6 |
+| Nothing logged within 3 h | 13 | 4.8 min | 6.8 min | 11 of 13 | 10 |
+| Something logged | 6 | 6.5 min | 25.7 min | 4 of 6 | 4 |
+| Mac / iPhone / relay | 11 / 5 / 3 | 4.1 / 7.4 / 4.8 min | 12.2 / 19.6 / 3.5 | 9 / 3 / 3 | 9 / 2 / 3 |
+
+The two 80-minute misses are still §24's 14 Nov 21:33/21:36 pair with food logged after. Five of the 19
+highs dropped under 70 within 3 hours (lowest 43 mg/dL, 17 Nov 21:19, "≈ 12 min", back in 12); on all
+five the shipped estimate was at or after the real return, never before it.
+
+**The test.** `scripts/back-in-range-calibration.py`, leave one Perth day out (6 folds, 2–4 checks
+each). Each candidate is picked on the other five days and scored on the held-out one:
+
+| Candidate (held out) | Picked on other days | Median miss | Mean miss | Within 15 | Back later than shown |
+|---|---|---|---|---|---|
+| Shipped | | 5.2 min | 12.8 min | 15 of 19 | 5 |
+| Offset: + median(actual − estimate) | −2.4 to −3.7 min | 2.8 min | 12.3 min | 15 of 19 | 9 |
+| Scale: × median(actual ÷ estimate) | 0.66–0.78 | 3.5 min | 12.7 min | 14 of 19 | |
+| Range: ± 80th-percentile miss | ±7.4 to ±16.3 min | covered 14 of 19 (74%), typical ±11.4 min | | | |
+
+- **The offset's win is small and on the wrong side.** Per held-out day the mean miss went 6.5 → 4.1,
+  10.6 → 11.8, 37.0 → 37.0, 8.9 → 7.7, 3.1 → 1.7, 0.6 → 2.7. It helps only where the miss was already
+  a few minutes, and the big misses (food logged after) are untouched, so the mean barely moves and the
+  within-15 count doesn't move at all. It trades the estimate's late lean, which §24 called the safer
+  side for a high, for more calls that are too early: 5 → 9 of 19, including 15 Nov 19:47 and
+  17 Nov 21:19, both falls to under 70.
+- **Scaling is worse**: one more check outside 15 minutes.
+- **The range doesn't hold its 8 in 10** held out (74%), and at about ±11 minutes on estimates that
+  are mostly under 15 it would read "≈ 0–25 min", which says less than the single time does.
+- **The gate is fine as it is.** §24 asked to add a within-15 share to the gate if it stayed under
+  7 in 10; it's now 15 of 19 (79%), so that isn't needed. The relay has 3 checks of its own (needs 5),
+  so relay-sent Lock Screen cards still don't show it.
+
+**Decision.** Keep `BackInRange` as it is: the time where the drawn line crosses the high threshold,
+no offset, no range, each device's gate at ≥5 checks and median ≤15 minutes. Don't re-propose an
+earlier offset on these grounds; a late lean of 3 minutes on an "≈" is the right side to be on.
+**Retest ~3 Dec** (with §24's planned rerun): if there are 40+ checks across 2+ weeks and an offset
+still wins held out on the mean, not just the median, without more calls coming back later than shown
+on highs that fell under 70, reconsider. Look again at whether the relay has reached 5 checks.
+
+To rerun: §24's query with two more columns per row, `(select count(*) from glucos.logbook l where
+to_timestamp((l.payload->>'timestamp')::float) between f.issued_at and f.issued_at + interval '3 hours')`
+and the lowest `rd.mgdl` in the 3 hours after `f.issued_at`, saved as a JSON list of
+`[device, "MM-DD HH:MM" Perth, basis, estimate, actual, logged, settled, lowest]`, then
+`python3 scripts/back-in-range-calibration.py rows.json`.
+
+**Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.

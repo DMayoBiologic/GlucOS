@@ -87,6 +87,10 @@ struct LogbookSection: View {
     @State private var pendingJump: LogbookJumpRequest?
     /// The table's opacity, dipped for the Reduce Motion cross-fade while it moves to a day.
     @State private var tableFade = 1.0
+    /// Days folded down to one line (`LogbookCollapse`), kept on this Mac only.
+    @AppStorage(LogbookCollapse.defaultsKey) private var foldedStored = ""
+    /// The folds in force: the kept ones, and a running search's own (`LogbookFolds`).
+    @State private var folds = LogbookFolds()
     @Environment(\.dashboardPadding) private var padding
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -104,7 +108,13 @@ struct LogbookSection: View {
         // A meal and its insulin logged within 15 minutes show as one line, opening out into the
         // entries (`LogbookGrouping`). Worked out on the rows the chips and search leave.
         let runs = LogbookGrouping.runs(rows, entry: \.entry)
-        let lines = LogbookGrouping.listed(runs, expanded: expandedGroups).map(LogbookTableLine.init)
+        // A folded day shows as one line: its name, bar and how many rows it holds (`LogbookFolding`).
+        let dayCounts = LogbookFolding.counts(rows, timestamp: \.timestamp, isAlert: \.isAlert)
+        let searching = searchingFolds
+        let lines = LogbookFolding.fold(LogbookGrouping.listed(runs, expanded: expandedGroups).map { LogbookTableLine(piece: $0) },
+                                        timestamp: \.timestamp,
+                                        isFolded: { folds.isFolded($0, searching: searching) },
+                                        folded: { LogbookTableLine(folded: $0, count: dayCounts[$0] ?? LogbookDayCount()) })
         let groupMap: [UUID: [UUID]] = Dictionary(uniqueKeysWithValues: lines.compactMap { $0.group.map { ($0.id, $0.ids) } })
         let terms = query.terms
         // The newest line of the day a jump is heading for, once the table lists it.
@@ -162,7 +172,7 @@ struct LogbookSection: View {
                         .opacity(rowsFade)
                 } else {
                     ScrollViewReader { proxy in
-                        table(lines, terms: terms)
+                        table(lines, terms: terms, counts: dayCounts)
                             // Tab reaches the table; ↑ ↓ then move through its rows and Return
                             // opens one, as a double-click does.
                             .keyStop("logbook.table", kind: .native, keeps: [.up, .down, .left, .right])
@@ -184,6 +194,9 @@ struct LogbookSection: View {
         .keyNavigation($keyFocus)
         // ⌘F (a dashboard shortcut, so it also brings this section up) puts the cursor in the search.
         .onAppear {
+            // Folded days come back, except today, which never starts folded.
+            folds = LogbookFolds(kept: LogbookCollapse.restored(foldedStored, now: Date()))
+            foldedStored = folds.kept.stored
             takeFocusRequest(); takeLink(); takeReveal(); takeJumpRequest()
             takeLoggedElsewhere(logbook.entries.filter { data.domain.contains($0.timestamp) }.prefix(40).map(\.id))
         }
@@ -208,6 +221,8 @@ struct LogbookSection: View {
         .onChange(of: kinds) { _, now in
             if let f = filter, f.isListed, !now.contains(f) { filter = nil }
         }
+        // A search starts with every day open; clearing it brings the kept folds back.
+        .onChange(of: searchingFolds) { _, now in if !now { folds.endSearch() } }
         .onChange(of: search) { _, now in
             // "Search All Dates" lasts as long as the search it was pressed for.
             if now.trimmingCharacters(in: .whitespaces).isEmpty, filter == nil, tagFilter == nil { allDates = false }
@@ -283,6 +298,38 @@ struct LogbookSection: View {
             if open { expandedGroups.insert(g.id) } else { expandedGroups.remove(g.id) }
         }
         AccessibilityNotification.Announcement(g.announcement(expanded: open)).post()
+    }
+
+    /// Whether a search is running, so folds are the search's own (`LogbookFolds`).
+    private var searchingFolds: Bool { !search.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    /// Folds a day down to one line or opens it again: the table slides the lines below up (or
+    /// down). Under Reduce Motion it dips out, switches and fades back, so nothing slides. Kept on
+    /// this Mac unless a search is running; VoiceOver hears it once.
+    private func toggleFold(_ start: Date, count: LogbookDayCount) {
+        let id = LogbookCollapse.id(start)
+        let searching = searchingFolds
+        let willFold = !folds.isFolded(id, searching: searching)
+        let apply = {
+            folds.toggle(id, searching: searching)
+            // A folded day's lines leave the selection with the table's own rule (hidden rows
+            // never stay selected), so Delete never reaches them.
+            if !searching { foldedStored = folds.kept.stored }
+        }
+        if reduceMotion {
+            Task { @MainActor in
+                withAnimation(.easeOut(duration: 0.12)) { tableFade = 0 }
+                try? await Task.sleep(for: .milliseconds(130))
+                var quiet = Transaction()
+                quiet.disablesAnimations = true
+                withTransaction(quiet) { apply() }
+                withAnimation(.easeIn(duration: 0.2)) { tableFade = 1 }
+            }
+        } else {
+            withAnimation(DSMotion.emphasized.animation) { apply() }
+        }
+        let spokenDay = DayInRangeText.spokenDay(ClockLabel.day(of: start, now: Date()))
+        LoggedElsewhere.announce(LogbookCollapseText.announcement(day: spokenDay, folded: willFold, count: count))
     }
 
     /// The search field, what it understood ("Since last week ✕") and how much it found, then the
@@ -365,6 +412,9 @@ struct LogbookSection: View {
     /// and the table moves once its rows are in.
     private func jump(to day: Date, shownDays: Set<Date>) {
         showsCalendar = false
+        // A folded day opens, so the table lands on its rows.
+        folds.reopen(LogbookCollapse.id(of: day))
+        foldedStored = folds.kept.stored
         let counts = LogbookCalendar.counts(logbook.entries.map(\.timestamp))
         switch LogbookJump.plan(day: day, shownDays: shownDays, counts: counts) {
         case .scroll(let d):
@@ -567,6 +617,11 @@ struct LogbookSection: View {
         let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
         let runs = LogbookGrouping.runs(LogbookTableRow.merge(logbook.entries, alerts), entry: \.entry)
         if let g = LogbookGrouping.group(containing: id, in: runs) { expandedGroups.insert(g.id) }
+        // Its day folded: open it, so the entry has a line to select.
+        if let entry = logbook.entry(id: id) {
+            folds.reopen(LogbookCollapse.id(of: entry.timestamp))
+            foldedStored = folds.kept.stored
+        }
         selection = [id]
         Task { @MainActor in
             // After the section's cross-fade, so the light is seen.
@@ -660,25 +715,32 @@ struct LogbookSection: View {
         }
     }
 
-    private func table(_ lines: [LogbookTableLine], terms: [String]) -> some View {
+    /// `counts` is what each day holds as listed (entries and alerts), for its fold.
+    private func table(_ lines: [LogbookTableLine], terms: [String], counts: [Date: LogbookDayCount]) -> some View {
         let now = Date()
         let firsts = LogbookDays.firstRows(lines.map { (id: $0.id, timestamp: $0.timestamp) })
         let ranges = dayRanges.figures(readings: data.readings, days: Array(Set(firsts.values)).sorted(),
                                        low: data.lowMgdl, high: data.highMgdl, now: now)
         let groups: [UUID: LogbookGroup] = Dictionary(uniqueKeysWithValues: lines.compactMap { $0.group.map { ($0.id, $0) } })
+        let folded: [UUID: LogbookTableLine.Fold] = Dictionary(uniqueKeysWithValues: lines.compactMap { l in l.fold.map { (l.id, $0) } })
+        let lineDays: [UUID: Date] = Dictionary(lines.map { ($0.id, Calendar.autoupdatingCurrent.startOfDay(for: $0.timestamp)) },
+                                                uniquingKeysWith: { a, _ in a })
         return Table(lines, selection: $selection) {
             // The day's name and time in range on its first (newest) row, like the iPhone's day
             // headers; the rows under it leave the column empty.
             TableColumn("Day") { (l: LogbookTableLine) in
                 if let start = firsts[l.id] {
-                    dayCell(start, range: ranges[start], now: now)
+                    dayCell(start, range: ranges[start], now: now, fold: l.fold,
+                            count: l.fold?.count ?? counts[start] ?? LogbookDayCount())
                 } else {
                     Text("").accessibilityHidden(true)
                 }
             }
             .width(min: 150, ideal: 190)
             TableColumn("Time") { (l: LogbookTableLine) in
-                if let g = l.group {
+                if l.fold != nil {
+                    Text("").accessibilityHidden(true)
+                } else if let g = l.group {
                     Text(g.timeRange { ClockLabel.time($0) })
                         .monospacedDigit()
                         .accessibilityLabel(ClockLabel.dayTime(g.timestamp, now: now))
@@ -691,7 +753,13 @@ struct LogbookSection: View {
             }
             .width(min: 60, ideal: 75)
             TableColumn("Entry") { (l: LogbookTableLine) in
-                if let g = l.group {
+                if let f = l.fold {
+                    // A folded day: how many rows it holds, in place of them.
+                    Text(LogbookCollapseText.count(f.count))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .accessibilityLabel(LogbookCollapseText.spokenCount(f.count))
+                } else if let g = l.group {
                     groupEntryCell(g, expanded: l.expanded)
                 } else if let r = l.row {
                     entryCell(r, terms: terms)
@@ -722,13 +790,18 @@ struct LogbookSection: View {
                 }
             }
                 .width(min: 90, ideal: 130)
-            TableColumn("Glucose") { (l: LogbookTableLine) in glucoseCell(l.timestamp) }
+            TableColumn("Glucose") { (l: LogbookTableLine) in
+                if l.fold != nil { Text("").accessibilityHidden(true) } else { glucoseCell(l.timestamp) }
+            }
                 .width(min: 60, ideal: 70)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
         .contextMenu(forSelectionType: UUID.self) { picked in
             let ids = entries(in: picked)
-            if picked.count == 1, let gid = picked.first, let g = groups[gid] {
+            if picked.count == 1, let fid = picked.first, let f = folded[fid] {
+                // A folded day's line: open it again.
+                Button(LogbookCollapseText.actionName(folded: true)) { toggleFold(f.start, count: f.count) }
+            } else if picked.count == 1, let gid = picked.first, let g = groups[gid] {
                 // A grouped line: open or fold it, and each entry's own actions.
                 Button(expandedGroups.contains(gid) ? "Hide Entries" : "Show Entries") { toggleGroup(g) }
                 Divider()
@@ -755,8 +828,14 @@ struct LogbookSection: View {
                     selection.subtract(picked)
                 }
             }
+            // Any line of one open day can fold it.
+            if picked.count == 1, let id = picked.first, folded[id] == nil, let start = lineDays[id] {
+                Divider()
+                Button(LogbookCollapseText.actionName(folded: false)) { toggleFold(start, count: counts[start] ?? LogbookDayCount()) }
+            }
         } primaryAction: { ids in
             guard ids.count == 1, let id = ids.first else { return }
+            if let f = folded[id] { toggleFold(f.start, count: f.count); return }
             if let g = groups[id] { toggleGroup(g) } else if let entry = logbook.entry(id: id) { open(.edit(entry)) }
         }
         .onDeleteCommand { deleteSelection() }
@@ -799,9 +878,35 @@ struct LogbookSection: View {
     /// once when the row first shows) and the figure. Days without enough readings show the name.
     /// Clicking a day with a bar shows that day's chart in a popover (`DayMiniChart`), the iPhone's
     /// opened day header in Mac form.
-    @ViewBuilder
-    private func dayCell(_ start: Date, range: DayInRange?, now: Date) -> some View {
+    ///
+    /// The chevron before the name folds the day down to this one line, or opens it again
+    /// (`toggleFold`). VoiceOver hears it as its own button: "Tuesday 12 November, Expanded".
+    private func dayCell(_ start: Date, range: DayInRange?, now: Date, fold: LogbookTableLine.Fold?,
+                         count: LogbookDayCount) -> some View {
+        let isFolded = fold != nil
         let day = ClockLabel.day(of: start, now: now)
+        return HStack(spacing: DS.Space.xs) {
+            Button { toggleFold(start, count: count) } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isFolded ? 0 : 90))
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isFolded ? "Show this day's entries" : "Hide this day's entries")
+            .accessibilityLabel(DayInRangeText.spokenDay(day))
+            .accessibilityValue(isFolded
+                ? "\(LogbookCollapseText.spokenState(folded: true)), \(LogbookCollapseText.spokenCount(count))"
+                : LogbookCollapseText.spokenState(folded: false))
+            .accessibilityAction(named: LogbookCollapseText.actionName(folded: isFolded)) { toggleFold(start, count: count) }
+            dayName(start, range: range, day: day)
+        }
+    }
+
+    @ViewBuilder
+    private func dayName(_ start: Date, range: DayInRange?, day: ClockLabel.Day) -> some View {
         let content = HStack(spacing: DS.Space.sm) {
             Text(ClockLabel.dayTitle(day))
                 .fontWeight(.semibold)
@@ -1710,48 +1815,69 @@ struct ResponseCurveChart: View {
 /// One line of the Mac Logbook table once grouped (`LogbookGrouping`): a row as it was, a grouped
 /// line (a meal and its insulin), or one of an opened group's entries under it.
 struct LogbookTableLine: Identifiable {
-    let piece: LogbookListed<LogbookTableRow>
+    /// A day folded down to one line (`LogbookCollapse`): its local midnight and what it holds.
+    struct Fold {
+        let start: Date
+        let count: LogbookDayCount
+    }
+
+    /// The row, group or member; nil on a folded day's line.
+    let piece: LogbookListed<LogbookTableRow>?
+    let fold: Fold?
+
+    init(piece: LogbookListed<LogbookTableRow>) {
+        self.piece = piece
+        self.fold = nil
+    }
+
+    init(folded start: Date, count: LogbookDayCount) {
+        self.piece = nil
+        self.fold = Fold(start: start, count: count)
+    }
 
     /// An entry's line keeps the entry's id, alone or under its group, so selection follows it.
+    /// A folded day's line has its own id per day (`LogbookFolding.lineID`).
     var id: UUID {
         switch piece {
-        case .row(let r): return r.id
-        case .group(let g, _): return g.id
-        case .member(let e, _): return e.id
+        case .row(let r)?: return r.id
+        case .group(let g, _)?: return g.id
+        case .member(let e, _)?: return e.id
+        case nil: return LogbookFolding.lineID(fold?.start ?? .distantPast)
         }
     }
 
     var timestamp: Date {
         switch piece {
-        case .row(let r): return r.timestamp
-        case .group(let g, _): return g.timestamp
-        case .member(let e, _): return e.timestamp
+        case .row(let r)?: return r.timestamp
+        case .group(let g, _)?: return g.timestamp
+        case .member(let e, _)?: return e.timestamp
+        case nil: return fold?.start ?? .distantPast
         }
     }
 
-    /// The row to draw with the usual cells: everything but a grouped line.
+    /// The row to draw with the usual cells: everything but a grouped or folded line.
     var row: LogbookTableRow? {
         switch piece {
-        case .row(let r): return r
-        case .group: return nil
-        case .member(let e, _): return .entry(e)
+        case .row(let r)?: return r
+        case .group?, nil: return nil
+        case .member(let e, _)?: return .entry(e)
         }
     }
 
     var entry: LogEntry? { row?.entry }
 
     var group: LogbookGroup? {
-        if case .group(let g, _) = piece { return g }
+        if case .group(let g, _)? = piece { return g }
         return nil
     }
 
     var expanded: Bool {
-        if case .group(_, let open) = piece { return open }
+        if case .group(_, let open)? = piece { return open }
         return false
     }
 
     var isMember: Bool {
-        if case .member = piece { return true }
+        if case .member? = piece { return true }
         return false
     }
 
