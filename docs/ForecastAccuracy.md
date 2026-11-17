@@ -4477,8 +4477,8 @@ the best on the other six days is scored on the day left out.
 **What ships today.** 23 of 27 highs warned, median 6 / mean 11.2 minutes ahead, 7 false alarms in
 32 alerts. The lead setting changes nothing on the drawn forecast (15 to 30 all score the same),
 because on most relay ticks only 15 minutes is drawn, so the 30-minute cap is really 15, the same
-thing §13 found for lows. The 4 highs not warned rose from a flat or falling start (trend under the
-gate) and peaked 198–335.
+thing §13 found for lows. The 4 highs not warned peaked 198–335; no setting in the grid warned any
+more of them (warned stays 23 everywhere but the stricter gates).
 
 | In sample (all 7 days) | warned | median / mean lead | alerts | false alarms | score |
 |---|---|---|---|---|---|
