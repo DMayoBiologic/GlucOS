@@ -23,6 +23,9 @@ struct HighsCardView: View {
     @State private var shownKey: HighsSummaryCache.Key?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
+    /// "Compare to previous period" (docs/InsightsCompare.md) and the period before, while it's on.
+    @AppStorage(InsightsCompare.storageKey) private var compare = false
+    @State private var previous: HighsSummary?
 
     private var period: HighsSummary.Period { HighsSummary.Period(rawValue: periodDays) ?? .fortnight }
     /// "10.0 mmol/L".
@@ -73,6 +76,22 @@ struct HighsCardView: View {
             }
             shownKey = key
         }
+        // The period before, only while the switch is on: worked out off the main thread once per
+        // new figure, and nothing extra shows when it lacks readings.
+        .task(id: compare ? value : nil) {
+            guard compare, let current = value else { previous = nil; return }
+            let readings = readings, high = highMgdl
+            let new = await Task.detached(priority: .utility) {
+                InsightsCompare.previousHighs(readings: readings, high: high, current: current)
+            }.value
+            DS.animate(.standard, reduceMotion: reduceMotion) { previous = new }
+        }
+    }
+
+    /// The period before, when the switch is on and it had enough readings.
+    private func before(_ s: HighsSummary) -> HighsSummary? {
+        guard compare, let previous, previous.period == s.period else { return nil }
+        return previous
     }
 
     @ViewBuilder
@@ -85,9 +104,15 @@ struct HighsCardView: View {
                 StatTile("Time above", value: HighsSummaryText.percent(s.timeAbove),
                          caption: HighsSummaryText.perDayCaption(s),
                          tone: s.timeAbove > 0 ? .glucose(.high) : .neutral,
-                         rolling: .init(s.timeAbove) { HighsSummaryText.percent($0) })
+                         rolling: .init(s.timeAbove) { HighsSummaryText.percent($0) }) {
+                    InsightsDeltaBadge(delta: InsightsCompare.timeAbove(s, before(s)),
+                                       previous: InsightsCompare.previousPhrase(days: s.period.days))
+                }
                 StatTile("Highs", value: HighsSummaryText.countValue(s.count),
-                         rolling: .init(Double(s.count), order: 1) { HighsSummaryText.countValue(Int($0.rounded())) })
+                         rolling: .init(Double(s.count), order: 1) { HighsSummaryText.countValue(Int($0.rounded())) }) {
+                    InsightsDeltaBadge(delta: InsightsCompare.highs(s, before(s)),
+                                       previous: InsightsCompare.previousPhrase(days: s.period.days))
+                }
                 if let longest = s.longest {
                     StatTile("Longest", value: LowsSummaryText.duration(longest.minutes),
                              rolling: .init(longest.minutes, order: 2) { LowsSummaryText.duration($0) })
@@ -111,7 +136,10 @@ struct HighsCardView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(HighsSummaryText.title)
         .accessibilityValue([HighsSummaryText.spoken(s, highLine: highLine, peak: peak),
-                             InsightsSparkline.highs(s).spokenLine(label: HighsSummaryText.sparklineLabel)]
+                             InsightsSparkline.highs(s).spokenLine(label: HighsSummaryText.sparklineLabel),
+                             InsightsCompare.spoken([("Time above", InsightsCompare.timeAbove(s, before(s))),
+                                                     ("Highs", InsightsCompare.highs(s, before(s)))],
+                                                    previous: InsightsCompare.previousPhrase(days: s.period.days))]
             .compactMap { $0 }.joined(separator: " "))
         // The figures open the Logbook too, not just the row under them. The period picker stays
         // its own control.

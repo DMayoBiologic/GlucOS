@@ -116,6 +116,15 @@ struct PhoneInsightsView: View {
                                          padding: DS.Space.lg)
                         .dsEntrance(0)
                 }
+                if !visible.isEmpty {
+                    // Each card with a period shows how its figures moved from the period before
+                    // (docs/InsightsCompare.md).
+                    InsightsCompareToggle()
+                        .dsFont(.callout)
+                        .tint(Palette.brand)
+                        .dsCard(.standard, padding: DS.Space.md)
+                        .dsEntrance(0)
+                }
                 ForEach(Array(visible.enumerated()), id: \.element) { i, card in
                     view(for: card)
                         .dsEntrance(i)

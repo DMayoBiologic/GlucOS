@@ -645,11 +645,32 @@ struct PhoneGlanceCard: View {
     /// Each of the last 14 days' time in range, worked out off the main thread once per 15 minutes
     /// of new readings or a new target range.
     @State private var trend: InsightsSparkline?
+    /// "Compare to previous period" (docs/InsightsCompare.md) and the window before, while it's on.
+    @AppStorage(InsightsCompare.storageKey) private var compare = false
+    @State private var previous: (window: GlanceWindow, stats: GlucoseStats)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct TrendKey: Hashable {
         let slot: Int
         let low: Double
         let high: Double
+    }
+
+    private struct PreviousKey: Hashable {
+        let trend: TrendKey
+        let window: GlanceWindow
+        let compare: Bool
+    }
+
+    private var trendKey: TrendKey {
+        TrendKey(slot: Int((store.archive.last?.timestamp.timeIntervalSince1970 ?? 0) / 900),
+                 low: store.snapshot.lowMgdl, high: store.snapshot.highMgdl)
+    }
+
+    /// The window before, when the switch is on and it had enough readings.
+    private var before: GlucoseStats? {
+        guard compare, let previous, previous.window == window else { return nil }
+        return previous.stats
     }
 
     var body: some View {
@@ -665,7 +686,12 @@ struct PhoneGlanceCard: View {
                 }
             }
             if let stats = store.glanceStats(window) {
-                GlanceStatsContent(stats: stats, unit: store.snapshot.unit)
+                GlanceStatsContent(stats: stats, unit: store.snapshot.unit,
+                                   rangeDelta: InsightsCompare.glanceRange(stats, before),
+                                   averageDelta: InsightsCompare.glanceAverage(stats, before, unit: store.snapshot.unit,
+                                                                               low: store.snapshot.lowMgdl,
+                                                                               high: store.snapshot.highMgdl),
+                                   previous: InsightsCompare.previousPhrase(hours: window.hours))
                 if let trend {
                     InsightsSparklineView(series: trend, tint: GlucoseRange.inRange.tint,
                                           label: InsightsSparkline.timeInRangeLabel)
@@ -677,8 +703,18 @@ struct PhoneGlanceCard: View {
             }
         }
         .dsCard(.standard, padding: DS.Space.lg)
-        .task(id: TrendKey(slot: Int((store.archive.last?.timestamp.timeIntervalSince1970 ?? 0) / 900),
-                           low: store.snapshot.lowMgdl, high: store.snapshot.highMgdl)) {
+        // The window before, only while the switch is on: once per 15 minutes of readings or a new
+        // window, off the main thread.
+        .task(id: PreviousKey(trend: trendKey, window: window, compare: compare)) {
+            guard compare else { previous = nil; return }
+            let archive = store.archive, hours = window.hours, now = Date(), shown = window
+            let low = store.snapshot.lowMgdl, high = store.snapshot.highMgdl
+            let new = await Task.detached(priority: .utility) {
+                InsightsCompare.previousGlance(readings: archive, hours: hours, now: now, low: low, high: high)
+            }.value
+            DS.animate(.standard, reduceMotion: reduceMotion) { previous = new.map { (window: shown, stats: $0) } }
+        }
+        .task(id: trendKey) {
             let readings = store.readings(lastHours: 15 * 24)
             let low = store.snapshot.lowMgdl, high = store.snapshot.highMgdl
             let new = await Task.detached(priority: .utility) {
@@ -694,6 +730,11 @@ struct PhoneGlanceCard: View {
 struct GlanceStatsContent: View {
     let stats: GlucoseStats
     let unit: GlucoseUnit
+    /// Time in range and the average against the window before, while "Compare to previous period"
+    /// is on and that window had enough readings (docs/InsightsCompare.md).
+    var rangeDelta: InsightsDelta? = nil
+    var averageDelta: InsightsDelta? = nil
+    var previous: String = ""
     @Environment(\.figuresCountUp) private var countsUp
 
     var body: some View {
@@ -703,7 +744,9 @@ struct GlanceStatsContent: View {
                     .frame(width: 112, height: 112)
                 VStack(alignment: .leading, spacing: DS.Space.sm) {
                     StatTile("Average", value: unit.format(mgdl: stats.meanMgdl), unit: unit.label,
-                             rolling: .init(stats.meanMgdl) { unit.format(mgdl: $0) })
+                             rolling: .init(stats.meanMgdl) { unit.format(mgdl: $0) }) {
+                        InsightsDeltaBadge(delta: averageDelta, spokenLabel: "Average", previous: previous)
+                    }
                     DSAccessibleStack(spacing: DS.Space.lg) {
                         StatTile("GMI", value: String(format: "%.1f", stats.gmiPercent), unit: "%",
                                  rolling: .init(stats.gmiPercent) { String(format: "%.1f", $0) })
@@ -714,6 +757,7 @@ struct GlanceStatsContent: View {
                 }
             }
             TimeInRangeBar(stats: stats, drawsIn: countsUp)
+            InsightsDeltaBadge(delta: rangeDelta, label: "In range", previous: previous)
             // Spread across the card; one per line at the accessibility text sizes.
             ViewThatFits(in: .horizontal) {
                 HStack {

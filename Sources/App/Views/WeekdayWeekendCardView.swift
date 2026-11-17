@@ -24,6 +24,9 @@ struct WeekdayWeekendCardView: View {
     @State private var shownKey: WeekdayWeekendCache.Key?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
+    /// "Compare to previous period" (docs/InsightsCompare.md) and the period before, while it's on.
+    @AppStorage(InsightsCompare.storageKey) private var compare = false
+    @State private var previous: WeekdayWeekend?
 
     private var period: WeekdayWeekend.Period { WeekdayWeekend.Period(rawValue: periodDays) ?? .fortnight }
     /// "3.9 mmol/L".
@@ -72,6 +75,23 @@ struct WeekdayWeekendCardView: View {
             }
             shownKey = key
         }
+        // The period before, only while the switch is on: worked out off the main thread once per
+        // new figure. A side shows nothing extra when it lacked days before.
+        .task(id: compare ? value : nil) {
+            guard compare, let current = value else { previous = nil; return }
+            let readings = readings, low = lowMgdl, high = highMgdl
+            let new = await Task.detached(priority: .utility) {
+                InsightsCompare.previousWeekPart(readings: readings, low: low, high: high, current: current)
+            }.value
+            DS.animate(.standard, reduceMotion: reduceMotion) { previous = new }
+        }
+    }
+
+    /// A side's time in range against the period before, when the switch is on and that side had
+    /// enough days.
+    private func rangeDelta(_ side: WeekdayWeekend.Side, _ w: WeekdayWeekend) -> InsightsDelta? {
+        guard compare, let previous, previous.period == w.period else { return nil }
+        return InsightsCompare.weekPartRange(side, w, previous)
     }
 
     @ViewBuilder
@@ -108,6 +128,8 @@ struct WeekdayWeekendCardView: View {
                             caption: WeekdayWeekendText.caption(s), tone: .glucose(.inRange), boxed: true,
                             rolling: .init(s.timeInRange, order: side == .weekdays ? 0 : 1) { WeekdayWeekendText.percent($0) }) {
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                InsightsDeltaBadge(delta: rangeDelta(side, w),
+                                   previous: InsightsCompare.previousPhrase(days: w.period.days))
                 Text("Average \(WeekdayWeekendText.average(s, unit: unit))")
                 HStack(spacing: DS.Space.xs) {
                     Text(WeekdayWeekendText.lows(s))
@@ -128,7 +150,10 @@ struct WeekdayWeekendCardView: View {
             .disabled(openLogbook == nil)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(side.title)
-            .accessibilityValue(WeekdayWeekendText.spoken(side, w, lowLine: lowLine, unit: unit))
+            .accessibilityValue([WeekdayWeekendText.spoken(side, w, lowLine: lowLine, unit: unit),
+                                 InsightsCompare.spoken([("Time in range", rangeDelta(side, w))],
+                                                        previous: InsightsCompare.previousPhrase(days: w.period.days))]
+                .compactMap { $0 }.joined(separator: " "))
             .accessibilityHint(openLogbook == nil ? "" : WeekdayWeekendText.logbookHint(side))
     }
 
