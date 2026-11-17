@@ -68,6 +68,7 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 - **Changing your target range**: the chart's band glides to the new range and the time-in-range figures roll to their new values.
 - **Repeating or removing an entry**: right-click a Logbook row for "Log Again Now", which copies it to the current time exactly as logged, or Delete, which you can undo with ⌘Z.
 - **Yesterday's line**: right-click the chart (or turn it on in Settings) for a faint line of yesterday's readings at the same time of day, to compare against today.
+- **Typing amounts**: in the log sheet, each digit you type rolls into place, so you can see the number change as you enter it (instant with Reduce Motion on).
 - **Moving into or out of range**: the reading in the popover gets one brief colour wash as it crosses your target range. The wash only fires once the reading has been at least 5 mg/dL (0.3 mmol/L) inside its side before it crosses: with a low of 70, readings of 72 then 69 give no wash, but 75 then 69 do. So it won't repeat while you hover at the edge, and there's no wash with Reduce Motion on.
 - **Dashboard** (⌘D in the popover, or the expand button on the chart): a resizable window with
   - an interactive chart from 3 hours to 30 days: hover for any reading (with its 15-minute change),
