@@ -13,6 +13,7 @@ struct SettingsView: View {
     @EnvironmentObject var logbook: LogbookStore
 
     @AppStorage("settingsTab") private var tab: Tab = .general
+    @StateObject private var search = SettingsSearchModel()
 
     var body: some View {
         TabView(selection: $tab) {
@@ -38,6 +39,12 @@ struct SettingsView: View {
         // Resizable: the window opens at a comfortable size, can grow for long lists (presets,
         // alerts) and shrink to a laptop-friendly minimum without clipping a Form.
         .frame(minWidth: 500, idealWidth: 580, maxWidth: 860, minHeight: 420, idealHeight: 600, maxHeight: .infinity)
+        // Search (docs/SettingsSearch.md): every tab has the field; a result on another tab switches
+        // to it, then that tab scrolls to the row.
+        .environment(\.settingsSearch, search)
+        .onChange(of: search.pendingJump) { _, item in
+            if let item, let target = item.tab.flatMap(Tab.init(rawValue:)), target != tab { tab = target }
+        }
         .onAppear {
             // Send someone with a broken connection straight to where they can fix it.
             if !settings.hasCredentials || store.connectionProblem != nil { tab = .account }
@@ -58,17 +65,23 @@ private struct GeneralSettingsTab: View {
         Form {
             Section {
                 Toggle("Show change since last reading", isOn: $settings.showDeltaInMenuBar)
+                    .settingsAnchor(.menuBarDelta)
                 Toggle("Colour the reading by range", isOn: $settings.colorMenuBarIcon)
+                    .settingsAnchor(.menuBarColour)
                 Toggle("Show the last hour as a sparkline", isOn: $settings.showMenuBarSparkline)
+                    .settingsAnchor(.menuBarSparkline)
                 Picker("Popover chart", selection: $settings.chartHours) {
                     Text("Last 3 hours").tag(3)
                     Text("Last 6 hours").tag(6)
                     Text("Last 12 hours").tag(12)
                     Text("Last 24 hours").tag(24)
                 }
+                .settingsAnchor(.popoverChart)
                 Toggle("Show the forecast on the popover chart", isOn: $settings.showForecast)
+                    .settingsAnchor(.showForecast)
                 Toggle("Show yesterday's line on the popover chart", isOn: $settings.showYesterdayLine)
                     .help("A faint grey line of yesterday's readings at the same time of day. Right-click the chart to turn it on or off.")
+                    .settingsAnchor(.showYesterday)
             } header: {
                 Text("Menu Bar")
             } footer: {
@@ -78,6 +91,7 @@ private struct GeneralSettingsTab: View {
 
             Section {
                 TextSizePicker()
+                    .settingsAnchor(.textSize)
             } header: {
                 Text("Appearance")
             }
@@ -86,6 +100,7 @@ private struct GeneralSettingsTab: View {
                 // A binding rather than onChange: the toggle only ever reflects the service's real
                 // state, and correcting it never re-runs register/unregister.
                 Toggle("Launch at login", isOn: Binding(get: { launchAtLogin }, set: { setLaunchAtLogin($0) }))
+                    .settingsAnchor(.launchAtLogin)
                 if let loginError {
                     StatusBanner(severity: .warning, title: "Launch at login needs attention", message: loginError,
                                  onDismiss: { self.loginError = nil }, density: .compact)
@@ -103,17 +118,20 @@ private struct GeneralSettingsTab: View {
                     Text("Right-click the desktop → Edit Widgets → “GlucOS”")
                         .foregroundStyle(.secondary)
                 }
+                .settingsAnchor(.desktopWidget)
                 LabeledContent("Setup assistant") {
                     Button("Run Setup Again…") {
                         openWindow(id: OnboardingView.windowID)
                         NSApp.activate()
                     }
                 }
+                .settingsAnchor(.setupAssistant)
             } header: {
                 Text("Getting Started")
             }
         }
         .formStyle(.grouped)
+        .settingsSearchPage(.general)
         // Approval for a login item happens in System Settings, so pick up the result on return.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             let enabled = SMAppService.mainApp.status == .enabled
@@ -181,6 +199,7 @@ private struct AccountSettingsTab: View {
                 TextField("Email", text: $email, prompt: Text("follower@example.com"))
                     .textContentType(.username)
                     .autocorrectionDisabled()
+                    .settingsAnchor(.account)
                 LabeledContent("Password") {
                     HStack(spacing: 6) {
                         Group {
@@ -228,6 +247,7 @@ private struct AccountSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .settingsSearchPage(.account)
         .onAppear {
             email = settings.email
             password = settings.password
@@ -382,11 +402,13 @@ private struct GlucoseSettingsTab: View {
                     ForEach(GlucoseUnit.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .settingsAnchor(.units)
             }
 
             Section {
                 TargetRangeEditor(settings: settings, readingMgdl: freshMgdl, previewReadings: store.archive)
                     .padding(.vertical, 4)
+                    .settingsAnchor(.targetRange)
             } header: {
                 Text("Target Range")
             } footer: {
@@ -395,6 +417,7 @@ private struct GlucoseSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .settingsSearchPage(.glucose)
     }
 }
 
@@ -416,6 +439,7 @@ private struct AlertSettingsTab: View {
         Form {
             Section {
                 Toggle("Glucose alerts", isOn: $settings.alertsEnabled)
+                    .settingsAnchor(.alerts)
                 LabeledContent("macOS notifications") {
                     HStack(spacing: 6) {
                         switch notificationsAllowed {
@@ -438,6 +462,7 @@ private struct AlertSettingsTab: View {
                         }
                     }
                 }
+                .settingsAnchor(.notifications)
                 if notificationsAllowed == false && settings.alertsEnabled {
                     StatusBanner(severity: .critical, systemImage: "bell.slash.fill",
                                  title: "Alerts can't reach you",
@@ -452,6 +477,7 @@ private struct AlertSettingsTab: View {
                     Button("Send Test Alert") { store.alerts.sendTest() }
                         .disabled(notificationsAllowed != true)
                 }
+                .settingsAnchor(.testAlert)
             } footer: {
                 Text("These supplement, never replace, the alarms on your phone.")
                     .foregroundStyle(.secondary)
@@ -460,10 +486,12 @@ private struct AlertSettingsTab: View {
             Section {
                 AlertRow(title: "Urgent low", detail: "Below \(u.format(mgdl: 54, withUnit: true)). Repeats every 5 minutes.",
                          tint: GlucoseRange.urgentLow.tint, isOn: nil)
+                    .settingsAnchor(.lowAlerts)
                 AlertRow(title: "Low", detail: "Below \(u.format(mgdl: settings.lowMgdl, withUnit: true))",
                          tint: GlucoseRange.low.tint, isOn: nil)
                 AlertRow(title: "High", detail: "Above \(u.format(mgdl: settings.highMgdl, withUnit: true))",
                          tint: GlucoseRange.high.tint, isOn: $settings.alertOnHigh)
+                    .settingsAnchor(.highAlert)
                 AlertRow(title: "Very high", detail: "Above \(u.format(mgdl: 250, withUnit: true))",
                          tint: GlucoseRange.veryHigh.tint, isOn: nil)
             } header: {
@@ -482,14 +510,17 @@ private struct AlertSettingsTab: View {
             Section {
                 AlertRow(title: "Low predicted", detail: "When the forecast goes below \(u.format(mgdl: settings.lowMgdl, withUnit: true)), or urgent low, within the time below",
                          tint: GlucoseRange.low.tint, systemImage: "arrow.down.forward.and.arrow.up.backward", isOn: $settings.alertOnPredictedLow)
+                    .settingsAnchor(.predictedLows)
                 AlertRow(title: "High predicted", detail: settings.alertOnHigh
                             ? "When the forecast goes above \(u.format(mgdl: settings.highMgdl, withUnit: true)) or very high"
                             : "When the forecast goes above \(u.format(mgdl: 250, withUnit: true)) (high alerts are off)",
                          tint: GlucoseRange.high.tint, systemImage: "arrow.up.forward", isOn: $settings.alertOnPredictedHigh)
+                    .settingsAnchor(.predictedHighs)
                 Picker("Warn me up to", selection: $settings.predictiveAlertMinutes) {
                     ForEach([10, 15, 20, 30], id: \.self) { m in Text("\(m) minutes ahead").tag(m) }
                 }
                 .disabled(!settings.alertOnPredictedLow && !settings.alertOnPredictedHigh)
+                .settingsAnchor(.warnAhead)
             } header: {
                 Text("Forecast")
             } footer: {
@@ -501,16 +532,20 @@ private struct AlertSettingsTab: View {
             Section {
                 AlertRow(title: "Rising or falling quickly", detail: "When the trend arrow points steeply up or down",
                          tint: Palette.brand, systemImage: "arrow.up.right", isOn: $settings.alertOnRapidChange)
+                    .settingsAnchor(.rapidAlert)
                 AlertRow(title: "No recent data", detail: "No reading for more than 6 minutes",
                          tint: Palette.stale, systemImage: "antenna.radiowaves.left.and.right.slash", isOn: $settings.alertOnStale)
+                    .settingsAnchor(.staleAlert)
                 AlertRow(title: "Sensor expiring", detail: "Less than 24 hours left on the sensor",
                          tint: BannerSeverity.warning.tint, systemImage: "sensor.tag.radiowaves.forward", isOn: $settings.alertOnSensorExpiry)
+                    .settingsAnchor(.sensorEndingAlert)
                 Picker("Repeat an ongoing alert every", selection: $settings.alertCooldownMinutes) {
                     ForEach(Self.cooldownChoices, id: \.self) { m in Text(m < 60 ? "\(m) minutes" : m == 60 ? "1 hour" : "\(LogFormat.number(Double(m) / 60)) hours").tag(m) }
                     if !Self.cooldownChoices.contains(settings.alertCooldownMinutes) {
                         Text("\(settings.alertCooldownMinutes) minutes").tag(settings.alertCooldownMinutes)
                     }
                 }
+                .settingsAnchor(.alertRepeat)
             } header: {
                 Text("Also Notify Me About")
             } footer: {
@@ -524,6 +559,7 @@ private struct AlertSettingsTab: View {
                     .onChange(of: settings.eveningRecapEnabled) { _, on in
                         if on { store.alerts.requestAuthorization() }
                     }
+                    .settingsAnchor(.eveningRecap)
                 DatePicker("Time", selection: settings.eveningRecapTime, displayedComponents: .hourAndMinute)
                     .disabled(!settings.eveningRecapEnabled)
             } header: {
@@ -534,6 +570,7 @@ private struct AlertSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .settingsSearchPage(.alerts)
         .task { await refreshNotificationStatus() }
         // Pick up a change made in System Settings when the user comes back.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -597,6 +634,7 @@ private struct LogbookSyncSection: View {
     var body: some View {
         Section {
             Toggle("Sync logbook with your other devices", isOn: $sync.enabled)
+                .settingsAnchor(.syncLogbook)
             if sync.enabled {
                 LabeledContent("Status") {
                     HStack(spacing: DS.Space.xs) {
@@ -640,6 +678,7 @@ private struct LoggingSettingsTab: View {
                     if settings.therapy == .notSet { Text("Choose…").tag(TherapyType.notSet) }
                     ForEach([TherapyType.injections, .pump, .noInsulin]) { Label($0.title, systemImage: $0.systemImage).tag($0) }
                 }
+                .settingsAnchor(.therapy)
             } header: {
                 Text("How You Take Insulin")
             } footer: {
@@ -662,6 +701,7 @@ private struct LoggingSettingsTab: View {
                         Spacer()
                         Button(logbook.bolusSettings?.isConfirmed == true ? "Edit…" : "Set Up…") { editingBolus = true }
                     }
+                    .settingsAnchor(.bolus)
                 } header: {
                     Text("Bolus Calculator")
                 } footer: {
@@ -704,6 +744,7 @@ private struct LoggingSettingsTab: View {
                 }
             } header: {
                 Text("Quick-Add Presets")
+                    .settingsAnchor(.presets)
             } footer: {
                 if !logbook.presets.isEmpty {
                     Text("Drag to reorder. Presets only repeat amounts you entered yourself.")
@@ -719,6 +760,9 @@ private struct LoggingSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .settingsSearchPage(.logging) { anchor in
+            anchor == .insulins || anchor == .bolus ? settings.therapy.logsInsulin : true
+        }
         .sheet(isPresented: $editingBolus) {
             BolusSettingsEditor(current: logbook.bolusSettings) { editingBolus = false }
                 .frame(minWidth: 480, idealWidth: 540, minHeight: 520, idealHeight: 640)
@@ -759,7 +803,9 @@ private struct AdvancedSettingsTab: View {
                         Text("Every \(settings.pollIntervalSeconds) seconds").tag(settings.pollIntervalSeconds)
                     }
                 }
+                .settingsAnchor(.pollInterval)
                 Stepper("Sensor lifetime: \(settings.sensorLifetimeDays) days", value: $settings.sensorLifetimeDays, in: 10...15)
+                    .settingsAnchor(.sensorLifetime)
                 LabeledContent("Client version") {
                     HStack {
                         TextField("Client version", text: $settings.clientVersion)
@@ -769,6 +815,7 @@ private struct AdvancedSettingsTab: View {
                         Button("Apply") { store.reconnect() }
                     }
                 }
+                .settingsAnchor(.clientVersion)
             } header: {
                 Text("Connection")
             } footer: {
@@ -777,6 +824,7 @@ private struct AdvancedSettingsTab: View {
             }
             Section("Updates") {
                 LabeledContent("Version", value: updater.version)
+                    .settingsAnchor(.updates)
                 LabeledContent {
                     Button("Check for Updates…") { updater.checkForUpdates() }
                         .disabled(!updater.canCheck)
@@ -791,6 +839,7 @@ private struct AdvancedSettingsTab: View {
             }
             Section {
                 DiagnosticsToggle()
+                    .settingsAnchor(.diagnostics)
                 LabeledContent("Status", value: store.statusLine)
                 LabeledContent("Data folder") {
                     HStack {
@@ -804,6 +853,7 @@ private struct AdvancedSettingsTab: View {
                         }
                     }
                 }
+                .settingsAnchor(.dataFolder)
                 LabeledContent("Session") {
                     Button("Reconnect") { store.reconnect() }
                 }
@@ -815,6 +865,7 @@ private struct AdvancedSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .settingsSearchPage(.advanced)
     }
 }
 
@@ -829,6 +880,7 @@ private struct KeyboardLoggingSection: View {
     var body: some View {
         Section {
             Toggle("Open the log window from any app", isOn: $settings.globalLogShortcutEnabled)
+                .settingsAnchor(.keyboardShortcut)
             LabeledContent("Shortcut") {
                 ShortcutRecorder(key: $settings.globalLogShortcut)
             }
@@ -912,5 +964,127 @@ private struct ShortcutRecorder: View {
         monitor = nil
         recording = false
         GlobalLogShortcut.shared.setPaused(false)
+    }
+}
+
+// MARK: - Search
+
+private extension View {
+    /// The search field above a Settings tab, its results over the tab while typing, and the
+    /// scroll to a picked row once this tab is showing (docs/SettingsSearch.md). `isShown` names
+    /// rows this tab can hide, so a jump lands on the switch that reveals them instead.
+    func settingsSearchPage(_ tab: SettingsView.Tab, isShown: @escaping (SettingsAnchor) -> Bool = { _ in true }) -> some View {
+        modifier(SettingsSearchPage(tab: tab, isShown: isShown))
+    }
+}
+
+private struct SettingsSearchPage: ViewModifier {
+    let tab: SettingsView.Tab
+    let isShown: (SettingsAnchor) -> Bool
+    @Environment(\.settingsSearch) private var search
+
+    func body(content: Content) -> some View {
+        if let search {
+            content.modifier(SettingsSearchPageBody(tab: tab, isShown: isShown, search: search))
+        } else {
+            content
+        }
+    }
+}
+
+private struct SettingsSearchPageBody: ViewModifier {
+    let tab: SettingsView.Tab
+    let isShown: (SettingsAnchor) -> Bool
+    @ObservedObject var search: SettingsSearchModel
+    @FocusState private var fieldFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        ScrollViewReader { proxy in
+            content
+                .overlay {
+                    if search.isSearching {
+                        results
+                            .transition(DS.Transition.swap(reduceMotion: reduceMotion))
+                    }
+                }
+                .dsAnimation(.quick, value: search.isSearching)
+                .safeAreaInset(edge: .top, spacing: 0) { field }
+                .onAppear { takeJump(proxy) }
+                .onChange(of: search.pendingJump) { _, _ in takeJump(proxy) }
+        }
+    }
+
+    private var found: [SettingsItem] { search.results(in: SettingsCatalog.mac) }
+
+    private var field: some View {
+        HStack(spacing: DS.Space.xs) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search Settings", text: $search.query, prompt: Text("Search Settings (⌘F)"))
+                .textFieldStyle(.plain)
+                .autocorrectionDisabled()
+                .focused($fieldFocused)
+                .onExitCommand { search.query = "" }
+                // Return goes to the best match.
+                .onSubmit { if let first = found.first { pick(first) } }
+            if !search.query.isEmpty {
+                Button { search.query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Clear the search")
+                    .accessibilityLabel("Clear the search")
+            }
+        }
+        .padding(.horizontal, DS.Space.sm)
+        .padding(.vertical, DS.Space.xs + 1)
+        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .frame(maxWidth: 360)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, DS.Space.lg)
+        .padding(.top, DS.Space.sm + 2)
+        .padding(.bottom, DS.Space.xs)
+        .background(Color(nsColor: .windowBackgroundColor))
+        // ⌘F focuses the field on whichever tab is showing.
+        .background {
+            Button("Search Settings") { fieldFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var results: some View {
+        let items = found
+        return Form {
+            Section {
+                if items.isEmpty {
+                    SettingsSearchEmptyView(query: search.query)
+                } else {
+                    ForEach(items) { item in
+                        SettingsSearchResultRow(item: item, query: search.query) { pick(item) }
+                    }
+                }
+            } header: {
+                if !items.isEmpty { Text(SettingsSearch.countLabel(items.count)) }
+            }
+        }
+        .formStyle(.grouped)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// Clear the search and send the jump; `SettingsView` switches tab if it's elsewhere.
+    private func pick(_ item: SettingsItem) {
+        search.query = ""
+        fieldFocused = false
+        search.pendingJump = item
+    }
+
+    /// A jump for this tab: scroll to the row (or the switch that reveals it) and light it.
+    private func takeJump(_ proxy: ScrollViewProxy) {
+        guard let item = search.pendingJump, item.tab == tab.rawValue else { return }
+        search.pendingJump = nil
+        let target = SettingsSearch.target(for: item, in: SettingsCatalog.mac, isShown: isShown)
+        search.jump(to: target, proxy: proxy, reduceMotion: reduceMotion)
     }
 }

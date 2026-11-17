@@ -72,6 +72,7 @@ struct InsulinListSection: View {
             }
         } header: {
             Text("Your Insulins")
+                .settingsAnchor(.insulins)
         } footer: {
             Text("The log sheet picks the mealtime insulin you logged last, or the first one here. Shared with GlucOS on your other devices.")
                 .foregroundStyle(.secondary)
