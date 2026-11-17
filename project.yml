@@ -169,6 +169,8 @@ targets:
       - path: Sources/App/Views/InRangeStreaksCardView.swift
       - path: Sources/App/Views/BestToughestDaysCardView.swift
       - path: Sources/App/Views/TodaySoFarView.swift
+      - path: Sources/App/Views/EveningRecapCardView.swift
+      - path: Sources/App/EveningRecapScheduler.swift
       - path: Sources/App/Views/FlowComponents.swift
       - path: Sources/App/Views/AlertSnoozeChipView.swift
       - path: Sources/App/Views/AlertBannerView.swift

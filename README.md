@@ -108,6 +108,9 @@ right-click desktop → **Edit Widgets** → "GlucOS".
   the middle half and 8 in 10 readings shaded, with a spoken summary and audio graph for VoiceOver.
   **Today so far** (on the dashboard Overview and the iPhone Today screen) puts today's time in
   range, average and lows since midnight beside the same hours on your usual day.
+  **Evening recap** (Settings → Alerts on the Mac, Settings → Daily recap on iPhone, off by default)
+  sends one notification a day at a time you pick (9 pm unless changed) with that day's time in
+  range, average, lows and highs; clicking it opens Insights with a Today card of the same figures.
   **Week in review** puts the last 7 days beside the 7 before (time in range, average, lows) and
   names the best and hardest part of the day this week; it shows this week alone until last week has readings.
   **Lows** counts the lows over the last 7, 14 or 30 days, their typical length, how many had a

@@ -40,6 +40,9 @@ struct DashboardView: View {
     @State private var revealEntry: UUID?
     /// ⌘J in the Logbook: it takes this as "open the jump-to-a-date calendar" and clears it.
     @State private var jumpToDate = false
+    /// Insights was opened from the evening recap: its Today card goes on top until another
+    /// section is picked (docs/EveningRecap.md).
+    @State private var recapFiredAt: Date?
     /// Asks from outside this window (the menu bar popover) for an entry in the Logbook.
     @ObservedObject private var request = DashboardRequest.shared
     /// Notices closed this session. Keyed by content, so a new problem shows again.
@@ -107,6 +110,15 @@ struct DashboardView: View {
             if requested { openRequestedLogSheet() }
         }
         .onChange(of: request.logbookEntry) { _, _ in takeEntryRequest() }
+        // A click on the evening recap, including one that opened this window.
+        .onReceive(EveningRecapRoute.shared.$request) { request in
+            guard request != nil, let firedAt = EveningRecapRoute.shared.take() else { return }
+            recapFiredAt = firedAt
+            select(.insights)
+        }
+        .onChange(of: section) { _, new in
+            if new != .insights { recapFiredAt = nil }
+        }
         .background(WindowConfigurator(floating: keepOnTop && !windowState.isFullScreen, state: windowState))
         // Small enough for half a laptop screen; below this the sidebar, toolbar and cards collide.
         .frame(minWidth: 760, idealWidth: 1180, minHeight: 540, idealHeight: 800)
@@ -177,7 +189,7 @@ struct DashboardView: View {
         case .insights:
             InsightsSection(readings: store.archive, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl,
                             returnTo: $returnToCard, openLogbook: { openLogbook($0) },
-                            onLog: { logSheet = .new })
+                            onLog: { logSheet = .new }, recapFiredAt: recapFiredAt)
         default:
             if store.archive.isEmpty {
                 if store.isRefreshing && settings.hasCredentials {

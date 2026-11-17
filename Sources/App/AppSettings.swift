@@ -62,6 +62,11 @@ final class AppSettings: ObservableObject {
     /// The "open from anywhere" shortcut while it's on, for the ⌘? lists.
     var activeGlobalLogShortcut: LogHotKey? { globalLogShortcutEnabled ? globalLogShortcut : nil }
 
+    /// The evening recap notification (docs/EveningRecap.md). Off until turned on in Settings.
+    @Published var eveningRecapEnabled: Bool { didSet { d.set(eveningRecapEnabled, forKey: "eveningRecapEnabled") } }
+    /// When it goes out, in minutes after local midnight. 9 pm unless changed.
+    @Published var eveningRecapMinute: Int { didSet { d.set(eveningRecapMinute, forKey: "eveningRecapMinute") } }
+
     /// First-run setup finished (or skipped). Existing installs with an account count as done.
     @Published var onboardingCompleted: Bool { didSet { d.set(onboardingCompleted, forKey: "onboardingCompleted") } }
 
@@ -106,6 +111,8 @@ final class AppSettings: ObservableObject {
         globalLogShortcutEnabled = d.bool(forKey: "globalLogShortcutEnabled")
         globalLogShortcut = d.data(forKey: "globalLogShortcut")
             .flatMap { try? JSONDecoder().decode(LogHotKey.self, from: $0) } ?? .suggested
+        eveningRecapEnabled = d.bool(forKey: "eveningRecapEnabled")
+        eveningRecapMinute = EveningRecap.sanitized(d.object(forKey: "eveningRecapMinute") as? Int)
         let savedEmail = d.string(forKey: "email") ?? ""
         onboardingCompleted = d.object(forKey: "onboardingCompleted") as? Bool ?? !savedEmail.isEmpty
     }

@@ -9,6 +9,9 @@ enum PhoneRoute: Hashable {
     case logbookLink(LogbookLink)
     /// The Logbook opened on one entry, from the "last logged" line under Today's chart.
     case logbookEntry(UUID)
+    /// Insights with the evening recap's Today card on top, from a tap on the recap notification
+    /// (when it went out).
+    case insightsToday(Date)
 
     /// The "last logged" line's zoom source, whichever entry it names.
     static let lastLoggedSource = "logbook-last-logged"
@@ -20,6 +23,8 @@ enum PhoneRoute: Hashable {
         case .logbook, .insights: return AnyHashable(self)
         case .logbookLink(let link): return AnyHashable(link.sourceID)
         case .logbookEntry: return AnyHashable(Self.lastLoggedSource)
+        // Grows from the home screen's Insights row, like Insights itself.
+        case .insightsToday: return AnyHashable(PhoneRoute.insights)
         }
     }
 }

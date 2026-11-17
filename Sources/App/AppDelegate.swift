@@ -87,6 +87,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let userInfo = response.notification.request.content.userInfo
         let date = response.notification.date
         Task { @MainActor in
+            // The evening recap opens the dashboard on Insights, with today at the top.
+            if EveningRecapScheduler.isRecap(userInfo) {
+                guard action == UNNotificationDefaultActionIdentifier else { return }
+                EveningRecapRoute.shared.open(firedAt: date)
+                NotificationCenter.default.post(name: .glucosOpenDashboard, object: nil)
+                return
+            }
             // Meal, Correction or dismissing "Was that dose for a meal?" is answered on the spot.
             if DoseQuestion.shared.handle(action: action, userInfo: userInfo),
                action != UNNotificationDefaultActionIdentifier { return }

@@ -304,6 +304,7 @@ final class GlucoseStore: ObservableObject {
         archive = historyArchive.readings
         historyArchive.save()
         if added >= Self.relearnAfterFilledSlots { outlook.historyFilledIn() }
+        EveningRecapScheduler.shared.update(readings: archive, settings: settings)
         return added
     }
 
@@ -343,6 +344,8 @@ final class GlucoseStore: ObservableObject {
     private func publish() {
         refreshTodayGlance()
         refreshUsualGlance()
+        // Today's evening recap carries the latest figures (only does anything when they moved).
+        EveningRecapScheduler.shared.update(readings: archive, settings: settings)
         SharedStore.save(snapshot)
         reloadChangedWidgets()
         onPublish?(snapshot)
