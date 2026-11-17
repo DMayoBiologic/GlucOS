@@ -3711,3 +3711,59 @@ select th, nmin, m, count(*) n, sum(cut::int) cut_n, avg(abs(a - f)) drawn,
   sum((a < 70 and lo < 70 and cut)::int) lows_lost
 from ev group by rollup ((th, nmin), m) order by 1 desc, 2 desc, 3;
 ```
+
+## 53. Does the drawn range hold its 8 in 10 at each horizon? (17 Nov 2026)
+
+The question: the range is labelled "about 8 in 10 past forecasts landed inside". Does it, horizon
+by horizon, and if not, would one fixed factor per horizon (not the recent-error scaling that lost
+in §42) bring it closer without making the forecast worse at 30 and 60 minutes? **The range is
+short at every horizon: 76 / 71 / 72 / 77% inside at 15 / 30 / 45 / 60 minutes. One fixed factor
+per horizon (1.09 / 1.23 / 1.31 / 1.18) brings it to 80–82% held out, but only by drawing it
+13–24% wider, and the interval score is no better at any horizon and worse on most held-out days.
+Nothing shipped; no app or relay code changed, so the relay stays 2.17.0.**
+
+**The data.** 1,100 clean drawn points (nothing logged after) with a reading, in
+`glucos.forecast_checks`, Mac, iPhone and relay, 12–17 Nov Perth, with §40/§41 applied to points
+drawn before those versions so the baseline is what is drawn today (the same export and cleaning
+as `scripts/adaptive-range.py`). A factor only scales the drawn half-widths; it can't move the
+central line, so the 30- and 60-minute miss (31.0 and 55.0 mg/dL) is unchanged by construction.
+The test is therefore the interval score at 80%: width + 10 × how far outside the reading
+landed, lower is better, which rewards a range for holding 8 in 10 only if the extra width is
+worth the misses it saves.
+
+| Horizon | Points | Inside | Above | Below | Fitted factor (apps / relay) |
+|---|---|---|---|---|---|
+| 15 min | 479 | 76% | 14% | 9% | 1.09 (1.16 / 1.00) |
+| 30 min | 266 | 71% | 14% | 14% | 1.23 (apps only) |
+| 45 min | 180 | 72% | 18% | 10% | 1.31 |
+| 60 min | 144 | 77% | 15% | 8% | 1.18 |
+
+The relay (15-minute Lock Screen range) already holds 80%; the shortfall is the apps'.
+
+**Held out.** The factor is the 80th percentile of the points' miss ratios (miss ÷ drawn
+half-width on that side), apps and relay apart, fitted on every other day (leave one day out) or
+on the days before only (walk forward, 30 points minimum).
+
+| Horizon | Drawn: inside / width / score | Leave one day out | Walk forward | Days better (LODO) |
+|---|---|---|---|---|
+| 15 min | 76% / 52.6 / 88.0 | 80% / 59.4 / 90.3 | 82% / 64.6 / 92.8 | 3 of 6 |
+| 30 min | 71% / 82.0 / 149.0 | 80% / 100.0 / 148.6 | 79% / 103.4 / 150.8 | 2 of 5 |
+| 45 min | 72% / 127.7 / 210.2 | 80% / 158.8 / 211.1 | 76% / 151.9 / 211.0 | 2 of 5 |
+| 60 min | 77% / 154.9 / 229.7 | 82% / 170.3 / 231.1 | 78% / 158.7 / 229.3 | 3 of 4 |
+
+Lows that landed under 70 with the range bottom already under 70: unchanged (15 / 5 / 4 / 2).
+
+**Why a fixed factor doesn't pay.** The shortfall isn't a steady one. Daily coverage at 30
+minutes runs 58–81% (15 minutes 68–86%), so one factor widens the good days for nothing while
+still missing on the bad ones. The miss ratios are heavy-tailed: the median is 0.58–0.65 of the
+drawn half-width (about where a well-sized 80% range puts it), but the 90th and 95th percentiles
+are 1.6–1.9 and 1.9–2.4. The misses are mostly large, not near ones, so widening everything turns
+few of them into hits. That points at which forecasts get a wide range (meals, fast changes,
+sensor trouble) rather than at the overall size, which is what §40/§41 did for low and high
+starts.
+
+**Decision.** Keep the drawn range as it is. The "8 in 10" wording stays: the relay holds it,
+and the apps sit 3–9 points short, inside the day-to-day spread. Retest at three weeks: ship a
+fixed per-horizon factor only if it wins the interval score held out on most days at 30 and
+60 minutes. To rerun: export with the SQL in `scripts/adaptive-range.py`, then
+`python3 -I scripts/range-calibration.py points.txt`.
