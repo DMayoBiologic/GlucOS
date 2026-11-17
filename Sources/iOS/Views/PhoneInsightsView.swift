@@ -73,6 +73,8 @@ struct PhoneInsightsView: View {
     @State private var reveals = CardReveals()
     /// The card whose picture is being shared (docs/InsightsShare.md).
     @State private var sharing: InsightsCard?
+    /// The card lifted on screen while its share sheet gets ready, until the sheet closes.
+    @State private var lifted: InsightsCard?
     /// How many periods back the cards are (docs/InsightsPeriodStep.md). Latest each visit.
     @State private var step = InsightsStep.latest
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -99,7 +101,7 @@ struct PhoneInsightsView: View {
                 .accessibilityHint(editing ? "Goes back to your cards" : "Reorder or hide the Insights cards")
             }
         }
-        .sheet(item: $sharing) { card in
+        .sheet(item: $sharing, onDismiss: settle) { card in
             InsightsSharePreview(card: card,
                                  period: InsightsShare.period(for: card, firstReading: store.archive.first?.timestamp),
                                  content: AnyView(view(for: card)
@@ -145,8 +147,9 @@ struct PhoneInsightsView: View {
                     // count up and its rings, bars and sparkline draw in as it rises.
                     view(for: card)
                         .dsReveal(card, in: reveals, when: .scrolledIntoView, order: i + (recapFiredAt == nil ? 0 : 1))
+                        .insightsShareLift(lifted == card)
                         .contextMenu { menu(card, index: i, count: visible.count) }
-                        .accessibilityAction(named: "Share card") { sharing = card }
+                        .accessibilityAction(named: "Share card") { share(card) }
                 }
                 if visible.contains(.mornings) || visible.contains(.forecastAccuracy) {
                     Text("Mornings and forecast accuracy appear once GlucOS has enough wake-ups and forecasts to report on.")
@@ -239,11 +242,28 @@ struct PhoneInsightsView: View {
         }
     }
 
+    /// Lifts the card, then brings up its share sheet a beat later (docs/InsightsShare.md).
+    private func share(_ card: InsightsCard) {
+        guard sharing == nil else { return }
+        withAnimation(InsightsShareLiftMotion.animation(reduceMotion: reduceMotion)) { lifted = card }
+        let delay = InsightsShareLift.presentDelay(reduceMotion: reduceMotion)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard lifted == card else { return }
+            sharing = card
+        }
+    }
+
+    /// The sheet closed: the card settles back into the list.
+    private func settle() {
+        withAnimation(InsightsShareLiftMotion.animation(reduceMotion: reduceMotion)) { lifted = nil }
+    }
+
     /// Touch and hold a card: share it as a picture, move it a place, hide it, or open the full
     /// edit list.
     @ViewBuilder
     private func menu(_ card: InsightsCard, index: Int, count: Int) -> some View {
-        Button { sharing = card } label: {
+        Button { share(card) } label: {
             Label("Share Card…", systemImage: "square.and.arrow.up")
         }
         Divider()

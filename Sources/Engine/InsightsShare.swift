@@ -143,3 +143,42 @@ enum InsightsShare {
         return f
     }
 }
+
+// MARK: - Rendering inputs and the lift (docs/InsightsShare.md)
+
+extension InsightsShare {
+    /// Points wide the picture is drawn at: an iPhone-width card, or the Mac's wider one.
+    static func renderWidth(phone: Bool) -> Double { phone ? 390 : 560 }
+
+    /// The scale the picture is drawn at: the display's own, never under 2× so a picture taken on
+    /// a 1× screen (or a Mac on an external monitor) stays sharp in Messages. Capped at 3×, the
+    /// densest iPhone screen, so the PNG never balloons.
+    static func renderScale(displayScale: Double) -> Double {
+        guard displayScale.isFinite, displayScale > 0 else { return 2 }
+        return min(max(displayScale, 2), 3)
+    }
+}
+
+/// How the card on screen looks while its share sheet gets ready: lifted a touch with a deeper
+/// shadow, or, under Reduce Motion, nothing moves and a soft outline fades in instead.
+struct InsightsShareLift: Equatable, Sendable {
+    /// Size against the card at rest.
+    let scale: Double
+    /// Whether the card takes the higher shadow.
+    let raised: Bool
+    /// Opacity of the brand outline drawn round the card.
+    let outline: Double
+
+    static let rest = InsightsShareLift(scale: 1, raised: false, outline: 0)
+
+    static func style(lifted: Bool, reduceMotion: Bool) -> InsightsShareLift {
+        guard lifted else { return .rest }
+        return reduceMotion
+            ? InsightsShareLift(scale: 1, raised: false, outline: 0.55)
+            : InsightsShareLift(scale: 1.02, raised: true, outline: 0)
+    }
+
+    /// Seconds the lift shows before the sheet comes up, so the eye sees which card is going.
+    /// The cross-fade under Reduce Motion is shorter.
+    static func presentDelay(reduceMotion: Bool) -> Double { reduceMotion ? 0.12 : 0.18 }
+}
