@@ -3422,3 +3422,81 @@ pick as (select distinct on (hd, h) hd, h, rr from sc order by hd, h, e, rr)
 select f.h, f.d, count(*), p.rr, avg(abs(f.a - f.f)) shipped, avg(abs(f.a - f.f - p.rr * f.k)) allowance
 from f join pick p on p.hd = f.d and p.h = f.h group by grouping sets ((1, 2, 4), (1)) order by 1, 2;
 ```
+
+## 50. Should the trend be capped tighter than ±4 mg/dL a minute? (17 Nov 2026)
+
+The trend forecast already clamps the 20-minute slope to ±4 mg/dL a minute
+(`GlucoseForecaster.maxTrendPerMinute`, `slope` in the relay's core.ts). The question: would a
+tighter cap, at 3 mg/dL a minute or below, lower the 30- and 60-minute error, on the idea that
+very fast rates rarely carry on? The bar: at least 3% better at both 30 and 60 minutes on days
+the cap wasn't picked on, and no low drawn later. **It doesn't come close. The best fixed cap
+is 0.1% better on clean forecasts and slightly worse on all of them, a cap picked on other days
+is 0.0–0.4% worse, and at the iPhone's gain a cap of 3 lifts three of seven low-ending forecast
+points above the 90 line. Nothing ships.**
+
+Nothing here touches dosing, the insulin or carb effects, the low alerts, the relay or `web/`.
+
+**Data.** A replay on the server's readings (from 10 Nov 22:45 Perth, exported 17 Nov 08:12; the
+first scoreable forecast is 11 Nov 10:40 and the last 07:40 on 17 Nov), the same way as §49: the engine's trend (20-minute least-squares slope, 30-minute fade) issued every 5 minutes,
+held to one past the sensor range (39–401) like the engine, scored against the reading within 2
+minutes of each target, at gain 0.45 (Mac and relay), 0.6 and
+0.7 (iPhone). Clean = no meal or rapid dose from 3 hours before the forecast to its target. 1,038 /
+969 clean points at 30 / 60 minutes (1,703 / 1,699 in all). Fast trends are rare: the slope is past
+3 mg/dL a minute on 36 clean points at 30 minutes (21 rises, 15 falls), 81 in all, and past 4 on 9
+clean.
+
+**Typical error, mg/dL** (all points / just the points faster than 3 mg/dL a minute):
+
+| Gain 0.45 | cap 1.5 | 2 | 2.5 | 3 | 3.5 | **4 (ships)** |
+|---|---|---|---|---|---|---|
+| 30 min, clean | 21.18 / 29.9 | 21.15 / 30.0 | 21.12 / 30.4 | 21.13 / 31.0 | 21.14 / 31.3 | 21.15 / 31.5 |
+| 30 min, all | 24.53 / 37.5 | 24.49 / 36.7 | 24.46 / 36.3 | 24.45 / 36.1 | 24.44 / 35.8 | 24.43 / 35.6 |
+| 60 min, clean | 32.73 / 35.5 | 32.75 / 35.5 | 32.76 / 36.0 | 32.79 / 36.8 | 32.82 / 37.7 | 32.83 / 38.0 |
+| 60 min, all | 39.49 / 49.4 | 39.53 / 48.8 | 39.54 / 48.4 | 39.54 / 48.2 | 39.53 / 48.1 | 39.51 / 47.8 |
+
+At gain 0.6 and 0.7 a cap helps the fast clean points more (0.7, 30 minutes: 36.5 → 30.2 at a
+cap of 1.5), but across all points it's still 0.3–1% at best, because those points are 3% of the
+total. On clean fast points even the best cap only matches "no change" (30.8 at 30 minutes), so
+what helps is not trusting a fast trend at all, which the fade and the gain already do. After
+meals and doses (the "all" rows) the fast rises are real and carry on, so capping makes 30
+minutes worse.
+
+**Held out by Perth day** (cap picked from 1.5–4 on the other six days, clean points):
+
+| | 30 min | 60 min |
+|---|---|---|
+| Gain 0.45 | 21.15 → 21.23 (+0.4%) | 32.83 → 32.89 (+0.2%) |
+| Gain 0.6 | 21.44 → 21.53 (+0.4%) | 33.10 → 33.11 (+0.0%) |
+
+The picked cap swings between 1.5 and 3 depending on which day is left out, and it helps only
+17 Nov (30 minutes 22.2 → 22.0 at 0.45).
+
+**Low warnings.** 58 forecast points (30 and 60 minutes pooled, so one forecast can count twice)
+started on a fall faster than 3 mg/dL a minute; 11 ended under 70. At gain 0.45 a cap of 3 leaves
+the four points drawn under 90 as they are; at gain 0.6 it lifts three of the seven under 90 above
+it. This is a threshold count, not a measured warning delay (that needs the per-low timing check of
+§13 and §30), but a fall capped tighter can only draw a line higher, never lower, so it points the
+wrong way for lows. That alone rules out capping falls.
+
+**What would settle it.** The fast points are too few to fit a cap on (36 clean in six days). If it's
+rerun at 3+ weeks, try rises only (falls stay at ±4 so lows are never drawn later), on the clean
+points, and require ≥3% at both horizons held out. §45's rise easing (turning points) is the closer
+lever for the same overshoot. To rerun, export the points and run
+`python3 scripts/extreme-trend-cap.py pts.json`:
+
+```sql
+with r as (select at, mgdl, (at at time zone 'Australia/Perth') l from glucos.readings),
+lg as (select to_timestamp((payload->>'timestamp')::float) t from glucos.logbook
+  where not deleted and (kind = 'meal' or (kind = 'dose' and payload->>'kind' = 'rapid'))),
+iss as (select r.at t, r.l, r.mgdl v0 from r where extract(minute from r.l)::int % 5 = 0
+  and r.l < '2026-11-17 08:00'),  -- the §50 cohort; drop or move both bounds to rerun on newer data
+tr as (select i.*, s.sl, s.n, s.span from iss i cross join lateral (select regr_slope(mgdl, extract(epoch from at) / 60) sl,
+    count(*) n, extract(epoch from max(at) - min(at)) / 60 span from r where r.at > i.t - interval '20 min' and r.at <= i.t) s),
+pts as (select tr.*, h, (select mgdl from r where r.at between tr.t + (h - 2) * interval '1 min' and tr.t + (h + 2) * interval '1 min'
+        and r.l <= '2026-11-17 08:12'  -- targets as of the §50 export
+      order by abs(extract(epoch from r.at - tr.t) - h * 60) limit 1) a,
+    exists(select 1 from lg where lg.t between tr.t - interval '3 hours' and tr.t + h * interval '1 min') logged
+  from tr cross join (values (30), (60)) hh(h) where n >= 3 and span >= 9)
+select json_agg(json_build_object('day', to_char(l, 'MMDD'), 'h', h, 'lg', logged, 'v0', v0, 'sl', sl, 'a', a) order by t, h)
+from pts where a is not null;
+```
