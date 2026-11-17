@@ -209,6 +209,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Best and toughest days.** An Insights card picks the whole days with the most and least time in range over the last 7, 14 or 30 days, each with a small chart of the day that draws in (a cross-fade with Reduce Motion on). Tap either day to open the Logbook on it.
 - **StandBy shows your glucose at a glance.** When the iPhone is charging on its side, the Glucose widget in StandBy shows a large reading, the trend arrow and a thin range band. It dims under the red Night Mode tint and updates without flicker.
 - **An evening recap, if you want one.** Turn it on in Settings and pick a time (9 pm by default). Each evening a notification gives the day's time in range, average, lows and highs; tap it to open Insights on a Today card.
+- **Tag entries to find them later.** In the log sheet, add a tag such as Exercise, Sick, Stress, Alcohol or one of your own. Each tag becomes a filter chip in Logbook search, and tags sync with the Mac.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
