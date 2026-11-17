@@ -776,7 +776,12 @@ struct PhoneGlanceCard: View {
                                    averageDelta: InsightsCompare.glanceAverage(stats, before, unit: store.shownUnit,
                                                                                low: store.snapshot.lowMgdl,
                                                                                high: store.snapshot.highMgdl),
-                                   previous: InsightsCompare.previousPhrase(hours: window.hours))
+                                   previous: InsightsCompare.previousPhrase(hours: window.hours),
+                                   explain: InsightsExplainer.Context(
+                                       stats: stats, unit: store.shownUnit,
+                                       lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                       period: InsightsExplainer.period(hours: window.hours, end: windowEnd(),
+                                                                        isLatest: step.back == 0)))
                 if let trend {
                     InsightsSparklineView(series: trend, tint: GlucoseRange.inRange.tint,
                                           label: InsightsSparkline.timeInRangeLabel)
@@ -820,24 +825,36 @@ struct GlanceStatsContent: View {
     var rangeDelta: InsightsDelta? = nil
     var averageDelta: InsightsDelta? = nil
     var previous: String = ""
+    /// The period's figures for the info buttons' notes (docs/InsightsExplainers.md). Nil hides
+    /// the buttons, as the follower view does.
+    var explain: InsightsExplainer.Context? = nil
     @Environment(\.figuresCountUp) private var countsUp
+    @Environment(\.insightsShareSnapshot) private var shareSnapshot
+
+    private func info(_ figure: InsightsFigure) -> some View {
+        InsightsInfoButton(figure: figure, context: explain, hidden: shareSnapshot)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             DSAccessibleStack(spacing: DS.Space.lg) {
                 TimeInRangeRing(stats: stats, lineWidth: 11, drawsIn: true)
                     .frame(width: 112, height: 112)
+                    .overlay(alignment: .topTrailing) { info(.timeInRange).offset(x: 8, y: -6) }
                 VStack(alignment: .leading, spacing: DS.Space.sm) {
                     StatTile("Average", value: unit.format(mgdl: stats.meanMgdl), unit: unit.label,
                              rolling: .init(stats.meanMgdl) { unit.format(mgdl: $0) }) {
                         InsightsDeltaBadge(delta: averageDelta, spokenLabel: "Average", previous: previous)
                     }
+                    .overlay(alignment: .topTrailing) { info(.average) }
                     DSAccessibleStack(spacing: DS.Space.lg) {
                         StatTile("GMI", value: String(format: "%.1f", stats.gmiPercent), unit: "%",
                                  rolling: .init(stats.gmiPercent) { String(format: "%.1f", $0) })
+                            .overlay(alignment: .topTrailing) { info(.gmi) }
                         StatTile("CV", value: Format.percent(stats.coefficientOfVariation),
                                  tone: stats.coefficientOfVariation > 0.36 ? .warning : .neutral,
                                  rolling: .init(stats.coefficientOfVariation) { Format.percent($0) })
+                            .overlay(alignment: .topTrailing) { info(.variability) }
                     }
                 }
             }
@@ -857,7 +874,10 @@ struct GlanceStatsContent: View {
 
     @ViewBuilder
     private func glanceLegend(_ stats: GlucoseStats, spaced: Bool) -> some View {
-        LegendText(color: GlucoseRange.low.tint, text: "Below", fraction: stats.timeBelowRange)
+        HStack(spacing: DS.Space.xxs) {
+            LegendText(color: GlucoseRange.low.tint, text: "Below", fraction: stats.timeBelowRange)
+            info(.lows)
+        }
         if spaced { Spacer() }
         LegendText(color: GlucoseRange.inRange.tint, text: "In range", fraction: stats.timeInRange)
         if spaced { Spacer() }
