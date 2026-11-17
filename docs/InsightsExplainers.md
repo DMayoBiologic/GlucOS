@@ -7,7 +7,7 @@ numbers:
 - **Time in range**: the share of readings inside the target range, quoting the range.
 - **Average**: every reading added up and divided by how many there were.
 - **GMI**: `3.31 + 0.02392 × average in mg/dL`, with the period's average and result. Under 14 days
-  of readings it says to treat it as a rough guide, and it always says a lab A1c can differ.
+  of readings it says it is only a rough guide, and it always says a lab A1c can differ.
 - **Variability (CV)**: standard deviation ÷ average, with both figures, and the 36% mark the
   cards already show.
 - **Time below range**: the share of readings under the bottom of the range.

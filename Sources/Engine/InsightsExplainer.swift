@@ -102,7 +102,7 @@ struct InsightsExplainer: Equatable {
             let mgdl = String(format: "%.0f", s.meanMgdl)
             let gmi = String(format: "%.1f%%", s.gmiPercent)
             let short = s.spanHours < gmiHours
-                ? "Your readings cover less than 14 days, so treat it as a rough guide for now. "
+                ? "Your readings cover less than 14 days, so it is only a rough guide for now. "
                 : ""
             return InsightsExplainer(
                 figure: figure, title: figure.title,
