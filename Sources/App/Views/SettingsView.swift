@@ -385,7 +385,7 @@ private struct GlucoseSettingsTab: View {
             }
 
             Section {
-                TargetRangeEditor(settings: settings, readingMgdl: freshMgdl)
+                TargetRangeEditor(settings: settings, readingMgdl: freshMgdl, previewReadings: store.archive)
                     .padding(.vertical, 4)
             } header: {
                 Text("Target Range")

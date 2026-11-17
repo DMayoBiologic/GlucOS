@@ -178,6 +178,7 @@ targets:
       - path: Sources/App/Views/EveningRecapCardView.swift
       - path: Sources/App/EveningRecapScheduler.swift
       - path: Sources/App/Views/FlowComponents.swift
+      - path: Sources/App/Views/TargetRangePreviewChart.swift
       - path: Sources/App/Views/AlertSnoozeChipView.swift
       - path: Sources/App/Views/AlertBannerView.swift
       - path: Sources/App/Views/LowTreatButtonView.swift

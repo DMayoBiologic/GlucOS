@@ -402,10 +402,13 @@ struct RangeBar: View {
 }
 
 /// Presets, two thresholds with steppers, and the live range bar. Used by Settings and onboarding.
-/// Pass `readingMgdl` (the latest reading, only while fresh) to show it on the bar.
+/// Pass `readingMgdl` (the latest reading, only while fresh) to show it on the bar, and
+/// `previewReadings` (the reading archive) to preview today's readings against the range as it is
+/// set (`TargetRangePreviewChart`, Settings only).
 struct TargetRangeEditor: View {
     @ObservedObject var settings: AppSettings
     var readingMgdl: Double? = nil
+    var previewReadings: [GlucoseReading] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -422,6 +425,10 @@ struct TargetRangeEditor: View {
             }
             RangeBar(lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl, unit: settings.unit,
                      readingMgdl: readingMgdl)
+            if !previewReadings.isEmpty {
+                TargetRangePreviewChart(readings: previewReadings, unit: settings.unit,
+                                        lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl)
+            }
             HStack(spacing: 18) {
                 ThresholdStepper(title: "Low below", mgdl: $settings.lowMgdl, unit: settings.unit,
                                  range: TargetRangeLimits.safe(TargetRangeLimits.low.lowerBound,

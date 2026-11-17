@@ -222,7 +222,7 @@ struct PhoneSettingsView: View {
             Picker("Units", selection: $settings.unit) {
                 ForEach(GlucoseUnit.allCases) { Text($0.label).tag($0) }
             }
-            TargetRangeEditor(settings: settings, readingMgdl: freshMgdl)
+            TargetRangeEditor(settings: settings, readingMgdl: freshMgdl, previewReadings: store.archive)
                 .padding(.vertical, DS.Space.xs)
             Toggle("Show forecast on the chart", isOn: $settings.showForecast)
             Toggle("Show yesterday on the chart", isOn: $settings.showYesterdayLine)
