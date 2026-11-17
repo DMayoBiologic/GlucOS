@@ -1698,6 +1698,8 @@ private struct PhoneAmountField: View {
             stepButton("minus", delta: -step)
             VStack(spacing: 0) {
                 TextField(title, text: $text, prompt: Text("0"))
+                    .rollingDigits(text, style: tint)
+                    .tint(tint)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.center)
                     .font(.system(size: 40, weight: .bold, design: .rounded))
