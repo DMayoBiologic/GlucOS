@@ -3500,3 +3500,108 @@ pts as (select tr.*, h, (select mgdl from r where r.at between tr.t + (h - 2) * 
 select json_agg(json_build_object('day', to_char(l, 'MMDD'), 'h', h, 'lg', logged, 'v0', v0, 'sl', sl, 'a', a) order by t, h)
 from pts where a is not null;
 ```
+
+## 51. Do forecasts miss differently on weekends? (17 Nov 2026)
+
+The question: weekends often mean different meals, sleep and activity. Do forecasts run high or
+low differently on Saturdays and Sundays than on weekdays, and would a separate average-miss
+correction for each, at 30 and 60 minutes, bring the line closer on days it wasn't learnt from?
+**The weekend did run lower than weekdays, but a correction learnt from it is worse at 15 and 30
+minutes, better on only 1 of 6 held-out days at 30 minutes, and loses coverage at 60. Nothing
+shipped; no app or relay code changed, so the relay stays 2.17.0.**
+
+Not a repeat of §46: that learnt one shift per horizon (and per trend) from all days together.
+This splits the learning by weekday against weekend (Saturday and Sunday in Perth), the split
+the Insights "Weekdays and weekends" card (PR #223) uses for time in range.
+
+**The data.** 881 clean shown points (nothing logged after, drawn) in `glucos.forecast_checks` with
+a reading at 15 (472), 30 (265) or 60 minutes (144), Mac, iPhone and relay, 12–17 Nov Perth. That is
+four weekdays (12, 13, 16 and the start of 17 Nov) and **one weekend, two days** (14 and 15 Nov).
+Bias is actual minus forecast, so positive means the forecast ran low.
+
+| | 15 min: bias / miss | 30 min | 60 min | Inside the range (all) |
+|---|---|---|---|---|
+| Weekdays (555 points) | −0.6 / 17.1 | −1.5 / 29.8 | +7.6 / 47.8 | 75.9% |
+| Weekend (326 points) | +2.3 / 20.5 | +7.7 / 32.5 | +21.3 / 70.3 | 66.6% |
+
+| Perth day | 30 min bias / miss | 60 min bias / miss |
+|---|---|---|
+| Thu 12 | −5.6 / 25.6 | −21.2 / 42.4 |
+| Fri 13 | −1.1 / 16.2 | −0.2 / 24.5 |
+| Sat 14 | +5.4 / 20.7 | +25.5 / 34.4 (8 points) |
+| Sun 15 | +9.6 / 42.3 | +20.4 / 77.8 |
+| Mon 16 | +0.1 / 41.3 | +39.0 / 77.4 |
+
+Both weekend days ran low at every horizon, which looks like a pattern. But it is one weekend,
+the weekday biases swing from −21 to +39 at 60 minutes, and Monday ran lower at 60 minutes than
+either weekend day. The weekend's bigger miss is almost all Sunday (39 mg/dL across horizons
+against Saturday's 18); Saturday was a better day than Thursday or Monday. So the gap between
+the two sides is smaller than the gap between days on either side.
+
+**The test.** Each point's line and both sides of its range moved by d, the mean actual − forecast
+at the same horizon over points on the same side (weekday or weekend), shrunk toward 0 as
+sum / (n + k) with k = 0, 10 or 30, once there were 5. Two ways: leave the point's Perth day out
+(so a weekend day learns from the other weekend day only), and walking forward from points whose
+reading had already come in. Each against the same two without the split (one pool), and a
+median instead of a mean for the held-out version.
+
+Mean miss change against what ships (negative is better); coverage as shipped is 75.2% / 69.8% /
+68.1%:
+
+| Version | 15 min | 30 min | 60 min | Held-out days better (15 / 30 / 60) |
+|---|---|---|---|---|
+| Held-out day, split, mean, k 0 | +0.8% | +1.2% | +0.7% | 4/6, 1/6, 2/5 |
+| Held-out day, split, mean, k 30 | +0.5% | +0.6% | +0.6% | 4/6, 1/6, 3/5 |
+| Held-out day, split, median | +1.5% | +0.3% | **−2.5%** | |
+| Held-out day, one pool, mean, k 0–30 | +0.2% | +0.2% | +0.3 to +1.2% | |
+| Walking forward, split, k 0 / 10 / 30 | +1.3 / +1.0 / +0.8% | +3.4 / +2.5 / +1.8% | +6.0 / +3.8 / +2.5% | 0–1/6, 0–1/6, 0–2/5 |
+| Walking forward, one pool, k 0 / 10 / 30 | +0.8 / +0.7 / +0.6% | +1.7 / +1.4 / +1.1% | +4.9 / +3.6 / +2.5% | |
+
+- **Splitting makes it worse than not splitting**, at 15 and 30 minutes in every version, because
+  each side learns from half the points and a weekend learns from one other day.
+- **The weekend points themselves got worse at 15 and 30 minutes** (held out, mean, k 0: +2.1% and
+  +1.8%) even though both weekend days ran low. A mean shift of +5 to +10 helps the rises it's
+  pulled up by and hurts the many small misses either side; the miss is mostly spread, not lean.
+- **The one better cell, 60 minutes** (median −2.5%, weekend-only mean −8.1%), is the same 60-minute
+  lean §46 found, carried by Sunday's and Monday's big misses (46 weekend points), and weekdays got
+  worse there (+3.6 to +6.8%). It fails the 30-minute half of the bar.
+- **Coverage**: held-out split moves 30 minutes 69.8 → 70.9–72.1% and leaves 15 minutes within half
+  a point, but at 60 minutes drops 68.1 → 61.1–63.9%. Walking forward it's within a point at 15
+  and 30 and 4.9–8.4 points worse at 60.
+
+**Low warnings.** Of the 25 points that ended under 70 (16 / 6 / 3), the range bottom reached under
+70 on 22 as shipped. The held-out split versions keep all 22. Walking forward unshrunk loses the
+one at 60 minutes. Nothing shipped, so low warnings (§13, §30) and "a low is possible" are exactly
+as before.
+
+**Dosing.** Not touched: a shift would have been forecast-only, after the insulin and carb
+effects, and nothing here changes insulin on board, the effect learner or the bolus figure.
+
+**Caveats.** One weekend. Weekend here is Perth Saturday and Sunday; a public holiday counts as
+a weekday. As in §46, walking forward treats a reading as known from its target time, which can
+only flatter it. Rerun after at least three weekends (about 7 Dec); take a weekend correction only
+if a shrunk held-out version is 3% better at both 30 and 60 minutes, better on most weekend days
+held out, and the low check unchanged.
+
+```sql
+with p0 as (select c.issued_at t, (e->>'minutes')::int m, (e->>'actual')::float a,
+  (e->>'mgdl')::float f, (e->>'lower')::float lo, (e->>'upper')::float up,
+  coalesce((e->>'afterLog')::bool, (e->>'after_log')::bool, false) al, coalesce(e->>'shown', 'true') shown
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e),
+p as (select *, (t at time zone 'Australia/Perth')::date dy,
+  extract(isodow from t at time zone 'Australia/Perth') in (6, 7) we
+  from p0 where a is not null and not al and shown <> 'false' and m in (15, 30, 60)),
+k(k) as (values (0), (10), (30)),
+r as (select p.*, k.k,
+  coalesce((select sum(x.a - x.f) / (count(*) + k.k) from p x where x.m = p.m and x.we = p.we
+    and x.dy <> p.dy having count(*) >= 5), 0) d_held_out,                 -- drop "x.we = p.we" for one pool
+  coalesce((select sum(x.a - x.f) / (count(*) + k.k) from p x where x.m = p.m and x.we = p.we
+    and x.t + make_interval(mins => x.m) <= p.t having count(*) >= 5), 0) d_forward
+  from p cross join k)
+select k, m, we, count(*) n, avg(abs(a - f)) miss,
+  100 * avg(abs(a - f - d_held_out)) / avg(abs(a - f)) - 100 held_out_pct,
+  100 * avg(abs(a - f - d_forward)) / avg(abs(a - f)) - 100 forward_pct,
+  avg((a between lo and up)::int) inside, avg((a between lo + d_held_out and up + d_held_out)::int) held_out_inside,
+  sum((a < 70 and lo < 70)::int) low_bottom, sum((a < 70 and lo + d_held_out < 70)::int) low_bottom_held_out
+from r group by rollup ((k, m), (we)) order by 1, 2, 3;
+```
