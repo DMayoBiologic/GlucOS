@@ -136,6 +136,14 @@ struct PhoneHomeView: View {
     /// Only the person wearing the sensor has a "last looked": this screen needs their sign-in.
     private var isFollower: Bool { !settings.hasCredentials }
 
+    private static func phase(_ p: ScenePhase) -> LastLookedClock.Phase {
+        switch p {
+        case .active: return .active
+        case .background: return .background
+        default: return .inactive
+        }
+    }
+
     /// Why "Log treatment" shows under the reading, if it does (`LowTreatButton`).
     private var lowTreat: LowTreatButton.Reason? {
         LowTreatButton.current(store: store, logbook: logbook, settings: settings)
@@ -352,14 +360,10 @@ struct PhoneHomeView: View {
         // hours or more sums up only the time unseen (`LastLookedClock`). A launch in the
         // background (a refresh) isn't a look.
         .onAppear { if scenePhase == .active { whileAway.opened(isFollower: isFollower) } }
-        .onChange(of: scenePhase) { _, phase in
-            switch phase {
-            case .active: whileAway.opened(isFollower: isFollower)
-            // Control Center or the app switcher: still a look, but the line stays if showing.
-            case .inactive: whileAway.closed(isFollower: isFollower, ends: false)
-            case .background: whileAway.closed(isFollower: isFollower)
-            @unknown default: break
-            }
+        // Control Center or the app switcher is still a look and keeps the line; a warm resume
+        // passing through inactive measures from when the app went to the background.
+        .onChange(of: scenePhase) { old, new in
+            whileAway.sceneChanged(from: Self.phase(old), to: Self.phase(new), isFollower: isFollower)
         }
     }
 }

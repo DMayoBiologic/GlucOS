@@ -57,6 +57,23 @@ struct LastLookedClock {
         save(now)
     }
 
+    /// Where the screen is, as the iPhone's scene phase reports it.
+    enum Phase: Equatable, Sendable { case active, inactive, background }
+
+    /// The iPhone scene moved from `old` to `new` at `now`: the span to show when it became active.
+    /// Leaving active for inactive (Control Center, the app switcher) is a look; coming back
+    /// through inactive from the background isn't, so a warm resume measures from when the app
+    /// went to the background.
+    @discardableResult
+    func sceneChanged(from old: Phase, to new: Phase, now: Date, isFollower: Bool = false) -> DateInterval? {
+        switch new {
+        case .active: return open(now: now, isFollower: isFollower)
+        case .inactive: if old == .active { close(now: now, isFollower: isFollower) }
+        case .background: close(now: now, isFollower: isFollower)
+        }
+        return nil
+    }
+
     /// The span between the last look and `now`, cut to the last 24 hours, when it's 2 hours or
     /// more. Nil otherwise.
     static func awaySpan(since previous: Date?, now: Date) -> DateInterval? {
@@ -102,7 +119,10 @@ struct WhileAway: Equatable {
               let lo = inSpan.min(by: { $0.mgdl < $1.mgdl }),
               let hi = inSpan.max(by: { $0.mgdl < $1.mgdl }) else { return nil }
         let inRange = buckets.filter { $0.1 >= low && $0.1 <= high }.count
-        let rows = AlertLog.rows(alerts.filter { span.contains($0.firedAt) })
+        // Folded over the whole history, then kept by when each row starts, exactly as the Logbook
+        // lists them over the span: a low that began before the gap and repeated in it is the
+        // Logbook's earlier row, not a new one here.
+        let rows = AlertLog.rows(alerts).filter { span.contains($0.timestamp) }
         return WhileAway(span: span,
                          lowest: Point(mgdl: lo.mgdl, at: lo.timestamp),
                          highest: Point(mgdl: hi.mgdl, at: hi.timestamp),

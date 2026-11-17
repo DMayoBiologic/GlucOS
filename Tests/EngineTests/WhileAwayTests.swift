@@ -61,6 +61,37 @@ final class WhileAwayTests: XCTestCase {
         XCTAssertNil(c.open(now: now.addingTimeInterval(1)))
     }
 
+    func testWarmResumeThroughInactiveKeepsTheGap() {
+        let box = Box()
+        let c = clock(box)
+        c.sceneChanged(from: .inactive, to: .active, now: t0)
+        c.sceneChanged(from: .active, to: .inactive, now: t0.addingTimeInterval(60))
+        c.sceneChanged(from: .inactive, to: .background, now: t0.addingTimeInterval(61))
+        let back = t0.addingTimeInterval(61 + 3 * 3600)
+        XCTAssertNil(c.sceneChanged(from: .background, to: .inactive, now: back))
+        XCTAssertEqual(c.sceneChanged(from: .inactive, to: .active, now: back.addingTimeInterval(1)),
+                       DateInterval(start: t0.addingTimeInterval(61), end: back.addingTimeInterval(1)))
+    }
+
+    func testControlCenterCountsAsALook() {
+        let box = Box()
+        box.stored = t0
+        let c = clock(box)
+        let pulled = t0.addingTimeInterval(3 * 3600)
+        c.sceneChanged(from: .active, to: .inactive, now: pulled)
+        XCTAssertNil(c.sceneChanged(from: .inactive, to: .active, now: pulled.addingTimeInterval(5)))
+    }
+
+    func testAlertRowStartedBeforeTheSpanIsNotCounted() {
+        // Matches the Logbook: the low's row starts before the gap, so it isn't in the span.
+        let span = DateInterval(start: t0, duration: 3 * 3600)
+        let rs = readings([100, 100, 100, 100, 100, 100], from: t0)
+        let alerts = [AlertRecord(kind: .low, firedAt: t0.addingTimeInterval(-300)),
+                      AlertRecord(kind: .low, firedAt: t0.addingTimeInterval(600))]
+        let w = WhileAway.compute(span: span, readings: rs, alerts: alerts, low: 70, high: 180)!
+        XCTAssertEqual(w.lowAlerts, 0)
+    }
+
     func testClockSetBackShowsNothingAndResets() {
         let box = Box()
         box.stored = t0.addingTimeInterval(10 * 3600)

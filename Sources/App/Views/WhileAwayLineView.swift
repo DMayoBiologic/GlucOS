@@ -33,6 +33,14 @@ final class WhileAwayModel: ObservableObject {
         if ends { span = nil; finished = nil }
     }
 
+    /// The iPhone scene changed phase (`LastLookedClock.sceneChanged`). Only going to the
+    /// background drops the line.
+    func sceneChanged(from old: LastLookedClock.Phase, to new: LastLookedClock.Phase, isFollower: Bool,
+                      now: Date = Date()) {
+        if let away = clock.sceneChanged(from: old, to: new, now: now, isFollower: isFollower) { span = away }
+        if new == .background { span = nil; finished = nil }
+    }
+
     func finish(_ span: DateInterval) { finished = span }
 }
 
@@ -65,7 +73,8 @@ struct WhileAwayLine: View {
         .animation(Self.animation(reduceMotion: reduceMotion), value: summary != nil)
         // Ten seconds from when it first shows, then it fades. With VoiceOver on it stays until the
         // screen closes, so it can still be reached.
-        .task(id: summary?.span) {
+        // Keyed on VoiceOver too: turning it on stops the countdown, turning it off starts one.
+        .task(id: FadeKey(span: summary?.span, voiceOver: voiceOver)) {
             guard let span = summary?.span, !voiceOver else { return }
             try? await Task.sleep(for: .seconds(WhileAway.shownFor))
             guard !Task.isCancelled else { return }
@@ -104,6 +113,11 @@ struct WhileAwayLine: View {
         .accessibilityLabel(WhileAwayText.spoken(w, unit: unit))
         .accessibilityHint("Opens this time in the Logbook")
         .accessibilityAddTraits(.isButton)
+    }
+
+    private struct FadeKey: Equatable {
+        let span: DateInterval?
+        let voiceOver: Bool
     }
 
     /// Slides down from under the reading as it fades in, and only fades out. A cross-fade both
