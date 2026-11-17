@@ -1,11 +1,13 @@
 import SwiftUI
 
-/// The toast that rises after a logbook delete: what went, and Undo. A thin bar along its bottom
+/// The toast that rises after a logbook delete or a saved edit: what went (or "Edited meal"), and
+/// Undo. A thin bar along its bottom
 /// drains over its lifetime (`UndoCountdownBar`), and it springs away by itself when the bar runs
 /// out, `LogbookUndo.toastSeconds` after the last delete (`PhoneUndoCountdown`). A finger on it
 /// pauses the bar; lifting carries on from where it stopped. Swipe it sideways or down to dismiss
 /// it early (`UndoSwipe`), which never undoes. Undo puts the entries back on every device
-/// (`LogbookStore.undoDelete`). Under Reduce Motion it fades in and out in place, doesn't follow
+/// (`LogbookStore.undoDelete`), or the edited entry back exactly as it was before the edit
+/// (`LogbookStore.undoEdit`); the row cross-fades back to its old values. Under Reduce Motion it fades in and out in place, doesn't follow
 /// the finger, and the bar steps down once a second. Nothing loops.
 struct PhoneUndoToast: View {
     @EnvironmentObject var logbook: LogbookStore
@@ -19,10 +21,10 @@ struct PhoneUndoToast: View {
     @State private var width: CGFloat = 360
 
     var body: some View {
-        let deleted = logbook.lastDeleted
+        let offer = logbook.undoOffer
         ZStack {
-            if !deleted.isEmpty {
-                toast(deleted)
+            if let offer {
+                toast(offer)
                     .offset(shownOffset)
                     .transition(DS.Transition.toast(reduceMotion: reduceMotion))
             }
@@ -30,9 +32,9 @@ struct PhoneUndoToast: View {
         .padding(.horizontal, DS.Space.lg)
         .padding(.bottom, DS.Space.md)
         .frame(maxWidth: 560)
-        .animation(PhoneUndoToast.motion(reduceMotion: reduceMotion), value: deleted.isEmpty)
+        .animation(PhoneUndoToast.motion(reduceMotion: reduceMotion), value: offer == nil)
         .onChange(of: touching) { _, held in clock?.hold(held) }
-        .onChange(of: deleted.isEmpty) { _, empty in
+        .onChange(of: offer == nil) { _, empty in
             if !empty { exit = .zero }
         }
     }
@@ -74,19 +76,21 @@ struct PhoneUndoToast: View {
         reduceMotion ? .easeInOut(duration: 0.2) : DSMotion.emphasized.animation
     }
 
-    private func toast(_ deleted: [LogEntry]) -> some View {
+    private func toast(_ offer: LogbookUndoOffer) -> some View {
         HStack(spacing: DS.Space.md) {
-            Image(systemName: "trash")
+            Image(systemName: offer.symbol)
                 .foregroundStyle(.secondary)
+                .contentTransition(.opacity)
                 .accessibilityHidden(true)
-            Text(Self.title(deleted))
+            Text(offer.title)
                 .dsFont(.callout)
                 .dsLineLimit(1)
                 .truncationMode(.tail)
-                .contentTransition(.numericText(value: Double(deleted.count)))
+                .contentTransition(.numericText(value: Double(offer.count)))
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button {
-                logbook.undoDelete()
+                // The restored row cross-fades back: a fade only, moving nothing, under Reduce Motion.
+                withAnimation(PhoneUndoToast.motion(reduceMotion: reduceMotion)) { logbook.undo() }
                 Haptics.play(.undone)
             } label: {
                 Text("Undo")
@@ -97,7 +101,7 @@ struct PhoneUndoToast: View {
                     .contentShape(Capsule())
             }
             .buttonStyle(PressScaleStyle())
-            .accessibilityHint("Puts back what you deleted, on all your devices")
+            .accessibilityHint(offer.hint)
         }
         .padding(.leading, DS.Space.lg)
         .padding(.trailing, DS.Space.sm)
@@ -143,9 +147,9 @@ final class PhoneUndoClock {
 }
 
 /// Clears the undo buffer when the toast's countdown runs out (`LogbookUndo.toastSeconds` after the
-/// last delete, longer while a finger holds it), so the toast springs away and later deletes start
-/// a fresh Undo. Applied once, on the home screen's stack, so pushed screens share one clock. A new
-/// delete starts it again and is announced to VoiceOver once; pauses, a partial Undo and sync
+/// last delete or edit, longer while a finger holds it), so the toast springs away and later
+/// changes start a fresh Undo. Applied once, on the home screen's stack, so pushed screens share
+/// one clock. A new delete or edit starts it again and is announced to VoiceOver once; pauses, a partial Undo and sync
 /// trimming the buffer neither restart nor re-announce it.
 struct PhoneUndoCountdown: ViewModifier {
     @EnvironmentObject var logbook: LogbookStore
@@ -156,12 +160,12 @@ struct PhoneUndoCountdown: ViewModifier {
     func body(content: Content) -> some View {
         content
             .environment(clock)
-            .onChange(of: logbook.lastDeleted.map(\.id), initial: true) { old, ids in
+            .onChange(of: logbook.undoOffer?.ids ?? [], initial: true) { old, ids in
                 guard !ids.isEmpty else { clock.clear(); return }
                 guard UndoCountdown.restarts(from: old, to: ids) || clock.countdown == nil else { return }
                 clock.start(seconds: voiceOver ? LogbookUndo.toastSecondsVoiceOver : LogbookUndo.toastSeconds)
                 if voiceOver {
-                    AccessibilityNotification.Announcement("\(PhoneUndoToast.title(logbook.lastDeleted)). Undo is at the bottom of the screen.").post()
+                    AccessibilityNotification.Announcement("\(logbook.undoOffer?.title ?? ""). Undo is at the bottom of the screen.").post()
                 }
             }
             .task(id: clock.countdown) {

@@ -435,3 +435,112 @@ enum LogbookUndo {
         return out
     }
 }
+
+/// One saved edit that can still be taken back with the undo toast ("Edited meal · Undo"). It
+/// holds the entry exactly as it was before the edit, and Undo saves that back under the same id,
+/// so it syncs like any other edit and never touches a different entry. GlucOS never works out a
+/// value here: a dose's units, a meal's carbs and everything else come back only as they were saved.
+struct LogbookEditUndo: Equatable {
+    /// Fresh for every edit, so a second edit to the same entry restarts the toast's countdown.
+    let token: UUID
+    /// The entry before the edit, restored exactly.
+    let before: LogEntry
+    /// The entry as the edit saved it.
+    let after: LogEntry
+    /// The edit's time, as pushed (`LogbookPendingChange.modified`), so the server echoing this
+    /// edit back keeps Undo, and only a newer change made elsewhere ends it.
+    var editedAt: Double?
+
+    /// An Undo for an edit, or nil when there's nothing to take back: no entry before or after, a
+    /// different entry (another id or another kind), or nothing changed.
+    static func offer(before: LogEntry?, after: LogEntry?, editedAt: Double?, token: UUID = UUID()) -> LogbookEditUndo? {
+        guard let before, let after, before.id == after.id, before.sameKind(as: after), before != after else { return nil }
+        return LogbookEditUndo(token: token, before: before, after: after, editedAt: editedAt)
+    }
+
+    /// What Undo saves: the entry as it was before the edit, and only while the entry the edit
+    /// saved is still there under the same id and kind. Nil once it's gone (deleted since).
+    func restore(current: LogEntry?) -> LogEntry? {
+        guard let current, current.id == before.id, current.sameKind(as: before) else { return nil }
+        return before
+    }
+
+    /// True when `remote` holds a change to this entry made after the edit (an edit or delete on
+    /// another device): undoing then would overwrite something newer. This device's own edit
+    /// coming back from the server doesn't count.
+    func superseded(by remote: [LogbookRecord]) -> Bool {
+        guard let editedAt else { return false }
+        return remote.contains { $0.id == before.id && $0.modified > editedAt + LogbookUndo.echoTolerance }
+    }
+
+    /// "Edited meal", "Edited dose", "Edited site change", "Edited event".
+    var title: String { "Edited \(after.kindNoun)" }
+}
+
+/// What the undo toast offers, on iPhone and Mac: the last delete (which may hold several
+/// entries) or the last edit. Only one at a time: a new edit replaces a pending delete's Undo,
+/// and a new delete replaces a pending edit's.
+enum LogbookUndoOffer: Equatable {
+    case deleted([LogEntry])
+    case edited(LogbookEditUndo)
+
+    /// The toast's text.
+    var title: String {
+        switch self {
+        case .deleted(let entries): return LogbookUndo.title(entries)
+        case .edited(let edit): return edit.title
+        }
+    }
+
+    /// What `UndoCountdown.restarts` watches: a new id here restarts the bar and is announced.
+    var ids: [UUID] {
+        switch self {
+        case .deleted(let entries): return entries.map(\.id)
+        case .edited(let edit): return [edit.token]
+        }
+    }
+
+    /// The toast's leading symbol.
+    var symbol: String {
+        switch self {
+        case .deleted: return "trash"
+        case .edited: return "pencil"
+        }
+    }
+
+    /// What Undo does, for VoiceOver and the Mac's help tag.
+    var hint: String {
+        switch self {
+        case .deleted: return "Puts back what you deleted, on all your devices"
+        case .edited: return "Puts back the entry as it was before your edit, on all your devices"
+        }
+    }
+
+    /// Changes as the deletes pile up, for the title's number roll.
+    var count: Int {
+        switch self {
+        case .deleted(let entries): return entries.count
+        case .edited: return 1
+        }
+    }
+}
+
+extension LogEntry {
+    /// The same kind of entry (dose, meal, site change or event), whatever it holds.
+    func sameKind(as other: LogEntry) -> Bool {
+        switch (self, other) {
+        case (.dose, .dose), (.meal, .meal), (.siteChange, .siteChange), (.context, .context): return true
+        default: return false
+        }
+    }
+
+    /// "dose", "meal", "site change", "event": what the edit Undo toast calls the entry.
+    var kindNoun: String {
+        switch self {
+        case .dose: return "dose"
+        case .meal: return "meal"
+        case .siteChange: return "site change"
+        case .context: return "event"
+        }
+    }
+}
