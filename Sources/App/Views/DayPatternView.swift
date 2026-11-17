@@ -16,6 +16,7 @@ struct DayPatternView: View {
     let highMgdl: Double
 
     @AppStorage("insights.dayPatternDays") private var windowDays = DayPattern.Window.fortnight.rawValue
+    @Environment(\.insightsShareSnapshot) private var shareSnapshot
     @State private var pattern: DayPattern?
     @State private var shownKey: DayPatternCache.Key?
 
@@ -26,12 +27,15 @@ struct DayPatternView: View {
         let key = self.key
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: DayPatternText.title, systemImage: "clock", trailing: "Time of day")
-            Picker("Period", selection: $windowDays) {
-                ForEach(DayPattern.Window.allCases) { Text($0.label).tag($0.rawValue) }
+            // A shared picture names the period in its footer instead (docs/InsightsShare.md).
+            if !shareSnapshot {
+                Picker("Period", selection: $windowDays) {
+                    ForEach(DayPattern.Window.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Period")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .accessibilityLabel("Period")
 
             // While the other period is worked out, the last one stays up so the chart can glide
             // from it rather than blanking.

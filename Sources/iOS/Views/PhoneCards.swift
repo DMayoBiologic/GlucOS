@@ -639,7 +639,9 @@ struct PhoneChartCard: View {
 
 struct PhoneGlanceCard: View {
     @EnvironmentObject var store: GlucoseStore
-    @State private var window: GlanceWindow = .day
+    /// Kept, so a shared picture's footer names the period on screen (docs/InsightsShare.md).
+    @AppStorage(InsightsShare.Key.glanceHours) private var window: GlanceWindow = .day
+    @Environment(\.insightsShareSnapshot) private var shareSnapshot
     /// Each of the last 14 days' time in range, worked out off the main thread once per 15 minutes
     /// of new readings or a new target range.
     @State private var trend: InsightsSparkline?
@@ -654,11 +656,13 @@ struct PhoneGlanceCard: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             DSAccessibleStack(spacing: DS.Space.sm) {
                 Eyebrow(title: "At a glance", systemImage: "circle.dashed")
-                Picker("Period", selection: $window) {
-                    ForEach(GlanceWindow.allCases) { Text($0.shortLabel).tag($0) }
+                if !shareSnapshot {
+                    Picker("Period", selection: $window) {
+                        ForEach(GlanceWindow.allCases) { Text($0.shortLabel).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 180)
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 180)
             }
             if let stats = store.glanceStats(window) {
                 GlanceStatsContent(stats: stats, unit: store.snapshot.unit)

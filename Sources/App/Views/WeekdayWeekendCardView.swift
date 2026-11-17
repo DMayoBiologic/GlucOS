@@ -23,6 +23,7 @@ struct WeekdayWeekendCardView: View {
     @State private var value: WeekdayWeekend?
     @State private var shownKey: WeekdayWeekendCache.Key?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.insightsShareSnapshot) private var shareSnapshot
 
     private var period: WeekdayWeekend.Period { WeekdayWeekend.Period(rawValue: periodDays) ?? .fortnight }
     /// "3.9 mmol/L".
@@ -32,12 +33,15 @@ struct WeekdayWeekendCardView: View {
         let key = WeekdayWeekendCache.key(readings: readings, low: lowMgdl, high: highMgdl, period: period)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: WeekdayWeekendText.title, systemImage: "calendar")
-            Picker("Period", selection: $periodDays) {
-                ForEach(WeekdayWeekend.Period.allCases) { Text($0.label).tag($0.rawValue) }
+            // A shared picture names the period in its footer instead (docs/InsightsShare.md).
+            if !shareSnapshot {
+                Picker("Period", selection: $periodDays) {
+                    ForEach(WeekdayWeekend.Period.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Period")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .accessibilityLabel("Period")
 
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.
