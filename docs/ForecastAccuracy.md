@@ -4450,3 +4450,76 @@ from f join off o on o.d = f.d and o.h = f.h group by grouping sets ((1, 2), (1)
 ```
 
 **Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.
+
+## 64. Could predicted-high alerts warn earlier, or with fewer false alarms? (17 Nov 2026)
+
+The mirror of §13 and §30 for highs. Predicted highs read only the drawn forecast, need the trend
+rising at least 0.3 mg/dL a minute, and look at most 30 minutes ahead
+(`PredictiveAlertRules.highLeadMaximum`, `min(setting × 1.5, 30)`). The question: does reading past
+what's drawn (the cut-off part and the trend carried on to 30 minutes, as lows do since §13), a
+different lead, a different rise gate, or crossing a margin below the line warn earlier **and** with
+no more false alarms on held-out days? **No. Reading the trend's full 30 minutes warns about 2
+minutes earlier but adds false alarms, and every margin adds more. Nothing ships; no app or relay
+code changed, so the relay stays 2.17.0.**
+
+Nothing here touches dosing, the insulin or carb effects, the low alerts or `web/`.
+
+**Method.** `scripts/high-alert-heldout.ts` replays the relay tick by tick exactly as
+`low-alert-heldout.ts` does (forecast from the last hour, relearned every 3 hours, drawn horizon cut
+by its own ledger) over `glucos.readings`, 11–17 Nov: 8,962 ticks on 7 Perth days. A high is a run
+over 180 starting after 15 minutes at or under it (26 highs; one already running when the replay starts isn't counted). It's warned if a predicted-high or
+very-high alert came in the 45 minutes before, while the reading was still at or under 180; such an
+alert is a false alarm if nothing went over 180 in the 45 minutes after (alerts whose 45 minutes run past
+the export or across a gap over 15 minutes aren't scored, and a day left out also drops the
+false-alarm calls its readings decided for the evening before and the warning credit its alerts gave
+the morning after). A day scores warning
+minutes (capped at 30 per high) minus 10 per false alarm. Grid: drawn or trend lookahead × lead 15,
+20, 25, 30 × rise gate 0.2, 0.3, 0.4, 0.5 × margin 0, 4, 8, 12 mg/dL (128 settings); for each day,
+the best on the other six days is scored on the day left out.
+
+**What ships today.** 23 of 26 highs warned, median 6 / mean 11.2 minutes ahead, 7 false alarms in
+32 alerts. The lead setting changes nothing on the drawn forecast (15 to 30 all score the same),
+because on most relay ticks only 15 minutes is drawn, so the 30-minute cap is really 15, the same
+thing §13 found for lows. The 3 highs not warned peaked 198–223; no setting in the grid warned any
+more of them (warned stays 23 everywhere but the stricter gates).
+
+| In sample (all 7 days) | warned | median / mean lead | alerts | false alarms | score |
+|---|---|---|---|---|---|
+| **Shipped: drawn, lead 30, rise 0.3, margin 0** | 23 / 26 | 6 / 11.2 | 32 | 7 | 167 |
+| Trend lookahead, lead 30 | 23 | 8 / 12.8 | 34 | 8 | 189 |
+| Trend lookahead, lead 20 | 23 | 8 / 12.0 | 33 | 7 | 186 |
+| Trend lookahead, rise 0.2 | 23 | 8 / 12.8 | 35 | 9 | 179 |
+| Margin 4, drawn | 23 | 8 / 12.9 | 39 | 11 | 159 |
+| Margin 4, trend | 23 | 9 / 13.8 | 41 | 13 | 160 |
+| Rise 0.4 or 0.5, trend | 22 | 7 / 11.6 | 33 | 8 | 159 |
+
+**Held out**, leave one day out:
+
+| Penalty per false alarm | chosen: score, warning min, false alarms | shipped: score, warning min, false alarms |
+|---|---|---|
+| 10 min | 169, 259, **9** | 167, 237, 7 |
+| 5 min | 201, 306, **21** (margin 12 chosen on 6 days) | 202, 237, 7 |
+| 20 min | 55, 255, **10** | 97, 237, 7 |
+
+Held out, the chosen setting warns 18–69 minutes more in total across the 23 highs but always with
+more false alarms (9–21 against 7), and loses outright at penalties 5 and 20. Every day picked the
+trend lookahead, which is the one consistent signal, but it lost on 14 and 17 Nov (2 and 2 false
+alarms against 0 and 1). "Trend lookahead, lead 20" matches the false-alarm count in sample (7) for
++0.8 minutes of mean lead, but it was picked from the grid and isn't chosen held out, so it isn't
+evidence.
+
+**On the iPhone** (alert log, logbook kind `alert`, `payload.firedAt`), predicted highs since 15 Nov:
+11 predicted-high alerts, 8 followed by a reading over 180 within 45 minutes (lead 0–33 minutes,
+mostly under 6), 3 false alarms that peaked 171–178, near misses rather than wrong calls. 8
+predicted-very-high alerts all fired at 227–244 with 250 crossed within a minute: they're barely
+ahead of the reading alert, but the replay can't score them on their own (they fire from above 180).
+
+**Decision.** Keep predicted highs as they are. Retest early December with three weeks of highs;
+ship the trend lookahead for highs only if, held out, it warns earlier with no more false alarms at
+penalties 5, 10 and 20. To rerun:
+
+    GLUCOS_REPLAY_DIR=dir deno run --allow-read --allow-env scripts/high-alert-heldout.ts
+    # PENALTY=min per false alarm (default 10), LIST=1 for every candidate and each high,
+    # FROM=unix seconds to score only highs and alerts from then on
+
+`dir` holds readings.json, with the trend column, and log.json, exported as in §30.
