@@ -101,6 +101,8 @@ struct PhoneLogbookView: View {
 
     /// The entry to open once the screen is up (the "last logged" line under Today's chart).
     @State private var opening: UUID?
+    /// Grouped rows (a meal and its insulin, `LogbookGrouping`) opened out into their entries.
+    @State private var expandedGroups: Set<UUID> = []
 
     /// The day whose header has the jump-to-a-date calendar open over it.
     @State private var calendarFrom: String?
@@ -264,10 +266,13 @@ struct PhoneLogbookView: View {
                                        low: snapshot.lowMgdl, high: snapshot.highMgdl, now: now)
         let shownDays = Set(days.map(\.start))
         ForEach(Array(days.enumerated()), id: \.element.id) { i, day in
+            // A meal and its insulin logged within 15 minutes show as one row, opening out into the
+            // entries (`LogbookGrouping`). Worked out on the rows the chips and search leave.
+            let pieces = LogbookGrouping.listed(LogbookGrouping.runs(day.items, entry: \.entry), expanded: expandedGroups)
             Section {
-                ForEach(Array(day.items.enumerated()), id: \.element.id) { j, item in
+                ForEach(Array(pieces.enumerated()), id: \.element.rowKey) { j, piece in
                     // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
-                    itemRow(item, order: starts[i] + j, terms: terms)
+                    pieceRow(piece, order: starts[i] + j, terms: terms)
                         .opacity(rowsFade)
                 }
             } header: {
@@ -289,6 +294,60 @@ struct PhoneLogbookView: View {
     }
 
     @ViewBuilder
+    private func pieceRow(_ piece: LogbookListed<PhoneLogbookItem>, order: Int, terms: [String]) -> some View {
+        switch piece {
+        case .row(let item): itemRow(item, order: order, terms: terms)
+        case .group(let g, let open): groupRow(g, expanded: open, order: order, terms: terms)
+        case .member(let entry, _): listRow(entry, order: order, terms: terms, indented: true)
+        }
+    }
+
+    /// A meal and its insulin as one row: what they were and when, with a chevron that turns down
+    /// as it opens out into the entries under it. Each entry keeps its own swipes, menu and card;
+    /// the combined row's menu reaches each of them too. VoiceOver reads it as one item, with
+    /// Expand or Collapse as its action.
+    private func groupRow(_ g: LogbookGroup, expanded: Bool, order: Int, terms: [String]) -> some View {
+        let lit: Double = g.ids.contains { fresh.contains($0) } ? 0.14 : 0
+        let time = g.timeRange { ClockLabel.time($0) }
+        return Button { toggleGroup(g) } label: {
+            PhoneLogGroupRow(group: g, time: time, expanded: expanded, highlight: terms)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(g.spoken)
+        .accessibilityValue("\(time), \(g.spokenState(expanded: expanded))")
+        .accessibilityHint(expanded ? "Hides the entries" : "Shows the entries")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: g.actionName(expanded: expanded)) { toggleGroup(g) }
+        .contextMenu {
+            Button(expanded ? "Collapse" : "Show Entries", systemImage: expanded ? "chevron.up" : "chevron.down") {
+                toggleGroup(g)
+            }
+            ForEach(g.newestFirst) { entry in
+                Section(entry.shortTitle) {
+                    Button("Edit", systemImage: "pencil") { router.edit(entry) }
+                    Button("Log Again Now", systemImage: "arrow.clockwise") { logAgain(entry) }
+                    Button("Delete", systemImage: "trash", role: .destructive) { delete(entry) }
+                }
+            }
+        }
+        .dsEntrance(min(order, 8), enabled: !assembled && order < 12)
+        .listRowBackground(Color(uiColor: .systemBackground).overlay(Palette.food.opacity(lit)))
+    }
+
+    /// Opens a grouped row out into its entries, or folds them back, on the list's usual motion
+    /// (instant under Reduce Motion). VoiceOver hears what happened once.
+    private func toggleGroup(_ g: LogbookGroup) {
+        Haptics.play(.choice)
+        let open = !expandedGroups.contains(g.id)
+        DS.animate(.standard, reduceMotion: reduceMotion) {
+            if open { expandedGroups.insert(g.id) } else { expandedGroups.remove(g.id) }
+        }
+        AccessibilityNotification.Announcement(g.announcement(expanded: open)).post()
+    }
+
+    @ViewBuilder
     private func itemRow(_ item: PhoneLogbookItem, order: Int, terms: [String]) -> some View {
         switch item {
         case .entry(let entry): listRow(entry, order: order, terms: terms)
@@ -304,10 +363,11 @@ struct PhoneLogbookView: View {
             .listRowBackground(Color(uiColor: .systemBackground))
     }
 
-    private func listRow(_ entry: LogEntry, order: Int, terms: [String]) -> some View {
+    /// `indented`: one of an opened group's entries, set in under its combined row.
+    private func listRow(_ entry: LogEntry, order: Int, terms: [String], indented: Bool = false) -> some View {
         let tint: Color = entry.part.logbookTint
         let lit: Double = fresh.contains(entry.id) ? 0.14 : 0
-        return row(entry, terms: terms)
+        return row(entry, terms: terms, indented: indented)
             .dsEntrance(min(order, 8), enabled: !assembled && order < 12)
             .listRowBackground(Color(uiColor: .systemBackground).overlay(tint.opacity(lit)))
     }
@@ -337,6 +397,13 @@ struct PhoneLogbookView: View {
         opening = nil
         try? await Task.sleep(for: .seconds(reduceMotion ? 0.1 : 0.45))
         guard logbook.entry(id: id) != nil else { return }
+        // Folded into a grouped row: open the group first, so the entry has a row to grow from.
+        let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
+        let runs = LogbookGrouping.runs(PhoneLogbookItem.merge(logbook.entries, alerts), entry: \.entry)
+        if let g = LogbookGrouping.group(containing: id, in: runs), !expandedGroups.contains(g.id) {
+            expandedGroups.insert(g.id)
+            try? await Task.sleep(for: .seconds(0.1))
+        }
         opener.open(id, reduceMotion: reduceMotion)
     }
 
@@ -623,13 +690,14 @@ struct PhoneLogbookView: View {
         }
     }
 
-    private func row(_ entry: LogEntry, terms: [String]) -> some View {
+    private func row(_ entry: LogEntry, terms: [String], indented: Bool = false) -> some View {
         // While its card is open (and growing out of it) the row itself steps aside, so there is
         // one of it on screen. Under Reduce Motion the card fades in over it, so it stays.
         let lifted = opener.openID == entry.id && opener.style == .matched
         return Button { opener.open(entry.id, reduceMotion: reduceMotion) } label: {
             PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) }, highlight: terms,
                         marksLoggedElsewhere: true)
+                .padding(.leading, indented ? DS.Space.xl : 0)
                 .contentShape(Rectangle())
                 .logbookRowFrame(entry.id, in: opener)
                 .opacity(lifted ? 0 : 1)
@@ -772,6 +840,61 @@ enum PhoneLogbookItem: Identifiable {
     static func merge(_ entries: [LogEntry], _ alerts: [AlertLogRow]) -> [PhoneLogbookItem] {
         (entries.map(PhoneLogbookItem.entry) + alerts.map(PhoneLogbookItem.alert))
             .sorted { $0.timestamp > $1.timestamp }
+    }
+}
+
+extension LogbookListed where Row == PhoneLogbookItem {
+    /// The list row's identity. An entry keeps its own id whether it stands alone or sits under an
+    /// opened group, so the list moves it rather than swapping it.
+    var rowKey: String {
+        switch self {
+        case .row(let item): return item.id.uuidString
+        case .group(let g, _): return "group-\(g.id.uuidString)"
+        case .member(let e, _): return e.id.uuidString
+        }
+    }
+}
+
+/// A grouped row (`LogbookGroup`): the meal and insulin icons together, "Meal and insulin", what
+/// each part was, and the time. The chevron points right, and turns down while it's open.
+struct PhoneLogGroupRow: View {
+    let group: LogbookGroup
+    let time: String
+    let expanded: Bool
+    var highlight: [String] = []
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: "fork.knife").foregroundStyle(Palette.food)
+                Image(systemName: "syringe")
+                    .imageScale(.small)
+                    .foregroundStyle(Palette.insulin)
+                    .offset(x: 6, y: 6)
+            }
+            .frame(width: 20)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(group.title).dsFont(.callout)
+                Text(SearchHighlight.attributed(group.parts, terms: highlight, tint: Palette.food))
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                if typeSize.dsLargeText { timeLabel }
+            }
+            Spacer(minLength: DS.Space.sm)
+            if !typeSize.dsLargeText { timeLabel }
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(expanded ? 90 : 0))
+        }
+    }
+
+    private var timeLabel: some View {
+        Text(time)
+            .dsFont(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
     }
 }
 

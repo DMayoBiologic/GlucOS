@@ -44,6 +44,11 @@ struct LogbookSection: View {
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
     @State private var selection = Set<UUID>()
+    /// Grouped rows (a meal and its insulin, `LogbookGrouping`) opened out into their entries.
+    @State private var expandedGroups: Set<UUID> = []
+    /// The groups the table shows, by id, with their entries: so a selected group row acts on
+    /// its entries (Delete removes both, with Undo).
+    @State private var shownGroups: [UUID: [UUID]] = [:]
     /// The quick filter chip, if one is picked (All when nil).
     @State private var filter: LogbookFilter?
     /// A tag chip, if one is picked (`LogbookTags`), on top of the filter chip and the search.
@@ -94,10 +99,15 @@ struct LogbookSection: View {
         let scope = pastPeriod ? LogbookTableRow.merge(logbook.entries, allAlerts)
                                : LogbookTableRow.merge(inRange, alertsInRange)
         let rows = scope.filter { $0.matches(listed.kind, query, lowIDs: lowIDs) && $0.matches(tag: listed.tag) }
+        // A meal and its insulin logged within 15 minutes show as one line, opening out into the
+        // entries (`LogbookGrouping`). Worked out on the rows the chips and search leave.
+        let runs = LogbookGrouping.runs(rows, entry: \.entry)
+        let lines = LogbookGrouping.listed(runs, expanded: expandedGroups).map(LogbookTableLine.init)
+        let groupMap: [UUID: [UUID]] = Dictionary(uniqueKeysWithValues: lines.compactMap { $0.group.map { ($0.id, $0.ids) } })
         let terms = query.terms
-        // The newest row of the day a jump is heading for, once the table lists it.
+        // The newest line of the day a jump is heading for, once the table lists it.
         let jumpTarget: UUID? = pendingJump.flatMap { r in
-            rows.first { Calendar.autoupdatingCurrent.isDate($0.timestamp, inSameDayAs: r.day) }?.id
+            lines.first { Calendar.autoupdatingCurrent.isDate($0.timestamp, inSameDayAs: r.day) }?.id
         }
         VStack(alignment: .leading, spacing: 0) {
             if settings.therapy == .notSet {
@@ -149,7 +159,7 @@ struct LogbookSection: View {
                         .opacity(rowsFade)
                 } else {
                     ScrollViewReader { proxy in
-                        table(rows, terms: terms)
+                        table(lines, terms: terms)
                             .opacity(tableFade * rowsFade)
                             .task(id: jumpTarget) { await land(on: jumpTarget, rows: rows, proxy: proxy) }
                     }
@@ -175,9 +185,10 @@ struct LogbookSection: View {
         }
         // Rows hidden by the filter, search or range must not stay selected, or Delete would
         // remove entries the user can't see.
-        .onChange(of: Set(rows.map(\.id))) { _, visible in
+        .onChange(of: Set(lines.map(\.id))) { _, visible in
             selection.formIntersection(visible)
         }
+        .onChange(of: groupMap, initial: true) { _, now in shownGroups = now }
         .onChange(of: kinds) { _, now in
             if let f = filter, f.isListed, !now.contains(f) { filter = nil }
         }
@@ -235,8 +246,26 @@ struct LogbookSection: View {
 
     /// The selected rows that are entries. Alert rows are records of what the Mac or iPhone said,
     /// so they can't be edited, logged again or deleted.
-    private var selectedEntries: Set<UUID> {
-        selection.filter { logbook.entry(id: $0) != nil }
+    private var selectedEntries: Set<UUID> { entries(in: selection) }
+
+    /// The entries some picked lines stand for: an entry's line is that entry, a group's line is
+    /// all of its entries, and alert lines are none.
+    private func entries(in picked: Set<UUID>) -> Set<UUID> {
+        var out = Set<UUID>()
+        for id in picked {
+            if let members = shownGroups[id] { out.formUnion(members) } else if logbook.entry(id: id) != nil { out.insert(id) }
+        }
+        return out.filter { logbook.entry(id: $0) != nil }
+    }
+
+    /// Opens a grouped line out into its entries, or folds them back (instant under Reduce
+    /// Motion). VoiceOver hears what happened once.
+    private func toggleGroup(_ g: LogbookGroup) {
+        let open = !expandedGroups.contains(g.id)
+        DS.animate(.standard, reduceMotion: reduceMotion) {
+            if open { expandedGroups.insert(g.id) } else { expandedGroups.remove(g.id) }
+        }
+        AccessibilityNotification.Announcement(g.announcement(expanded: open)).post()
     }
 
     /// The search field, what it understood ("Since last week ✕") and how much it found, then the
@@ -493,6 +522,10 @@ struct LogbookSection: View {
         linked = nil
         // Listed at once, so the selection isn't dropped as a hidden row.
         listed = LogbookFilterPick(kind: nil, tag: nil)
+        // Folded into a grouped line: open it, so the entry itself is the one selected and lit.
+        let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
+        let runs = LogbookGrouping.runs(LogbookTableRow.merge(logbook.entries, alerts), entry: \.entry)
+        if let g = LogbookGrouping.group(containing: id, in: runs) { expandedGroups.insert(g.id) }
         selection = [id]
         Task { @MainActor in
             // After the section's cross-fade, so the light is seen.
@@ -586,45 +619,90 @@ struct LogbookSection: View {
         }
     }
 
-    private func table(_ entries: [LogbookTableRow], terms: [String]) -> some View {
+    private func table(_ lines: [LogbookTableLine], terms: [String]) -> some View {
         let now = Date()
-        let firsts = LogbookDays.firstRows(entries.map { (id: $0.id, timestamp: $0.timestamp) })
+        let firsts = LogbookDays.firstRows(lines.map { (id: $0.id, timestamp: $0.timestamp) })
         let ranges = dayRanges.figures(readings: data.readings, days: Array(Set(firsts.values)).sorted(),
                                        low: data.lowMgdl, high: data.highMgdl, now: now)
-        return Table(entries, selection: $selection) {
+        let groups: [UUID: LogbookGroup] = Dictionary(uniqueKeysWithValues: lines.compactMap { $0.group.map { ($0.id, $0) } })
+        return Table(lines, selection: $selection) {
             // The day's name and time in range on its first (newest) row, like the iPhone's day
             // headers; the rows under it leave the column empty.
-            TableColumn("Day") { (r: LogbookTableRow) in
-                if let start = firsts[r.id] {
+            TableColumn("Day") { (l: LogbookTableLine) in
+                if let start = firsts[l.id] {
                     dayCell(start, range: ranges[start], now: now)
                 } else {
                     Text("").accessibilityHidden(true)
                 }
             }
             .width(min: 150, ideal: 190)
-            TableColumn("Time") { (r: LogbookTableRow) in
-                Text(ClockLabel.time(r.timestamp))
-                    .monospacedDigit()
-                    .foregroundStyle(r.isAlert ? Color.secondary : Color.primary)
-                    .accessibilityLabel(ClockLabel.dayTime(r.timestamp, now: now))
+            TableColumn("Time") { (l: LogbookTableLine) in
+                if let g = l.group {
+                    Text(g.timeRange { ClockLabel.time($0) })
+                        .monospacedDigit()
+                        .accessibilityLabel(ClockLabel.dayTime(g.timestamp, now: now))
+                } else {
+                    Text(ClockLabel.time(l.timestamp))
+                        .monospacedDigit()
+                        .foregroundStyle(l.isAlert ? Color.secondary : Color.primary)
+                        .accessibilityLabel(ClockLabel.dayTime(l.timestamp, now: now))
+                }
             }
             .width(min: 60, ideal: 75)
-            TableColumn("Entry") { (r: LogbookTableRow) in entryCell(r, terms: terms) }
+            TableColumn("Entry") { (l: LogbookTableLine) in
+                if let g = l.group {
+                    groupEntryCell(g, expanded: l.expanded)
+                } else if let r = l.row {
+                    entryCell(r, terms: terms)
+                        .padding(.leading, l.isMember ? DS.Space.lg : 0)
+                }
+            }
                 .width(min: 110, ideal: 140)
-            TableColumn("Amount") { (r: LogbookTableRow) in
-                Text(r.entry.map { amount($0) } ?? "").monospacedDigit().fontWeight(.semibold)
+            TableColumn("Amount") { (l: LogbookTableLine) in
+                Text(l.group?.totals ?? l.entry.map { amount($0) } ?? "").monospacedDigit().fontWeight(.semibold)
             }
             .width(min: 60, ideal: 80)
-            TableColumn("Details") { (r: LogbookTableRow) in detailsCell(r, terms: terms) }
-            TableColumn("Site") { (r: LogbookTableRow) in siteCell(r, terms: terms) }
+            TableColumn("Details") { (l: LogbookTableLine) in
+                if let g = l.group {
+                    Text(SearchHighlight.attributed(g.parts, terms: terms, tint: ChartEvent.Kind.food.color))
+                        .foregroundStyle(.secondary).help(g.parts)
+                } else if let r = l.row {
+                    detailsCell(r, terms: terms)
+                }
+            }
+            TableColumn("Site") { (l: LogbookTableLine) in
+                if let g = l.group {
+                    let sites = g.doses.compactMap { logbook.site(of: $0)?.title }
+                    Text(SearchHighlight.attributed(sites.isEmpty ? "–" : sites.joined(separator: ", "),
+                                                    terms: sites.isEmpty ? [] : terms, tint: ChartEvent.Kind.bolus.color))
+                        .foregroundStyle(sites.isEmpty ? Color.secondary : Color.primary)
+                } else if let r = l.row {
+                    siteCell(r, terms: terms)
+                }
+            }
                 .width(min: 90, ideal: 130)
-            TableColumn("Glucose") { (r: LogbookTableRow) in glucoseCell(r) }
+            TableColumn("Glucose") { (l: LogbookTableLine) in glucoseCell(l.timestamp) }
                 .width(min: 60, ideal: 70)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
         .contextMenu(forSelectionType: UUID.self) { picked in
-            let ids = picked.filter { logbook.entry(id: $0) != nil }
-            if ids.count == 1, let id = ids.first, let entry = logbook.entry(id: id) {
+            let ids = entries(in: picked)
+            if picked.count == 1, let gid = picked.first, let g = groups[gid] {
+                // A grouped line: open or fold it, and each entry's own actions.
+                Button(expandedGroups.contains(gid) ? "Hide Entries" : "Show Entries") { toggleGroup(g) }
+                Divider()
+                ForEach(g.newestFirst) { entry in
+                    Menu(entry.shortTitle) {
+                        Button("Edit…") { open(.edit(entry)) }
+                        Button("Log Again Now") { logAgain(entry) }
+                            .help("Log a copy of this entry at the current time")
+                        Button("Delete", role: .destructive) {
+                            DS.animate(.standard, reduceMotion: reduceMotion) { logbook.delete(ids: [entry.id]) }
+                        }
+                    }
+                }
+                Divider()
+            } else if ids.count == 1, let id = ids.first, let entry = logbook.entry(id: id) {
                 Button("Edit…") { open(.edit(entry)) }
                 Button("Log Again Now") { logAgain(entry) }
                     .help("Log a copy of this entry at the current time")
@@ -633,16 +711,47 @@ struct LogbookSection: View {
             if !ids.isEmpty {
                 Button(ids.count == 1 ? "Delete" : "Delete \(ids.count) Entries", role: .destructive) {
                     DS.animate(.standard, reduceMotion: reduceMotion) { logbook.delete(ids: ids) }
-                    selection.subtract(ids)
+                    selection.subtract(picked)
                 }
             }
         } primaryAction: { ids in
-            if ids.count == 1, let id = ids.first, let entry = logbook.entry(id: id) { open(.edit(entry)) }
+            guard ids.count == 1, let id = ids.first else { return }
+            if let g = groups[id] { toggleGroup(g) } else if let entry = logbook.entry(id: id) { open(.edit(entry)) }
         }
         .onDeleteCommand { deleteSelection() }
         // New rows slide into place and deleted rows fold away, whether from here, an undo or a
         // sync. Instant under Reduce Motion.
-        .dsAnimation(.standard, value: entries.map(\.id))
+        .dsAnimation(.standard, value: lines.map(\.id))
+    }
+
+    /// A grouped line's Entry cell: a disclosure chevron and "Meal and insulin". Clicking it (or
+    /// double-clicking the line, or Return) opens the entries out under it. VoiceOver reads the
+    /// group as one item, with Expand or Collapse as its action.
+    private func groupEntryCell(_ g: LogbookGroup, expanded: Bool) -> some View {
+        let lit = g.ids.contains { fresh.contains($0) }
+        return Button { toggleGroup(g) } label: {
+            HStack(spacing: DS.Space.xs) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                Image(systemName: ChartEvent.Kind.food.systemImage).foregroundStyle(ChartEvent.Kind.food.color)
+                Image(systemName: ChartEvent.Kind.bolus.systemImage).foregroundStyle(ChartEvent.Kind.bolus.color)
+                Text(g.title).lineLimit(1)
+            }
+            .padding(.horizontal, DS.Space.xs + 2)
+            .padding(.vertical, 1)
+            .background(ChartEvent.Kind.food.color.opacity(lit ? 0.18 : 0), in: Capsule())
+            .padding(.horizontal, -(DS.Space.xs + 2))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(expanded ? "Hide the entries" : "Show the entries")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(g.spoken)
+        .accessibilityValue(g.spokenState(expanded: expanded))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: g.actionName(expanded: expanded)) { toggleGroup(g) }
     }
 
     /// "Tue 12 Nov ▬▬▬ 78%": the day, its time in range as a thin bar (`DayRangeBar`, drawn in
@@ -768,8 +877,8 @@ struct LogbookSection: View {
     }
 
     @ViewBuilder
-    private func glucoseCell(_ r: LogbookTableRow) -> some View {
-        if let reading = GlucoseAnalytics.nearest(to: r.timestamp, in: data.readings, tolerance: 10 * 60) {
+    private func glucoseCell(_ time: Date) -> some View {
+        if let reading = GlucoseAnalytics.nearest(to: time, in: data.readings, tolerance: 10 * 60) {
             Text(data.unit.format(mgdl: reading.mgdl)).monospacedDigit()
                 .foregroundStyle(GlucoseRange.classify(mgdl: reading.mgdl, low: data.lowMgdl, high: data.highMgdl).valueColor)
         } else {
@@ -1531,6 +1640,57 @@ struct ResponseCurveChart: View {
         .chartLegend(position: .top, alignment: .leading)
         .accessibilityLabel("Median change in glucose over time")
     }
+}
+
+/// One line of the Mac Logbook table once grouped (`LogbookGrouping`): a row as it was, a grouped
+/// line (a meal and its insulin), or one of an opened group's entries under it.
+struct LogbookTableLine: Identifiable {
+    let piece: LogbookListed<LogbookTableRow>
+
+    /// An entry's line keeps the entry's id, alone or under its group, so selection follows it.
+    var id: UUID {
+        switch piece {
+        case .row(let r): return r.id
+        case .group(let g, _): return g.id
+        case .member(let e, _): return e.id
+        }
+    }
+
+    var timestamp: Date {
+        switch piece {
+        case .row(let r): return r.timestamp
+        case .group(let g, _): return g.timestamp
+        case .member(let e, _): return e.timestamp
+        }
+    }
+
+    /// The row to draw with the usual cells: everything but a grouped line.
+    var row: LogbookTableRow? {
+        switch piece {
+        case .row(let r): return r
+        case .group: return nil
+        case .member(let e, _): return .entry(e)
+        }
+    }
+
+    var entry: LogEntry? { row?.entry }
+
+    var group: LogbookGroup? {
+        if case .group(let g, _) = piece { return g }
+        return nil
+    }
+
+    var expanded: Bool {
+        if case .group(_, let open) = piece { return open }
+        return false
+    }
+
+    var isMember: Bool {
+        if case .member = piece { return true }
+        return false
+    }
+
+    var isAlert: Bool { row?.isAlert ?? false }
 }
 
 /// One row of the Mac Logbook table: something logged, or a low or high alert (`AlertLogRow`).
