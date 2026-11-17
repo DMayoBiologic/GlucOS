@@ -324,4 +324,88 @@ final class AlertSnoozeTests: XCTestCase {
                                           now: afternoon.addingTimeInterval(1800), calendar: perth, locale: us)
         XCTAssertFalse(ended.contains("snoozed"))
     }
+
+    // MARK: Countdown ring
+
+    func testCountdownStartsWhenTheSnoozeIsSetAndDrains() {
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 30, now: now)
+        let ring = AlertSnoozeCountdown.tracking(s.chipEnd(at: now), previous: nil, now: now)
+        XCTAssertEqual(ring?.start, now)
+        XCTAssertEqual(ring?.end, now.addingTimeInterval(1800))
+        XCTAssertEqual(ring?.fraction(at: now) ?? 0, 1, accuracy: 0.0001)
+        XCTAssertEqual(ring?.fraction(at: now.addingTimeInterval(900)) ?? 0, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(ring?.fraction(at: now.addingTimeInterval(1800)) ?? 1, 0, accuracy: 0.0001)
+        XCTAssertEqual(ring?.fraction(at: now.addingTimeInterval(4000)) ?? 1, 0, accuracy: 0.0001)
+    }
+
+    func testCountdownKeepsItsStartForTheSameEnd() {
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 30, now: now)
+        let first = AlertSnoozeCountdown.tracking(s.chipEnd(at: now), previous: nil, now: now)
+        // Twenty minutes on (a relaunch, a redraw): the same end keeps the same start, so the ring
+        // doesn't refill even though 10 minutes left would fit a 15-minute snooze.
+        let later = now.addingTimeInterval(1200)
+        let again = AlertSnoozeCountdown.tracking(s.chipEnd(at: later), previous: first, now: later)
+        XCTAssertEqual(again, first)
+        XCTAssertEqual(again?.fraction(at: later) ?? 0, 1.0 / 3, accuracy: 0.0001)
+    }
+
+    func testCountdownGuessesTheStartOfAnAdoptedSnooze() {
+        // A relay snooze with 22 minutes left, first seen now: most likely a 30-minute one.
+        let end = now.addingTimeInterval(22 * 60)
+        let ring = AlertSnoozeCountdown.tracking(end, previous: nil, now: now)
+        XCTAssertEqual(ring?.start, end.addingTimeInterval(-1800))
+        // 12 minutes left of a Log treatment low: 15.
+        let short = AlertSnoozeCountdown.tracking(now.addingTimeInterval(12 * 60), previous: nil, now: now)
+        XCTAssertEqual(short?.start, now.addingTimeInterval(-180))
+        // The relay's longest, 60.
+        let long = AlertSnoozeCountdown.tracking(now.addingTimeInterval(45 * 60), previous: nil, now: now)
+        XCTAssertEqual(long?.start, now.addingTimeInterval(-900))
+    }
+
+    func testCountdownRefillsWhenLongerAndKeepsDrainingWhenShorter() {
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 15, now: now)
+        let first = AlertSnoozeCountdown.tracking(s.chipEnd(at: now), previous: nil, now: now)
+        // Ten minutes on, a high is snoozed for 30: the chip now counts to the later end, full.
+        let later = now.addingTimeInterval(600)
+        s.snooze(.high, minutes: 30, now: later)
+        let longer = AlertSnoozeCountdown.tracking(s.chipEnd(at: later), previous: first, now: later)
+        XCTAssertEqual(longer?.start, later)
+        XCTAssertEqual(longer?.fraction(at: later) ?? 0, 1, accuracy: 0.0001)
+        // Five minutes on, the relay cuts it to end 10 minutes after the high was snoozed: same
+        // start, so the ring drops to half rather than refilling.
+        let next = later.addingTimeInterval(300)
+        let cut = later.addingTimeInterval(600)
+        let shorter = AlertSnoozeCountdown.tracking(cut, previous: longer, now: next)
+        XCTAssertEqual(shorter?.start, later)
+        XCTAssertEqual(shorter?.fraction(at: next) ?? 1, 0.5, accuracy: 0.0001)
+    }
+
+    func testCountdownEndsWithTheSnooze() {
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 30, now: now)
+        let ring = AlertSnoozeCountdown.tracking(s.chipEnd(at: now), previous: nil, now: now)
+        let after = now.addingTimeInterval(1801)
+        XCTAssertNil(s.chipEnd(at: after))
+        XCTAssertNil(AlertSnoozeCountdown.tracking(s.chipEnd(at: after), previous: ring, now: after))
+        XCTAssertNil(AlertSnoozeCountdown.tracking(now, previous: ring, now: now))
+    }
+
+    func testChipEndFollowsTheChipsMinutesLeft() {
+        var s = AlertSnoozes()
+        s.snooze(.low, minutes: 15, now: now)
+        s.snooze(.veryHigh, minutes: 30, now: now)
+        s.snooze(.high, minutes: 20, now: now)
+        // The very high covers the shorter high; the chip counts to the last end.
+        XCTAssertEqual(s.chipEnd(at: now), now.addingTimeInterval(1800))
+        XCTAssertEqual(AlertSnoozeChip(s, now: now)?.remaining, "30 min")
+    }
+
+    func testCountdownRoundTripsThroughJSON() throws {
+        let ring = AlertSnoozeCountdown(start: now, end: now.addingTimeInterval(1800))
+        let data = try JSONEncoder().encode(ring)
+        XCTAssertEqual(try JSONDecoder().decode(AlertSnoozeCountdown.self, from: data), ring)
+    }
 }

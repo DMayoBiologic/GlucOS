@@ -146,9 +146,13 @@ final class AlertLogRecorder {
 final class AlertSnoozeStore: ObservableObject {
     static let shared = AlertSnoozeStore()
     private static let key = "alertSnoozes"
+    private static let countdownKey = "alertSnoozeCountdown"
     private let defaults: UserDefaults
 
     @Published private(set) var snoozes: AlertSnoozes
+    /// The chip's countdown ring: when the snooze it counts down to began (`AlertSnoozeCountdown`).
+    /// Kept with the snoozes so a relaunch doesn't refill the ring.
+    @Published private(set) var countdown: AlertSnoozeCountdown?
     /// Goes up with every change made on this device (a snooze button, the chip's Resume), so a
     /// relay status that was asked for before the change can't undo it (`adopt`).
     private(set) var revision = 0
@@ -159,6 +163,8 @@ final class AlertSnoozeStore: ObservableObject {
         self.defaults = defaults
         snoozes = defaults.data(forKey: Self.key).flatMap { try? JSONDecoder().decode(AlertSnoozes.self, from: $0) }
             ?? AlertSnoozes()
+        countdown = defaults.data(forKey: Self.countdownKey)
+            .flatMap { try? JSONDecoder().decode(AlertSnoozeCountdown.self, from: $0) }
         pruneWhenNextEnds()
     }
 
@@ -203,6 +209,15 @@ final class AlertSnoozeStore: ObservableObject {
         pruneWhenNextEnds()
     }
 
+    /// Keeps the ring on the end the chip counts down to. Called after every change.
+    private func trackCountdown(now: Date) {
+        let next = AlertSnoozeCountdown.tracking(snoozes.chipEnd(at: now), previous: countdown, now: now)
+        guard next != countdown else { return }
+        countdown = next
+        if let next { defaults.set(try? JSONEncoder().encode(next), forKey: Self.countdownKey) }
+        else { defaults.removeObject(forKey: Self.countdownKey) }
+    }
+
     /// Drops each snooze the moment it ends, so the chip goes away then (one fade) without anything
     /// polling. The alert rules read the end times, not this, so it changes nothing about alerts.
     private func pruneWhenNextEnds(now: Date = Date()) {
@@ -213,6 +228,7 @@ final class AlertSnoozeStore: ObservableObject {
             snoozes = pruned
             defaults.set(try? JSONEncoder().encode(pruned), forKey: Self.key)
         }
+        trackCountdown(now: now)
         guard let end = pruned.nextEnd(after: now) else { return }
         pruneTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(max(0.5, end.timeIntervalSinceNow + 0.5)))

@@ -241,6 +241,49 @@ struct AlertSnoozeChip: Equatable {
     }
 }
 
+// MARK: - The chip's countdown ring (docs/AlertActions.md, "Countdown ring")
+
+/// The ring on the "snoozed" chip that drains as the snooze runs out. It follows the same end as
+/// the chip's minutes left (the last running snooze, a very-high one covering a shorter high).
+/// The snoozes only keep end times, so the start is worked out once per end and kept
+/// (`AlertSnoozeStore.countdown`), so a relaunch or a redraw never refills the ring.
+struct AlertSnoozeCountdown: Codable, Hashable {
+    var start: Date
+    var end: Date
+
+    /// Snoozes only come in these lengths (Snooze 30 min, Log treatment 15 or 30, the relay's 60
+    /// at most), so the shortest one that holds what's left is when the snooze began. Exact for
+    /// a snooze started on this device, which sees its end the moment it's set; a good guess for
+    /// one adopted from the relay part-way through.
+    static let spans: [TimeInterval] = [15 * 60, 30 * 60, Double(AlertSnoozes.maximumMinutes * 60)]
+
+    /// The ring for `end` at `now`: `previous` when it follows the same end, otherwise a new start.
+    /// Nil once nothing is snoozed. A snooze made longer refills the ring; one made shorter keeps
+    /// draining from where it is.
+    static func tracking(_ end: Date?, previous: AlertSnoozeCountdown?, now: Date) -> AlertSnoozeCountdown? {
+        guard let end, end > now else { return nil }
+        if let previous, previous.end == end { return previous }
+        let left = end.timeIntervalSince(now)
+        if let previous, end < previous.end, previous.start < now {
+            return AlertSnoozeCountdown(start: previous.start, end: end)
+        }
+        let span = spans.first { $0 >= left - 1 } ?? left
+        return AlertSnoozeCountdown(start: end.addingTimeInterval(-max(span, left)), end: end)
+    }
+
+    /// How much of the ring is left at `now`: 1 just after snoozing, 0 at the end.
+    func fraction(at now: Date) -> Double {
+        let span = end.timeIntervalSince(start)
+        guard span > 0 else { return 0 }
+        return min(1, max(0, end.timeIntervalSince(now) / span))
+    }
+}
+
+extension AlertSnoozes {
+    /// The end the chip counts down to: the last running snooze, or nil when none is.
+    func chipEnd(at now: Date) -> Date? { badge(at: now).map { Date(timeIntervalSince1970: $0.until) } }
+}
+
 /// `POST /v1/alerts/snooze`: quiet the relay's pushes of this alert for a while. (`POST
 /// /v1/alerts/resume`, relay 2.15.0, takes an empty body and ends every snooze.)
 struct AlertSnoozeRequest: Codable, Hashable {

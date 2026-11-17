@@ -153,10 +153,11 @@ struct PhoneHomeView: View {
                         .dsEntrance(0)
                     // While an alert is snoozed: until when, and a tap turns alerts back on.
                     if snoozeStore.isSnoozing {
-                        AlertSnoozeChipView(snoozes: snoozeStore.snoozes, error: services.snoozeResumeError) {
+                        AlertSnoozeChipView(snoozes: snoozeStore.snoozes, countdown: snoozeStore.countdown,
+                                            error: services.snoozeResumeError) {
                             Task { await services.resumeAlerts() }
                         }
-                        .transition(.opacity)
+                        .transition(AlertSnoozeChipView.transition(reduceMotion: reduceMotion))
                     }
                     // During a low, or with one predicted: the alert's Log treatment button, inline.
                     // It opens the log sheet filled in from the "Treat a low" usual; nothing is logged

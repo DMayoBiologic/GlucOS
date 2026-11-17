@@ -42,8 +42,8 @@ change: a snoozed alert was let go of, so if it's still due it fires on the next
   time ("Low and high alerts snoozed until 2:30 pm"), otherwise each says its own, soonest first.
   Minutes left round up, so it never says "0 min"; VoiceOver hears "…, 12 minutes left" and the hint
   "Turns these alerts back on now", then "Alerts are back on." after a tap.
-- Motion: one fade in when a snooze starts and one fade out when it ends or is resumed, instant under
-  Reduce Motion. Nothing loops: the chip redraws once a minute and at each snooze's end
+- Motion: one fade in when a snooze starts and one shrink-and-fade out (toward its leading edge) when
+  it ends or is resumed, instant under Reduce Motion. Nothing loops: the chip redraws once a minute and at each snooze's end
   (`AlertSnoozes.redrawDates`), and `AlertSnoozeStore` drops a snooze the moment it ends with one
   timer rather than polling.
 - **The iPhone and the relay agree.** Relay 2.15.0 sends its running snoozes in every status
@@ -55,6 +55,25 @@ change: a snoozed alert was let go of, so if it's still due it fires on the next
   stand, so the phone puts them back and says "Couldn't reach GlucOS's server, so alerts are still
   snoozed" under the chip. With no relay, or one before 2.15.0, the phone's snoozes are its own.
 - The Mac's chip covers the Mac's own snoozes (the Mac has no relay connection).
+
+### Countdown ring
+
+The bell on the chip sits in a ring that drains as the snooze runs out, on iPhone and Mac. It counts
+down to the same end as the chip's minutes left (the last running snooze; a very-high snooze covers
+a shorter high).
+
+- `AlertSnoozeCountdown` (`Sources/Core/AlertSnooze.swift`, tests in `AlertSnoozeTests`) keeps when
+  that snooze began, because the snoozes only hold end times. A new end gets the shortest snooze
+  length that holds what's left (15, 30 or 60 minutes), which is exact for a snooze set on the device
+  and a fair guess for one adopted from the relay part-way through. The same end keeps its start, so
+  a redraw or relaunch never refills the ring; a longer snooze refills it, a shorter one keeps
+  draining. `AlertSnoozeStore.countdown` holds it, saved next to the snoozes.
+- Power: the ring moves only when the chip already redraws, once a minute. Each redraw glides the
+  arc to its new length in one short animation; nothing loops.
+- Reduce Motion: the ring holds still and steps once a minute, with the minutes left inside it in
+  place of the bell.
+- VoiceOver skips the ring. The chip's label already says "…, 12 minutes left" when it's read, so
+  nothing is announced as the minutes tick down.
 - View: `Sources/App/Views/AlertSnoozeChipView.swift` (shared by both apps).
 
 ## Snoozed on the Lock Screen
