@@ -403,3 +403,36 @@ extension LogEntry {
         }
     }
 }
+
+// MARK: - Switching chips
+
+/// The chips picked in the Logbook: the kind chip (All when nil) and the tag chip on top of it.
+/// The list follows a pick a moment behind the highlight, so it can fade over to its new rows
+/// (docs/LogbookSearch.md "Switching chips"). Tags compare as `LogbookTags.key` does, so
+/// "exercise" and "Exercise" are the same pick.
+struct LogbookFilterPick: Equatable, Sendable {
+    var kind: LogbookFilter?
+    var tag: String?
+
+    init(kind: LogbookFilter?, tag: String?) {
+        self.kind = kind
+        self.tag = tag
+    }
+
+    static func == (a: LogbookFilterPick, b: LogbookFilterPick) -> Bool {
+        a.kind == b.kind && a.tag.map(LogbookTags.key) == b.tag.map(LogbookTags.key)
+    }
+
+    /// How long the old rows take to fade out, and the new ones to fade in, in seconds.
+    static let fadeOut = 0.09
+    static let fadeIn = 0.2
+
+    /// What VoiceOver says once the list has switched: how many rows the chips leave showing.
+    static func announcement(count: Int) -> String {
+        switch count {
+        case 0: return "No matches"
+        case 1: return "1 entry"
+        default: return "\(count) entries"
+        }
+    }
+}

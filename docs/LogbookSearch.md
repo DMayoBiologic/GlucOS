@@ -28,6 +28,20 @@ tags, the food or insulin logged with one, and low alert rows), **Highs** (high 
 alert rows, and insulin marked as a correction), **Notes** (anything with a note),
 **Sites**, **Moments**, **Alerts**. One chip at a time, on top of the search.
 
+## Switching chips
+
+Round 51. Picking a chip, on iPhone or Mac, moves one highlight: it slides on a spring from the old
+chip to the new one (matched geometry), its colour turning to the new chip's on the way. The kind
+chips and the tag chips each have their own highlight. The list doesn't slide its rows about: the
+old rows fade out (0.09 s), the list switches to the new rows, and those fade in (0.2 s), so the
+rows have settled before the highlight has. VoiceOver then says how many rows are showing, once
+("12 entries", "1 entry", "No matches"); a quick run of taps only speaks for the last one.
+
+Under Reduce Motion the highlight and the list switch at once, with the same one announcement.
+Opening the Logbook from a card or the "last logged" line, and a calendar jump that clears the
+chips, switch the list straight away and say nothing extra. The list follows the chips through
+`LogbookFilterPick` (Engine, tested in LogbookSearchTests).
+
 ## Highlights and the empty list
 
 The words found are bold, on a faint wash of the row's own colour, in the row's title and its
