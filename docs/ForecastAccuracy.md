@@ -3673,8 +3673,8 @@ The baseline is the §8 rule (T 1.05, N 30) run the same way, since the stored p
   trend-only run above) and 3.0% worse on 15 Nov; the other days are within a point.
 - **The 60-minute gain is about a point and a half**, carried by 8 points on 14 Nov; 16 Nov gets
   worse.
-- **Points the stricter rules cut** were on average only 0.4–0.7 mg/dL further off than no change at
-  15 and 30 minutes, so hiding them hardly changes what you'd see.
+- **Points the stricter rules cut** at 15 and 30 minutes were on average between 0.6 mg/dL closer
+  and 2.0 mg/dL further off than no change, so hiding them hardly changes what you'd see.
 
 **Low warnings.** Of the drawn points that ended under 70 with a range bottom under 70, every rule
 here, the baseline included, cuts the same one. Nothing shipped, so low warnings (§13, §30) and
