@@ -164,9 +164,9 @@ struct InsightsSharePreview: View {
     @Environment(\.dismiss) private var dismiss
 
     #if os(iOS)
-    private let width: CGFloat = 390
+    private let width = CGFloat(InsightsShare.renderWidth(phone: true))
     #else
-    private let width: CGFloat = 560
+    private let width = CGFloat(InsightsShare.renderWidth(phone: false))
     #endif
 
     private var footer: String {
@@ -200,7 +200,7 @@ struct InsightsSharePreview: View {
         .onAppear {
             snapshot.start(InsightsShareImage(content: AnyView(content.environment(\.colorScheme, colorScheme)),
                                               footer: footer, width: width),
-                           scale: max(displayScale, 2))
+                           scale: CGFloat(InsightsShare.renderScale(displayScale: Double(displayScale))))
         }
         .onDisappear { snapshot.stop() }
     }
@@ -243,5 +243,39 @@ struct InsightsSharePreview: View {
             .buttonStyle(.ds(.primary))
             .disabled(true)
         }
+    }
+}
+
+// MARK: - The lift on screen
+
+private struct InsightsShareLiftModifier: ViewModifier {
+    let lifted: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let style = InsightsShareLift.style(lifted: lifted, reduceMotion: reduceMotion)
+        content
+            .overlay {
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .strokeBorder(Palette.brand.opacity(style.outline), lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
+            .dsShadow(style.raised ? .high : .none)
+            .scaleEffect(style.scale)
+            .zIndex(lifted ? 1 : 0)
+    }
+}
+
+extension View {
+    /// The card lifts slightly while its share sheet gets ready (an outline fades in instead
+    /// under Reduce Motion). Animate the change with `InsightsShareLiftMotion`.
+    func insightsShareLift(_ lifted: Bool) -> some View {
+        modifier(InsightsShareLiftModifier(lifted: lifted))
+    }
+}
+
+enum InsightsShareLiftMotion {
+    static func animation(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : DSMotion.emphasized.animation
     }
 }

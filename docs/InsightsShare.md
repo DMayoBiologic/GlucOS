@@ -4,6 +4,9 @@ Any Insights card can go out as a picture, on iPhone and Mac.
 
 - **iPhone:** touch and hold a card, then **Share Card…**. VoiceOver: the card's actions include
   **Share card**.
+  The card lifts slightly, with a deeper shadow, while its sheet gets ready and settles back when
+  the sheet closes. Under Reduce Motion nothing moves: a soft outline fades in round the card
+  instead (`InsightsShareLift`).
 - **Mac:** right-click a card on the Dashboard's Insights page, then **Share Card…**.
 
 A sheet shows the exact picture that will leave the device. Its **Share…** button opens the system
@@ -31,7 +34,7 @@ The card as it looks on screen, then a small footer:
 
 `InsightsSharePreview` (Sources/App/Views/InsightsShareView.swift, both targets) builds the card
 again away from the screen, with the screen's environment objects attached, and draws it with
-`ImageRenderer` at the display scale (at least 2×), 390 pt wide on iPhone and 560 pt on Mac. The
+`ImageRenderer` at the display scale, at least 2× and at most 3× (`InsightsShare.renderScale`), 390 pt wide on iPhone and 560 pt on Mac. The
 renderer is kept alive and redraws once the card has been quiet for 0.6 s (up to six times), so a
 card that works its figures out a moment after appearing is pictured settled, not blank. The card
 sits on the system grouped background so its glass reads the same wherever the picture lands.

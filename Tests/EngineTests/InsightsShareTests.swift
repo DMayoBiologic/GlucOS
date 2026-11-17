@@ -103,4 +103,40 @@ final class InsightsShareTests: XCTestCase {
         f.dateFormat = "MMM"
         return f.string(from: date(2026, m, 1))
     }
+
+    // MARK: Rendering inputs and the lift
+
+    func testRenderWidthPerPlatform() {
+        XCTAssertEqual(InsightsShare.renderWidth(phone: true), 390)
+        XCTAssertEqual(InsightsShare.renderWidth(phone: false), 560)
+    }
+
+    func testRenderScaleIsAtLeastTwoAndAtMostThree() {
+        XCTAssertEqual(InsightsShare.renderScale(displayScale: 1), 2)
+        XCTAssertEqual(InsightsShare.renderScale(displayScale: 2), 2)
+        XCTAssertEqual(InsightsShare.renderScale(displayScale: 3), 3)
+        XCTAssertEqual(InsightsShare.renderScale(displayScale: 4), 3)
+        XCTAssertEqual(InsightsShare.renderScale(displayScale: 0), 2)
+        XCTAssertEqual(InsightsShare.renderScale(displayScale: .nan), 2)
+    }
+
+    func testLiftRaisesTheCardAndRestsWhenDone() {
+        let up = InsightsShareLift.style(lifted: true, reduceMotion: false)
+        XCTAssertGreaterThan(up.scale, 1)
+        XCTAssertLessThanOrEqual(up.scale, 1.03, "a slight lift, not a zoom")
+        XCTAssertTrue(up.raised)
+        XCTAssertEqual(up.outline, 0)
+        XCTAssertEqual(InsightsShareLift.style(lifted: false, reduceMotion: false), .rest)
+        XCTAssertEqual(InsightsShareLift.style(lifted: false, reduceMotion: true), .rest)
+    }
+
+    func testReduceMotionFadesAnOutlineAndMovesNothing() {
+        let style = InsightsShareLift.style(lifted: true, reduceMotion: true)
+        XCTAssertEqual(style.scale, 1)
+        XCTAssertFalse(style.raised)
+        XCTAssertGreaterThan(style.outline, 0)
+        XCTAssertLessThan(InsightsShareLift.presentDelay(reduceMotion: true),
+                          InsightsShareLift.presentDelay(reduceMotion: false))
+        XCTAssertLessThan(InsightsShareLift.presentDelay(reduceMotion: false), 0.3, "the sheet never waits long")
+    }
 }
