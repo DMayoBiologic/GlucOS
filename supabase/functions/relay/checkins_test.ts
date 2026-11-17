@@ -422,7 +422,7 @@ Deno.test("snooze: an urgent low always gets through, and can't be snoozed", asy
   t.setMgdl(50);
   t.sent.length = 0;
   await t.engine.tick();
-  const urgent = t.to(ownerPhone).filter((p) => p.type === "alert" && p.collapseId === "glucos.urgentLow");
+  const urgent = t.to(ownerPhone).filter((p) => p.type === "alert" && p.payload.kind === "urgentLow");
   assertEquals(urgent.length, 1);
   assertEquals(aps(urgent[0]).category, "glucos.alert.urgent");
 });
@@ -448,7 +448,7 @@ Deno.test("snooze: followers' high alerts carry none of the owner's buttons", as
   t.setMgdl(200);
   t.sent.length = 0;
   await t.engine.tick();
-  const owner = t.to(ownerPhone).filter((p) => p.collapseId === "glucos.high");
+  const owner = t.to(ownerPhone).filter((p) => p.payload.kind === "high");
   const follower = t.to(followerPhone).filter((p) => p.type === "alert" && p.collapseId?.includes("high"));
   assertEquals(owner.length, 1);
   assertEquals(aps(owner[0]).category, "glucos.alert");
@@ -509,4 +509,26 @@ Deno.test("snooze: the owner's card shows it until it ends; followers' cards nev
   t.advance(60);
   await t.engine.tick();
   assertEquals(cardSnoozeOn(t, ownerCard), undefined);
+});
+
+Deno.test("episodes: followers' alerts are keyed per episode and get the quiet back-in-range", async () => {
+  const t = await setup();
+  t.setMgdl(200);
+  await t.engine.tick();
+  const highs = t.to(followerPhone).filter((p) => p.type === "alert" && p.payload.kind === "high");
+  assertEquals(highs.length, 1);
+  const key = t.to(ownerPhone).find((p) => p.payload.kind === "high")!.collapseId!;
+  assert(key.startsWith("glucos.high."));
+  assert(highs[0].collapseId!.startsWith(`${key}.`));
+  t.advance(600);
+  t.setMgdl(120);
+  t.sent.length = 0;
+  await t.engine.tick();
+  const back = t.to(followerPhone).filter((p) => p.type === "alert" && p.payload.backInRange === "high");
+  assertEquals(back.length, 1);
+  assertEquals(back[0].collapseId, highs[0].collapseId);
+  assertEquals(aps(back[0]).alert?.title, "Declan: Back in range after 10 min");
+  assertEquals(aps(back[0])["interruption-level"], "passive");
+  assert(back[0].payload.followID);
+  assertEquals(t.to(ownerPhone).filter((p) => p.payload.backInRange === "high").length, 1);
 });

@@ -980,6 +980,122 @@ export interface AlertNotice {
 
 export const noticeIdentifier = (n: AlertNotice) => `glucos.${n.kind}`;
 
+// MARK: - Episodes (Sources/Core/AlertEpisodes.swift, docs/AlertEpisodes.md)
+
+/// Alerts from one low (or one high) share a collapse id, so a newer push replaces the older one
+/// on the phone instead of stacking; it still sounds. Back in range, a quiet summary replaces it.
+export type EpisodeSide = "low" | "high";
+export interface EpisodeShown { kind: AlertKind; at: number }
+export interface Episode {
+  side: EpisodeSide;
+  /// The first reading out of range, or the first heads-up before one. Names the notification.
+  key: number;
+  outSince: number | null;
+  lastOutAt: number | null;
+  extremeMgdl: number | null;
+  lastAlertAt: number | null;
+  shown: EpisodeShown[];
+}
+export interface EpisodesState { low: Episode | null; high: Episode | null }
+export interface BackInRangeSummary {
+  side: EpisodeSide;
+  identifier: string;
+  minutes: number;
+  extremeMgdl: number;
+  nowMgdl: number;
+  shown: EpisodeShown[];
+}
+
+export const newEpisodes = (): EpisodesState => ({ low: null, high: null });
+export const episodeGapLimit = 30 * 60;
+export const episodeHeadsUpFor = 45 * 60;
+export const episodeShownLimit = 12;
+
+export function episodeSide(kind: AlertKind): EpisodeSide | null {
+  switch (kind) {
+    case "urgentLow": case "low": case "predictedUrgentLow": case "predictedLow": return "low";
+    case "high": case "veryHigh": case "predictedHigh": case "predictedVeryHigh": return "high";
+    default: return null;
+  }
+}
+
+export const episodeIdentifier = (e: Episode) => `glucos.${e.side}.${Math.trunc(e.key)}`;
+
+function markEpisode(st: EpisodesState, side: EpisodeSide, r: Reading) {
+  const e: Episode = st[side] ?? { side, key: r.t, outSince: null, lastOutAt: null, extremeMgdl: null, lastAlertAt: null, shown: [] };
+  if (e.outSince === null) e.outSince = r.t;
+  e.lastOutAt = r.t;
+  const x = e.extremeMgdl ?? r.mgdl;
+  e.extremeMgdl = side === "low" ? Math.min(x, r.mgdl) : Math.max(x, r.mgdl);
+  st[side] = e;
+}
+
+function endEpisode(st: EpisodesState, side: EpisodeSide, r: Reading, now: number): BackInRangeSummary | null {
+  const e = st[side];
+  if (!e) return null;
+  if (e.outSince === null || e.lastOutAt === null || e.extremeMgdl === null) {
+    if (e.lastAlertAt !== null && now - e.lastAlertAt < episodeHeadsUpFor) return null;
+    st[side] = null;
+    return null;
+  }
+  st[side] = null;
+  if (!e.shown.length || r.t - e.lastOutAt > episodeGapLimit) return null;
+  const minutes = Math.max(1, roundHalfAway((r.t - e.outSince) / 60));
+  return { side, identifier: episodeIdentifier(e), minutes, extremeMgdl: e.extremeMgdl, nowMgdl: r.mgdl, shown: e.shown };
+}
+
+/// Call with every tick's snapshot, before `recordEpisodeAlert`. The episodes this reading ended
+/// that had an alert shown, as summaries to push. Mutates `st`.
+export function observeEpisodes(st: EpisodesState, s: Snapshot, now: number): BackInRangeSummary[] {
+  const r = s.current;
+  if (!r || isStale(s, now)) return [];
+  switch (classify(r.mgdl, s.lowMgdl, s.highMgdl)) {
+    case "urgentLow": case "low":
+      st.high = null;
+      markEpisode(st, "low", r);
+      return [];
+    case "high": case "veryHigh":
+      st.low = null;
+      markEpisode(st, "high", r);
+      return [];
+    default:
+      return (["low", "high"] as EpisodeSide[]).map((side) => endEpisode(st, side, r, now))
+        .filter((b): b is BackInRangeSummary => b !== null);
+  }
+}
+
+/// An alert about to be pushed: its episode's id (opening one if none is going) and the alerts it
+/// replaces. Null for alerts outside episodes. Mutates `st`.
+export function recordEpisodeAlert(st: EpisodesState, kind: AlertKind, now: number):
+  { identifier: string; earlier: EpisodeShown[] } | null {
+  const side = episodeSide(kind);
+  if (!side) return null;
+  const e: Episode = st[side] ?? { side, key: now, outSince: null, lastOutAt: null, extremeMgdl: null, lastAlertAt: null, shown: [] };
+  const earlier = [...e.shown];
+  e.shown.push({ kind, at: now });
+  if (e.shown.length > episodeShownLimit) e.shown.splice(0, e.shown.length - episodeShownLimit);
+  e.lastAlertAt = now;
+  st[side] = e;
+  return { identifier: episodeIdentifier(e), earlier };
+}
+
+export function episodeDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
+export function backInRangeText(b: BackInRangeSummary, unit: Unit): { title: string; body: string } {
+  const word = b.side === "low" ? "Lowest" : "Highest";
+  return {
+    title: `Back in range after ${episodeDuration(b.minutes)}`,
+    body: `${word} ${formatGlucose(unit, b.extremeMgdl, true)}, now ${formatGlucose(unit, b.nowMgdl, true)}.`,
+  };
+}
+
+/// `[[kind, seconds]]`, as the apps read it (`AlertEpisodes.Shown.list`).
+export const earlierPayload = (shown: EpisodeShown[]) => shown.map((e) => [e.kind, Math.trunc(e.at)]);
+
 export interface PlannerState {
   lastFired: Partial<Record<AlertKind, number>>;
   quietSince: number | null;

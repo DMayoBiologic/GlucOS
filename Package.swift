@@ -30,6 +30,7 @@ let package = Package(
                 "Core/AlertSnooze.swift",
                 "Core/AlertBanner.swift",
                 "Core/AlertChartSource.swift",
+                "Core/AlertEpisodes.swift",
                 "Shared/GlucoseActivityState.swift",
                 "Shared/ClockLabel.swift",
                 "Shared/ChartSummary.swift",

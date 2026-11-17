@@ -113,7 +113,8 @@ Deno.test("a low reading sends one alert push, then waits for the cooldown", asy
   await t.engine.tick();
   const alerts = t.sender.sent.filter((p) => p.type === "alert");
   assertEquals(alerts.length, 1);
-  assertEquals(alerts[0].collapseId, "glucos.low");
+  // Keyed by the low it belongs to (docs/AlertEpisodes.md).
+  assert(alerts[0].collapseId?.startsWith("glucos.low."));
   assertEquals(alerts[0].priority, 10);
   const aps = alerts[0].payload.aps as Record<string, unknown>;
   assertEquals((aps.alert as Record<string, string>).title, "Low glucose — 3.4 mmol/L");
@@ -283,7 +284,7 @@ Deno.test("status says the relay is delivering once it has fetched", async () =>
   assert(s.hasAccount && s.hasDeviceToken && s.alertsEnabled);
   assertEquals(s.lastFetchAt, t.clock());
   assertEquals(s.lastError, undefined);
-  assertEquals(s.version, "2.18.0");
+  assertEquals(s.version, "2.19.0");
   assertEquals(s.snoozes, {});
 });
 
@@ -450,8 +451,9 @@ Deno.test("a low alert push carries the last 3 hours as its chart; followers' co
   assertEquals(chart.history.length, 37);
   assertEquals(chart.history[36], 62);
   assertEquals([chart.lowMgdl, chart.highMgdl, chart.unit], [70, 180, "mmol"]);
-  // Delivery itself is unchanged: same priority, collapse id and expiry as before.
-  assertEquals([alert.priority, alert.collapseId], [10, "glucos.low"]);
+  // Delivery itself is unchanged: same priority; the collapse id names the low (docs/AlertEpisodes.md).
+  assertEquals(alert.priority, 10);
+  assert(alert.collapseId?.startsWith("glucos.low."));
   const n = { kind: "low" as const, title: "Low", body: "b", critical: false };
   assertEquals("chart" in payloads.followerAlert(n, "Dec", "share1", false), false);
 });
@@ -470,4 +472,45 @@ Deno.test("alertChart: only alerts with buttons, and only with 2 readings or mor
   assertEquals(alertChart("low", { ...card, history: [null, null, 62] }), null);
   assertEquals(alertChart("low", null), null);
   assertEquals("chart" in payloads.alert({ kind: "low", title: "t", body: "b", critical: false }, false), false);
+});
+
+Deno.test("alerts from one low replace each other, then a quiet back-in-range replaces them", async () => {
+  const t = await registered();
+  const first = t.clock() - 30;
+  t.fetcher.mgdl = 62;
+  await t.engine.tick();
+  t.advance(300);
+  t.fetcher.mgdl = 58;
+  await t.engine.tick();
+  t.advance(15 * 60);
+  t.fetcher.mgdl = 64;
+  await t.engine.tick();
+  const lows = t.sender.sent.filter((p) => p.type === "alert" && p.payload.kind === "low");
+  assertEquals(lows.length, 2);
+  assertEquals(lows.map((p) => p.collapseId), [`glucos.low.${first}`, `glucos.low.${first}`]);
+  // The repeat still alerts: same sound, level and priority as the first.
+  const a1 = lows[1].payload.aps as Record<string, unknown>;
+  assertEquals([a1.sound, a1["interruption-level"], lows[1].priority], ["default", "active", 10]);
+  assert(lows[1].payload.chart);
+  assertEquals(lows[1].payload.earlier, [["low", t.clock() - 20 * 60]]);
+  t.sender.sent = [];
+  t.advance(300);
+  t.fetcher.mgdl = 100;
+  await t.engine.tick();
+  const back = t.sender.sent.filter((p) => p.type === "alert");
+  assertEquals(back.length, 1);
+  assertEquals([back[0].collapseId, back[0].priority, back[0].payload.backInRange], [`glucos.low.${first}`, 5, "low"]);
+  const aps = back[0].payload.aps as Record<string, unknown>;
+  assertEquals(aps.alert, { title: "Back in range after 25 min", body: "Lowest 3.2 mmol/L, now 5.5 mmol/L." });
+  assertEquals([aps.sound, aps["interruption-level"]], [undefined, "passive"]);
+  t.sender.sent = [];
+  t.advance(60);
+  await t.engine.tick();
+  assertEquals(t.sender.sent.filter((p) => p.type === "alert").length, 0);
+  // The next low is its own episode.
+  t.advance(600);
+  t.fetcher.mgdl = 63;
+  await t.engine.tick();
+  const next = t.sender.sent.filter((p) => p.type === "alert");
+  assertEquals(next.map((p) => p.collapseId), [`glucos.low.${t.clock() - 30}`]);
 });

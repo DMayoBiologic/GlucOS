@@ -2,7 +2,10 @@
 // Payload shapes follow Apple's "Sending notification requests to APNs" and "Starting and
 // updating Live Activities with ActivityKit push notifications".
 
-import { type AlertChart, alertCategory, type AlertNotice, type CardState, cardRange, cardStaleDate } from "./core.ts";
+import {
+  type AlertChart, alertCategory, type AlertNotice, type BackInRangeSummary, backInRangeText, type CardState, cardRange,
+  cardStaleDate, earlierPayload, type EpisodeShown, type Unit,
+} from "./core.ts";
 
 export interface PushRequest {
   deviceToken: string;
@@ -38,7 +41,9 @@ export const followerLowKinds: ReadonlySet<string> = new Set(["urgentLow", "low"
 
 export const payloads = {
   /// `chart`: the owner's alert chart (`alertChart`), drawn by the iPhone's content extension.
-  alert(n: AlertNotice, criticalSound: boolean, chart: AlertChart | null = null) {
+  /// `earlier`: the alerts from the same low or high this one replaces (docs/AlertEpisodes.md), so
+  /// the phone's Logbook still records them.
+  alert(n: AlertNotice, criticalSound: boolean, chart: AlertChart | null = null, earlier: EpisodeShown[] = []) {
     const aps: Record<string, unknown> = {
       alert: { title: n.title, body: n.body },
       "thread-id": "glucos.alerts",
@@ -49,7 +54,24 @@ export const payloads = {
     // "Snooze 30 min" and "I'm treating it" (urgent lows: only the second).
     const category = alertCategory(n.kind);
     if (category) aps.category = category;
-    return chart ? { aps, kind: n.kind, chart } : { aps, kind: n.kind };
+    const out: Record<string, unknown> & { aps: Record<string, unknown> } = { aps, kind: n.kind };
+    if (chart) out.chart = chart;
+    if (earlier.length) out.earlier = earlierPayload(earlier);
+    return out;
+  },
+
+  /// Replaces an episode's alert once glucose is back in range: quiet (no sound, passive), since
+  /// it is news rather than an alert. `follower`: the copy on a follower's phone.
+  backInRange(b: BackInRangeSummary, unit: Unit, follower: { label: string; shareId: string } | null = null) {
+    const text = backInRangeText(b, unit);
+    const aps: Record<string, unknown> = {
+      alert: { title: follower ? `${follower.label}: ${text.title}` : text.title, body: text.body },
+      "thread-id": follower ? `glucos.follow.${follower.shareId}` : "glucos.alerts",
+      "interruption-level": "passive",
+      "relevance-score": 0.2,
+    };
+    if (follower) return { aps, backInRange: b.side, followID: follower.shareId };
+    return { aps, backInRange: b.side, earlier: earlierPayload(b.shown) };
   },
 
   /// The owner's alert, on a follower's phone: named for whose readings they are, and grouped

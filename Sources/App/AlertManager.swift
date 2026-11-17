@@ -9,6 +9,8 @@ import UIKit
 final class AlertManager {
     /// The rules and repeat timers, shared with the push relay.
     private var planner = AlertPlanner()
+    /// Groups low and high alerts by episode, so they replace each other (docs/AlertEpisodes.md).
+    private var episodes = AlertEpisodes()
     private var authorized = false
 
     func requestAuthorization() {
@@ -55,8 +57,10 @@ final class AlertManager {
         // Each reading also lets go of alert records past 90 days, so a Mac that never quits keeps
         // to the limit too. Cheap: nothing is written unless one has expired.
         AlertLogRecorder.shared.logbook?.pruneExpiredAlerts(now: now)
+        let ended = episodes.observe(s, now: now)
         let due = planner.evaluate(s, prefs: settings.alertPreferences, now: now)
         for notice in planner.unsnoozed(due, snoozes: AlertSnoozeStore.shared.snoozes, now: now) { deliver(notice, snapshot: s) }
+        for summary in ended { deliverBackInRange(summary, unit: s.unit) }
     }
 
     /// Heads-up alerts from the forecast. See `AlertPlanner.evaluatePrediction`.
@@ -74,19 +78,27 @@ final class AlertManager {
         content.sound = notice.critical ? .defaultCritical : .default
         content.interruptionLevel = notice.critical ? .timeSensitive : .active
         content.threadIdentifier = "glucos.alerts"
+        // Alerts from one low or one high share an identifier, so the newest replaces the last one
+        // in Notification Centre. It is a new alert all the same: same sound, same interruption level.
+        let episode = episodes.record(notice.kind, now: Date())
+        let identifier = episode?.identifier ?? notice.identifier
         // "Log treatment" and "Snooze 30 min" (urgent lows: only the first). See AlertSnooze.swift.
         if let category = notice.kind.actionCategory { content.categoryIdentifier = category }
         var userInfo: [String: Any] = ["kind": notice.kind.rawValue]
+        // The alerts this one replaces, so the iPhone's Logbook still records each of them.
+        if let earlier = episode?.earlier, !earlier.isEmpty {
+            userInfo[AlertEpisodes.Shown.earlierKey] = earlier.map(\.userInfoValue)
+        }
         // The chart: drawn by the iPhone's notification content extension, and on the Mac shown as
         // the alert's picture. Only adds content: the alert goes out now either way.
         if let chart = AlertChartSource.chart(for: notice.kind, snapshot: snapshot) {
             if let value = chart.userInfoValue { userInfo[AlertChart.userInfoKey] = value }
             #if os(macOS)
-            if let picture = Self.picture(chart, id: notice.identifier) { content.attachments = [picture] }
+            if let picture = Self.picture(chart, id: identifier) { content.attachments = [picture] }
             #endif
         }
         content.userInfo = userInfo
-        let req = UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil)
+        let req = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         // Only an alert that was actually shown goes in the logbook.
         let kind = notice.kind, time = Date()
         UNUserNotificationCenter.current().add(req) { error in
@@ -96,6 +108,22 @@ final class AlertManager {
                 AlertLogRecorder.shared.fired(kind, at: time)
             }
         }
+    }
+
+    /// Replaces the episode's alert with "Back in range after 25 min". Quiet on purpose: it is news,
+    /// not an alert, so it makes no sound and doesn't light the screen. It only replaces alerts this
+    /// device showed (a summary exists only when one was), so it is sent even where the relay now
+    /// delivers the alerts.
+    private func deliverBackInRange(_ b: AlertEpisodes.BackInRange, unit: GlucoseUnit) {
+        let content = UNMutableNotificationContent()
+        content.title = b.title()
+        content.body = b.body(unit: unit)
+        content.sound = nil
+        content.interruptionLevel = .passive
+        content.threadIdentifier = "glucos.alerts"
+        content.userInfo = [AlertEpisodes.backInRangeKey: b.side.rawValue,
+                            AlertEpisodes.Shown.earlierKey: b.shown.map(\.userInfoValue)]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: b.identifier, content: content, trigger: nil))
     }
 }
 
@@ -137,6 +165,13 @@ final class AlertLogRecorder {
     /// The user's own alert, local or pushed, as the notification arrived. A follower's copy of
     /// someone else's alert (it names the share it's from) is never theirs to record.
     func arrived(userInfo: [AnyHashable: Any], at time: Date) {
+        // An alert can replace earlier ones from the same low or high (docs/AlertEpisodes.md), and a
+        // "Back in range" summary replaces them all: each lists the ones it replaced.
+        if userInfo["followID"] == nil {
+            for e in AlertEpisodes.Shown.list(from: userInfo[AlertEpisodes.Shown.earlierKey]) where AlertLog.isLogged(e.kind) {
+                logbook?.alertFired(e.kind, at: e.at)
+            }
+        }
         guard let kind = Self.ownKind(userInfo) else { return }
         logbook?.alertFired(kind, at: time)
     }
