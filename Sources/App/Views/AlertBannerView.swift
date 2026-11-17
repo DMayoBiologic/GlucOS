@@ -18,7 +18,11 @@ import UIKit
 final class AlertBannerCenter: ObservableObject {
     static let shared = AlertBannerCenter()
 
-    @Published private(set) var banner: AlertBanner?
+    /// Every banner on screen, front first. A second alert stacks behind the first (round 59).
+    @Published private(set) var stack = AlertBannerStack()
+
+    /// The banner in front.
+    var banner: AlertBanner? { stack.front }
 
     /// What a banner button does: exactly what the same button does on the notification. Set at
     /// launch by each app (iPhone: `PhoneAlertActions.handle`; Mac: `MacAlertActions.handle`).
@@ -47,18 +51,40 @@ final class AlertBannerCenter: ObservableObject {
         return true
     }
 
-    func dismiss() {
-        expiry?.cancel()
-        expiry = nil
-        banner = nil
+    /// Hides one banner (swiped up, closed, or tapped). Never snoozes or logs anything; the
+    /// notification stays in Notification Center. The next one behind comes forward.
+    func dismiss(_ id: String) {
+        stack.remove(id: id)
+        scheduleExpiry()
     }
 
-    /// A banner button: records it in the Logbook like a notification button, hides the banner,
+    /// Hides them all.
+    func dismissAll() {
+        stack.removeAll()
+        scheduleExpiry()
+    }
+
+    /// Spreads the stack out, or folds it back.
+    func setExpanded(_ expanded: Bool) {
+        stack.setExpanded(expanded)
+    }
+
+    /// A tap on a banner itself: with others waiting behind it, spreads the stack out; otherwise
+    /// dismisses it, as before.
+    func tapBanner(_ id: String) {
+        if !stack.isExpanded, stack.canExpand, stack.front?.id == id {
+            setExpanded(true)
+        } else {
+            dismiss(id)
+        }
+    }
+
+    /// A banner button: records it in the Logbook like a notification button, hides that banner,
     /// then does what the notification's button does.
-    func tap(_ button: AlertBanner.Button) {
-        guard let banner, let tap = banner.tap(button) else { return }
+    func tap(_ button: AlertBanner.Button, on banner: AlertBanner) {
+        guard let tap = banner.tap(button) else { return }
         AlertLogRecorder.shared.tapped(tap, userInfo: ["kind": banner.kind.rawValue], firedAt: banner.firedAt)
-        dismiss()
+        dismiss(banner.id)
         Task { await perform?(tap) }
     }
 
@@ -85,20 +111,26 @@ final class AlertBannerCenter: ObservableObject {
     }
 
     private func show(_ new: AlertBanner) {
-        banner = new
+        stack.add(new, now: Date())
         #if os(iOS)
         Haptics.play(.alertBanner)
         #else
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
         #endif
         AccessibilityNotification.Announcement(new.announcement).post()
-        // One timer to take it away if it's left alone: nothing polls.
+        scheduleExpiry()
+    }
+
+    /// One timer, at the next banner's end, to take it away if it's left alone: nothing polls.
+    private func scheduleExpiry() {
         expiry?.cancel()
-        let id = new.id
+        expiry = nil
+        guard let end = stack.nextExpiry else { return }
         expiry = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(max(1, new.firedAt.addingTimeInterval(AlertBanner.lifetime).timeIntervalSinceNow)))
-            guard !Task.isCancelled, let self, self.banner?.id == id else { return }
-            self.banner = nil
+            try? await Task.sleep(for: .seconds(max(1, end.timeIntervalSinceNow)))
+            guard !Task.isCancelled, let self else { return }
+            self.stack.prune(at: Date())
+            self.scheduleExpiry()
         }
     }
 }
@@ -130,24 +162,103 @@ private struct AlertBannerHost: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .top) {
-                ZStack(alignment: .top) {
-                    if let banner = center.banner {
-                        AlertBannerView(banner: banner, onTap: center.tap, onDismiss: center.dismiss)
-                            .padding(.horizontal, DS.Space.md)
-                            .padding(.top, DS.Space.sm)
-                            .id(banner.id)
-                            // Slides down once; under Reduce Motion it cross-fades instead.
-                            .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.move(edge: .top).combined(with: .opacity))
-                    }
-                }
-                .animation(reduceMotion ? .easeInOut(duration: 0.25) : DSMotion.emphasized.animation,
-                           value: center.banner?.id)
+                AlertBannerStackView(center: center, reduceMotion: reduceMotion)
+                    .padding(.horizontal, DS.Space.md)
+                    .padding(.top, DS.Space.sm)
             }
             #if os(macOS)
             .background(HostWindowReader { center.host(id, isIn: $0) })
             #endif
             .onAppear { center.hostAppeared(id) }
             .onDisappear { center.hostDisappeared(id) }
+    }
+}
+
+/// The banners, front first (round 59). Collapsed, the ones behind peek out a few points below
+/// the front card, smaller and fainter, and only the front one can be touched. Spread out, they sit
+/// one under another with a Show less button. Cards move with a spring as they arrive, leave, or
+/// spread; under Reduce Motion every change cross-fades instead.
+private struct AlertBannerStackView: View {
+    @ObservedObject var center: AlertBannerCenter
+    let reduceMotion: Bool
+    @State private var heights: [String: CGFloat] = [:]
+
+    private var stack: AlertBannerStack { center.stack }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            cards
+                // Reduce Motion: no sliding between places; the whole stack cross-fades.
+                .id(reduceMotion ? stackKey : "stack")
+                .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.identity)
+        }
+        .animation(reduceMotion ? .easeInOut(duration: 0.25) : DSMotion.emphasized.animation, value: stack)
+        .onPreferenceChange(AlertBannerHeights.self) { heights = $0 }
+    }
+
+    private var stackKey: String {
+        (stack.isExpanded ? "open:" : "shut:") + stack.banners.map(\.id).joined(separator: ",")
+    }
+
+    private var cards: some View {
+        let banners = stack.banners
+        return ZStack(alignment: .top) {
+            ForEach(Array(banners.enumerated()), id: \.element.id) { index, banner in
+                let slot = spot(at: index)
+                let isFront = index == 0
+                let interactive = stack.isExpanded || isFront
+                AlertBannerView(banner: banner,
+                                moreLine: isFront ? stack.moreLine : nil,
+                                onTap: { center.tap($0, on: banner) },
+                                onBannerTap: { center.tapBanner(banner.id) },
+                                onDismiss: { center.dismiss(banner.id) },
+                                onShowAll: isFront && stack.moreLine != nil ? { center.setExpanded(true) } : nil)
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(key: AlertBannerHeights.self,
+                                                   value: [banner.id: proxy.size.height])
+                        }
+                    }
+                    .scaleEffect(slot.scale, anchor: .top)
+                    .opacity(slot.opacity)
+                    .offset(y: slot.offset)
+                    .zIndex(Double(banners.count - index))
+                    .allowsHitTesting(interactive)
+                    .accessibilityHidden(!interactive)
+                    // A new alert slides down into the front; one that's dismissed carries on up
+                    // and out. Under Reduce Motion the stack cross-fades instead (above).
+                    .transition(reduceMotion ? AnyTransition.opacity
+                                             : AnyTransition.move(edge: .top).combined(with: .opacity))
+            }
+            if stack.isExpanded {
+                Button(AlertBannerStack.showLessTitle) { center.setExpanded(false) }
+                    .buttonStyle(.ds(.secondary))
+                    .offset(y: expandedOffset(at: banners.count))
+                    .zIndex(Double(banners.count + 1))
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    private func spot(at index: Int) -> AlertBannerStack.Peek {
+        if stack.isExpanded {
+            return AlertBannerStack.Peek(offset: expandedOffset(at: index), scale: 1, opacity: 1)
+        }
+        return AlertBannerStack.peek(at: index)
+    }
+
+    /// Spread out: each card sits under the ones above it.
+    private func expandedOffset(at index: Int) -> Double {
+        stack.banners.prefix(index).reduce(0) { total, banner in
+            total + Double(heights[banner.id] ?? 0) + Double(DS.Space.sm)
+        }
+    }
+}
+
+private struct AlertBannerHeights: PreferenceKey {
+    static let defaultValue: [String: CGFloat] = [:]
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { $1 }
     }
 }
 
@@ -182,8 +293,14 @@ private struct HostWindowReader: NSViewRepresentable {
 /// do. It never loops or pulses.
 struct AlertBannerView: View {
     let banner: AlertBanner
+    /// "1 more alert · Tap to show" on the front card while others wait behind it.
+    var moreLine: String? = nil
     let onTap: (AlertBanner.Button) -> Void
+    /// A tap on the banner itself: spreads a stack out, or dismisses a lone banner.
+    let onBannerTap: () -> Void
     let onDismiss: () -> Void
+    /// Spreads the stack out, for VoiceOver; nil when there's nothing behind.
+    var onShowAll: (() -> Void)? = nil
 
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -231,6 +348,12 @@ struct AlertBannerView: View {
                 .accessibilityLabel(AlertBanner.dismissTitle)
                 .accessibilityHint(AlertBanner.dismissHint)
             }
+            if let moreLine {
+                Text(moreLine)
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
             HStack(spacing: DS.Space.sm) {
                 ForEach(banner.buttons, id: \.title) { button in
                     Button(button.title) { onTap(button) }
@@ -251,22 +374,46 @@ struct AlertBannerView: View {
         .clipShape(shape)
         .dsShadow(.high)
         .contentShape(shape)
-        // Follows the finger up, and springs back if it's let go early. Never down past its place.
-        .offset(y: min(0, drag))
+        // Follows the finger up one to one and gives a little, resisting, when pulled down
+        // (round 59). Let go far or fast enough upward and it's dismissed, carrying on up and out;
+        // otherwise it springs back. Under Reduce Motion it stays put and fades as it's swiped.
+        .offset(y: reduceMotion ? 0 : AlertBannerSwipe.offset(for: drag))
+        .opacity(reduceMotion ? AlertBannerSwipe.reducedOpacity(for: drag) : 1)
         .gesture(
             DragGesture(minimumDistance: 8)
                 .onChanged { drag = $0.translation.height }
                 .onEnded { value in
-                    if value.translation.height < -30 || value.predictedEndTranslation.height < -80 {
+                    if AlertBannerSwipe.dismisses(translation: value.translation.height,
+                                                  predicted: value.predictedEndTranslation.height) {
                         onDismiss()
                     } else {
-                        withAnimation(reduceMotion ? nil : DSMotion.quick.animation) { drag = 0 }
+                        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : DSMotion.emphasized.animation) {
+                            drag = 0
+                        }
                     }
                 }
         )
-        .onTapGesture(perform: onDismiss)
+        .onTapGesture(perform: onBannerTap)
         .accessibilityElement(children: .contain)
         .accessibilityAction(.escape, onDismiss)
         .accessibilityAction(named: AlertBanner.dismissTitle, onDismiss)
+        .modifier(ShowAllAction(moreLine: moreLine, onShowAll: onShowAll))
+    }
+}
+
+/// VoiceOver: with others behind the front banner, says how many and offers to show them all.
+private struct ShowAllAction: ViewModifier {
+    let moreLine: String?
+    let onShowAll: (() -> Void)?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let moreLine, let onShowAll {
+            content
+                .accessibilityValue(moreLine.components(separatedBy: " · ").first ?? moreLine)
+                .accessibilityAction(named: AlertBannerStack.showAllTitle, onShowAll)
+        } else {
+            content
+        }
     }
 }
