@@ -98,6 +98,8 @@ struct PhoneLogbookView: View {
     /// Where a day's bar and its chart meet, so the chart grows out of the bar and back into it.
     @Namespace private var dayChartSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The home stack's zoom namespace, which the edit sheet grows out of a row in.
+    @Environment(\.phoneNavigator) private var navigator
 
     /// The entry to open once the screen is up (the "last logged" line under Today's chart).
     @State private var opening: UUID?
@@ -312,6 +314,7 @@ struct PhoneLogbookView: View {
         return Button { toggleGroup(g) } label: {
             PhoneLogGroupRow(group: g, time: time, expanded: expanded, highlight: terms)
                 .contentShape(Rectangle())
+                .logbookEditSource(.group, g.id, navigator: navigator)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
@@ -326,7 +329,9 @@ struct PhoneLogbookView: View {
             }
             ForEach(g.newestFirst) { entry in
                 Section(entry.shortTitle) {
-                    Button("Edit", systemImage: "pencil") { router.edit(entry) }
+                    Button("Edit", systemImage: "pencil") {
+                        router.edit(entry, from: LogbookEditMorph.sourceID(.group, g.id))
+                    }
                     Button("Log Again Now", systemImage: "arrow.clockwise") { logAgain(entry) }
                     Button("Delete", systemImage: "trash", role: .destructive) { delete(entry) }
                 }
@@ -380,7 +385,8 @@ struct PhoneLogbookView: View {
                 site: entry.dose.flatMap { logbook.site(of: $0) },
                 terms: terms,
                 opener: opener,
-                onEdit: { router.edit(entry) },
+                // The sheet zooms out of the open card and shrinks back into it.
+                onEdit: { router.edit(entry, from: LogbookEditMorph.sourceID(.openCard, entry.id)) },
                 // Both wait for the card to land back in its row, so the list moves after it does:
                 // the copy slides in lit, or the row folds away with Undo, as from a swipe.
                 onLogAgain: { opener.close { logAgain(entry) } },
@@ -701,6 +707,8 @@ struct PhoneLogbookView: View {
                 .contentShape(Rectangle())
                 .logbookRowFrame(entry.id, in: opener)
                 .opacity(lifted ? 0 : 1)
+                // Edit from the menu zooms the sheet out of the row and back into it.
+                .logbookEditSource(.row, entry.id, navigator: navigator)
         }
         .buttonStyle(.plain)
         .accessibilityHint("Show details")
@@ -719,7 +727,7 @@ struct PhoneLogbookView: View {
             .tint(entry.part.logbookTint)
         }
         .contextMenu {
-            Button("Edit", systemImage: "pencil") { router.edit(entry) }
+            Button("Edit", systemImage: "pencil") { router.edit(entry, from: LogbookEditMorph.sourceID(.row, entry.id)) }
             Button("Log Again Now", systemImage: "arrow.clockwise") { logAgain(entry) }
             Button("Delete", systemImage: "trash", role: .destructive) { delete(entry) }
         }

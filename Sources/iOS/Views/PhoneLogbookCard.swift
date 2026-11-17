@@ -8,6 +8,8 @@ struct PhoneLogbookCard: View {
     @EnvironmentObject var sync: LogbookSyncService
     @EnvironmentObject var router: PhoneLogRouter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The home stack's zoom namespace, which the edit sheet grows out of a row in.
+    @Environment(\.phoneNavigator) private var navigator
 
     private static let window: TimeInterval = 24 * 3600
     private static let maxRows = 8
@@ -102,15 +104,18 @@ struct PhoneLogbookCard: View {
     }
 
     private func row(_ entry: LogEntry) -> some View {
-        Button { router.edit(entry) } label: {
+        let source = LogbookEditMorph.sourceID(.homeCard, entry.id)
+        return Button { router.edit(entry, from: source) } label: {
             PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) }, marksLoggedElsewhere: true)
                 .padding(.vertical, DS.Space.sm)
                 .contentShape(Rectangle())
+                // The edit sheet zooms out of the row and back into it (`LogbookEditMorph`).
+                .logbookEditSource(.homeCard, entry.id, navigator: navigator)
         }
         .buttonStyle(.plain)
         .accessibilityHint("Edit")
         .contextMenu {
-            Button("Edit", systemImage: "pencil") { router.edit(entry) }
+            Button("Edit", systemImage: "pencil") { router.edit(entry, from: source) }
             Button("Log Again Now", systemImage: "arrow.clockwise") { logbook.duplicate(entry); Haptics.play(.done) }
             Button("Delete", systemImage: "trash", role: .destructive) {
                 logbook.delete(ids: [entry.id])

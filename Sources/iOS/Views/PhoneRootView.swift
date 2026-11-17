@@ -332,6 +332,9 @@ struct PhoneHomeView: View {
         .sheet(item: $router.request) { request in
             PhoneLogSheet(target: request.target, origin: request.origin)
                 .presentationDragIndicator(.visible)
+                // Editing from a Logbook row: zooms out of the row and back into it on dismiss
+                // (`LogbookEditMorph`); a cross-fade under Reduce Motion.
+                .logbookEditMorph(from: request.zoomSource, in: routes, reduceMotion: reduceMotion)
         }
     }
 }

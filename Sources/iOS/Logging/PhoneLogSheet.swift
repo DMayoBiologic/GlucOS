@@ -87,6 +87,8 @@ struct PhoneLogSheet: View {
     /// The save bar's height before saving: the circle the button shrinks into is this wide.
     @State private var saveBarHeight: CGFloat = 52
     @FocusState private var focus: LogFieldFocus?
+    /// Editing: VoiceOver focus lands on the title once the sheet has opened (`focusTitle`).
+    @AccessibilityFocusState private var titleFocused: Bool
 
     init(target: PhoneLogTarget, origin: LogOrigin? = nil) {
         let s = AppSettings.shared
@@ -273,6 +275,16 @@ struct PhoneLogSheet: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if !isNew {
+                    // Editing: the title as its own header, so VoiceOver focus can land on it once
+                    // the sheet has zoomed out of the Logbook row (`LogbookEditMorph`).
+                    ToolbarItem(placement: .principal) {
+                        Text(title)
+                            .font(.headline)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityFocused($titleFocused)
+                    }
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .disabled(saved)
@@ -307,7 +319,7 @@ struct PhoneLogSheet: View {
             }
         }
         .interactiveDismissDisabled(saved)
-        .onAppear { startDose(); applyTreatingUsual(); applyStartingUsual(); focusFirstField() }
+        .onAppear { startDose(); applyTreatingUsual(); applyStartingUsual(); focusFirstField(); focusTitle() }
         .onChange(of: settings.therapy) { _, therapy in
             // Picked in the setup step: keep the part the sheet was opened for if this therapy
             // has it, otherwise start from that therapy's default.
@@ -1308,6 +1320,15 @@ struct PhoneLogSheet: View {
         if includes(.insulin), let units { return "\(LogFormat.units(units)) \(kind.isBolus ? "bolus" : kind.title.lowercased())" }
         if includes(.food), let carbs, carbs > 0 { return "\(LogFormat.grams(carbs)) carbs" }
         return ContextTag.allCases.first(where: tags.contains)?.title ?? "Preset"
+    }
+
+    /// Editing, with VoiceOver on: focus goes to the title once the sheet has landed, so the first
+    /// thing heard is what's being edited, not a button.
+    private func focusTitle() {
+        guard !isNew, UIAccessibility.isVoiceOverRunning else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + LogbookEditMorph.titleFocusDelay(reduceMotion: reduceMotion)) {
+            titleFocused = true
+        }
     }
 
     private func focusFirstField() {

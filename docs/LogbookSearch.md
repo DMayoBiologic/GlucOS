@@ -245,3 +245,26 @@ LogbookGroupingTests.
   says "Showing 2 entries" or "Entries grouped" once after.
 - **Export and sync** are untouched: the PDF, the CSV and the sync records stay one per entry.
   Grouping never changes an entry; the totals are the logged amounts added up, as the day headers do.
+
+## Editing an entry
+
+Opening an entry's edit sheet from the Logbook comes out of the row it was opened from and goes
+back into it, rather than sliding up from the bottom of the screen. The rules are
+`LogbookEditMorph` in Sources/Engine/LogbookEditMorph.swift, tested in LogbookEditMorphTests.
+
+- **iPhone.** The sheet zooms out of what was tapped and shrinks back into it on Cancel, Save or a
+  swipe down (the system zoom transition). That's a row on the home screen's Logbook card, Edit in
+  a row's long-press menu in the full Logbook, the Edit button on an opened entry's card, or Edit
+  for one entry in a grouped row's menu (from the grouped row). Each surface has its own zoom
+  source (`LogbookEditMorph.sourceID`), so the home card's row and the same entry's row in the full
+  Logbook underneath never compete. If the row has gone by the time the sheet closes (the entry
+  moved to another day), the sheet closes the usual way.
+- **Mac.** Edit… (menu, double-click or Return on a line) opens the editor in place over the
+  dashboard: it fades in over a light scrim, settling from 97% size, and fades out again on
+  Cancel, Save or Delete. Nothing behind it takes clicks, keys or VoiceOver while it's open. A new
+  entry still opens as the usual sheet.
+- **Reduce Motion.** A plain cross-fade on both: on iPhone the sheet appears without its slide and
+  its content fades in; on the Mac nothing scales.
+- **VoiceOver.** Once the sheet has landed (0.55 s, or 0.25 s under Reduce Motion) focus moves to
+  its title ("Edit Insulin", "Edit Food"…), which is marked as a header.
+- **Power.** It plays once per open and once per close. Nothing loops.

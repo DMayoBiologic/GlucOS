@@ -119,6 +119,8 @@ struct LogSheet: View {
     /// The "What's happening?" tiles have the keyboard: arrows move, Space and Return pick
     /// (`LogKeyboard`). A new entry opens with them focused.
     @FocusState private var momentsFocused: Bool
+    /// Editing: VoiceOver focus lands on the title once the editor has faded in (`focusTitle`).
+    @AccessibilityFocusState private var titleFocused: Bool
     /// The tile the arrow keys are on. Nil until an arrow is pressed, so a mouse user never sees a ring.
     @State private var highlightedMoment: Int?
     /// The ⌘? list.
@@ -298,7 +300,7 @@ struct LogSheet: View {
             }
         }
         .frame(minWidth: 460, idealWidth: 540, maxWidth: 780)
-        .onAppear { startDose(); applyTreatingUsual(); applyStartingUsual(); focusFirstField() }
+        .onAppear { startDose(); applyTreatingUsual(); applyStartingUsual(); focusFirstField(); focusTitle() }
         .onChange(of: settings.therapy) { _, therapy in
             // Picked in the setup step above: start from that therapy's defaults.
             guard editing == nil else { return }
@@ -419,6 +421,8 @@ struct LogSheet: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
                     .dsFont(.title)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused($titleFocused)
                 Spacer()
                 Button { showsShortcutList = true } label: {
                     Image(systemName: "keyboard")
@@ -1358,6 +1362,15 @@ struct LogSheet: View {
 
     private func close() {
         if let onClose { onClose() } else { dismiss() }
+    }
+
+    /// Editing, with VoiceOver on: focus goes to the title once the editor has arrived, so the
+    /// first thing heard is what's being edited (`LogbookEditMorph`).
+    private func focusTitle() {
+        guard !isNew, NSWorkspace.shared.isVoiceOverEnabled else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + LogbookEditMorph.titleFocusDelay(reduceMotion: reduceMotion)) {
+            titleFocused = true
+        }
     }
 
     /// The carbs the calculator works from: none when the food isn't being logged.
