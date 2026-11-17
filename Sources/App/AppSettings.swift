@@ -36,6 +36,9 @@ final class AppSettings: ObservableObject {
     @Published var colorMenuBarIcon: Bool { didSet { d.set(colorMenuBarIcon, forKey: "colorMenuBarIcon") } }
     /// A tiny sparkline of the last hour after the menu bar reading.
     @Published var showMenuBarSparkline: Bool { didSet { d.set(showMenuBarSparkline, forKey: "menuBarSparkline") } }
+    /// Resting the pointer on the menu bar reading shows the last two hours in a small panel
+    /// (`MenuBarHoverPreview`). On unless turned off; the plain tooltip comes back when off.
+    @Published var showMenuBarHoverPreview: Bool { didSet { d.set(showMenuBarHoverPreview, forKey: "menuBarHoverPreview") } }
     /// Yesterday's readings as a faint line behind today's on the iPhone Today chart and the Mac
     /// popover and Outlook charts (`YesterdayLine`). Off unless turned on, here or from the chart's
     /// long-press / right-click menu.
@@ -110,6 +113,7 @@ final class AppSettings: ObservableObject {
         showDeltaInMenuBar = d.object(forKey: "showDelta") as? Bool ?? false
         colorMenuBarIcon = d.object(forKey: "colorMenuBarIcon") as? Bool ?? true
         showMenuBarSparkline = d.object(forKey: "menuBarSparkline") as? Bool ?? false
+        showMenuBarHoverPreview = d.object(forKey: "menuBarHoverPreview") as? Bool ?? true
         chartHours = ChartHours.sanitized(d.object(forKey: "chartHours") as? Int)
         showYesterdayLine = d.bool(forKey: "showYesterdayLine")
         therapy = TherapyType(rawValue: d.string(forKey: "therapy") ?? "") ?? .notSet
