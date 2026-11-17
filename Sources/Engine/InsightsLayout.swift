@@ -1,8 +1,9 @@
 import Foundation
 
 // The order of the Insights cards, and which ones are hidden (docs/InsightsLayout.md). iPhone and
-// Mac each keep their own, on the device, because the two screens have different cards and a
-// person may want different things up top on each.
+// Mac each keep their own, because the two screens have different cards and a person may want
+// different things up top on each. Each screen's layout syncs with the logbook, so another iPhone
+// (or a reinstall) gets the iPhone order back, and another Mac gets the Mac one.
 
 /// One card on an Insights screen that can be moved or hidden. The raw values are what's stored,
 /// so they never change once shipped.
@@ -81,6 +82,58 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags,
         .dayPattern, .forecastAccuracy,
     ]
+}
+
+/// Which Insights screen a layout belongs to. Each one syncs as its own logbook record.
+enum InsightsScreen: String, CaseIterable, Codable, Hashable, Sendable {
+    case phone
+    case mac
+
+    /// The screen's movable cards, in the order they ship.
+    var defaults: [InsightsCard] {
+        switch self {
+        case .phone: return InsightsCard.phoneDefault
+        case .mac: return InsightsCard.macDefault
+        }
+    }
+
+    /// Where builds before syncing kept this screen's layout (UserDefaults). Read once and moved
+    /// into the logbook.
+    var legacyKey: String {
+        switch self {
+        case .phone: return InsightsLayout.phoneKey
+        case .mac: return InsightsLayout.macKey
+        }
+    }
+
+    /// The fixed id of this screen's synced record (kind `insightsLayout`). Never changes.
+    var recordID: UUID {
+        switch self {
+        case .phone: return UUID(uuidString: "1A5E7C0D-0000-4C0B-8A1E-000000000001")!
+        case .mac: return UUID(uuidString: "1A5E7C0D-0000-4C0B-8A1E-000000000002")!
+        }
+    }
+
+    init?(recordID: UUID) {
+        guard let screen = Self.allCases.first(where: { $0.recordID == recordID }) else { return nil }
+        self = screen
+    }
+}
+
+/// One screen's layout as the logbook syncs it. The screen travels in the payload too, so a record
+/// can be read without its id.
+struct SyncedInsightsLayout: Codable, Equatable, Sendable {
+    var screen: String
+    var order: [String]
+    var hidden: [String]
+
+    init(screen: InsightsScreen, layout: InsightsLayout) {
+        self.screen = screen.rawValue
+        order = layout.order
+        hidden = layout.hidden.sorted()
+    }
+
+    var layout: InsightsLayout { InsightsLayout(order: order, hidden: Set(hidden)) }
 }
 
 /// What a person has chosen: the order they put the cards in and the ones they hid. Stored as raw
@@ -200,7 +253,7 @@ struct InsightsLayout: Codable, Equatable, Sendable {
 
     // MARK: Storage
 
-    /// The JSON kept in UserDefaults (an `@AppStorage` string). Empty means nothing chosen yet.
+    /// The JSON builds before syncing kept in UserDefaults. Empty means nothing chosen yet.
     var stored: String {
         guard !isStandard, let data = try? JSONEncoder().encode(Stored(order: order, hidden: hidden.sorted())),
               let text = String(data: data, encoding: .utf8) else { return "" }
@@ -226,7 +279,7 @@ struct InsightsLayout: Codable, Equatable, Sendable {
         var hidden: [String]
     }
 
-    /// The `@AppStorage` keys, one per screen.
+    /// The UserDefaults keys builds before syncing used, one per screen (`InsightsScreen.legacyKey`).
     static let phoneKey = "insights.layout.phone"
     static let macKey = "insights.layout.mac"
 }

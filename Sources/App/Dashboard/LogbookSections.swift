@@ -848,9 +848,13 @@ struct InsightsSection: View {
     @EnvironmentObject var outlookStore: OutlookStore
     @EnvironmentObject var store: GlucoseStore
 
-    /// The person's order and hidden cards, kept on this Mac (docs/InsightsLayout.md). Held in state
-    /// so a change animates, and written back on every change.
-    @State private var cardLayout = InsightsLayout(stored: UserDefaults.standard.string(forKey: InsightsLayout.macKey) ?? "")
+    /// The person's order and hidden cards for the Mac screen (docs/InsightsLayout.md). Kept in the
+    /// logbook, so it syncs to their other Macs and comes back after a reinstall.
+    private var cardLayout: InsightsLayout { logbook.insightsLayout(for: .mac) }
+    private var cardLayoutBinding: Binding<InsightsLayout> {
+        Binding(get: { logbook.insightsLayout(for: .mac) },
+                set: { logbook.saveInsightsLayout($0, for: .mac) })
+    }
     @State private var customising = false
     /// The card whose picture is being shared (docs/InsightsShare.md).
     @State private var sharing: InsightsCard?
@@ -931,7 +935,7 @@ struct InsightsSection: View {
         // appearance, never a loop; still under Reduce Motion; VoiceOver hears the final value.
         .environment(\.figuresCountUp, true)
         .sheet(isPresented: $customising) {
-            InsightsCustomiseSheet(layout: $cardLayout, defaults: Self.defaults, change: change)
+            InsightsCustomiseSheet(layout: cardLayoutBinding, defaults: Self.defaults, change: change)
         }
         .sheet(item: $sharing) { card in
             InsightsSharePreview(card: card,
@@ -941,9 +945,6 @@ struct InsightsSection: View {
                                     .environmentObject(settings)
                                     .environmentObject(outlookStore)
                                     .environmentObject(store)))
-        }
-        .onChange(of: cardLayout) { _, new in
-            UserDefaults.standard.set(new.stored, forKey: InsightsLayout.macKey)
         }
     }
 
@@ -1041,7 +1042,11 @@ struct InsightsSection: View {
 
     /// Springs the cards into their new places; a cross-fade under Reduce Motion.
     private func change(_ edit: (inout InsightsLayout) -> Void) {
-        withAnimation(reduceMotion ? .easeInOut(duration: 0.25) : DSMotion.emphasized.animation) { edit(&cardLayout) }
+        var next = cardLayout
+        edit(&next)
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.25) : DSMotion.emphasized.animation) {
+            logbook.saveInsightsLayout(next, for: .mac)
+        }
     }
 
     /// "insights.lows", "insights.highs", "insights.overnight", "insights.weekdays",
