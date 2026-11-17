@@ -79,6 +79,8 @@ struct GlucOSPhoneApp: App {
             if phase == .active, let id = UsualActions.takePending() { PhoneLogRouter.shared.openUsual(id) }
             // Likewise a Control Center control tap.
             if phase == .active, let target = ControlActions.takePending() { PhoneLogRouter.shared.openControl(target) }
+            // The Home Screen quick actions follow the phone's mode (a follower-only phone gets none).
+            if phase == .active { PhoneQuickActions.install() }
         }
     }
 }
@@ -90,7 +92,16 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         UNUserNotificationCenter.current().delegate = self
         // The device token only reaches the relay; without one alerts are local-only.
         application.registerForRemoteNotifications()
+        PhoneQuickActions.install()
         return true
+    }
+
+    /// Home Screen quick actions arrive at the scene: `PhoneSceneDelegate` handles them.
+    func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        configuration.delegateClass = PhoneSceneDelegate.self
+        return configuration
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -147,5 +158,49 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             }
             completionHandler()
         }
+    }
+}
+
+/// The Home Screen quick actions (long-press the app icon): Log treatment, Log meal, Latest reading
+/// (`HomeQuickAction`, docs/iOS.md "Home Screen quick actions").
+@MainActor
+enum PhoneQuickActions {
+    /// This phone logs its own readings: it picked "I wear a sensor" on the welcome screen.
+    static var logsOwnReadings: Bool {
+        UserDefaults.standard.string(forKey: "phoneMode") == PhoneMode.sensor.rawValue
+    }
+
+    /// Sets the icon's items for the phone's mode. Cheap; called at launch and on each return.
+    static func install() {
+        let items = HomeQuickAction.offered(logsOwnReadings: logsOwnReadings).map { action in
+            UIApplicationShortcutItem(type: action.type, localizedTitle: action.title,
+                                      localizedSubtitle: action.subtitle,
+                                      icon: UIApplicationShortcutIcon(systemImageName: action.symbol))
+        }
+        UIApplication.shared.shortcutItems = items
+    }
+
+    /// True when the item was one of ours and this phone acted on it.
+    @discardableResult
+    static func handle(_ item: UIApplicationShortcutItem) -> Bool {
+        guard let action = HomeQuickAction.resolve(type: item.type, logsOwnReadings: logsOwnReadings) else { return false }
+        PhoneLogRouter.shared.openQuickAction(action)
+        // Latest reading should be the latest: fetch now rather than at the next timer.
+        if action.destination == .today { Task { await PhoneServices.shared?.store.refresh() } }
+        return true
+    }
+}
+
+/// Only here for the quick actions: SwiftUI still owns the window. A cold launch from one brings
+/// the item in the connection options; a tap while the app is running comes to `performActionFor`.
+final class PhoneSceneDelegate: NSObject, UIWindowSceneDelegate {
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        guard let item = connectionOptions.shortcutItem else { return }
+        Task { @MainActor in PhoneQuickActions.handle(item) }
+    }
+
+    func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
+                     completionHandler: @escaping (Bool) -> Void) {
+        Task { @MainActor in completionHandler(PhoneQuickActions.handle(shortcutItem)) }
     }
 }

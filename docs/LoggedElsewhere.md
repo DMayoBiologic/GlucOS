@@ -2,11 +2,12 @@
 
 Round 40 of the improvement loop. Something logged without opening the Logbook (Siri or Shortcuts,
 the Log treatment control in Control Center, the in-app alert banner, a notification's Log
-treatment button, a widget, or the Mac's keyboard shortcut) used to land in the Logbook and on the
+treatment button, a widget, a Home Screen quick action, or the Mac's keyboard shortcut) used to land in the Logbook and on the
 chart like anything else, so it was easy to miss that it went in. Now it gets **one soft
 highlight** the next time its Logbook row and its chart marker appear, with a short caption saying
 where it came from: "Logged from Siri", "Logged from Control Center", "Logged from the alert",
-"Logged from the notification", "Logged from the widget", "Logged with your shortcut".
+"Logged from the notification", "Logged from the widget", "Logged from the Home Screen",
+"Logged with your shortcut".
 
 Rules: `Sources/Shared/LoggedElsewhere.swift` (`LogOrigin`, `LoggedElsewhereMarks`; tests
 `LoggedElsewhereTests`). Views: `Sources/Shared/LoggedElsewhereViews.swift`.

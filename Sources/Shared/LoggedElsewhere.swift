@@ -1,10 +1,10 @@
 import Foundation
 
 /// Where an entry was logged from, when it wasn't the Logbook or the log bar: Siri or Shortcuts,
-/// a Control Center control, the in-app alert banner, a notification's button, a widget or the
-/// Mac's keyboard shortcut. Only the app that logged it knows; nothing about it is saved or synced.
+/// a Control Center control, the in-app alert banner, a notification's button, a widget, a Home
+/// Screen quick action or the Mac's keyboard shortcut. Only the app that logged it knows; nothing about it is saved or synced.
 enum LogOrigin: String, CaseIterable, Equatable, Sendable {
-    case siri, controlCenter, alertBanner, notification, widget, keyboardShortcut
+    case siri, controlCenter, alertBanner, notification, widget, homeScreen, keyboardShortcut
 
     /// The short caption under the entry, as it first shows: "Logged from Siri".
     var caption: String {
@@ -14,6 +14,7 @@ enum LogOrigin: String, CaseIterable, Equatable, Sendable {
         case .alertBanner: return "Logged from the alert"
         case .notification: return "Logged from the notification"
         case .widget: return "Logged from the widget"
+        case .homeScreen: return "Logged from the Home Screen"
         case .keyboardShortcut: return "Logged with your shortcut"
         }
     }

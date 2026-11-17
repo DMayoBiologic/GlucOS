@@ -58,6 +58,23 @@ in `Sources/iOSWidget/GlucoseControls.swift`, with their taps in `Sources/iOSInt
   the Siri shortcut (`.treating(.low)`). **It never logs anything by itself**. It's a fixed button,
   so it's never reloaded.
 
+### Home Screen quick actions
+
+Long-press the GlucOS icon for three quick actions (`HomeQuickAction` in
+`Sources/App/HomeQuickActions.swift`, tests `HomeQuickActionTests`; the app side is
+`PhoneQuickActions` and `PhoneSceneDelegate` in `Sources/iOS/GlucOSPhoneApp.swift`):
+
+- **Log treatment** opens the same low treatment sheet as Siri, the control and the alert's button
+  (`.treating(.low)`). **It never logs anything by itself.**
+- **Log meal** opens the log sheet on food.
+- **Latest reading** opens Today (out of Settings, Sharing or a pushed screen; an open log sheet
+  stays) and fetches a new reading straight away.
+
+Entries saved from a quick action's sheet get the one-time "Logged from the Home Screen" highlight
+(docs/LoggedElsewhere.md). The items are set from code at launch and on each return to the app, so
+they appear after the first launch, and only on a phone that wears a sensor: a follower-only phone
+gets none, and a leftover item does nothing there.
+
 The **Your Usual** Home Screen widget (medium) shows the same "Your usual" entries as the log sheet,
 up to three. A tap opens the log sheet filled in from that entry, the same as tapping its tile there;
 nothing is logged until you tap Log, after the logged-twice check (docs/UsualEntries.md).
