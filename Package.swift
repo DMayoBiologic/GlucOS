@@ -40,6 +40,7 @@ let package = Package(
                 "Shared/YesterdayLine.swift",
                 "Shared/MarkerPop.swift",
                 "Shared/MarkerPeek.swift",
+                "Shared/MarkerCallout.swift",
                 "Shared/CardReveals.swift",
                 "Shared/LoggedElsewhere.swift",
                 "Shared/ForecastMorph.swift",

@@ -298,7 +298,7 @@ struct PhoneHomeView: View {
                     case .logbook: PhoneLogbookView()
                     case .insights: PhoneInsightsView()
                     case .logbookLink(let link): PhoneLogbookView(link: link)
-                    case .logbookEntry(let id): PhoneLogbookView(opening: id)
+                    case .logbookEntry(let id), .chartMarkerEntry(let id): PhoneLogbookView(opening: id)
                     case .insightsToday(let firedAt): PhoneInsightsView(recapFiredAt: firedAt)
                     }
                 }

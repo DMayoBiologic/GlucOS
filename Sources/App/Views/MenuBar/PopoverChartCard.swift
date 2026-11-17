@@ -17,6 +17,10 @@ struct PopoverChartCard: View {
 
     @FocusState private var chartFocused: Bool
     @State private var pinned: Date?
+    /// Whether a marker's callout is open on the chart (`MarkerCalloutOpenKey`), and a counter that
+    /// closes it, so Esc closes the callout before anything else.
+    @State private var calloutOpen = false
+    @State private var closeCallout = 0
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -62,8 +66,10 @@ struct PopoverChartCard: View {
                 GlucoseChart(readings: plotted, unit: store.shownUnit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                              hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
                              forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true, ripplesNewReading: true,
-                             yesterday: yesterday, peeksMarkers: true)
+                             yesterday: yesterday, peeksMarkers: true,
+                             openInLogbook: openInLogbook, closesCallout: closeCallout)
             }
+                .onPreferenceChange(MarkerCalloutOpenKey.self) { calloutOpen = $0 }
                 .frame(height: 136)
                 .focusable()
                 .focused($chartFocused)
@@ -83,6 +89,11 @@ struct PopoverChartCard: View {
                 .onKeyPress(.home) { jump(to: window.first) }
                 .onKeyPress(.end) { jump(to: window.last) }
                 .onKeyPress(.escape) {
+                    // A marker's callout first, then a pinned reading, then the popover itself.
+                    if calloutOpen {
+                        closeCallout += 1
+                        return .handled
+                    }
                     guard pinned != nil else { return .ignored }   // let Escape close the popover
                     pinned = nil
                     return .handled
@@ -94,7 +105,9 @@ struct PopoverChartCard: View {
                 .chartHoursPinch($settings.chartHours)
                 // Right-click for yesterday's faint line (also in Settings → Menu Bar).
                 .yesterdayLineMenu($settings.showYesterdayLine)
-                .help("Hover to see readings, or click and use ← →")
+                .help("Hover to see readings, click a marker for what was logged, or click and use ← →")
+                // A group, so its name doesn't land on the marker buttons inside it.
+                .accessibilityElement(children: .contain)
                 .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
                 .accessibilityValue(chartSummary(window))
                 .accessibilityHint("Use the left and right arrow keys to step through readings")
