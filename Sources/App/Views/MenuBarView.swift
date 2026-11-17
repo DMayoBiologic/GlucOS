@@ -28,6 +28,9 @@ struct MenuBarView: View {
     @State private var toast: String?
     @State private var toastTask: Task<Void, Never>?
     @State private var contentHeight: CGFloat = 0
+    /// False while the popover is opening, so it opens at its size; then height changes glide
+    /// (`ContentResize`).
+    @State private var resizeSettled = false
     /// The ⌘? list, shown over the popover.
     @State private var showsShortcutList = false
     /// False only for the moment between the popover opening and its sections starting to come
@@ -64,8 +67,12 @@ struct MenuBarView: View {
         // MenuBarExtra sizes its window to the content's ideal size, which a ScrollView doesn't
         // have. So measure the content and ask for exactly that, capped to the screen, so the
         // popover only scrolls on a display too short to show it all.
-        .frame(width: PopoverLayout.width, height: contentHeight > 0 ? min(contentHeight, maxHeight) : nil)
-        .onPreferenceChange(PopoverHeightKey.self) { contentHeight = $0 }
+        // When something comes or goes (the snoozed chip, a notice, Log treatment, Details) the
+        // height glides there instead of jumping, and the window follows it frame by frame. A new
+        // reading, the opening and Reduce Motion snap (`ContentResize`).
+        .modifier(PopoverHeightFrame(width: PopoverLayout.width,
+                                     height: contentHeight > 0 ? min(contentHeight, maxHeight) : 0))
+        .onPreferenceChange(PopoverHeightKey.self) { height in MainActor.assumeIsolated { resize(to: height) } }
         .background(alignment: .top) {
             // A wash of the current range colour at the top of the popover.
             AmbientGlow(tint: s.displayTone().color, intensity: 0.4)
@@ -86,9 +93,10 @@ struct MenuBarView: View {
         .animation(PopoverMotion.standard(reduceMotion), value: snoozeStore.isSnoozing)
         .animation(PopoverMotion.standard(reduceMotion), value: lowTreat != nil)
         .task { await store.checkNotificationPermission() }
-        .onAppear { commandKey.start(); staggerSectionsIn(); revealUnitChange() }
+        .onAppear { commandKey.start(); staggerSectionsIn(); revealUnitChange(); settleResizing() }
         .onDisappear {
             commandKey.stop(); showsShortcutList = false
+            resizeSettled = false
             sectionsIn = true
             // Units are changed in the Settings window, with the popover closed: hold the change
             // until the popover is open again, so its figures can be seen morphing.
@@ -211,6 +219,24 @@ struct MenuBarView: View {
         // On the next turn, so the hidden first frame is drawn before they start moving. Each
         // section's own delayed animation (`popoverEntrance`) does the staggering.
         DispatchQueue.main.async { sectionsIn = true }
+    }
+
+    /// Takes a new content height: gliding to it when something came or went, otherwise at once.
+    private func resize(to height: CGFloat) {
+        switch ContentResize.step(from: contentHeight, to: height, settled: resizeSettled, reduceMotion: reduceMotion) {
+        case .glide:
+            withAnimation(PopoverMotion.standard(reduceMotion)) { contentHeight = height }
+        case .snap:
+            var now = Transaction(animation: nil)
+            now.disablesAnimations = true
+            withTransaction(now) { contentHeight = height }
+        }
+    }
+
+    /// The popover opens at its size; once it's laid out, changes to it glide.
+    private func settleResizing() {
+        resizeSettled = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + PopoverHeightFrame.settleDelay) { resizeSettled = true }
     }
 
     /// Shows a unit change made while the popover was closed: the sections come in with the old
@@ -390,6 +416,27 @@ struct MenuBarView: View {
         LogWindowRequest.shared.target = .new
         openWindow(id: LogWindow.id)
         NSApp.activate()
+    }
+}
+
+/// The popover's fixed size. Its height is animatable, so a glide lays the popover out at each
+/// step between the old and new heights: MenuBarExtra resizes its window to follow, rather than
+/// jumping to the end size while the content moves. 0 means not measured yet: no fixed height.
+private struct PopoverHeightFrame: ViewModifier, Animatable {
+    /// How long after opening before height changes glide: long enough for the first layout.
+    static let settleDelay: TimeInterval = 0.2
+
+    let width: CGFloat
+    var height: CGFloat
+
+    var animatableData: CGFloat {
+        get { height }
+        set { height = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        // Whole points, so the window isn't asked for fractional sizes mid-glide.
+        content.frame(width: width, height: height > 0 ? height.rounded(.up) : nil)
     }
 }
 
