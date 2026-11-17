@@ -4471,7 +4471,8 @@ over 180 starting after 15 minutes at or under it (26 highs; one already running
 very-high alert came in the 45 minutes before, while the reading was still at or under 180; such an
 alert is a false alarm if nothing went over 180 in the 45 minutes after (alerts whose 45 minutes run past
 the export or across a gap over 15 minutes aren't scored, and a day left out also drops the
-false-alarm calls its readings decided for the evening before). A day scores warning
+false-alarm calls its readings decided for the evening before and the warning credit its alerts gave
+the morning after). A day scores warning
 minutes (capped at 30 per high) minus 10 per false alarm. Grid: drawn or trend lookahead × lead 15,
 20, 25, 30 × rise gate 0.2, 0.3, 0.4, 0.5 × margin 0, 4, 8, 12 mg/dL (128 settings); for each day,
 the best on the other six days is scored on the day left out.

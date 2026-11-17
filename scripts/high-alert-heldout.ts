@@ -131,7 +131,8 @@ function alertsFor(c: Candidate): number[] {
 const perthDay = (t: number) => new Date((t + 8 * 3600) * 1000).toISOString().slice(0, 10);
 const days = [...new Set(ticks.map((t) => perthDay(t.now)))];
 interface DayScore { highs: number; warned: number; leads: number[]; alerts: number; falseAlarms: number; score: number;
-                    /** Penalty from false alarms whose follow-up window reaches into the next Perth day. */ spill: number }
+                    /** Penalty from false alarms whose follow-up window reaches into the next Perth day. */ spill: number;
+                    /** Warning credit from alerts on the Perth day before. */ borrowed: number }
 const lastReading = readings[readings.length - 1].t;
 // The follow-up was seen if it ends before the export does and has no gap over 15 minutes.
 function followUpSeen(a: number): boolean {
@@ -146,7 +147,7 @@ function followUpSeen(a: number): boolean {
   return false;
 }
 function score(alerts: number[]): Map<string, DayScore> {
-  const byDay = new Map<string, DayScore>(days.map((d) => [d, { highs: 0, warned: 0, leads: [], alerts: 0, falseAlarms: 0, score: 0, spill: 0 }]));
+  const byDay = new Map<string, DayScore>(days.map((d) => [d, { highs: 0, warned: 0, leads: [], alerts: 0, falseAlarms: 0, score: 0, spill: 0, borrowed: 0 }]));
   for (const h of highs) {
     if (h.t < scoreFrom || !byDay.has(perthDay(h.t))) continue;
     const d = byDay.get(perthDay(h.t))!;
@@ -156,6 +157,7 @@ function score(alerts: number[]): Map<string, DayScore> {
       d.warned++;
       d.leads.push((h.t - a) / 60);
       d.score += Math.min(30, (h.t - a) / 60);
+      if (perthDay(a) !== perthDay(h.t)) d.borrowed += Math.min(30, (h.t - a) / 60);
     }
   }
   for (const a of alerts) {
@@ -176,9 +178,11 @@ for (const look of ["drawn", "trend"] as Look[]) for (const lead of [15, 20, 25,
   for (const rise of [0.2, 0.3, 0.4, 0.5]) for (const margin of [0, 4, 8, 12]) candidates.push({ look, lead, rise, margin });
 const scored = candidates.map((c) => ({ c, days: score(alertsFor(c)) }));
 const shippedScore = scored.find((s) => name(s.c) === name(shipped))!;
-// Training on the other days leaves out false-alarm penalties decided by the held-out day's readings.
+// Training on the other days leaves out what the held-out day decided: false-alarm penalties its
+// readings settled for the evening before, and warning credit its alerts gave the morning after.
 const total = (m: Map<string, DayScore>, skip?: string) => [...m].filter(([d]) => d !== skip)
-  .reduce((a, [d, s]) => a + s.score + (skip !== undefined && days[days.indexOf(d) + 1] === skip ? s.spill : 0), 0);
+  .reduce((a, [d, s]) => a + s.score + (skip !== undefined && days[days.indexOf(d) + 1] === skip ? s.spill : 0)
+    - (skip !== undefined && days[days.indexOf(d) - 1] === skip ? s.borrowed : 0), 0);
 const sum = (m: Map<string, DayScore>, k: "highs" | "warned" | "alerts" | "falseAlarms") => [...m.values()].reduce((a, s) => a + s[k], 0);
 const leadsOf = (m: Map<string, DayScore>) => [...m.values()].flatMap((s) => s.leads).sort((a, b) => a - b);
 const describe = (m: Map<string, DayScore>) => {
