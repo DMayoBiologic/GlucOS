@@ -32,6 +32,7 @@ struct AlertCountPreviewLines: View {
     private struct SourceKey: Equatable {
         let count: Int
         let newest: Date?
+        /// Every answered tap's time and length, so an answer replaced in place counts as new.
         let taps: Int
     }
 
@@ -43,7 +44,10 @@ struct AlertCountPreviewLines: View {
 
     private var sourceKey: SourceKey {
         SourceKey(count: readings.count, newest: readings.last?.timestamp,
-                  taps: records.filter { $0.respondedAt != nil }.count)
+                  taps: records.reduce(into: Hasher()) { h, r in
+                      guard let at = r.respondedAt else { return }
+                      h.combine(r.id); h.combine(at); h.combine(r.snoozeMinutes); h.combine(r.response)
+                  }.finalize())
     }
 
     private var limits: Limits { Limits(low: lowMgdl, high: highMgdl) }
@@ -58,23 +62,25 @@ struct AlertCountPreviewLines: View {
         .onAppear { if startLimits == nil { startLimits = limits } }
         .task(id: sourceKey) {
             let r = readings, a = records
-            preview = await Task.detached(priority: .userInitiated) { AlertCountPreview.make(readings: r, records: a) }.value
-            if let preview {
-                let start = startLimits ?? limits, p = prefs
-                was = await Task.detached(priority: .userInitiated) {
-                    preview.counts(lowMgdl: start.low, highMgdl: start.high, prefs: p)
-                }.value
-            }
+            let gathered = await Task.detached(priority: .userInitiated) {
+                AlertCountPreview.make(readings: r, records: a)
+            }.value
+            // A newer gather replaced this one: leave its result alone.
+            guard !Task.isCancelled else { return }
+            preview = gathered
             generation += 1
         }
         .task(id: CountKey(generation: generation, limits: limits, prefs: prefs)) {
-            guard let preview else { now = nil; return }
-            let l = limits, p = prefs
+            guard let preview else { now = nil; was = nil; return }
+            let l = limits, start = startLimits ?? limits, p = prefs
+            // Both sides with the same switches, so turning one off never reads as a change of limit.
             let counts = await Task.detached(priority: .userInitiated) {
-                preview.counts(lowMgdl: l.low, highMgdl: l.high, prefs: p)
+                (now: preview.counts(lowMgdl: l.low, highMgdl: l.high, prefs: p),
+                 was: start == l ? nil : preview.counts(lowMgdl: start.low, highMgdl: start.high, prefs: p))
             }.value
             guard !Task.isCancelled else { return }
-            now = counts
+            now = counts.now
+            was = counts.was ?? counts.now
         }
     }
 
