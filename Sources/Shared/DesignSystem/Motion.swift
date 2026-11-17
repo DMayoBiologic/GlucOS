@@ -377,3 +377,68 @@ extension View {
         dsAnimation(.emphasized, value: enabled ? TargetRangeKey(low: lowMgdl, high: highMgdl) : nil)
     }
 }
+
+// MARK: - One-shot symbol effects
+
+/// Which way a wiggle leans: down for a low, up for a high, or side to side.
+enum SymbolWiggleDirection {
+    case down, up, sideways
+}
+
+extension View {
+    /// Bounces the SF Symbols in this view once each time `trigger` changes: a toolbar or nav bar
+    /// icon answering its own tap (round 48). Never repeats (Redesign §4.6), and does nothing
+    /// under Reduce Motion.
+    func symbolBounce<T: Equatable>(on trigger: T) -> some View {
+        modifier(SymbolBounceOnce(trigger: trigger))
+    }
+
+    /// Wiggles the SF Symbols in this view once when it appears: the in-app alert banner's icon
+    /// as the alert arrives (round 48). A bounce on macOS 14, which has no wiggle. Never repeats,
+    /// and does nothing under Reduce Motion. Give the view a new `.id` to play it again.
+    func symbolWiggleOnAppear(_ direction: SymbolWiggleDirection = .sideways) -> some View {
+        modifier(SymbolWiggleOnce(direction: direction))
+    }
+}
+
+private struct SymbolBounceOnce<T: Equatable>: ViewModifier {
+    let trigger: T
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .symbolEffect(.bounce, options: .nonRepeating, value: trigger)
+            .symbolEffectsRemoved(reduceMotion)
+    }
+}
+
+private struct SymbolWiggleOnce: ViewModifier {
+    let direction: SymbolWiggleDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Bumped once, a frame after appearing, so the effect has a change to play on.
+    @State private var plays = 0
+
+    func body(content: Content) -> some View {
+        Group {
+            if #available(iOS 18, macOS 15, *) {
+                content.symbolEffect(wiggle, options: .nonRepeating, value: plays)
+            } else {
+                content.symbolEffect(.bounce, options: .nonRepeating, value: plays)
+            }
+        }
+        .symbolEffectsRemoved(reduceMotion)
+        .onAppear {
+            guard !reduceMotion, plays == 0 else { return }
+            DispatchQueue.main.async { plays = 1 }
+        }
+    }
+
+    @available(iOS 18, macOS 15, *)
+    private var wiggle: WiggleSymbolEffect {
+        switch direction {
+        case .down: return .wiggle.down
+        case .up: return .wiggle.up
+        case .sideways: return .wiggle
+        }
+    }
+}

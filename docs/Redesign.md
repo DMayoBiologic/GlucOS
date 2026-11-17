@@ -179,6 +179,12 @@ the next (`NewReadingRipple`, `GlucoseChart(ripplesNewReading:)`). No ripple whe
 a stale or backfilled reading, in the background, while a closed Mac popover keeps its chart, or
 under Reduce Motion. Other charts keep the 6 s breath.
 
+Icons answer once, with SF Symbols effects that never repeat (round 48, `Motion.swift`). The iPhone
+nav bar icons (Today's Share and Settings, the Logbook's Export and +) and the Mac popover toolbar's
+icons (Log, Refresh, Dashboard, Settings) bounce once per tap or shortcut (`symbolBounce(on:)`). The
+in-app alert banner's arrow wiggles once as the alert arrives, down for a low and up for a high
+(`symbolWiggleOnAppear`; a bounce on macOS 14). None of them play under Reduce Motion.
+
 ### 4.5 Navigation
 
 - iPhone pushes from a card to its full screen use the zoom transition (iOS 18

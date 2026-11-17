@@ -63,6 +63,9 @@ struct PhoneLogbookView: View {
     @State private var linked: LogbookQuery.Period?
     /// The clinic-visit export sheet (`PhoneExportView`).
     @State private var showsExport = false
+    /// Taps on the toolbar icons, so each tap plays one bounce.
+    @State private var exportTaps = 0
+    @State private var logTaps = 0
     @State private var kind: LogbookFilter?
     /// A tag chip, if one is picked (`LogbookTags`): only entries carrying that tag show, within
     /// whatever the kind chip and the search say.
@@ -129,13 +132,18 @@ struct PhoneLogbookView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showsExport = true } label: { Image(systemName: "square.and.arrow.up") }
-                    .accessibilityLabel("Export for a clinic visit")
+                // Toolbar icons bounce once when tapped (round 48); still under Reduce Motion.
+                Button { exportTaps += 1; showsExport = true } label: {
+                    Image(systemName: "square.and.arrow.up").symbolBounce(on: exportTaps)
+                }
+                .accessibilityLabel("Export for a clinic visit")
             }
             ToolbarItem(placement: .topBarTrailing) { alertsMenu }
             ToolbarItem(placement: .topBarTrailing) {
-                Button { router.open(nil) } label: { Image(systemName: "plus") }
-                    .accessibilityLabel("Log something")
+                Button { logTaps += 1; router.open(nil) } label: {
+                    Image(systemName: "plus").symbolBounce(on: logTaps)
+                }
+                .accessibilityLabel("Log something")
             }
         }
         .sheet(isPresented: $showsExport) { exportSheet }

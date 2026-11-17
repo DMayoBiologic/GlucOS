@@ -118,6 +118,9 @@ struct PhoneHomeView: View {
     @State private var showsSettings = false
     @State private var settingsAnchor: PhoneSettingsView.Jump?
     @State private var showsSharing = false
+    /// Taps on the nav bar icons, so each tap plays one bounce.
+    @State private var sharingTaps = 0
+    @State private var settingsTaps = 0
     /// How far the stage has folded into the navigation bar (`HeaderCollapse`, round 46).
     @State private var collapse = TodayHeaderCollapse()
     @Namespace private var routes
@@ -241,13 +244,18 @@ struct PhoneHomeView: View {
                         PhoneTitleReading()
                     }
                 }
+                // Each icon bounces once when tapped (round 48); still under Reduce Motion.
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { showsSharing = true } label: { Image(systemName: "person.2.wave.2") }
-                        .accessibilityLabel("Share live readings")
+                    Button { sharingTaps += 1; showsSharing = true } label: {
+                        Image(systemName: "person.2.wave.2").symbolBounce(on: sharingTaps)
+                    }
+                    .accessibilityLabel("Share live readings")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { settingsAnchor = nil; showsSettings = true } label: { Image(systemName: "gearshape") }
-                        .accessibilityLabel("Settings")
+                    Button { settingsTaps += 1; settingsAnchor = nil; showsSettings = true } label: {
+                        Image(systemName: "gearshape").symbolBounce(on: settingsTaps)
+                    }
+                    .accessibilityLabel("Settings")
                 }
             }
             .navigationDestination(for: PhoneRoute.self) { route in

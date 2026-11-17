@@ -18,20 +18,27 @@ struct PopoverToolbar: View {
     var onCopy: () -> Void
     var onShortcuts: () -> Void
 
+    /// Clicks (or shortcuts) per button, so each one bounces its icon once (round 48). Nothing
+    /// moves under Reduce Motion.
+    @State private var taps: [String: Int] = [:]
+
     var body: some View {
         HStack(spacing: 6) {
-            Button(action: onLog) {
+            Button { tapped("log"); onLog() } label: {
                 Label("Log", systemImage: "plus")
                     .labelStyle(.titleAndIcon)
+                    .symbolBounce(on: taps["log", default: 0])
             }
             .buttonStyle(PillIconButtonStyle(prominent: true))
             .keyboardShortcut(lowTreatmentHoldsLogKey ? nil : KeyboardShortcut("l"))
             .help(lowTreatmentHoldsLogKey ? "Log insulin or food" : "Log insulin or food (⌘L)")
             .overlay(alignment: .bottom) { if !lowTreatmentHoldsLogKey { badge("⌘L") } }
 
-            Button(action: onRefresh) {
+            Button { tapped("refresh"); onRefresh() } label: {
                 ZStack {
-                    Image(systemName: "arrow.clockwise").opacity(store.isRefreshing ? 0 : 1)
+                    Image(systemName: "arrow.clockwise")
+                        .symbolBounce(on: taps["refresh", default: 0])
+                        .opacity(store.isRefreshing ? 0 : 1)
                     if store.isRefreshing { ProgressView().controlSize(.mini) }
                 }
             }
@@ -88,13 +95,17 @@ struct PopoverToolbar: View {
     }
 
     private func pill(_ title: String, systemImage: String, shortcut: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
+        Button { tapped(title); action() } label: {
+            Image(systemName: systemImage).symbolBounce(on: taps[title, default: 0])
         }
         .buttonStyle(PillIconButtonStyle())
         .help("\(title) (\(shortcut))")
         .accessibilityLabel(title)
         .overlay(alignment: .bottom) { badge(shortcut) }
+    }
+
+    private func tapped(_ key: String) {
+        taps[key, default: 0] += 1
     }
 
     @ViewBuilder
