@@ -534,7 +534,7 @@ struct PhoneChartCard: View {
                 GlucoseChart(readings: store.readings(lastHours: Self.longest), unit: s.unit, lowMgdl: s.lowMgdl,
                              highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
                              forecast: forecast, forecastReveal: reveal, events: events(hours: Self.longest),
-                             timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true)
+                             timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true, ripplesNewReading: true)
             }
                 .frame(height: 260)
                 .chartHoursPinch($settings.chartHours)

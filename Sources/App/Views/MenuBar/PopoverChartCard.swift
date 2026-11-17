@@ -56,7 +56,7 @@ struct PopoverChartCard: View {
                            drawInDelay: forecastDelay) { forecast, reveal in
                 GlucoseChart(readings: plotted, unit: s.unit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                              hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
-                             forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true)
+                             forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true, ripplesNewReading: true)
             }
                 .frame(height: 136)
                 .focusable()

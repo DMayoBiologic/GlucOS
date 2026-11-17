@@ -42,6 +42,7 @@ let package = Package(
                 "Shared/RangeCrossing.swift",
                 "Shared/TrendTurn.swift",
                 "Shared/LaunchReading.swift",
+                "Shared/NewReadingRipple.swift",
                 "Shared/PullRefresh.swift",
                 "Shared/HeaderCollapse.swift",
                 "Shared/HapticRules.swift",
