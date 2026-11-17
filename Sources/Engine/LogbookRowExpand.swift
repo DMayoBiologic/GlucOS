@@ -162,6 +162,9 @@ enum LogbookEntryDetail {
         case .context(let c):
             for tag in c.sortedTags { out.append(Line(label: tag.title, value: tag.help)) }
         }
+        if !entry.labels.isEmpty {
+            out.append(Line(label: "Tags", value: LogbookTags.line(entry.labels), searchable: true))
+        }
         let note = entry.noteText
         if !note.isEmpty { out.append(Line(label: "Note", value: note, searchable: true)) }
         return out

@@ -324,13 +324,15 @@ enum LogbookSearch {
     }
 
     /// The empty list's line: "Nothing in Meals matches “pizza” since last week."
-    static func noMatchMessage(_ query: LogbookQuery, filter: LogbookFilter?) -> String {
+    /// With a tag chip picked: "Nothing tagged Exercise matches “pizza”."
+    static func noMatchMessage(_ query: LogbookQuery, filter: LogbookFilter?, tag: String? = nil) -> String {
         var s = "Nothing"
         if let filter { s += " in \(filter.title)" }
+        if let tag { s += " tagged \(tag)" }
         if !query.terms.isEmpty { s += " matches “\(query.terms.joined(separator: " "))”" }
         if let p = query.period {
             s += " " + p.phrase
-        } else if query.terms.isEmpty, filter != nil {
+        } else if query.terms.isEmpty, filter != nil || tag != nil {
             s += " logged yet"
         }
         return s + "."
@@ -347,9 +349,11 @@ enum LogbookSearch {
 
     /// Whether "Search All Dates" could find more when nothing matched: the day the search named
     /// narrowed it (and there's something else to find by), or a chip was kept to the toolbar's period.
-    static func offersAllDates(_ query: LogbookQuery, filter: LogbookFilter?, allDates: Bool) -> Bool {
-        if query.period != nil { return !query.terms.isEmpty || filter != nil }
-        return filter != nil && !looksPastToolbarPeriod(query, allDates: allDates)
+    /// A tag chip counts like a chip.
+    static func offersAllDates(_ query: LogbookQuery, filter: LogbookFilter?, tag: String? = nil, allDates: Bool) -> Bool {
+        let chip = filter != nil || tag != nil
+        if query.period != nil { return !query.terms.isEmpty || chip }
+        return chip && !looksPastToolbarPeriod(query, allDates: allDates)
     }
 
     private static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
@@ -370,9 +374,9 @@ enum LogbookSearch {
 
 extension LogEntry {
     /// Everything a search looks through: the row's title and note, the foods in a meal, the
-    /// insulin's type, site and purpose, a moment's tags, and the kind of entry it is.
+    /// insulin's type, site and purpose, a moment's tags, the user's own tags, and the kind of entry it is.
     var searchText: String {
-        var parts = [shortTitle, searchNote]
+        var parts = [shortTitle, searchNote] + labels
         switch self {
         case .dose(let d):
             parts += ["insulin", d.kind.title, d.name, d.site?.title ?? "", d.purpose?.label ?? "", d.viaPump ? "pump" : ""]

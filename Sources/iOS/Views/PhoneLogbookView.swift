@@ -64,6 +64,9 @@ struct PhoneLogbookView: View {
     /// The clinic-visit export sheet (`PhoneExportView`).
     @State private var showsExport = false
     @State private var kind: LogbookFilter?
+    /// A tag chip, if one is picked (`LogbookTags`): only entries carrying that tag show, within
+    /// whatever the kind chip and the search say.
+    @State private var tagFilter: String?
     /// Low and high alerts show as quiet rows between the entries unless turned off here.
     @AppStorage(AlertLogRow.showsKey) private var showsAlerts = true
     /// The first rows have played their entrance; rows built after this (scrolled to, filtered in)
@@ -113,7 +116,7 @@ struct PhoneLogbookView: View {
         let search: LogbookQuery = LogbookQuery.parse(query, now: Date()).linked(linked)
         let lowIDs: Set<UUID> = LogbookSearch.lowTreatmentIDs(all)
         let shown: [PhoneLogbookItem] = PhoneLogbookItem.merge(all, alerts)
-            .filter { $0.matches(kind, search, lowIDs: lowIDs) }
+            .filter { $0.matches(kind, search, lowIDs: lowIDs) && $0.matches(tag: tagFilter) }
         let shownIDs: [UUID] = shown.map(\.id)
         let allIDs: [UUID] = all.map(\.id)
         list(all: all, kinds: kinds, shown: shown, search: search)
@@ -142,6 +145,7 @@ struct PhoneLogbookView: View {
         // screen's stack, so it keeps time across both screens.
         .overlay(alignment: .bottom) { PhoneUndoToast() }
         .animation(DSMotion.quick.animation, value: kind)
+        .animation(DSMotion.quick.animation, value: tagFilter)
         // New rows slide in and deleted rows fold away, whether from here, an undo or a sync.
         // Instant under Reduce Motion.
         .dsAnimation(.standard, value: shownIDs)
@@ -197,9 +201,9 @@ struct PhoneLogbookView: View {
     private func listBody(all: [LogEntry], kinds: [LogbookFilter], shown: [PhoneLogbookItem],
                           search: LogbookQuery) -> some View {
         List {
-            if kinds.count > 1 || kind != nil {
+            if kinds.count > 1 || kind != nil || tagFilter != nil || !LogbookTags.used(all).isEmpty {
                 Section {
-                    filterBar(kinds)
+                    filterBar(kinds, tags: LogbookTags.used(all))
                         .listRowInsets(EdgeInsets(top: DS.Space.xs, leading: 0, bottom: DS.Space.xs, trailing: 0))
                         .listRowBackground(Color.clear)
                 }
@@ -329,6 +333,7 @@ struct PhoneLogbookView: View {
     private func clearFilters() {
         query = ""
         kind = nil
+        tagFilter = nil
         linked = nil
         Haptics.play(.choice)
     }
@@ -342,7 +347,7 @@ struct PhoneLogbookView: View {
 
     // MARK: Pieces
 
-    private func filterBar(_ kinds: [LogbookFilter]) -> some View {
+    private func filterBar(_ kinds: [LogbookFilter], tags: [String]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.sm) {
                 chip("All", systemImage: nil, tint: Palette.brand, selected: kind == nil) { kind = nil }
@@ -353,9 +358,29 @@ struct PhoneLogbookView: View {
                         kind = kind == k ? nil : k
                     }
                 }
+                // Then a chip for each tag in use, most used first. One tag at a time, on top of the
+                // kind chip: Meals and Exercise shows meals tagged Exercise.
+                ForEach(tagChips(tags), id: \.self) { t in
+                    tagChip(t)
+                }
             }
             .padding(.horizontal, DS.Space.lg)
         }
+    }
+
+    /// The tags in use, plus the picked one if its last entry just lost it, so the empty list
+    /// still says what it's filtered by.
+    private func tagChips(_ tags: [String]) -> [String] {
+        guard let t = tagFilter, !LogbookTags.contains(tags, t) else { return tags }
+        return tags + [t]
+    }
+
+    private func tagChip(_ t: String) -> some View {
+        let selected = tagFilter.map { LogbookTags.key($0) == LogbookTags.key(t) } ?? false
+        return chip(t, systemImage: LogbookTags.symbol(t), tint: Palette.context, selected: selected) {
+            tagFilter = selected ? nil : t
+        }
+        .accessibilityLabel("Tagged \(t)")
     }
 
     private func chip(_ title: String, systemImage: String?, tint: Color, selected: Bool,
@@ -488,6 +513,7 @@ struct PhoneLogbookView: View {
         case .clearFiltersThenScroll(let d):
             query = ""
             kind = nil
+            tagFilter = nil
             linked = nil
             jumping = LogbookJumpRequest(day: d)
         case .none:
@@ -616,10 +642,10 @@ struct PhoneLogbookView: View {
         if hasEntries {
             VStack(spacing: DS.Space.md) {
                 EmptyStateView(systemImage: "magnifyingglass", title: "No matches",
-                               message: LogbookSearch.noMatchMessage(search, filter: kind),
+                               message: LogbookSearch.noMatchMessage(search, filter: kind, tag: tagFilter),
                                actionTitle: "Clear Filters", action: clearFilters)
                 // When the day was the problem, the same words across every date may still find it.
-                if search.period != nil && (!search.terms.isEmpty || kind != nil) {
+                if search.period != nil && (!search.terms.isEmpty || kind != nil || tagFilter != nil) {
                     Button("Search All Dates") { dropPeriod(); Haptics.play(.choice) }
                         .dsFont(.label)
                 }
@@ -664,6 +690,12 @@ enum PhoneLogbookItem: Identifiable {
     var entry: LogEntry? {
         if case .entry(let e) = self { return e }
         return nil
+    }
+
+    /// Whether the row shows under a tag chip (if one is picked). Alert rows carry no tags.
+    func matches(tag: String?) -> Bool {
+        guard let tag else { return true }
+        return entry.map { LogbookTags.matches($0, tag: tag) } ?? false
     }
 
     /// Entries and alert rows together, newest first.

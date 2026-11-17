@@ -46,6 +46,8 @@ struct LogbookSection: View {
     @State private var selection = Set<UUID>()
     /// The quick filter chip, if one is picked (All when nil).
     @State private var filter: LogbookFilter?
+    /// A tag chip, if one is picked (`LogbookTags`), on top of the filter chip and the search.
+    @State private var tagFilter: String?
     @State private var search = ""
     /// The period the Logbook was opened with (the Lows card's days), until ✕ or Clear Filters.
     @State private var linked: LogbookQuery.Period?
@@ -84,7 +86,7 @@ struct LogbookSection: View {
         let kinds = LogbookFilter.available(entries: logbook.entries, alerts: allAlerts)
         let scope = pastPeriod ? LogbookTableRow.merge(logbook.entries, allAlerts)
                                : LogbookTableRow.merge(inRange, alertsInRange)
-        let rows = scope.filter { $0.matches(filter, query, lowIDs: lowIDs) }
+        let rows = scope.filter { $0.matches(filter, query, lowIDs: lowIDs) && $0.matches(tag: tagFilter) }
         let terms = query.terms
         // The newest row of the day a jump is heading for, once the table lists it.
         let jumpTarget: UUID? = pendingJump.flatMap { r in
@@ -130,7 +132,7 @@ struct LogbookSection: View {
                           shownDays: Set(rows.map { Calendar.autoupdatingCurrent.startOfDay(for: $0.timestamp) }))
                     .padding(.horizontal, padding)
                     .padding(.bottom, DS.Space.sm)
-                filterBar(kinds)
+                filterBar(kinds, tags: LogbookTags.used(logbook.entries))
                     .padding(.horizontal, padding)
                     .padding(.bottom, DS.Space.sm + 2)
                 DSDivider()
@@ -173,10 +175,13 @@ struct LogbookSection: View {
         }
         .onChange(of: search) { _, now in
             // "Search All Dates" lasts as long as the search it was pressed for.
-            if now.trimmingCharacters(in: .whitespaces).isEmpty, filter == nil { allDates = false }
+            if now.trimmingCharacters(in: .whitespaces).isEmpty, filter == nil, tagFilter == nil { allDates = false }
         }
         .onChange(of: filter) { _, now in
-            if now == nil, search.trimmingCharacters(in: .whitespaces).isEmpty { allDates = false }
+            if now == nil, tagFilter == nil, search.trimmingCharacters(in: .whitespaces).isEmpty { allDates = false }
+        }
+        .onChange(of: tagFilter) { _, now in
+            if now == nil, filter == nil, search.trimmingCharacters(in: .whitespaces).isEmpty { allDates = false }
         }
         .onChange(of: showsAlerts) { _, on in
             if !on, filter == .alerts { filter = nil }
@@ -338,9 +343,13 @@ struct LogbookSection: View {
     }
 
     /// All, then the quick filter chips that would show something (Meals, Insulin, Lows, Notes…).
-    private func filterBar(_ kinds: [LogbookFilter]) -> some View {
+    /// Then a chip for each tag in use (most used first), one at a time, on top of the chip picked
+    /// on the left: Meals and Exercise shows meals tagged Exercise.
+    private func filterBar(_ kinds: [LogbookFilter], tags: [String]) -> some View {
         // The chosen chip always stays, so the picker never loses its selection.
         let options: [LogbookFilter?] = [nil] + LogbookFilter.allCases.filter { kinds.contains($0) || $0 == filter }
+        var tagChips = tags
+        if let t = tagFilter, !LogbookTags.contains(tags, t) { tagChips.append(t) }
         return HStack(spacing: DS.Space.sm + 2) {
             // The selection slides between filters (docs/Redesign.md §4.5), like the chart hours.
             SlidingSegments(selection: $filter, options: options) { $0?.title ?? "All" }
@@ -348,16 +357,40 @@ struct LogbookSection: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Show")
             alertsToggle
-            Spacer()
+            if !tagChips.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: DS.Space.xs + 2) {
+                        ForEach(tagChips, id: \.self) { tagChip($0) }
+                    }
+                    .padding(.vertical, 1)
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Tags")
+            }
+            Spacer(minLength: 0)
         }
         .controlSize(.small)
+        .animation(.smooth(duration: 0.2), value: tagFilter)
+    }
+
+    private func tagChip(_ t: String) -> some View {
+        let selected = tagFilter.map { LogbookTags.key($0) == LogbookTags.key(t) } ?? false
+        return Button {
+            tagFilter = selected ? nil : t
+        } label: {
+            Label(t, systemImage: LogbookTags.symbol(t))
+        }
+        .buttonStyle(ChipButtonStyle(selected: selected, tint: Palette.context))
+        .help(selected ? "Show entries with any tag" : "Show only entries tagged \(t)")
+        .accessibilityLabel("Tagged \(t)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     /// Nothing to show: says what was searched, with Clear Filters, and Search All Dates when the
     /// day or the toolbar's period was what narrowed it.
     @ViewBuilder
     private func emptyState(_ query: LogbookQuery, pastPeriod: Bool) -> some View {
-        let filtered = filter != nil || !query.isEmpty
+        let filtered = filter != nil || tagFilter != nil || !query.isEmpty
         if !filtered {
             EmptyStateView(systemImage: "book", title: "Nothing Logged in This Period",
                            message: "Pick a longer period in the toolbar, search for something, or log something new.",
@@ -366,10 +399,10 @@ struct LogbookSection: View {
             VStack(spacing: DS.Space.md) {
                 EmptyStateView(systemImage: "magnifyingglass", title: "No Matches",
                                message: pastPeriod
-                                   ? LogbookSearch.noMatchMessage(query, filter: filter)
-                                   : "Nothing in \(filter?.title ?? "the Logbook") in this period.",
+                                   ? LogbookSearch.noMatchMessage(query, filter: filter, tag: tagFilter)
+                                   : "Nothing in \(filter?.title ?? "the Logbook")\(tagFilter.map { " tagged \($0)" } ?? "") in this period.",
                                actionTitle: "Clear Filters", action: clearFilters)
-                if LogbookSearch.offersAllDates(query, filter: filter, allDates: allDates) {
+                if LogbookSearch.offersAllDates(query, filter: filter, tag: tagFilter, allDates: allDates) {
                     Button("Search All Dates") { dropPeriod() }
                     .dsFont(.label)
                 }
@@ -380,6 +413,7 @@ struct LogbookSection: View {
     private func clearFilters() {
         search = ""
         filter = nil
+        tagFilter = nil
         linked = nil
         allDates = false
     }
@@ -399,6 +433,7 @@ struct LogbookSection: View {
         search = ""
         allDates = false
         filter = l.filter
+        tagFilter = nil
         linked = l.period
     }
 
@@ -411,6 +446,7 @@ struct LogbookSection: View {
         search = ""
         allDates = false
         filter = nil
+        tagFilter = nil
         linked = nil
         selection = [id]
         Task { @MainActor in
@@ -730,6 +766,8 @@ struct LogbookSection: View {
         case .siteChange(let c): parts.append(c.note)
         case .context(let c): parts.append(c.sortedTags.map(\.title).joined(separator: ", ")); parts.append(c.note)
         }
+        // The user's tags last, after the note's words.
+        parts.append(LogbookTags.line(e.labels))
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
@@ -1432,6 +1470,12 @@ enum LogbookTableRow: Identifiable {
     }
 
     var isAlert: Bool { entry == nil }
+
+    /// Whether the row shows under a tag chip (if one is picked). Alert rows carry no tags.
+    func matches(tag: String?) -> Bool {
+        guard let tag else { return true }
+        return entry.map { LogbookTags.matches($0, tag: tag) } ?? false
+    }
 
     /// Whether the row shows under the chosen chip (if any) and the search, by the rules the iPhone
     /// Logbook uses (`LogbookSearch`).

@@ -48,3 +48,7 @@ forecast is still trend-only.
   `GLUCOS_SYNC_TEST_URL` is set.
 - `deno test supabase/functions/` covers the `account` function, and with `GLUCOS_TEST_DB_URL`
   the table, RLS and push/pull rules against Supabase's Postgres image, like CI.
+
+## Tags
+
+Entry tags (`labels`, docs/LogbookTags.md) are part of the entry payload, so they sync with no server change.

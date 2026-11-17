@@ -186,3 +186,7 @@ tested in LogbookLinkTests).
   "Sat 12 Sep"). The chips keep every entry and alert, so the period does the narrowing. Listed only
   while the card has opened on them; on iPhone either day zooms from the card, and on the Mac
   "‹ Insights" scrolls back to the card from either.
+
+## Tags
+
+Each tag in use gets its own chip after the kind chips, on iPhone and Mac. See docs/LogbookTags.md.

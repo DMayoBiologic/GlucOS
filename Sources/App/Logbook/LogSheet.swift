@@ -90,6 +90,8 @@ struct LogSheet: View {
     @State private var newSite: InjectionSite
     @State private var tags: Set<ContextTag>
     @State private var note: String
+    /// The user's tags for what's saved (`LogbookTags`), put on every entry the sheet saves.
+    @State private var labels: [String]
     @State private var appliedPresetID: UUID?
     @State private var savesAsPreset = false
     @State private var presetName = ""
@@ -140,6 +142,7 @@ struct LogSheet: View {
         var newSite = InjectionSite.abdomenLeft
         var tags = Set<ContextTag>()
         var note = ""
+        var labels: [String] = []
         var items: [MealItem] = []
 
         if case .meal(let at) = target {
@@ -160,6 +163,7 @@ struct LogSheet: View {
         if case .edit(let entry) = target {
             time = entry.timestamp
             editingID = entry.id
+            labels = entry.labels
             switch entry {
             case .dose(let d):
                 editing = .dose
@@ -226,6 +230,7 @@ struct LogSheet: View {
         _newSite = State(initialValue: newSite)
         _tags = State(initialValue: tags)
         _note = State(initialValue: note)
+        _labels = State(initialValue: labels)
         _mealItems = State(initialValue: items)
     }
 
@@ -260,6 +265,8 @@ struct LogSheet: View {
                             TextField("Note", text: $note, prompt: Text("Add a note (optional)"), axis: .vertical)
                                 .lineLimit(1...3)
                                 .textFieldStyle(.roundedBorder)
+                            LogTagPicker(picked: $labels,
+                                         choices: LogbookTags.choices(entries: logbook.entries, picked: labels))
                             Label("GlucOS records what you enter. Only the bolus calculator suggests a dose, from your own settings.", systemImage: "info.circle")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -1415,22 +1422,22 @@ struct LogSheet: View {
                 d.units == units && d.kind == kind && d.timestamp == time ? d.calculation : nil
             }
             let calculation = (suggestionStillApplies ? usedSuggestion.map(BolusCalculation.init) : nil) ?? kept
-            logbook.save(.dose(InsulinDose(id: doseID, timestamp: time, units: units, kind: kind,
+            logbook.save(LogEntry.dose(InsulinDose(id: doseID, timestamp: time, units: units, kind: kind,
                                            name: trimmedName,
                                            site: viaPump ? nil : injectionSite, viaPump: viaPump,
                                            note: trimmedNote, calculation: calculation,
-                                           purpose: existing?.purpose ?? usualPurpose(logsFood: logsFood))))
+                                           purpose: existing?.purpose ?? usualPurpose(logsFood: logsFood))).withLabels(labels))
         }
         if logsFood, let carbs {
             let described = foodText.isEmpty ? mealItems.map(\.name).joined(separator: ", ") : foodText
-            logbook.save(.meal(MealEntry(id: mealID, timestamp: time, carbs: carbs, food: described, note: trimmedNote,
-                                         items: mealItems.isEmpty ? nil : mealItems)))
+            logbook.save(LogEntry.meal(MealEntry(id: mealID, timestamp: time, carbs: carbs, food: described, note: trimmedNote,
+                                         items: mealItems.isEmpty ? nil : mealItems)).withLabels(labels))
         }
         if includes(.site) {
-            logbook.save(.siteChange(SiteChange(id: siteID, timestamp: time, site: newSite, note: trimmedNote)))
+            logbook.save(LogEntry.siteChange(SiteChange(id: siteID, timestamp: time, site: newSite, note: trimmedNote)).withLabels(labels))
         }
         if isNew || includes(.event), !tags.isEmpty {
-            logbook.save(.context(ContextEvent(id: contextID, timestamp: time, tags: tags, note: trimmedNote)))
+            logbook.save(LogEntry.context(ContextEvent(id: contextID, timestamp: time, tags: tags, note: trimmedNote)).withLabels(labels))
         }
         if isNew && savesAsPreset && hasPresetContent {
             let name = presetName.trimmingCharacters(in: .whitespacesAndNewlines)
