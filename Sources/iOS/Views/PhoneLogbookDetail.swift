@@ -121,6 +121,8 @@ struct PhoneLogbookDetail: View {
 
     /// The open card's natural height, from a hidden copy laid out at the open width.
     @State private var contentHeight: Double = 0
+    /// The home stack's zoom namespace: Edit grows the sheet out of this card (`LogbookEditMorph`).
+    @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
         GeometryReader { proxy in
@@ -177,6 +179,8 @@ struct PhoneLogbookDetail: View {
 
     private func card(progress p: Double, scrolls: Bool) -> some View {
         content(progress: p, scrolls: scrolls)
+            // Only the card on screen, never the hidden measuring copy, so there is one source.
+            .logbookEditSource(.openCard, entry.id, navigator: navigator)
             .accessibilityElement(children: .contain)
             .accessibilityAddTraits(.isModal)
             .accessibilityAction(.escape) { opener.close() }

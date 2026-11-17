@@ -1,4 +1,6 @@
 import Foundation
+import SwiftUI
+import UIKit
 
 /// The parts of a log entry the iPhone log sheet can start on (shared with the Mac: `LogFlow`).
 typealias PhoneLogPart = LogPart
@@ -25,6 +27,9 @@ struct PhoneLogRequest: Identifiable {
     /// Siri, a control, an alert or a widget, when one opened the sheet: what it logs is
     /// highlighted once where it next appears (`LoggedElsewhere`). Nil from inside the app.
     var origin: LogOrigin? = nil
+    /// Editing from a Logbook row: what the sheet zooms out of and back into
+    /// (`LogbookEditMorph.sourceID`). Nil opens it the usual way.
+    var zoomSource: String? = nil
 }
 
 /// Opens the log sheet from anywhere: the + button, the Logbook card, `glucos://log` links (Lock
@@ -92,9 +97,19 @@ final class PhoneLogRouter: ObservableObject {
         request = PhoneLogRequest(target: .usual(id: id), origin: .widget)
     }
 
-    func edit(_ entry: LogEntry) {
+    /// The log sheet editing `entry`. `source`: the Logbook row (or open card) it was tapped on,
+    /// which the sheet zooms out of and shrinks back into (`LogbookEditMorph`).
+    func edit(_ entry: LogEntry, from source: String? = nil) {
         savedSinceOpen = false
-        request = PhoneLogRequest(target: .edit(entry))
+        let next = PhoneLogRequest(target: .edit(entry), zoomSource: source)
+        guard source != nil, UIAccessibility.isReduceMotionEnabled else {
+            request = next
+            return
+        }
+        // Reduce Motion: no slide up; the sheet's content fades in where it sits instead.
+        var still = Transaction()
+        still.disablesAnimations = true
+        withTransaction(still) { request = next }
     }
 
     /// Called by the log sheet when it saves, just before it closes.

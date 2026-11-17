@@ -23,6 +23,9 @@ struct DashboardView: View {
     @StateObject private var windowState = DashboardWindowState()
 
     @State private var logSheet: LogSheetTarget?
+    /// An entry opened for editing from a Logbook row: the editor cross-fades in place over the
+    /// dashboard rather than dropping down as a sheet (`LogbookEditMorph`).
+    @State private var inlineEdit: LogEntry?
     /// End of the period on screen. Nil follows the latest readings.
     @State private var periodEnd: Date?
     @State private var showShortcuts = false
@@ -100,6 +103,10 @@ struct DashboardView: View {
         }
         .toolbar { toolbarContent(data) }
         .background(shortcutButtons)
+        // Behind an open inline editor nothing takes clicks, keys or VoiceOver, as under a sheet.
+        .disabled(inlineEdit != nil)
+        .accessibilityHidden(inlineEdit != nil)
+        .overlay { inlineEditor }
         .sheet(item: $logSheet) { target in
             LogSheet(target: target)
                 .environmentObject(logbook)
@@ -183,7 +190,7 @@ struct DashboardView: View {
             LogbookSection(data: data, focusSearch: $focusLogbookSearch, link: $logbookLink, reveal: $revealEntry,
                            jumpToDate: $jumpToDate, showDay: { showLogbookDay($0) },
                            backToInsights: cameFromCard.map { card -> () -> Void in { backToInsights(card) } },
-                           backCardTitle: cameFromCard.map(Self.cardTitle) ?? LogbookFilter.lows.title) { logSheet = $0 }
+                           backCardTitle: cameFromCard.map(Self.cardTitle) ?? LogbookFilter.lows.title) { openFromLogbook($0) }
         case .outlook:
             OutlookSection { logSheet = .new }
         case .insights:
@@ -424,12 +431,65 @@ struct DashboardView: View {
 
     /// Not over the log sheet: two sheets at once would stack.
     private func showShortcutsHelp() {
-        if logSheet == nil { showShortcuts = true }
+        if logSheet == nil && inlineEdit == nil { showShortcuts = true }
     }
 
     /// Not over another sheet, for the same reason.
     private func openLogbookExport() {
-        if logSheet == nil && !showShortcuts { showLogbookExport = true }
+        if logSheet == nil && inlineEdit == nil && !showShortcuts { showLogbookExport = true }
+    }
+
+    // MARK: Editing in place
+
+    /// The Logbook asked for the log sheet. Editing an entry opens it in place, over the row's
+    /// page; a new entry is the usual sheet.
+    private func openFromLogbook(_ target: LogSheetTarget) {
+        guard case .edit(let entry) = target else { logSheet = target; return }
+        guard logSheet == nil else { return }
+        withAnimation(.easeInOut(duration: LogbookEditMorph.fadeDuration(reduceMotion: reduceMotion))) {
+            inlineEdit = entry
+        }
+    }
+
+    private func closeInlineEdit() {
+        withAnimation(.easeInOut(duration: LogbookEditMorph.fadeDuration(reduceMotion: reduceMotion))) {
+            inlineEdit = nil
+        }
+    }
+
+    /// The editor over a light scrim, the size the sheet would be. It fades (and settles from a
+    /// hair smaller) in place; a plain cross-fade under Reduce Motion. Once each way, nothing loops.
+    @ViewBuilder
+    private var inlineEditor: some View {
+        if let entry = inlineEdit {
+            GeometryReader { geo in
+                ZStack {
+                    Color.black.opacity(LogbookEditMorph.macScrimOpacity)
+                        .ignoresSafeArea()
+                        .accessibilityHidden(true)
+                    LogSheet(target: .edit(entry)) { closeInlineEdit() }
+                        .environmentObject(logbook)
+                        .environmentObject(store)
+                        .environmentObject(settings)
+                        .frame(width: min(540, max(0, geo.size.width - 48)),
+                               height: min(600, max(0, geo.size.height - 48)))
+                        .background(.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                        }
+                        .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
+                        .accessibilityAddTraits(.isModal)
+                        .id(entry.id)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .transition(reduceMotion
+                        ? .opacity
+                        : .opacity.combined(with: .scale(scale: LogbookEditMorph.macStartScale(reduceMotion: false))))
+            .zIndex(1)
+        }
     }
 
     private var rangeBinding: Binding<DashboardRange> {
@@ -567,7 +627,7 @@ struct DashboardView: View {
     /// The menu bar popover asked for the log sheet.
     private func openRequestedLogSheet() {
         logbook.logSheetRequested = false
-        if logSheet == nil { logSheet = .new }
+        if logSheet == nil && inlineEdit == nil { logSheet = .new }
     }
 
     // MARK: Export
