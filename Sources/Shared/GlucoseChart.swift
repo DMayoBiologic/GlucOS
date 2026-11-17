@@ -283,7 +283,7 @@ struct GlucoseChart: View {
         guard let next else { return }
         lastSnap = next
         #if os(iOS)
-        scrubTick.fire(.snapped)
+        scrubTick.fire(ScrubTickTrigger.Kind.snapped)
         #endif
         guard !spokenSnaps.contains(next) else { return }
         spokenSnaps.append(next)
@@ -1385,8 +1385,8 @@ private struct ScrubTickTrigger: Equatable {
 
     mutating func fire(_ tick: ChartScrub.Tick) {
         switch tick {
-        case .rangeEdge: fire(.rangeEdge)
-        case .logged: fire(.logged)
+        case .rangeEdge: fire(Kind.rangeEdge)
+        case .logged: fire(Kind.logged)
         }
     }
 
