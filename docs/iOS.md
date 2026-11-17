@@ -199,6 +199,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Low and high alerts have two buttons.** *Snooze 30 min* quiets your own alerts (followers still
   get every one), and *Log treatment* opens the log sheet on your usual low treatment or a
   correction. Urgent lows can't be snoozed. See [AlertActions.md](AlertActions.md).
+- **See the figures for part of the chart.** Rest two fingers on the Today chart for a moment, then drag them. A band covers that stretch and a card shows its average, lowest, highest, time in range and change. Lift your fingers to put it away. With VoiceOver, swipe up or down on the chart to hear the same figures for the last 30 minutes, hour, 2 hours and so on.
 - **Pull down on Today to refresh.** A ring fills as your readings arrive and you feel a light tap when there's something new. Under Reduce Motion you get the standard system indicator.
 - **Your alerts are in the Logbook.** Each low or high alert gets a quiet row showing when it went off and what you did about it. Use the filter to hide these rows. They never count as treatments.
 - **Search the Logbook by day.** Try "pizza last week" or "fri" in the search box. The Meals, Insulin, Lows and Notes chips narrow the list, and what matched is highlighted.

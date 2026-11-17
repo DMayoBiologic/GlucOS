@@ -15,17 +15,23 @@ private struct ChartHoursPinch: ViewModifier {
     @Binding var hours: Int
     /// The span the pinch started on, so steps count from there rather than compounding.
     @State private var start: Int?
+    /// Two fingers resting on the chart turned into a span for its figures (`ChartSpanHold`):
+    /// moving them changes the span, not the hours, until they lift.
+    @State private var spanShown = false
 
     func body(content: Content) -> some View {
-        content.simultaneousGesture(
-            MagnifyGesture(minimumScaleDelta: 0.03)
-                .onChanged { value in
-                    let from = start ?? hours
-                    if start == nil { start = from }
-                    let target = ChartHours.pinched(from: from, scale: value.magnification)
-                    if target != hours { hours = target }
-                }
-                .onEnded { _ in start = nil }
-        )
+        content
+            .onPreferenceChange(ChartSpanActiveKey.self) { spanShown = $0 }
+            .simultaneousGesture(
+                MagnifyGesture(minimumScaleDelta: 0.03)
+                    .onChanged { value in
+                        guard !spanShown else { return }
+                        let from = start ?? hours
+                        if start == nil { start = from }
+                        let target = ChartHours.pinched(from: from, scale: value.magnification)
+                        if target != hours { hours = target }
+                    }
+                    .onEnded { _ in start = nil }
+            )
     }
 }

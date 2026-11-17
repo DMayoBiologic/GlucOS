@@ -14,12 +14,15 @@ private struct YesterdayLineMenu: ViewModifier {
     /// A finger is down on a logged marker, which peeks instead (`MarkerPeek`). The menu offers
     /// nothing meanwhile, and an empty menu doesn't open, so a hold on a marker never shows it.
     @State private var markerHeld = false
+    /// Two fingers are picking out a span (`ChartSpanActiveKey`): no menu meanwhile either.
+    @State private var spanShown = false
 
     func body(content: Content) -> some View {
         content
             .onPreferenceChange(MarkerPeekPressKey.self) { markerHeld = $0 }
+            .onPreferenceChange(ChartSpanActiveKey.self) { spanShown = $0 }
             .contextMenu {
-                if !markerHeld {
+                if !markerHeld && !spanShown {
                     Button(action: toggle) {
                         Label(YesterdayLine.menuTitle(showing: isOn), systemImage: "clock.arrow.circlepath")
                     }

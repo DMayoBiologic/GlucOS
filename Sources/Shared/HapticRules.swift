@@ -25,6 +25,9 @@ enum HapticEvent: String, CaseIterable, Sendable {
     case scrubRangeEdge
     /// Scrubbing the chart passed something logged.
     case scrubLogged
+    /// Two fingers resting on the iPhone Today chart turned into a span (`ChartSpanHold`): its band
+    /// fades in and the span's figures appear.
+    case spanPicked
     /// A new reading, with the app open, crossed into a low.
     case enteredLow
     /// A new reading came back into range (follower card).
@@ -56,6 +59,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         case .undone, .deleted, .newData: return .lightImpact(intensity: 0.8)
         case .scrubRangeEdge: return .lightImpact(intensity: 0.9)
         case .scrubLogged: return .lightImpact(intensity: 0.6)
+        case .spanPicked: return .lightImpact(intensity: 0.5)
         case .rangeCrossed: return .lightImpact(intensity: 0.7)
         case .logSaved: return .lightImpact(intensity: 0.7)
         }
@@ -67,7 +71,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         switch self {
         case .enteredLow, .alertBanner, .followerNeedsHelp: return 3
         case .done, .logSaved, .backInRange, .rangeCrossed, .followerOkay: return 2
-        case .choice, .undone, .deleted, .newData: return 1
+        case .choice, .undone, .deleted, .newData, .spanPicked: return 1
         case .scrubRangeEdge, .scrubLogged: return 0
         }
     }
