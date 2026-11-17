@@ -801,11 +801,14 @@ struct InsightsSection: View {
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var outlookStore: OutlookStore
+    @EnvironmentObject var store: GlucoseStore
 
     /// The person's order and hidden cards, kept on this Mac (docs/InsightsLayout.md). Held in state
     /// so a change animates, and written back on every change.
     @State private var cardLayout = InsightsLayout(stored: UserDefaults.standard.string(forKey: InsightsLayout.macKey) ?? "")
     @State private var customising = false
+    /// The card whose picture is being shared (docs/InsightsShare.md).
+    @State private var sharing: InsightsCard?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let defaults = InsightsCard.macDefault
@@ -863,6 +866,7 @@ struct InsightsSection: View {
                         view(for: card)
                             .dsEntrance(5 + i)
                             .contextMenu { menu(card, index: i, count: visible.count) }
+                            .accessibilityAction(named: "Share card") { sharing = card }
                     }
                 }
                 // Under Reduce Motion the cards cross-fade to the new order instead of springing.
@@ -883,6 +887,15 @@ struct InsightsSection: View {
         .environment(\.figuresCountUp, true)
         .sheet(isPresented: $customising) {
             InsightsCustomiseSheet(layout: $cardLayout, defaults: Self.defaults, change: change)
+        }
+        .sheet(item: $sharing) { card in
+            InsightsSharePreview(card: card,
+                                 period: InsightsShare.period(for: card, firstReading: readings.first?.timestamp),
+                                 content: AnyView(view(for: card)
+                                    .environmentObject(logbook)
+                                    .environmentObject(settings)
+                                    .environmentObject(outlookStore)
+                                    .environmentObject(store)))
         }
         .onChange(of: cardLayout) { _, new in
             UserDefaults.standard.set(new.stored, forKey: InsightsLayout.macKey)
@@ -966,9 +979,12 @@ struct InsightsSection: View {
         }
     }
 
-    /// Right-click a card: move it a place, hide it, or open the customise sheet.
+    /// Right-click a card: share it as a picture, move it a place, hide it, or open the customise
+    /// sheet.
     @ViewBuilder
     private func menu(_ card: InsightsCard, index: Int, count: Int) -> some View {
+        Button("Share Card…") { sharing = card }
+        Divider()
         Button("Move Up") { change { $0.move(card, by: -1, defaults: Self.defaults, onScreen: onScreen) } }
             .disabled(index == 0)
         Button("Move Down") { change { $0.move(card, by: 1, defaults: Self.defaults, onScreen: onScreen) } }

@@ -64,6 +64,8 @@ struct PhoneInsightsView: View {
     /// state so a change animates, and written back on every change.
     @State private var layout = InsightsLayout(stored: UserDefaults.standard.string(forKey: InsightsLayout.phoneKey) ?? "")
     @State private var editing = false
+    /// The card whose picture is being shared (docs/InsightsShare.md).
+    @State private var sharing: InsightsCard?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let defaults = InsightsCard.phoneDefault
@@ -91,6 +93,15 @@ struct PhoneInsightsView: View {
         .onChange(of: layout) { _, new in
             UserDefaults.standard.set(new.stored, forKey: InsightsLayout.phoneKey)
         }
+        .sheet(item: $sharing) { card in
+            InsightsSharePreview(card: card,
+                                 period: InsightsShare.period(for: card, firstReading: store.archive.first?.timestamp),
+                                 content: AnyView(view(for: card)
+                                    .environmentObject(store)
+                                    .environmentObject(logbook)
+                                    .environmentObject(settings)))
+                .presentationDetents([.large])
+        }
     }
 
     private var cards: some View {
@@ -108,6 +119,7 @@ struct PhoneInsightsView: View {
                     view(for: card)
                         .dsEntrance(i)
                         .contextMenu { menu(card, index: i, count: visible.count) }
+                        .accessibilityAction(named: "Share card") { sharing = card }
                 }
                 if visible.contains(.mornings) || visible.contains(.forecastAccuracy) {
                     Text("Mornings and forecast accuracy appear once GlucOS has enough wake-ups and forecasts to report on.")
@@ -164,9 +176,14 @@ struct PhoneInsightsView: View {
         }
     }
 
-    /// Touch and hold a card: move it a place, hide it, or open the full edit list.
+    /// Touch and hold a card: share it as a picture, move it a place, hide it, or open the full
+    /// edit list.
     @ViewBuilder
     private func menu(_ card: InsightsCard, index: Int, count: Int) -> some View {
+        Button { sharing = card } label: {
+            Label("Share Card…", systemImage: "square.and.arrow.up")
+        }
+        Divider()
         Button { change { $0.move(card, by: -1, defaults: defaults, onScreen: onScreen) } } label: {
             Label("Move Up", systemImage: "arrow.up")
         }

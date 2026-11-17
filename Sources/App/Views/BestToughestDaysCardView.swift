@@ -26,6 +26,7 @@ struct BestToughestDaysCardView: View {
     @State private var value: BestToughestDays?
     @State private var shownKey: BestToughestDaysCache.Key?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.insightsShareSnapshot) private var shareSnapshot
 
     private var period: BestToughestDays.Period { BestToughestDays.Period(rawValue: periodDays) ?? .fortnight }
     /// "3.9–10.0 mmol/L".
@@ -35,12 +36,15 @@ struct BestToughestDaysCardView: View {
         let key = BestToughestDaysCache.key(readings: readings, low: lowMgdl, high: highMgdl, period: period)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: BestToughestDaysText.title, systemImage: "rosette")
-            Picker("Period", selection: $periodDays) {
-                ForEach(BestToughestDays.Period.allCases) { Text($0.label).tag($0.rawValue) }
+            // A shared picture names the period in its footer instead (docs/InsightsShare.md).
+            if !shareSnapshot {
+                Picker("Period", selection: $periodDays) {
+                    ForEach(BestToughestDays.Period.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Period")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .accessibilityLabel("Period")
 
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.

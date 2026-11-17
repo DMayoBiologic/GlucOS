@@ -25,6 +25,7 @@ struct TagInsightsCardView: View {
     @State private var value: TagInsights?
     @State private var shownKey: TagInsightsCache.Key?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.insightsShareSnapshot) private var shareSnapshot
 
     /// Whether the card belongs on the screen at all: once any entry carries a tag.
     static func shows(_ entries: [LogEntry]) -> Bool {
@@ -37,12 +38,15 @@ struct TagInsightsCardView: View {
         let key = TagInsightsCache.key(readings: readings, entries: entries, low: lowMgdl, high: highMgdl, period: period)
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Eyebrow(title: TagInsightsText.title, systemImage: "tag")
-            Picker("Period", selection: $periodDays) {
-                ForEach(TagInsights.Period.allCases) { Text($0.label).tag($0.rawValue) }
+            // A shared picture names the period in its footer instead (docs/InsightsShare.md).
+            if !shareSnapshot {
+                Picker("Period", selection: $periodDays) {
+                    ForEach(TagInsights.Period.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Period")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .accessibilityLabel("Period")
 
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.
