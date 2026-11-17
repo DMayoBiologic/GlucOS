@@ -114,6 +114,10 @@ struct PhoneLogbookView: View {
     @State private var landed: String?
     /// The list's opacity, dipped for the Reduce Motion cross-fade while it moves to a day.
     @State private var listFade = 1.0
+    /// Days folded down to their header (`LogbookCollapse`), kept on this phone only.
+    @AppStorage(LogbookCollapse.defaultsKey) private var foldedStored = ""
+    /// The folds in force: the kept ones, and a running search's own (`LogbookFolds`).
+    @State private var folds = LogbookFolds()
 
     /// Opened from a card (`LogbookLink`): its chip picked and its period above the list. Opened on
     /// an entry (`opening`): that entry's row opens into its detail once the push has landed.
@@ -185,7 +189,17 @@ struct PhoneLogbookView: View {
             assembled = true
         }
         .task { await openRequestedEntry() }
+        // Folded days come back as the Logbook opens, except today, which never starts folded.
+        .onAppear {
+            folds = LogbookFolds(kept: LogbookCollapse.restored(foldedStored, now: Date()))
+            foldedStored = folds.kept.stored
+        }
+        // A search starts with every day open; clearing it brings the kept folds back.
+        .onChange(of: searchingFolds) { _, now in if !now { folds.endSearch() } }
     }
+
+    /// Whether a search is running, so folds are the search's own (`LogbookFolds`).
+    private var searchingFolds: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
     /// The export takes a copy of what's on the phone now: the owner's own readings and entries.
     private var exportSheet: some View {
@@ -271,16 +285,21 @@ struct PhoneLogbookView: View {
             // A meal and its insulin logged within 15 minutes show as one row, opening out into the
             // entries (`LogbookGrouping`). Worked out on the rows the chips and search leave.
             let pieces = LogbookGrouping.listed(LogbookGrouping.runs(day.items, entry: \.entry), expanded: expandedGroups)
+            // A folded day keeps its header and drops its rows (`LogbookCollapse`); the rows under
+            // it slide up on a spring, and back down when it opens.
+            let folded = folds.isFolded(day.id, searching: searchingFolds)
             Section {
-                ForEach(Array(pieces.enumerated()), id: \.element.rowKey) { j, piece in
-                    // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
-                    pieceRow(piece, order: starts[i] + j, terms: terms)
-                        .opacity(rowsFade)
+                if !folded {
+                    ForEach(Array(pieces.enumerated()), id: \.element.rowKey) { j, piece in
+                        // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
+                        pieceRow(piece, order: starts[i] + j, terms: terms)
+                            .opacity(rowsFade)
+                    }
                 }
             } header: {
                 // Day headers stay pinned, on a blur, while their day scrolls under them.
                 dayHeader(day, totals: totals[day.id] ?? day.totals, range: ranges[day.start], all: all, now: now,
-                          shownDays: shownDays)
+                          shownDays: shownDays, folded: folded)
                     .opacity(rowsFade)
                     .padding(.horizontal, DS.Space.lg)
                     .padding(.vertical, DS.Space.xs + 2)
@@ -402,7 +421,14 @@ struct PhoneLogbookView: View {
         guard let id = opening else { return }
         opening = nil
         try? await Task.sleep(for: .seconds(reduceMotion ? 0.1 : 0.45))
-        guard logbook.entry(id: id) != nil else { return }
+        guard let entry = logbook.entry(id: id) else { return }
+        // Its day folded: open it, so the entry has a row to grow from.
+        let dayID = LogbookCollapse.id(of: entry.timestamp)
+        if folds.isFolded(dayID, searching: searchingFolds) {
+            folds.reopen(dayID)
+            foldedStored = folds.kept.stored
+            try? await Task.sleep(for: .seconds(0.1))
+        }
         // Folded into a grouped row: open the group first, so the entry has a row to grow from.
         let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
         let runs = LogbookGrouping.runs(PhoneLogbookItem.merge(logbook.entries, alerts), entry: \.entry)
@@ -556,16 +582,39 @@ struct PhoneLogbookView: View {
     /// Tapping the day's name (and its totals) opens a compact calendar over it instead
     /// (`LogbookCalendarView`): days with nothing logged are dimmed, and picking one springs the
     /// list to that day, or cross-fades it there under Reduce Motion (`land`).
+    ///
+    /// The chevron before the name folds the day down to its header, or opens it again
+    /// (`toggleFold`). A folded header keeps its bar and says how many rows it holds.
     private func dayHeader(_ day: PhoneLogbookDay, totals: String, range: DayInRange?, all: [LogEntry],
-                           now: Date, shownDays: Set<Date>) -> some View {
+                           now: Date, shownDays: Set<Date>, folded: Bool) -> some View {
         let open = range != nil && openDay == day.id
         let snapshot = store.snapshot
         let segments: [[DayChartPoint]] = open
             ? dayCharts.segments(readings: store.archive, from: day.start, to: DayChart.end(of: day.start)) : []
         let markers: [ChartLogMarker] = open ? ChartLogMarker.day(all, start: day.start) : []
         let spokenDay = ClockLabel.day(of: day.start, now: now)
+        let count = day.foldCount
+        // Folded, the header says what it holds: "4 entries · 14 u · 120 g carbs".
+        let shownTotals = folded ? [LogbookCollapseText.count(count), totals].filter { !$0.isEmpty }.joined(separator: " · ")
+                                 : totals
+        let spokenTotals = folded
+            ? [LogbookCollapseText.spokenState(folded: true), LogbookCollapseText.spokenCount(count), totals]
+                .filter { !$0.isEmpty }.joined(separator: ", ")
+            : [LogbookCollapseText.spokenState(folded: false), totals].filter { !$0.isEmpty }.joined(separator: ", ")
         return VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(alignment: .firstTextBaseline) {
+                // Folds the day: points down while open, right while folded.
+                Button { toggleFold(day, now: now) } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(folded ? 0 : 90))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, -DS.Space.xs)
+                .padding(.vertical, -DS.Space.sm)
                 Text(day.title)
                     .dsFont(.headline)
                     .foregroundStyle(.primary)
@@ -574,10 +623,11 @@ struct PhoneLogbookView: View {
                     .imageScale(.small)
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: DS.Space.sm)
-                Text(totals)
+                Text(shownTotals)
                     .dsFont(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .contentTransition(.opacity)
             }
             .contentShape(Rectangle())
             .onTapGesture { openCalendar(day.id) }
@@ -632,11 +682,39 @@ struct PhoneLogbookView: View {
             ? DayChartText.spoken(day: spokenDay, figures: range, segments: segments, unit: snapshot.unit,
                                   low: snapshot.lowMgdl, high: snapshot.highMgdl, logged: markers.count)
             : DayInRangeText.spoken(spokenDay, range))
-        .accessibilityValue(totals)
+        .accessibilityValue(spokenTotals)
         .accessibilityAddTraits([.isHeader, .isButton])
         .accessibilityHint(range == nil ? "Jumps to a date" : (open ? "Hides the day's chart" : "Shows the day's chart"))
         .accessibilityAction { if range != nil { toggleDay(day.id) } else { openCalendar(day.id) } }
+        .accessibilityAction(named: LogbookCollapseText.actionName(folded: folded)) { toggleFold(day, now: now) }
         .accessibilityAction(named: "Jump to a Date") { openCalendar(day.id) }
+    }
+
+    /// Folds a day down to its header or opens it again: the rows below slide up (or down) on a
+    /// spring the eye can follow. Under Reduce Motion the list dips out, switches and fades back,
+    /// so nothing slides. Kept on this phone unless a search is running; VoiceOver hears it once.
+    private func toggleFold(_ day: PhoneLogbookDay, now: Date) {
+        Haptics.play(.choice)
+        let searching = searchingFolds
+        let willFold = !folds.isFolded(day.id, searching: searching)
+        let apply = {
+            folds.toggle(day.id, searching: searching)
+            if !searching { foldedStored = folds.kept.stored }
+        }
+        if reduceMotion {
+            Task { @MainActor in
+                withAnimation(.easeOut(duration: 0.12)) { listFade = 0 }
+                try? await Task.sleep(for: .milliseconds(130))
+                var quiet = Transaction()
+                quiet.disablesAnimations = true
+                withTransaction(quiet) { apply() }
+                withAnimation(.easeIn(duration: 0.2)) { listFade = 1 }
+            }
+        } else {
+            withAnimation(DSMotion.emphasized.animation) { apply() }
+        }
+        let spokenDay = DayInRangeText.spokenDay(ClockLabel.day(of: day.start, now: now))
+        LoggedElsewhere.announce(LogbookCollapseText.announcement(day: spokenDay, folded: willFold, count: day.foldCount))
     }
 
     private func openCalendar(_ id: String) {
@@ -648,6 +726,9 @@ struct PhoneLogbookView: View {
     /// hiding that day's entries, those go first, so there's a day to land on.
     private func jump(to day: Date, all: [LogEntry], shownDays: Set<Date>) {
         calendarFrom = nil
+        // A folded day opens, so there's something under the header it lands on.
+        folds.reopen(LogbookCollapse.id(of: day))
+        foldedStored = folds.kept.stored
         switch LogbookJump.plan(day: day, shownDays: shownDays, counts: LogbookCalendar.counts(all.map(\.timestamp))) {
         case .scroll(let d):
             jumping = LogbookJumpRequest(day: d)
@@ -917,6 +998,12 @@ struct PhoneLogbookDay: Identifiable {
 
     /// What was logged that day, without the alerts.
     var entries: [LogEntry] { items.compactMap(\.entry) }
+
+    /// The rows a fold hides: what's listed for the day, entries and alerts.
+    var foldCount: LogbookDayCount {
+        let e = entries.count
+        return LogbookDayCount(entries: e, alerts: items.count - e)
+    }
 
     /// "14 u · 120 g carbs", only the parts that were logged.
     var totals: String {
