@@ -671,7 +671,7 @@ struct GlucoseChart: View {
         // What's drawn of it so far. Indexed rather than keyed by time, so the marks keep their
         // identity while a new forecast slides and bends into place (`ForecastMotion`).
         let drawn = Array(ForecastMorph.revealed(projection, progress: forecastReveal).enumerated())
-        Chart {
+        let chart = Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
                 yStart: .value("Low", unit.value(fromMgdl: lowMgdl)),
@@ -879,14 +879,7 @@ struct GlucoseChart: View {
         .onChange(of: events.map(\.id)) { _, _ in
             markersChanged(visibleFrom: window.first?.timestamp ?? .distantFuture)
         }
-        .onChange(of: peekable(window).map(\.id)) { _, ids in calloutMarkersChanged(ids) }
-        .onChange(of: closesCallout) { _, _ in closeCallout() }
-        .onChange(of: calloutKeyFocusChanged) { old, new in
-            if old == true, new == false { closeCallout() }
-        }
-        .onChange(of: scenePhase) { _, phase in if phase == .background { closeCallout() } }
         .onChange(of: hours) { old, new in
-            closeCallout()
             changeRange(from: old, to: new)
             // Hours changing under two fingers means they were pinching, not picking a span.
             if var touch = spanTouch { touch.wasPinch = true; spanTouch = touch }
@@ -915,10 +908,24 @@ struct GlucoseChart: View {
         .accessibilityChartDescriptor(GlucoseAudioGraph(readings: window, forecast: projection, unit: unit,
                                                         lowMgdl: lowMgdl, highMgdl: highMgdl, yDomain: yd,
                                                         yesterday: ghost.filter { $0.date >= domain.lowerBound }))
-        // After the chart's own VoiceOver element, so its marker buttons and the callout are
-        // elements of their own rather than folded into the summary.
-        .chartOverlay { proxy in calloutLayer(proxy: proxy, yd: yd, window: window) }
-        .preference(key: MarkerCalloutOpenKey.self, value: callout != nil)
+        withCallouts(chart, window: window, yd: yd)
+    }
+
+    /// The marker callout's overlay and the moments that close it, kept out of `body`'s chain so it
+    /// still type-checks in reasonable time.
+    private func withCallouts(_ chart: some View, window: [GlucoseReading], yd: ClosedRange<Double>) -> some View {
+        chart
+            // After the chart's own VoiceOver element, so its marker buttons and the callout are
+            // elements of their own rather than folded into the summary.
+            .chartOverlay { proxy in calloutLayer(proxy: proxy, yd: yd, window: window) }
+            .preference(key: MarkerCalloutOpenKey.self, value: callout != nil)
+            .onChange(of: peekable(window).map(\.id)) { _, ids in calloutMarkersChanged(ids) }
+            .onChange(of: closesCallout) { _, _ in closeCallout() }
+            .onChange(of: hours) { _, _ in closeCallout() }
+            .onChange(of: calloutKeyFocusChanged) { old, new in
+                if old == true, new == false { closeCallout() }
+            }
+            .onChange(of: scenePhase) { _, phase in if phase == .background { closeCallout() } }
     }
 }
 
