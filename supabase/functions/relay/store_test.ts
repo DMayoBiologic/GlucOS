@@ -48,7 +48,7 @@ Deno.test({
       assertEquals(status.activityID, "A1");
 
       assertEquals(await engine.tick(), "done");
-      assertEquals(sent.filter((p) => p.type === "alert").map((p) => p.collapseId), ["glucos.low"]);
+      assertEquals(sent.filter((p) => p.type === "alert").map((p) => p.collapseId?.split(".").slice(0, 2).join(".")), ["glucos.low"]);
       assertEquals(sent.filter((p) => p.type === "liveactivity").length, 1);
       const rows = await sql`select count(*)::int as n from glucos.readings`;
       assertEquals(rows[0].n, 13);

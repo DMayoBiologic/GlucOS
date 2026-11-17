@@ -5,8 +5,8 @@
 
 import {
   alertChart, type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
-  backInRangeCheck, backInRangeConfirmWithin, backInRangeLookAhead, type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
-  effectiveRangeScale, minutesBack, rangeScaleFrom, rangeWindow, type Sensor, type Trend, unitOf,
+  backInRangeCheck, backInRangeConfirmWithin, backInRangeLookAhead, type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newEpisodes, newPlanner, observeEpisodes, recordEpisodeAlert, type EpisodesState, type BackInRangeSummary, type PlannerState, processTick, type Reading, sameCard,
+  effectiveRangeScale, minutesBack, rangeScaleFrom, rangeWindow, type Sensor, type Trend, type Unit, unitOf,
   type AlertSnoozes, cardSnooze, ownerNotices, pruneSnoozes, runningSnoozes, snoozeAlert, snoozeLevel, withSnooze,
 } from "./core.ts";
 import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
@@ -23,7 +23,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.18.0";
+export const version = "2.19.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -147,6 +147,10 @@ export interface Work {
   ownerPlanner?: PlannerState | null;
   /// "Snooze 30 min" and "I'm treating it" from the owner's phone (`snoozeAlerts`). Missing on old rows.
   snoozes?: AlertSnoozes;
+  /// Low and high episodes (docs/AlertEpisodes.md): the owner's pushes, and the followers' copies
+  /// of the shared alerts. Missing on old rows: none going.
+  ownerEpisodes?: EpisodesState | null;
+  episodes?: EpisodesState | null;
 }
 
 export interface RelayRow {
@@ -322,6 +326,8 @@ export class RelayEngine {
           row.work.latestCard = null;
           row.work.planner = newPlanner();
           row.work.ownerPlanner = null;
+          row.work.ownerEpisodes = null;
+          row.work.episodes = null;
           row.work.snoozes = {};
           row.work.calibration = null;
           row.work.learnedAt = 0;
@@ -595,13 +601,26 @@ export class RelayEngine {
         const snoozes = w.snoozes ?? (w.snoozes = {});
         pruneSnoozes(snoozes, now);
         const mine = ownerNotices(w.ownerPlanner, snoozes, result, row.prefs.alerts, now);
+        // Alerts from one low or high share a collapse id, so each replaces the last on the phone
+        // (and still sounds). An episode this reading ended gets a quiet "Back in range" instead.
+        const ownerEpisodes = w.ownerEpisodes ?? (w.ownerEpisodes = newEpisodes());
+        const ownerEnded = observeEpisodes(ownerEpisodes, result.snapshot, now);
+        const sharedEnded = observeEpisodes(w.episodes ?? (w.episodes = newEpisodes()), result.snapshot, now);
         const token = row.prefs.deviceToken;
         if (token) {
           for (const n of mine) {
+            const episode = recordEpisodeAlert(ownerEpisodes, n.kind, now);
             await this.push(row, {
               deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
-              payload: payloads.alert(n, this.config.criticalAlerts, alertChart(n.kind, result.card)),
-              collapseId: noticeIdentifier(n),
+              payload: payloads.alert(n, this.config.criticalAlerts, alertChart(n.kind, result.card), episode?.earlier ?? []),
+              collapseId: episode?.identifier ?? noticeIdentifier(n),
+              expiration: now + 15 * 60, sandbox: row.prefs.sandbox,
+            }, (r) => { delete r.prefs.deviceToken; });
+          }
+          for (const b of ownerEnded) {
+            await this.push(row, {
+              deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 5,
+              payload: payloads.backInRange(b, result.snapshot.unit), collapseId: b.identifier,
               expiration: now + 15 * 60, sandbox: row.prefs.sandbox,
             }, (r) => { delete r.prefs.deviceToken; });
           }
@@ -631,7 +650,8 @@ export class RelayEngine {
           : null;
         await this.updateActivity(row, ownerCard, result.notices.length > 0, priority, now);
         if (result.card) w.latestCard = { card: result.card, at: now };
-        await this.updateFollowers(w, result.card, result.notices, priority, now, checkIns, due);
+        await this.updateFollowers(w, result.card, result.notices, priority, now, checkIns, due, sharedEnded,
+          result.snapshot.unit);
         if (due.length) {
           try {
             await this.config.shares?.markReminded(due.map((c) => c.id), now);
@@ -840,7 +860,8 @@ export class RelayEngine {
   /// resent when it changes or every 10 minutes, replaced before iOS's 8-hour limit, and taken
   /// down when the share expires.
   private async updateFollowers(w: Work, card: CardState | null, notices: AlertNotice[], priority: 5 | 10,
-                                now: number, checkIns: CheckIn[] = [], dueCheckIns: CheckIn[] = []) {
+                                now: number, checkIns: CheckIn[] = [], dueCheckIns: CheckIn[] = [],
+                                backInRange: BackInRangeSummary[] = [], unit: Unit = "mmol") {
     const checkInOf = new Map(checkIns.map((c) => [c.followerId, c]));
     const due = new Set(dueCheckIns.map((c) => c.followerId));
     const asker = dueCheckIns.find((c) => c.name)?.name ?? "";
@@ -848,6 +869,9 @@ export class RelayEngine {
     const forFollowers = notices.filter((n) => followerAlertKinds.has(n.kind));
     const shares = this.config.shares;
     if (!shares || !this.sender) return;
+    // One episode id per alert, shared by every follower (each gets their own copy of it).
+    const episodes = w.episodes ?? (w.episodes = newEpisodes());
+    const ids = forFollowers.map((n) => recordEpisodeAlert(episodes, n.kind, now)?.identifier ?? noticeIdentifier(n));
     let all: Follower[];
     try {
       all = await shares.followers(now);
@@ -865,7 +889,9 @@ export class RelayEngine {
           ended.push(f.id);
           return;
         }
-        if (forFollowers.length && f.alertsEnabled && f.deviceToken) await this.alertFollower(f, forFollowers, now);
+        if ((forFollowers.length || backInRange.length) && f.alertsEnabled && f.deviceToken) {
+          await this.alertFollower(f, forFollowers, ids, backInRange, unit, now);
+        }
         // They asked, so they hear about no answer whatever their alert switch says. Everyone
         // else following hears too (with their alerts on), so someone can call.
         if (due.has(f.id) && f.deviceToken) await this.tellNoAnswer(f, now);
@@ -956,13 +982,23 @@ export class RelayEngine {
   }
 
   /// The owner's glucose alerts, on a follower's phone.
-  private async alertFollower(f: Follower, notices: AlertNotice[], now: number) {
+  private async alertFollower(f: Follower, notices: AlertNotice[], ids: string[], ended: BackInRangeSummary[],
+                              unit: Unit, now: number) {
     const token = f.deviceToken!;
-    for (const n of notices) {
-      const result = await this.sender!.send({
-        deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
+    const pushes: { payload: Record<string, unknown>; collapseId: string; priority: 5 | 10 }[] = [
+      ...notices.map((n, i) => ({
         payload: payloads.followerAlert(n, f.label, f.shareId, this.config.criticalAlerts),
-        collapseId: `${noticeIdentifier(n)}.${f.shareId}`.slice(0, 64), expiration: now + 15 * 60, sandbox: f.sandbox,
+        collapseId: `${ids[i] ?? noticeIdentifier(n)}.${f.shareId}`.slice(0, 64), priority: 10 as const,
+      })),
+      ...ended.map((b) => ({
+        payload: payloads.backInRange(b, unit, { label: f.label, shareId: f.shareId }),
+        collapseId: `${b.identifier}.${f.shareId}`.slice(0, 64), priority: 5 as const,
+      })),
+    ];
+    for (const p of pushes) {
+      const result = await this.sender!.send({
+        deviceToken: token, type: "alert", topic: this.config.bundleId, priority: p.priority,
+        payload: p.payload, collapseId: p.collapseId, expiration: now + 15 * 60, sandbox: f.sandbox,
       });
       if (result.kind === "tokenInvalid") {
         await this.config.shares!.clearFollowerDeviceToken(f.id, token);

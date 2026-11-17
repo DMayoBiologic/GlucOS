@@ -147,7 +147,8 @@ its likely range as a cone at the end. Other alerts (stale, sensor, rapid change
   on), so the extension needs no app group, network or stored readings. Alerts from an older relay,
   or with fewer than 2 readings, simply show no chart. A follower's copy carries none.
 - **Timing is unchanged:** the chart only adds to the alert; it is sent at the same moment, with the
-  same priority, collapse id and expiry.
+  same priority and expiry. Its collapse id names the low or high it belongs to (docs/AlertEpisodes.md,
+  relay 2.19.0 on), and the chart travels with every replacement.
 - Code: `AlertChart` (`Sources/Shared/AlertChart.swift`: payload, layout, VoiceOver summary, motion;
   tests `AlertChartTests`), `AlertChartView`, `AlertChartSource` (which alerts get one). The
   extension's App ID (`au.com.declanmayo.glucos.ios.notification`) has no capabilities, so export
