@@ -60,12 +60,13 @@ final class LogbookTagsTests: XCTestCase {
     }
 
     func testEveryKindOfEntryKeepsItsTagsThroughTheSyncPayload() throws {
-        let entries: [LogEntry] = [
-            .dose(InsulinDose(timestamp: t0, units: 4, kind: .rapid, name: "NovoRapid")),
-            .meal(meal("Pasta")),
-            .siteChange(SiteChange(timestamp: t0, site: .abdomenLeft)),
-            .context(ContextEvent(timestamp: t0, tags: [.exercise], note: "run")),
-        ].map { $0.withLabels(["Travel", "Night shift"]) }
+        let plain: [LogEntry] = [
+            LogEntry.dose(InsulinDose(timestamp: t0, units: 4, kind: .rapid, name: "NovoRapid")),
+            LogEntry.meal(meal("Pasta")),
+            LogEntry.siteChange(SiteChange(timestamp: t0, site: .abdomenLeft)),
+            LogEntry.context(ContextEvent(timestamp: t0, tags: [.exercise], note: "run")),
+        ]
+        let entries: [LogEntry] = plain.map { (e: LogEntry) -> LogEntry in e.withLabels(["Travel", "Night shift"]) }
         for e in entries {
             XCTAssertEqual(e.labels, ["Travel", "Night shift"])
             switch e {
