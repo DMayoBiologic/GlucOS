@@ -42,6 +42,7 @@ let package = Package(
                 "Shared/ForecastMorph.swift",
                 "Shared/PopoverStagger.swift",
                 "Shared/ContentResize.swift",
+                "Shared/DependentRows.swift",
                 "Shared/ReadingRoll.swift",
                 "Shared/UnitSwitch.swift",
                 "Shared/TypedAmountRoll.swift",

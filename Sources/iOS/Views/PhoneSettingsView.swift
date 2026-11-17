@@ -300,27 +300,33 @@ struct PhoneSettingsView: View {
 
     private var loggingSection: some View {
         Section {
-            Picker("Insulin", selection: $settings.therapy) {
+            Picker("Insulin", selection: $settings.therapy.revealingRows(
+                shown: { settings.therapy.logsInsulin },
+                rows: { ["Your insulins", "Bolus calculator"] },
+                reduceMotion: reduceMotion)) {
                 ForEach(TherapyType.allCases) { Text($0.title).tag($0) }
             }
             .settingsAnchor(.therapy)
             if settings.therapy.logsInsulin {
-                // The two modifiers below carry into the screen: brand names, not words to correct.
-                NavigationLink {
-                    PhoneInsulinsScreen()
-                } label: {
-                    LabeledContent("Your insulins",
-                                   value: logbook.insulins.isEmpty ? "Add" : logbook.insulins.map(\.name).joined(separator: ", "))
+                Group {
+                    // The two modifiers below carry into the screen: brand names, not words to correct.
+                    NavigationLink {
+                        PhoneInsulinsScreen()
+                    } label: {
+                        LabeledContent("Your insulins",
+                                       value: logbook.insulins.isEmpty ? "Add" : logbook.insulins.map(\.name).joined(separator: ", "))
+                    }
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .settingsAnchor(.insulins)
+                    NavigationLink {
+                        PhoneBolusSettingsScreen()
+                    } label: {
+                        BolusSettingsSummary(settings: logbook.bolusSettings, unit: settings.unit)
+                    }
+                    .settingsAnchor(.bolus)
                 }
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
-                    .settingsAnchor(.insulins)
-                NavigationLink {
-                    PhoneBolusSettingsScreen()
-                } label: {
-                    BolusSettingsSummary(settings: logbook.bolusSettings, unit: settings.unit)
-                }
-                .settingsAnchor(.bolus)
+                .dependentRow()
             }
         } header: {
             Text("Logging")
@@ -359,20 +365,26 @@ struct PhoneSettingsView: View {
 
     private var syncSection: some View {
         Section {
-            Toggle("Sync logbook", isOn: $logbookSync.enabled)
+            Toggle("Sync logbook", isOn: $logbookSync.enabled.revealingRows(
+                shown: { logbookSync.enabled },
+                rows: { ["Sync status", "Sync now"] },
+                reduceMotion: reduceMotion))
                 .settingsAnchor(.syncLogbook)
             if logbookSync.enabled {
-                LabeledContent("Status") {
-                    Text(logbookSync.summary)
-                        .foregroundStyle(logbookSync.isProblem ? Tone.warning.textColor : Color.secondary)
-                        .multilineTextAlignment(.trailing)
+                Group {
+                    LabeledContent("Status") {
+                        Text(logbookSync.summary)
+                            .foregroundStyle(logbookSync.isProblem ? Tone.warning.textColor : Color.secondary)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    Button("Sync Now") { logbookSync.requestSync() }
+                        .disabled(logbookSync.status == .syncing || logbookSync.status == .needsAccount)
+                    if logbookSync.isProblem {
+                        SendReportButton(feature: LogbookSyncService.diagnosticFeature, step: "sync", message: logbookSync.summary)
+                            .id(logbookSync.summary)
+                    }
                 }
-                Button("Sync Now") { logbookSync.requestSync() }
-                    .disabled(logbookSync.status == .syncing || logbookSync.status == .needsAccount)
-                if logbookSync.isProblem {
-                    SendReportButton(feature: LogbookSyncService.diagnosticFeature, step: "sync", message: logbookSync.summary)
-                        .id(logbookSync.summary)
-                }
+                .dependentRow()
             }
         } header: {
             Text("Logbook")
@@ -383,7 +395,10 @@ struct PhoneSettingsView: View {
 
     private var alertsSection: some View {
         Section {
-            Toggle("Glucose alerts", isOn: $settings.alertsEnabled)
+            Toggle("Glucose alerts", isOn: $settings.alertsEnabled.revealingRows(
+                shown: { settings.alertsEnabled },
+                rows: { alertOptionNames },
+                reduceMotion: reduceMotion))
                 .settingsAnchor(.alerts)
                 .onChange(of: settings.alertsEnabled) { _, on in
                     // Turning alerts on is the moment to ask, if iOS hasn't asked yet.
@@ -395,37 +410,43 @@ struct PhoneSettingsView: View {
                     }
                 }
             if settings.alertsEnabled {
-                if notificationsAllowed == false {
-                    Button("Notifications are off. Turn them on in Settings") { openURL(AlertManager.notificationSettingsURL) }
-                        .foregroundStyle(Tone.critical.textColor)
-                }
-                Toggle("High (above target)", isOn: $settings.alertOnHigh)
-                    .settingsAnchor(.highAlert)
-                Toggle("Rising or falling quickly", isOn: $settings.alertOnRapidChange)
-                    .settingsAnchor(.rapidAlert)
-                Toggle("No recent data", isOn: $settings.alertOnStale)
-                    .settingsAnchor(.staleAlert)
-                Toggle("Sensor ending", isOn: $settings.alertOnSensorExpiry)
-                    .settingsAnchor(.sensorEndingAlert)
-                Toggle("Predicted lows", isOn: $settings.alertOnPredictedLow)
-                    .settingsAnchor(.predictedLows)
-                Toggle("Predicted highs", isOn: $settings.alertOnPredictedHigh)
-                    .settingsAnchor(.predictedHighs)
-                if settings.alertOnPredictedLow || settings.alertOnPredictedHigh {
-                    Picker("Warn me ahead by", selection: $settings.predictiveAlertMinutes) {
-                        ForEach([10, 15, 20, 30], id: \.self) { Text("\($0) min").tag($0) }
+                Group {
+                    if notificationsAllowed == false {
+                        Button("Notifications are off. Turn them on in Settings") { openURL(AlertManager.notificationSettingsURL) }
+                            .foregroundStyle(Tone.critical.textColor)
                     }
-                    .settingsAnchor(.warnAhead)
+                    Toggle("High (above target)", isOn: $settings.alertOnHigh)
+                        .settingsAnchor(.highAlert)
+                    Toggle("Rising or falling quickly", isOn: $settings.alertOnRapidChange)
+                        .settingsAnchor(.rapidAlert)
+                    Toggle("No recent data", isOn: $settings.alertOnStale)
+                        .settingsAnchor(.staleAlert)
+                    Toggle("Sensor ending", isOn: $settings.alertOnSensorExpiry)
+                        .settingsAnchor(.sensorEndingAlert)
+                    Toggle("Predicted lows", isOn: $settings.alertOnPredictedLow.revealingRows(
+                        shown: { showsWarnAhead }, rows: { ["Warn me ahead by"] }, reduceMotion: reduceMotion))
+                        .settingsAnchor(.predictedLows)
+                    Toggle("Predicted highs", isOn: $settings.alertOnPredictedHigh.revealingRows(
+                        shown: { showsWarnAhead }, rows: { ["Warn me ahead by"] }, reduceMotion: reduceMotion))
+                        .settingsAnchor(.predictedHighs)
+                    if showsWarnAhead {
+                        Picker("Warn me ahead by", selection: $settings.predictiveAlertMinutes) {
+                            ForEach([10, 15, 20, 30], id: \.self) { Text("\($0) min").tag($0) }
+                        }
+                        .settingsAnchor(.warnAhead)
+                        .dependentRow()
+                    }
+                    Picker("Repeat no more than every", selection: $settings.alertCooldownMinutes) {
+                        ForEach([5, 10, 15, 30, 60], id: \.self) { Text("\($0) min").tag($0) }
+                    }
+                    .settingsAnchor(.alertRepeat)
+                    Button("Send Test Alert") {
+                        store.alerts.requestAuthorization()
+                        store.alerts.sendTest()
+                    }
+                    .settingsAnchor(.testAlert)
                 }
-                Picker("Repeat no more than every", selection: $settings.alertCooldownMinutes) {
-                    ForEach([5, 10, 15, 30, 60], id: \.self) { Text("\($0) min").tag($0) }
-                }
-                .settingsAnchor(.alertRepeat)
-                Button("Send Test Alert") {
-                    store.alerts.requestAuthorization()
-                    store.alerts.sendTest()
-                }
-                .settingsAnchor(.testAlert)
+                .dependentRow()
             }
         } header: {
             Text("Alerts")
@@ -435,16 +456,29 @@ struct PhoneSettingsView: View {
         .id(Jump.alerts)
     }
 
+    /// "Warn me ahead by" shows while either predicted alert is on.
+    private var showsWarnAhead: Bool { settings.alertOnPredictedLow || settings.alertOnPredictedHigh }
+
+    /// The rows under Glucose alerts, in screen order, for VoiceOver when they appear.
+    private var alertOptionNames: [String] {
+        var names = ["High", "Rising or falling quickly", "No recent data", "Sensor ending", "Predicted lows", "Predicted highs"]
+        if showsWarnAhead { names.append("Warn me ahead by") }
+        names += ["Repeat no more than every", "Send test alert"]
+        return names
+    }
+
     /// The evening recap (docs/EveningRecap.md): one notification a day, off until turned on.
     private var recapSection: some View {
         Section {
-            Toggle("Evening recap", isOn: $settings.eveningRecapEnabled)
+            Toggle("Evening recap", isOn: $settings.eveningRecapEnabled.revealingRows(
+                shown: { settings.eveningRecapEnabled }, rows: { ["Recap time"] }, reduceMotion: reduceMotion))
                 .onChange(of: settings.eveningRecapEnabled) { _, on in
                     if on { store.alerts.requestAuthorization() }
                 }
                 .settingsAnchor(.eveningRecap)
             if settings.eveningRecapEnabled {
                 DatePicker("Time", selection: settings.eveningRecapTime, displayedComponents: .hourAndMinute)
+                    .dependentRow()
             }
         } header: {
             Text("Daily recap")
@@ -455,15 +489,21 @@ struct PhoneSettingsView: View {
 
     private var lockScreenSection: some View {
         Section {
-            Toggle("Live Activity", isOn: $services.liveActivityEnabled)
+            Toggle("Live Activity", isOn: $services.liveActivityEnabled.revealingRows(
+                shown: { services.liveActivityEnabled },
+                rows: { services.liveActivity.systemEnabled ? ["Live Activity status"] : ["Live Activity status", "Allow Live Activities in Settings"] },
+                reduceMotion: reduceMotion))
                 .settingsAnchor(.liveActivity)
             if services.liveActivityEnabled {
-                LabeledContent("Status", value: liveActivityStatus)
-                if !services.liveActivity.systemEnabled {
-                    Button("Allow Live Activities in Settings") {
-                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                Group {
+                    LabeledContent("Status", value: liveActivityStatus)
+                    if !services.liveActivity.systemEnabled {
+                        Button("Allow Live Activities in Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                        }
                     }
                 }
+                .dependentRow()
             }
         } header: {
             Text("Lock Screen")
