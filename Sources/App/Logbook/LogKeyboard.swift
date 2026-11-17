@@ -181,13 +181,14 @@ enum ShortcutCatalog {
                 ShortcutRow(keys: "⌘D", action: "Open the dashboard"),
                 ShortcutRow(keys: "⌘1  ⌘2  ⌘3  ⌘4", action: "Chart: 3, 6, 12 or 24 hours"),
                 ShortcutRow(keys: "⌘+  ⌘−", action: "Chart: fewer or more hours"),
-                ShortcutRow(keys: "←  →", action: "Step through chart readings"),
+                ShortcutRow(keys: "←  → on the chart", action: "Step through chart readings"),
                 ShortcutRow(keys: "⌘I", action: "Show or hide details"),
                 ShortcutRow(keys: "⌘C", action: "Copy the reading"),
                 ShortcutRow(keys: "⌘,", action: "Settings"),
                 ShortcutRow(keys: "Hold ⌘", action: "Show shortcuts on the buttons"),
                 showList,
             ]),
+            navigation(escape: "Esc", closes: "the popover, or this list"),
             anywhere(globalKey),
         ].compactMap { $0 }
     }
@@ -217,6 +218,7 @@ enum ShortcutCatalog {
                 ShortcutRow(keys: "⇧⌘E", action: "Export the Logbook for a clinic visit"),
                 ShortcutRow(keys: "⌘/  ⌘?", action: "Show this list"),
             ]),
+            navigation(escape: "Esc in a sheet", closes: "the sheet"),
             anywhere(globalKey),
         ].compactMap { $0 }
     }
@@ -243,6 +245,31 @@ enum ShortcutCatalog {
             showList,
         ]
         return ShortcutGroup(title: "Logging", rows: rows)
+    }
+
+    /// Moving round with the keyboard (docs/KeyboardNavigation.md): the same in the popover,
+    /// Insights and the Logbook. `escape` and `closes` say what Esc does where the list is shown
+    /// (the dashboard's own Esc clears the chart selection).
+    static func navigation(escape: String, closes: String) -> ShortcutGroup {
+        ShortcutGroup(title: "Moving around", rows: [
+            ShortcutRow(keys: "Tab  ⇧Tab", action: "Next or previous card or control"),
+            ShortcutRow(keys: "↑  ↓  ←  →", action: "Move between cards, rows and buttons"),
+            ShortcutRow(keys: "Return  Space", action: "Open or press what has the focus ring"),
+            ShortcutRow(keys: escape, action: "Close \(closes)"),
+        ])
+    }
+
+    /// Every list at once, for Settings → Logging → Keyboard → Keyboard Shortcuts.
+    static func all(momentCount: Int, globalKey: LogHotKey?) -> [ShortcutGroup] {
+        let popoverRows = popover(globalKey: nil).first?.rows ?? []
+        let dashboardRows = dashboard(globalKey: nil).first?.rows ?? []
+        return [
+            navigation(escape: "Esc", closes: "a sheet, or the popover"),
+            ShortcutGroup(title: "Menu bar", rows: popoverRows.filter { $0 != showList }),
+            ShortcutGroup(title: "Dashboard", rows: dashboardRows.filter { $0.keys != "⌘/  ⌘?" }),
+            logging(momentCount: momentCount),
+            anywhere(globalKey),
+        ].compactMap { $0 }
     }
 
     private static func anywhere(_ key: LogHotKey?) -> ShortcutGroup? {

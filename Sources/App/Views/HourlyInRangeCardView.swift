@@ -209,6 +209,8 @@ struct HourlyInRangeCardView: View {
         }
         .buttonStyle(.plain)
         .disabled(openLogbook == nil)
+        // The 24 hours are one row for the arrow keys: ← → step through them.
+        .keyStop("insights.hourly.\(h)", row: "insights.hourly.cells", kind: .control, radius: 4) { open(h, s) }
         .help(HourlyInRangeText.help(h, hour))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(HourlyInRangeText.spokenSpan(h))

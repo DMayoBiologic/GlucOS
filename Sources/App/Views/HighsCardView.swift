@@ -50,6 +50,9 @@ struct HighsCardView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                // One stop on the Mac: ← → pick the period beside it.
+                .keyStop("insights.highs.period", radius: DS.Radius.control)
+                .keyCycle($periodDays, through: HighsSummary.Period.allCases.map(\.rawValue))
                 .accessibilityLabel("Period")
             }
             // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
@@ -166,6 +169,7 @@ struct HighsCardView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .keyStop("insights.highs.open", kind: .control, radius: DS.Radius.control) { open(s) }
             .accessibilityHint(HighsSummaryText.logbookHint)
         }
     }

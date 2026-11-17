@@ -66,6 +66,8 @@ struct LogbookSection: View {
     /// "Search All Dates" was pressed: look past the toolbar's period until the search is cleared.
     @State private var allDates = false
     @FocusState private var searchFocused: Bool
+    /// Which control has the keyboard, for the arrow keys (docs/KeyboardNavigation.md).
+    @FocusState private var keyFocus: String?
     /// Low and high alerts show as quiet rows between the entries unless turned off.
     @AppStorage(AlertLogRow.showsKey) private var showsAlerts = true
     /// Entries that just arrived, tinted with their colour for a moment so the eye finds them.
@@ -123,6 +125,7 @@ struct LogbookSection: View {
                     Label("Insights", systemImage: "chevron.left")
                 }
                 .buttonStyle(.link)
+                .keyStop("logbook.back", kind: .control, radius: DS.Radius.control, action: backToInsights)
                 .dsFont(.label)
                 .help("Back to the \(backCardTitle) card in Insights")
                 .accessibilityLabel("Back to Insights")
@@ -160,12 +163,25 @@ struct LogbookSection: View {
                 } else {
                     ScrollViewReader { proxy in
                         table(lines, terms: terms)
+                            // Tab reaches the table; ↑ ↓ then move through its rows and Return
+                            // opens one, as a double-click does.
+                            .keyStop("logbook.table", kind: .native, keeps: [.up, .down, .left, .right])
+                            // Return on one selected entry edits it (if the table hasn't already
+                            // taken Return as its double-click).
+                            .onKeyPress(.return) {
+                                let chosen = selectedEntries
+                                guard chosen.count == 1, let id = chosen.first, let entry = logbook.entry(id: id) else { return .ignored }
+                                open(.edit(entry))
+                                return .handled
+                            }
                             .opacity(tableFade * rowsFade)
                             .task(id: jumpTarget) { await land(on: jumpTarget, rows: rows, proxy: proxy) }
                     }
                 }
             }
         }
+        // Tab and the arrow keys move a focus ring through the bars above the table.
+        .keyNavigation($keyFocus)
         // ⌘F (a dashboard shortcut, so it also brings this section up) puts the cursor in the search.
         .onAppear {
             takeFocusRequest(); takeLink(); takeReveal(); takeJumpRequest()
@@ -241,6 +257,7 @@ struct LogbookSection: View {
     private var alertsToggle: some View {
         Toggle(isOn: $showsAlerts) { Label("Alerts", systemImage: "bell") }
             .toggleStyle(.checkbox)
+            .keyStop("logbook.alerts", row: Self.filterRow, kind: .control, radius: 4) { showsAlerts.toggle() }
             .help("Show low and high alerts, and what was tapped on them, between the entries")
     }
 
@@ -278,6 +295,7 @@ struct LogbookSection: View {
                     .textFieldStyle(.plain)
                     .autocorrectionDisabled()
                     .focused($searchFocused)
+                    .keyStop("logbook.search", row: Self.searchRow, kind: .native, keeps: [.left, .right])
                     .onExitCommand { clearFilters() }
                 if !search.isEmpty {
                     Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
@@ -310,13 +328,16 @@ struct LogbookSection: View {
             let chosen = selectedEntries
             if chosen.count == 1, let id = chosen.first, let entry = logbook.entry(id: id) {
                 Button("Edit…") { open(.edit(entry)) }
+                    .keyStop("logbook.edit", row: Self.searchRow, kind: .control, radius: 6) { open(.edit(entry)) }
                 Button("Log Again Now") { logAgain(entry) }
+                    .keyStop("logbook.logAgain", row: Self.searchRow, kind: .control, radius: 6) { logAgain(entry) }
                     .help("Log a copy of this entry at the current time")
             }
             if !chosen.isEmpty {
                 Button(role: .destructive) { deleteSelection() } label: {
                     Label(chosen.count == 1 ? "Delete" : "Delete \(chosen.count)", systemImage: "trash")
                 }
+                .keyStop("logbook.delete", row: Self.searchRow, kind: .control, radius: 6) { deleteSelection() }
             }
         }
         .controlSize(.small)
@@ -329,6 +350,7 @@ struct LogbookSection: View {
         Button { showsCalendar = true } label: {
             Label("Jump to Date", systemImage: "calendar")
         }
+        .keyStop("logbook.calendar", row: Self.searchRow, kind: .control, radius: 6) { showsCalendar = true }
         .help("Jump to a date (⌘J)")
         .popover(isPresented: $showsCalendar, arrowEdge: .bottom) {
             LogbookCalendarView(counts: LogbookCalendar.counts(logbook.entries.map(\.timestamp)),
@@ -409,8 +431,13 @@ struct LogbookSection: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .keyStop("logbook.scope", row: Self.searchRow, kind: .control, radius: 14, action: action)
         .help(help)
     }
+
+    /// The search bar and the filter bar are one row each for ← →.
+    private static let searchRow = "logbook.searchBar"
+    private static let filterRow = "logbook.filters"
 
     /// All, then the quick filter chips that would show something (Meals, Insulin, Lows, Notes…).
     /// Then a chip for each tag in use (most used first), one at a time, on top of the chip picked
@@ -424,6 +451,16 @@ struct LogbookSection: View {
             // The selection slides between filters (docs/Redesign.md §4.5), like the chart hours.
             SlidingSegments(selection: $filter, options: options) { $0?.title ?? "All" }
                 .fixedSize()
+                // One stop: ← → pick the filter beside it, then move on along the bar at the ends.
+                .keyStop("logbook.filter", row: Self.filterRow, radius: 14)
+                .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+                    guard press.modifiers.intersection([.command, .option, .control, .shift]).isEmpty,
+                          let i = options.firstIndex(of: filter) else { return .ignored }
+                    let j = press.key == .leftArrow ? i - 1 : i + 1
+                    guard options.indices.contains(j) else { return .ignored }
+                    DS.animate(.emphasized, reduceMotion: reduceMotion) { filter = options[j] }
+                    return .handled
+                }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Show")
             alertsToggle
@@ -451,6 +488,9 @@ struct LogbookSection: View {
             Label(t, systemImage: LogbookTags.symbol(t))
         }
         .buttonStyle(ChipButtonStyle(selected: selected, tint: Palette.context, highlight: tagChipSpace))
+        .keyStop("logbook.tag.\(t)", row: Self.filterRow, kind: .control, radius: 14) {
+            DS.animate(.emphasized, reduceMotion: reduceMotion) { tagFilter = selected ? nil : t }
+        }
         .help(selected ? "Show entries with any tag" : "Show only entries tagged \(t)")
         .accessibilityLabel("Tagged \(t)")
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -971,6 +1011,8 @@ struct InsightsSection: View {
     /// Cards that have risen in since the page opened, so a re-sort or the customise sheet never
     /// plays them again.
     @State private var reveals = CardReveals()
+    /// Which card or control has the keyboard (docs/KeyboardNavigation.md).
+    @FocusState private var keyFocus: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Set by the toolbar's Earlier and Later (docs/InsightsPeriodStep.md).
     @Environment(\.insightsStep) private var step
@@ -989,6 +1031,7 @@ struct InsightsSection: View {
             if let recapFiredAt {
                 EveningRecapCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
                                      recapMinute: settings.eveningRecapMinute, firedAt: recapFiredAt)
+                    .keyStop("insights.recap")
                     .dsEntrance(0)
             }
             if let insights {
@@ -1004,16 +1047,18 @@ struct InsightsSection: View {
                     .dsEntrance(1)
                 }
                 if settings.therapy.logsInsulin {
-                    InsulinActionCard(insights: insights, unit: unit).dsEntrance(2)
+                    InsulinActionCard(insights: insights, unit: unit).keyStop("insights.insulinAction").dsEntrance(2)
                 }
                 MealResponseCard(insights: insights, unit: unit, showsInsulin: settings.therapy.logsInsulin)
+                    .keyStop("insights.mealResponse")
                     .dsEntrance(3)
                 if settings.therapy == .pump {
                     SiteAgeCard(buckets: insights.siteAge, unit: unit, hasSiteChanges: !logbook.siteChanges.isEmpty)
+                        .keyStop("insights.siteAge")
                         .dsEntrance(4)
                 }
                 if settings.therapy == .injections {
-                    SiteRotationCard().dsEntrance(4)
+                    SiteRotationCard().keyStop("insights.siteRotation").dsEntrance(4)
                 }
                 Text(periodText)
                     .dsFont(.caption)
@@ -1029,7 +1074,10 @@ struct InsightsSection: View {
                     ForEach(Array(visible.enumerated()), id: \.element) { i, card in
                         // Rises in as the page opens, a step after the card above it; its
                         // figures count up and its bars draw in as it rises, not before.
+                        // A stop for the keyboard: Return goes into the card, to its first
+                        // tile or link (docs/KeyboardNavigation.md).
                         view(for: card)
+                            .keyStop("insights.\(card.rawValue)", enabled: card != .forecastAccuracy)
                             .dsReveal(card, in: reveals, when: .appear, order: 5 + i)
                             .contextMenu { menu(card, index: i, count: visible.count) }
                             .accessibilityAction(named: "Share card") { sharing = card }
@@ -1047,6 +1095,8 @@ struct InsightsSection: View {
             }
             Disclaimer()
         }
+        // Tab and the arrow keys move a focus ring through the cards and their tiles.
+        .keyNavigation($keyFocus)
         // As on iPhone Insights: each card's figures count up as it assembles, with its bars
         // drawing in, and roll from the old figure to the new one when the data changes. Once per
         // appearance, never a loop; still under Reduce Motion; VoiceOver hears the final value.
@@ -1152,6 +1202,7 @@ struct InsightsSection: View {
                 Label("Customise Cards…", systemImage: "slider.horizontal.3")
             }
             .buttonStyle(.ds(.secondary, size: .small))
+            .keyStop("insights.customise", kind: .control, radius: DS.Radius.control) { customising = true }
             .help("Reorder or hide the Insights cards")
         }
     }
@@ -1197,6 +1248,7 @@ struct InsightsSection: View {
         Button("Log…", action: onLog)
             .buttonStyle(.ds(.primary))
             .fixedSize()
+            .keyStop("insights.log", kind: .control, radius: DS.Radius.control, action: onLog)
     }
 
     private var periodText: String {
@@ -1229,6 +1281,8 @@ private struct ForecastScorecardCard: View {
             ForecastScorecardView(card: card, unit: store.snapshot.unit, sinceUpdate: ledger.sinceUpdate,
                                   tuned: outlook.model.tuning.isTuned)
                 .dashboardCard()
+                // Its own stop, as it shows nothing until there are enough forecasts.
+                .keyStop("insights.forecastAccuracy")
         }
     }
 }

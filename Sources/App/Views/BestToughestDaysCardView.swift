@@ -140,6 +140,7 @@ struct BestToughestDaysCardView: View {
         return Button { open(which, s) } label: { tile.contentShape(Rectangle()) }
             .buttonStyle(.plain)
             .disabled(openLogbook == nil)
+            .keyStop("insights.bestDays.\(which)", kind: .control, radius: DS.Radius.tile) { open(which, s) }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(which.title)
             .accessibilityValue(BestToughestDaysText.spoken(which, s, unit: unit, low: lowMgdl, high: highMgdl,

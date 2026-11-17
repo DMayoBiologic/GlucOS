@@ -90,6 +90,8 @@ struct PopoverHero: View {
         .padding(.top, 14)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // First stop in the popover; Return opens the reading details, as a click does.
+        .keyStop("popover.hero", radius: PopoverLayout.heroRadius) { if s.current != nil { showDetails = true } }
         // Losing the signal or getting it back: the trend line, needle and rail fade over with the
         // number (whose own fade and strike come from `.staleStrike`). The first reading after
         // waiting fades in. Only fades remain under Reduce Motion.

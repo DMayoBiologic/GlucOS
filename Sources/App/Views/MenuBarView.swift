@@ -36,6 +36,8 @@ struct MenuBarView: View {
     /// False only for the moment between the popover opening and its sections starting to come
     /// in (`PopoverStagger`). Anything that goes wrong leaves it true, so content is never hidden.
     @State private var sectionsIn = true
+    /// Which card, chip or button has the keyboard (docs/KeyboardNavigation.md).
+    @FocusState private var keyFocus: String?
     @ObservedObject private var snoozeStore = AlertSnoozeStore.shared
 
     private var s: GlucoseSnapshot { store.snapshot }
@@ -56,6 +58,11 @@ struct MenuBarView: View {
     var body: some View {
         ScrollView(.vertical) {
             content
+                // Tab and the arrow keys move a focus ring through the cards and buttons.
+                .keyNavigation($keyFocus)
+                // The chart has the keyboard when the popover opens, as before, so ← → step
+                // through readings straight away.
+                .defaultFocus($keyFocus, "popover.chart")
                 .background {
                     GeometryReader { geo in
                         Color.clear.preference(key: PopoverHeightKey.self, value: geo.size.height)
@@ -123,6 +130,9 @@ struct MenuBarView: View {
                 AlertSnoozeChipView(snoozes: snoozeStore.snoozes, countdown: snoozeStore.countdown) {
                     AlertSnoozeStore.shared.resumeAll()
                 }
+                .keyStop("popover.snooze", kind: .control, radius: DS.Radius.control) {
+                    AlertSnoozeStore.shared.resumeAll()
+                }
                 .transition(AlertSnoozeChipView.transition(reduceMotion: reduceMotion))
                 .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
             }
@@ -132,6 +142,7 @@ struct MenuBarView: View {
                                    hasUsual: LowQuestion.shared.usual(logbook: logbook) != nil,
                                    shortcut: KeyboardShortcut("l"),
                                    action: openLowTreatment)
+                    .keyStop("popover.lowTreat", kind: .control, radius: DS.Radius.control, action: openLowTreatment)
                     .transition(.opacity)
                 .popoverEntrance(.hero, showing: showing, shown: sectionsIn)
             }
@@ -150,6 +161,8 @@ struct MenuBarView: View {
                     .popoverEntrance(.chart, showing: showing, shown: sectionsIn)
                 PopoverSummaryCard(expanded: detailsExpanded, showsShortcuts: commandKey.isHeld,
                                    onToggleDetails: toggleDetails, onOpenDashboard: showDashboard)
+                    // Return or Space shows or hides the details, as ⌘I does.
+                    .keyStop("popover.summary", radius: PopoverLayout.cardRadius, action: toggleDetails)
                     .popoverEntrance(.summary, showing: showing, shown: sectionsIn)
             }
             // One-click repeats, next to the actions: each opens the log window filled in.

@@ -15,7 +15,7 @@ enum SettingsAnchor: String, CaseIterable, Hashable, Sendable {
     case menuBarDelta, menuBarColour, menuBarSparkline, popoverChart, textSize
     case launchAtLogin, desktopWidget, setupAssistant
     // Logging
-    case therapy, insulins, bolus, presets, syncLogbook, keyboardShortcut
+    case therapy, insulins, bolus, presets, syncLogbook, keyboardShortcut, shortcutList
     // Alerts
     case alerts, notifications, lowAlerts, highAlert, rapidAlert, staleAlert, sensorEndingAlert
     case predictedLows, predictedHighs, warnAhead, alertRepeat, testAlert
@@ -255,6 +255,9 @@ enum SettingsCatalog {
         .init(anchor: .insulins, title: "Your insulins", place: "Logging › Insulins", tab: "logging", keywords: K.insulins, parent: .therapy),
         .init(anchor: .keyboardShortcut, title: "Open the log window from any app", place: "Logging › Keyboard", tab: "logging",
               keywords: ["keyboard", "shortcut", "hotkey", "hot key", "global", "command"]),
+        .init(anchor: .shortcutList, title: "Keyboard shortcuts", place: "Logging › Keyboard", tab: "logging",
+              keywords: ["tab", "focus", "focus ring", "arrow keys", "navigation", "navigate", "escape", "esc",
+                         "keys", "list", "help", "full keyboard access"]),
         .init(anchor: .bolus, title: "Bolus calculator", place: "Logging", tab: "logging", keywords: K.bolus, parent: .therapy),
         .init(anchor: .presets, title: "Quick-add presets", place: "Logging", tab: "logging", keywords: K.presets),
         .init(anchor: .pollInterval, title: "Check for new readings", place: "Advanced › Connection", tab: "advanced",

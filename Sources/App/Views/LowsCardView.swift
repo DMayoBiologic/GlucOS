@@ -53,6 +53,9 @@ struct LowsCardView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                // One stop on the Mac: ← → pick the period beside it.
+                .keyStop("insights.lows.period", radius: DS.Radius.control)
+                .keyCycle($periodDays, through: LowsSummary.Period.allCases.map(\.rawValue))
                 .accessibilityLabel("Period")
             }
             // Which dates the card shows once Insights is stepped back (docs/InsightsPeriodStep.md).
@@ -172,6 +175,7 @@ struct LowsCardView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .keyStop("insights.lows.open", kind: .control, radius: DS.Radius.control) { open(s) }
             .accessibilityHint(LowsSummaryText.logbookHint)
         }
     }

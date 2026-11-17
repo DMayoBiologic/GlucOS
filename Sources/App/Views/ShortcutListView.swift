@@ -44,5 +44,8 @@ struct ShortcutListView: View {
         }
         .padding(compact ? DS.Space.lg : DS.Space.xxl)
         .frame(minWidth: compact ? nil : 380, alignment: .leading)
+        // Esc closes the list: the sheet, or the card over the popover (then Esc again closes
+        // the popover).
+        .closesOnEscape(onDone)
     }
 }

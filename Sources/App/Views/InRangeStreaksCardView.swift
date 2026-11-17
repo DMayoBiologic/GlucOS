@@ -91,6 +91,7 @@ struct InRangeStreaksCardView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .keyStop("insights.streaks.open", kind: .control, radius: DS.Radius.tile) { open(s) }
             .disabled(openLogbook == nil || s.best.days == 0)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(InRangeStreaksText.title)
