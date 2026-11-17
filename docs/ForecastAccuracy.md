@@ -4523,3 +4523,95 @@ penalties 5, 10 and 20. To rerun:
     # FROM=unix seconds to score only highs and alerts from then on
 
 `dir` holds readings.json, with the trend column, and log.json, exported as in §30.
+
+## 65. Do forecasts fall short when glucose climbs fast with no meal logged? (17 Nov 2026)
+
+An "unannounced rise": the trend is at least 1.5 mg/dL a minute and no meal was logged in the hour
+before the forecast. The worry is that the trend fades out over 30 minutes, so the line flattens
+while the rise carries on and the 30- and 60-minute points come in low. The test is a damped
+momentum boost for that case only. The bar: better on held-out days at both 30 and 60 minutes
+without hurting anything else. **They don't fall short: these forecasts already run high on
+average, and every boost made them worse held out. Nothing ships; no app or relay code changed,
+so the relay stays 2.17.0.**
+
+Nothing here touches dosing, the insulin or carb effects, the low alerts, the relay or `web/`.
+
+**The accuracy log.** Shown points in `glucos.forecast_checks`, not after a later log, trend at least
+1.5, no meal in the hour before, all devices and bases, 12–17 Nov. Bias is actual minus forecast,
+so positive means the forecast ran low.
+
+| Horizon | Points (days) | Bias (median) | Ran low | Typical miss |
+|---|---|---|---|---|
+| 30 min | 40 (6) | −0.3 (+6.0) | 60% | 36.5 |
+| 60 min | 26 (4) | +14.4 (+38.2) | 69% | 64.9 |
+
+The 60-minute lean is one day: 16 Nov ran 71.5 low (12 Mac points, a climb from about 226), while
+12 and 15 Nov ran 43 and 33 high. At 30 minutes every day but 16 Nov ran high. Fast rises *with* a
+meal logged ran high too (−22 at 30, −40 at 60, 8 and 7 points), as §26 found.
+
+**The replay.** The log has too few points to test a change, so this replays the engine's trend
+(20-minute slope clamped at ±4, 30-minute fade) every 5 minutes on `glucos.readings`, 11–17 Nov,
+1,743 forecasts scored at 30 and 60 minutes, at gain 0.45 (Mac and relay):
+
+| Forecasts | n (days) | 30 min bias (median) | ran low | miss | 60 min bias (median) | ran low | miss |
+|---|---|---|---|---|---|---|---|
+| Fast rise ≥1.5, no meal in the hour | 194 (7) | −4.6 (−0.9) | 49% | 31.3 | −11.8 (−13.8) | 40% | 44.0 |
+| … and no rapid dose 3 h before to 1 h after | 147 | −9.5 | | 29.2 | −16.0 | | 42.1 |
+| … and a meal logged in the next hour (late log) | 7 | −13.8 | | 39.2 | −50.1 | | 51.3 |
+| Rise 1.0–1.5, no meal in the hour | 101 (7) | −6.6 (−7.3) | 42% | 26.4 | −16.6 (−10.1) | 35% | 43.1 |
+| Everything else | 1,448 (7) | +1.0 (−1.4) | 48% | 24.3 | +2.3 (−1.6) | 48% | 40.2 |
+
+By day (30 / 60 minutes): 11 Nov +20 / +31, 12 Nov −13 / −27, 13 Nov −26 / −32, 14 Nov +4 / −9,
+15 Nov −12 / −30, 16 Nov −10 / −4, 17 Nov −4 / −6. One day in seven ran low. Fast rises without a
+logged meal mostly stop sooner than the fade assumes, and leaving out corrections makes the line
+run higher still, so the overshoot isn't insulin the forecast didn't know about.
+
+**The test.** For those forecasts only, the rate becomes w·gain·trend + b·trend·e^(−u/τ), so a share
+b of the trend carries on past the fade and dies away over τ. Grid: threshold 1.0 / 1.5 / 2.0,
+b 0.1–0.5, τ 15 / 30 / 60, and a "still rising" variant that boosts only when the last 5 minutes
+rise at least as fast as the 20-minute trend (§45's turn sign). Picked on six Perth days by the sum
+of 30- and 60-minute miss, scored on the seventh:
+
+| Gain | Held-out 30 min | Held-out 60 min | Days the pick boosted anything |
+|---|---|---|---|
+| 0.45 | 25.17 → 25.16 (−0.0%), better on 3, worse on 2 | 40.76 → 40.78 (+0.1%), better on 1, worse on 4 | 5 of 7, always the smallest boost (b 0.1, τ 15, still rising) |
+| 0.6 | 25.23 → 25.23 | 41.02 → 41.02 | none: no boost wins on any six days |
+| 0.7 | 25.40 → 25.40 | 41.29 → 41.29 | none |
+
+Fixed boosts, in sample at gain 0.45, all lose at 60 minutes: b 0.2 from 1.5 mg/dL/min takes the
+boosted forecasts' 60-minute bias from −11.8 to −24.3 (miss 44.0 → 47.6); b 0.5 from 2.0 still
+rising takes it from −8.5 to −44.1 (50.0 → 61.4). Only the still-rising b 0.35 helped at 30 minutes
+in sample (32.5 → 31.7), and it cost 60 minutes (45.9 → 51.2).
+
+**Alerts.** A boost only raises a rising line, so low warnings and "a low is possible" can't move.
+Urgent-high warnings (the 30-minute line crossing 250) were the same at the fitted setting: 28
+warned, 8 false at gain 0.45.
+
+**Why.** The engine's 0.45–0.7 gain and 30-minute fade are already fitted to how often a rise
+carries on (PR #63, §61), and these rises usually peak inside the hour. The miss here is the peak, not
+the climb, which is §45's turning-point problem (easing the trend when the last 5 minutes slow),
+not something a boost can fix. 11 and 16 Nov, the two days that ran low, are the long climbs, and
+no setting learnt on the other days picks them out in advance.
+
+**Decision.** Keep forecasts as they are. Rerun at three weeks of data (about 8 Dec), with §45's
+turning-point easing in the base forecast, and ship a boost only if, held out by day, it beats what
+ships at both 30 and 60 minutes on most days. To rerun:
+
+    python3 scripts/unannounced-rise.py DIR
+
+`DIR` holds readings.json (`[[unix, mgdl], ...]` from `glucos.readings where trend > 0`) and
+logs.json (`[[unix, "meal" | "rapid" | "long"], ...]` from `glucos.logbook`). The accuracy-log table
+comes from:
+
+```sql
+with lg as (select to_timestamp((payload->>'timestamp')::float) t from glucos.logbook where not deleted and kind = 'meal'),
+c as (select f.*, exists(select 1 from lg where lg.t between f.issued_at - interval '60 min' and f.issued_at) meal1h
+  from glucos.forecast_checks f),
+p as (select c.meal1h, c.trend_per_minute tr, (e->>'minutes')::int h, (e->>'mgdl')::float f, (e->>'actual')::float a,
+    (e->>'after_log')::bool al from c cross join jsonb_array_elements(c.points) e where e->>'actual' is not null)
+select h, count(*), avg(a - f) bias, percentile_cont(0.5) within group (order by a - f) med,
+  avg((a > f)::int) ran_low, avg(abs(a - f)) miss
+from p where h in (30, 60) and not al and not meal1h and tr >= 1.5 group by 1 order by 1;
+```
+
+**Dosing.** Not touched: nothing here feeds insulin on board, the effect learner or the bolus figure.
