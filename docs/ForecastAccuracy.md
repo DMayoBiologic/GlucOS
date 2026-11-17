@@ -3933,3 +3933,30 @@ select m, sum(n) n, sum(drawn * n) / sum(n) drawn, sum(ho * n) / sum(n) held_out
   string_agg(dy || ':' || w, ' ' order by dy) w_by_day, sum(low_drawn) low_drawn, sum(low_blend) low_blend
 from byday group by m order by m;
 ```
+
+## 56. Back-to-back meals, rechecked (17 Nov 2026)
+
+The question: §43 found only one meal logged while an earlier one was still being absorbed, and
+said to rerun its test once there were five or more. **There is still only one. Nothing was
+rerun and nothing shipped; no app or relay code changed.**
+
+**The count.** §43's query, run on 17 Nov 2026 at 12:19 Perth time, against all meals with carbs
+logged 7–16 Nov (17 meals, the last the 16 Nov 14:10 sausage roll; none logged since):
+
+| Pair | Gap | Counted |
+|---|---|---|
+| 12 Nov 14:09 sushi (53.9 g), then 15:23 green juice (16.6 g) | 74 min | Yes, the §43 pair |
+| 13 Nov 09:58 and 10:10 eggs and hash brown | 12 min | No: the same meal logged twice (§38) |
+
+The next closest gaps are still the two 197-minute pairs (11 Nov breakfast then pancakes, 16 Nov
+pie then sausage roll), outside the first meal's three hours ten minutes on the curve. One pair
+can't be held out by meal, so §43's numbers stand as they are: on that afternoon "both meals
+absorbed over 4 h" and "merged" were best at 30 and 60 minutes, and making the second meal wait
+or last longer was worse at 60 and 90.
+
+**Next.** Rerun §43 (SQL and `scripts/stacked-meals.py`) once the query returns five counted
+pairs, held out by meal, starting with "both over 4 h" and "merged". At about one stacked pair in
+ten days of logging, that is likely weeks away, so it isn't worth rechecking every round; recheck
+when the meal count has roughly doubled (35 or more meals with carbs).
+
+**Dosing.** Not touched.
