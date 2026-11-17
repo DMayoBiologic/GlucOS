@@ -101,19 +101,28 @@ const shipped: Candidate = { look: "drawn", lead: Math.min(shippedPrefs.predicti
 // capped at 30). "trend" hands the rules every sample out to 30 minutes as if drawn.
 function alertsFor(c: Candidate): number[] {
   const planner = core.newPlanner();
-  // Lows stay on (only high notices are kept) so the planner's shared quiet timer runs as shipped.
-  const prefs: core.AlertPreferences = { ...shippedPrefs, predictiveMinutes: c.lead / highLeadFactor };
+  // Lows are checked first and take precedence, so on each tick the shipped low rule runs on the
+  // original forecast (a throwaway planner copy says whether it finds a low). If it does, the real
+  // planner sees exactly the shipped low call; otherwise it sees the candidate high rule alone.
+  const lowPrefs: core.AlertPreferences = { ...shippedPrefs, predictedHigh: false };
+  const highPrefs: core.AlertPreferences = { ...shippedPrefs, predictedLow: false, predictiveMinutes: c.lead / highLeadFactor };
   const out: number[] = [];
   const shift = (s: core.ForecastSample) => ({ ...s, mgdl: s.mgdl + c.margin });
   for (const { i, now, f } of ticks) {
+    const snapshot = core.makeSnapshot(series.slice(now - 3600, now), readings[i], null, display, null);
+    const probe = structuredClone(planner);
+    core.evaluatePrediction(probe, snapshot, f, lowPrefs, now);
+    if (f && probe.quietSince === null) {
+      core.evaluatePrediction(planner, snapshot, f, lowPrefs, now);
+      continue;
+    }
     let g = f;
     if (f) {
       const trendPerMinute = f.trendPerMinute >= c.rise ? Math.max(f.trendPerMinute, shippedRise) : Math.min(f.trendPerMinute, 0);
       const all = c.look === "trend" && f.basis === "trend" ? [...f.samples, ...(f.unshown ?? []), ...(f.lowLookahead ?? [])] : f.samples;
       g = { ...f, trendPerMinute, samples: all.map(shift), unshown: undefined, lowLookahead: undefined };
     }
-    const snapshot = core.makeSnapshot(series.slice(now - 3600, now), readings[i], null, display, null);
-    const n = core.evaluatePrediction(planner, snapshot, g, prefs, now);
+    const n = core.evaluatePrediction(planner, snapshot, g, highPrefs, now);
     if (n && (n.kind === "predictedHigh" || n.kind === "predictedVeryHigh") && readings[i].mgdl <= highMgdl) out.push(now);
   }
   return out;
