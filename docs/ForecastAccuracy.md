@@ -3960,3 +3960,43 @@ ten days of logging, that is likely weeks away, so it isn't worth rechecking eve
 when the meal count has roughly doubled (35 or more meals with carbs).
 
 **Dosing.** Not touched.
+
+## 57. Are forecasts worse in the 3 hours after exercise? (17 Nov 2026)
+
+The question: is forecast error larger in the 3 hours after an entry tagged Exercise (or a
+similar tag), and if so, would a wider range in that window alone help at 30 and 60 minutes?
+**It can't be measured yet: no entry has been tagged. Not one of the 141 Logbook rows carries a
+tag (`labels`), and none of the 7 "What else is going on?" events is Exercise (6 are woke-up, 1
+bedtime). Nothing was tested and nothing shipped; no app or relay code changed, so the relay stays
+2.17.0.**
+
+**The count.** Run on 17 Nov 2026 at 13:00 Perth time against `glucos.logbook`, all rows:
+
+| What was looked for | Rows |
+|---|---|
+| Entries with any tag (`labels`, since #254 on 17 Nov) | 0 |
+| Context events tagged exercise, illness, stress or alcohol | 0 |
+| Any row whose text mentions exercise, walk, run, gym, swim, ride, cycle, workout or sport | 2, both "Sports drink" meals, not exercise |
+
+Tags arrived only this morning (docs/LogbookTags.md, #254), so the whole history predates them. The
+1,084 clean drawn points from 12–17 Nov (§52's filter) have no exercise window to split by.
+
+**Next.** Rerun when the count query below returns at least 8 exercise entries on at least 4
+different days. Then split clean drawn points at 30 and 60 minutes into "issued within 3 hours
+after an exercise entry" and the rest, compare error and §53 coverage, and only if the window is
+both worse and under-covered try a range scale for that window alone (leave one day out, ship
+only if at least 3% better held out at 30 AND 60 minutes, low warnings unchanged). The central
+line is not a candidate: exercise lowers glucose through insulin sensitivity, which is dosing
+territory, so any change to the line or to insulin on board needs Declan's approval first.
+
+**Dosing.** Not touched.
+
+```sql
+select count(*) entries,
+  count(distinct date(to_timestamp((payload->>'timestamp')::float) at time zone 'Australia/Perth')) days
+from glucos.logbook
+where not deleted and payload->>'timestamp' is not null
+  and (exists (select 1 from jsonb_array_elements_text(coalesce(payload->'labels', '[]')) l
+               where lower(l) in ('exercise', 'workout', 'walk', 'run', 'gym', 'sport'))
+       or (kind = 'context' and payload->'tags' ? 'exercise'));
+```
