@@ -4280,3 +4280,77 @@ can be told apart from 14 days. Ship a window change only if it beats full histo
 at 30 and 60 minutes. To rerun: export live readings (`glucos.readings where trend > 0`) and meal
 and dose times from `glucos.logbook` as for §45, then
 `node --experimental-strip-types scripts/tuner-drift.ts DIR`.
+
+## 62. Do the range's misses lean one way? (17 Nov 2026)
+
+The question: when the actual reading lands outside the drawn range, is it more often above than
+below (or the reverse) at 30 and 60 minutes, and if so, would a lopsided range (wider on the side
+that misses, narrower on the other) hold more readings without widening overall? This differs from
+§46, which moved the forecast line; here the line stays put and only the two half-widths change.
+**At 30 minutes the misses don't lean at all; at 60 they lean above, mostly after falls, but a
+width-neutral lopsided range doesn't hold more held out. Nothing shipped; no app or relay code
+changed, so the relay stays 2.17.0.**
+
+Data: 1,095 clean drawn points (nothing logged after, §40/§41 applied as drawn today), 12–17 Nov
+Perth, from `glucos.forecast_checks`. Trend buckets use the trend at issue: falling under −0.5,
+rising over +0.5 mg/dL/min.
+
+| Horizon | Points | Inside | Above the range | Below the range | Equal-sides test |
+|---|---|---|---|---|---|
+| 15 min | 502 | 77% | 14% | 10% | p 0.06 |
+| 30 min | 269 | 72% | 14% | 14% | p 1.0 |
+| 45 min | 180 | 72% | 18% | 10% | p 0.07 |
+| 60 min | 144 | 77% | 15% | 8% | p 0.08 |
+
+By trend, the lean is a falls thing: after a fall, 60-minute readings came out above the range 25%
+of the time against 6% below (51 points, p 0.02), and at 45 minutes 22% against 6%. That is the
+fall flattening or rebounding sooner than the forecast allows, the same "+25 at 60 on fast falls"
+§46 found in the line. After rises the lean flips (60 min 7% above, 12% below; 30 min 10% / 17%)
+but isn't significant. Steady starts lean above at 30 (21% / 13%). Above outnumbered below on 4 of
+6 days at 45 and 60, so it isn't one day, but at 30 it's 2 days one way and 3 the other.
+
+**Lopsided widths, held out.** Each side's factor was fitted as the 90th percentile of that side's
+miss ratio (so each side would miss 1 in 10), per horizon, and per horizon × trend bucket. The
+width-neutral version then rescales both factors so the average width is unchanged, which is the
+version the bar asks for. Leave-one-day-out (LODO) and walk-forward; score is the interval score at
+80% (width + 10 × distance outside), lower is better; "lows" counts actuals under 70 that land
+below the range.
+
+| Horizon | Variant | Inside (above / below) | Width | Score | Days better / worse | Lows below |
+|---|---|---|---|---|---|---|
+| 30 min | Shown | 72% (14 / 14) | 81.9 | 148.2 | | 1 |
+| | Width-neutral, LODO | 71% (14 / 14) | 81.9 | 149.5 | 0 / 5 | 1 |
+| | Width-neutral, walk-forward | 70% (17 / 13) | 82.3 | 152.0 | 0 / 4 | 1 |
+| | By trend, width-neutral, LODO | 68% (17 / 15) | 81.8 | 154.8 | 1 / 4 | 1 |
+| | Each side to q90 (wider), LODO | 79% (11 / 10) | 98.2 | 148.4 | 2 / 3 | 1 |
+| 60 min | Shown | 77% (15 / 8) | 154.9 | 229.7 | | 2 |
+| | Width-neutral, LODO | 76% (12 / 11) | 152.5 | 230.3 | 2 / 2 | 2 |
+| | Width-neutral, walk-forward | 77% (15 / 8) | 152.6 | 227.1 | 2 / 0 | 2 |
+| | By trend, width-neutral, LODO | 73% (15 / 12) | 153.1 | 223.2 | 3 / 1 | 1 |
+| | Each side to q90 (wider), LODO | 81% (11 / 8) | 171.1 | 234.3 | 2 / 2 | 2 |
+
+At 30 minutes there's nothing to move: the fitted factors are 1.24 up and 1.19 down, so the
+width-neutral split is 1.02 / 0.98 and only adds noise (worse on every held-out day). At 60 the
+in-sample split is 1.15 up / 0.87 down, but held out it trades misses one for one: LODO takes
+above from 15% to 12% and pushes below from 8% to 11%, so coverage drops a point; walk-forward has
+too few earlier days to fit until 15 Nov and lands back on the shown range. The by-trend version
+wins the score at 60 (223.2 against 229.7) only by giving up four points of coverage, and loses at
+30. The widening-only versions reach 79–81% but are 11–21% wider and no better on score, which is
+§53's result again.
+
+**Safety.** A width-neutral split narrows the bottom of the range, most of all after falls, which
+is exactly where a low comes from. Even if it had won, shrinking the bottom on falls would need the
+low check and predicted-low lookahead rechecked first (as §41 did with `warningLowers`). The one place a
+lopsided fix looks plausible is widening the top only after falls at 45–60 minutes, like §40 did
+for low starts, but that widens the range, and with 51 points it can't be told from §53's fixed
+factor.
+
+**Decision.** Keep the drawn range symmetric as it is. Recheck at three weeks (about 3 Dec,
+together with §53/§60): ship a lopsided split only if, held out, it holds more readings at 30 and
+60 minutes with average width no wider, on most days, and without more lows landing below the
+range. If falls still miss above at 60, try a top-only widening after falls against the interval
+score instead. To rerun: export with the SQL in `scripts/adaptive-range.py`, then
+`python3 -I scripts/range-asymmetry.py points.txt`.
+
+**Dosing.** Not touched: the range is display only and never feeds insulin on board, the effect
+learner or the bolus figure.
