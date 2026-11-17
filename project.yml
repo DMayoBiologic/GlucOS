@@ -202,6 +202,9 @@ targets:
       - target: GlucOSMessages
         embed: true
         codeSign: true
+      - target: GlucOSNotification
+        embed: true
+        codeSign: true
     info:
       path: Sources/iOS/Info.plist
       properties:
@@ -279,6 +282,52 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: au.com.declanmayo.glucos.ios.widget
         PRODUCT_NAME: GlucOSWidget
+        SDKROOT: iphoneos
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        ENABLE_HARDENED_RUNTIME: NO
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+
+  # The expanded look of low, high and forecast alerts: the last 3 hours and the forecast as a
+  # small chart, drawn from the `chart` each alert carries (local alerts and relay pushes alike).
+  # No app group or other entitlement, so its App ID needs nothing ticked by hand: export
+  # registers it. See docs/AlertActions.md, "Chart on alerts".
+  GlucOSNotification:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Sources/iOSNotification
+        excludes: ["Info.plist"]
+      - path: Sources/Shared
+      - path: Sources/Core
+      - path: Sources/Engine
+      - path: Sources/App/Keychain.swift
+      - path: Sources/App/Logbook/LogbookModels.swift
+      - path: Sources/App/Logbook/FoodModels.swift
+      - path: Sources/App/Logbook/LogFlow.swift
+    info:
+      path: Sources/iOSNotification/Info.plist
+      properties:
+        CFBundleDisplayName: GlucOS
+        CFBundleName: GlucOSNotification
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController
+          NSExtensionAttributes:
+            # AlertSnoozes.snoozeAndTreatCategory and .treatOnlyCategory: the owner's own alerts.
+            UNNotificationExtensionCategory: [glucos.alert, glucos.alert.urgent]
+            UNNotificationExtensionInitialContentSizeRatio: 0.45
+            UNNotificationExtensionDefaultContentHidden: false
+            UNNotificationExtensionUserInteractionEnabled: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: au.com.declanmayo.glucos.ios.notification
+        PRODUCT_NAME: GlucOSNotification
         SDKROOT: iphoneos
         TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: YES

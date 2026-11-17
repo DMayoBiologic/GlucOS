@@ -56,17 +56,17 @@ final class AlertManager {
         // to the limit too. Cheap: nothing is written unless one has expired.
         AlertLogRecorder.shared.logbook?.pruneExpiredAlerts(now: now)
         let due = planner.evaluate(s, prefs: settings.alertPreferences, now: now)
-        for notice in planner.unsnoozed(due, snoozes: AlertSnoozeStore.shared.snoozes, now: now) { deliver(notice) }
+        for notice in planner.unsnoozed(due, snoozes: AlertSnoozeStore.shared.snoozes, now: now) { deliver(notice, snapshot: s) }
     }
 
     /// Heads-up alerts from the forecast. See `AlertPlanner.evaluatePrediction`.
     func evaluatePrediction(_ s: GlucoseSnapshot, forecast: GlucoseForecast?, settings: AppSettings, now: Date = Date()) {
         if let notice = planner.evaluatePrediction(s, forecast: forecast, prefs: settings.alertPreferences, now: now) {
-            for n in planner.unsnoozed([notice], snoozes: AlertSnoozeStore.shared.snoozes, now: now) { deliver(n) }
+            for n in planner.unsnoozed([notice], snoozes: AlertSnoozeStore.shared.snoozes, now: now) { deliver(n, snapshot: s) }
         }
     }
 
-    private func deliver(_ notice: AlertNotice) {
+    private func deliver(_ notice: AlertNotice, snapshot: GlucoseSnapshot) {
         guard deliversLocally() else { return }
         let content = UNMutableNotificationContent()
         content.title = notice.title
@@ -76,7 +76,16 @@ final class AlertManager {
         content.threadIdentifier = "glucos.alerts"
         // "Log treatment" and "Snooze 30 min" (urgent lows: only the first). See AlertSnooze.swift.
         if let category = notice.kind.actionCategory { content.categoryIdentifier = category }
-        content.userInfo = ["kind": notice.kind.rawValue]
+        var userInfo: [String: Any] = ["kind": notice.kind.rawValue]
+        // The chart: drawn by the iPhone's notification content extension, and on the Mac shown as
+        // the alert's picture. Only adds content: the alert goes out now either way.
+        if let chart = AlertChartSource.chart(for: notice.kind, snapshot: snapshot) {
+            if let value = chart.userInfoValue { userInfo[AlertChart.userInfoKey] = value }
+            #if os(macOS)
+            if let picture = Self.picture(chart, id: notice.identifier) { content.attachments = [picture] }
+            #endif
+        }
+        content.userInfo = userInfo
         let req = UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil)
         // Only an alert that was actually shown goes in the logbook.
         let kind = notice.kind, time = Date()
@@ -89,6 +98,26 @@ final class AlertManager {
         }
     }
 }
+
+#if os(macOS)
+extension AlertManager {
+    /// The chart as a picture attachment. Written to a fresh temporary file, which the system
+    /// moves into its own store when the alert is added.
+    static func picture(_ chart: AlertChart, id: String) -> UNNotificationAttachment? {
+        guard let data = chart.pictureData() else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(id)-\(UUID().uuidString).png")
+        do {
+            try data.write(to: url)
+            return try UNNotificationAttachment(identifier: "chart", url: url,
+                                                options: [UNNotificationAttachmentOptionsTypeHintKey: "public.png"])
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
+    }
+}
+#endif
 
 // MARK: - Alerts in the Logbook
 

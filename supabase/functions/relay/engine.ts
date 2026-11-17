@@ -4,7 +4,7 @@
 // edge function starts fresh every minute.
 
 import {
-  type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
+  alertChart, type AlertKind, type AlertNotice, type AlertPreferences, type Calibration, type CardState, cardRange, cardStaleDate, defaultAlertPreferences,
   backInRangeCheck, backInRangeConfirmWithin, backInRangeLookAhead, type Display, type ForecastResult, formatGlucose, learnCalibration, liveHorizon, noticeIdentifier, newPlanner, type PlannerState, processTick, type Reading, sameCard,
   effectiveRangeScale, minutesBack, rangeScaleFrom, rangeWindow, type Sensor, type Trend, unitOf,
   type AlertSnoozes, cardSnooze, ownerNotices, pruneSnoozes, runningSnoozes, snoozeAlert, snoozeLevel, withSnooze,
@@ -23,7 +23,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.17.0";
+export const version = "2.18.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -600,7 +600,8 @@ export class RelayEngine {
           for (const n of mine) {
             await this.push(row, {
               deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
-              payload: payloads.alert(n, this.config.criticalAlerts), collapseId: noticeIdentifier(n),
+              payload: payloads.alert(n, this.config.criticalAlerts, alertChart(n.kind, result.card)),
+              collapseId: noticeIdentifier(n),
               expiration: now + 15 * 60, sandbox: row.prefs.sandbox,
             }, (r) => { delete r.prefs.deviceToken; });
           }

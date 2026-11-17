@@ -126,6 +126,33 @@ builds need nothing new.
 - It also quiets that alert while the treatment works: 15 minutes for a low (the usual recheck
   after fast carbs), 30 for a high. Never an urgent low.
 
+## Chart on alerts
+
+Low, high and forecast alerts (the ones with Log treatment and Snooze) carry a small chart: the
+last 3 hours of readings coloured by range, the target band, and the forecast as a dashed line with
+its likely range as a cone at the end. Other alerts (stale, sensor, rapid change) don't.
+
+- **iPhone:** press and hold (or pull down) an alert to expand it. A notification content extension
+  (`GlucOSNotification`, `Sources/iOSNotification`) draws the chart under the alert's text. The
+  reading line draws in once; under Reduce Motion the finished chart appears at once. The buttons
+  come from the alert's category as before, and the chart takes no touches.
+- **Mac:** the chart is the alert's picture (a PNG attachment, on a dark card so it reads the same in
+  light and dark mode).
+- **VoiceOver** reads the chart as one element, in the same words as the app's charts: "Last 3
+  hours. Now 3.4, low. Lowest 3.4, highest 5.0. 67 percent in range. Went below range once.
+  Forecast, not a reading: about 3.1 in 30 minutes."
+- **Where the values come from:** the Live Activity card the device already builds (3 hours of
+  5-minute readings and the next hour of forecast), under `chart` in the notification's `userInfo`.
+  The relay's pushes carry the same values from its own card (`alertChart` in core.ts, relay 2.18.0
+  on), so the extension needs no app group, network or stored readings. Alerts from an older relay,
+  or with fewer than 2 readings, simply show no chart. A follower's copy carries none.
+- **Timing is unchanged:** the chart only adds to the alert; it is sent at the same moment, with the
+  same priority, collapse id and expiry.
+- Code: `AlertChart` (`Sources/Shared/AlertChart.swift`: payload, layout, VoiceOver summary, motion;
+  tests `AlertChartTests`), `AlertChartView`, `AlertChartSource` (which alerts get one). The
+  extension's App ID (`au.com.declanmayo.glucos.ios.notification`) has no capabilities, so export
+  registers it; nothing to tick by hand.
+
 ## In-app banner
 
 When one of your own low or high alerts fires while GlucOS is in front (iPhone: the app is open;
