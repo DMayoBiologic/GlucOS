@@ -4467,22 +4467,24 @@ Nothing here touches dosing, the insulin or carb effects, the low alerts or `web
 **Method.** `scripts/high-alert-heldout.ts` replays the relay tick by tick exactly as
 `low-alert-heldout.ts` does (forecast from the last hour, relearned every 3 hours, drawn horizon cut
 by its own ledger) over `glucos.readings`, 11–17 Nov: 8,962 ticks on 7 Perth days. A high is a run
-over 180 starting after 15 minutes at or under it (27 highs). It's warned if a predicted-high or
+over 180 starting after 15 minutes at or under it (26 highs; one already running when the replay starts isn't counted). It's warned if a predicted-high or
 very-high alert came in the 45 minutes before, while the reading was still at or under 180; such an
-alert is a false alarm if nothing went over 180 in the 45 minutes after. A day scores warning
+alert is a false alarm if nothing went over 180 in the 45 minutes after (alerts whose 45 minutes run past
+the export or across a gap over 15 minutes aren't scored, and a day left out also drops the
+false-alarm calls its readings decided for the evening before). A day scores warning
 minutes (capped at 30 per high) minus 10 per false alarm. Grid: drawn or trend lookahead × lead 15,
 20, 25, 30 × rise gate 0.2, 0.3, 0.4, 0.5 × margin 0, 4, 8, 12 mg/dL (128 settings); for each day,
 the best on the other six days is scored on the day left out.
 
-**What ships today.** 23 of 27 highs warned, median 6 / mean 11.2 minutes ahead, 7 false alarms in
+**What ships today.** 23 of 26 highs warned, median 6 / mean 11.2 minutes ahead, 7 false alarms in
 32 alerts. The lead setting changes nothing on the drawn forecast (15 to 30 all score the same),
 because on most relay ticks only 15 minutes is drawn, so the 30-minute cap is really 15, the same
-thing §13 found for lows. The 4 highs not warned peaked 198–335; no setting in the grid warned any
+thing §13 found for lows. The 3 highs not warned peaked 198–223; no setting in the grid warned any
 more of them (warned stays 23 everywhere but the stricter gates).
 
 | In sample (all 7 days) | warned | median / mean lead | alerts | false alarms | score |
 |---|---|---|---|---|---|
-| **Shipped: drawn, lead 30, rise 0.3, margin 0** | 23 / 27 | 6 / 11.2 | 32 | 7 | 167 |
+| **Shipped: drawn, lead 30, rise 0.3, margin 0** | 23 / 26 | 6 / 11.2 | 32 | 7 | 167 |
 | Trend lookahead, lead 30 | 23 | 8 / 12.8 | 34 | 8 | 189 |
 | Trend lookahead, lead 20 | 23 | 8 / 12.0 | 33 | 7 | 186 |
 | Trend lookahead, rise 0.2 | 23 | 8 / 12.8 | 35 | 9 | 179 |

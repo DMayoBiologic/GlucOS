@@ -77,17 +77,16 @@ const highs: High[] = [];
 {
   let current: High | null = null;
   for (const r of readings) {
-    if (r.t < readings[start].t) continue;
     if (r.mgdl > highMgdl) {
       if (!current) current = { t: r.t, end: r.t, peak: r.mgdl };
       current.end = r.t;
       current.peak = Math.max(current.peak, r.mgdl);
     } else if (current && r.t - current.end >= 15 * 60) {
-      highs.push(current);
+      if (current.t >= readings[start].t) highs.push(current);
       current = null;
     }
   }
-  if (current) highs.push(current);
+  if (current && current.t >= readings[start].t) highs.push(current);
 }
 
 type Look = "drawn" | "trend";
@@ -102,7 +101,8 @@ const shipped: Candidate = { look: "drawn", lead: Math.min(shippedPrefs.predicti
 // capped at 30). "trend" hands the rules every sample out to 30 minutes as if drawn.
 function alertsFor(c: Candidate): number[] {
   const planner = core.newPlanner();
-  const prefs: core.AlertPreferences = { ...shippedPrefs, predictedLow: false, predictiveMinutes: c.lead / highLeadFactor };
+  // Lows stay on (only high notices are kept) so the planner's shared quiet timer runs as shipped.
+  const prefs: core.AlertPreferences = { ...shippedPrefs, predictiveMinutes: c.lead / highLeadFactor };
   const out: number[] = [];
   const shift = (s: core.ForecastSample) => ({ ...s, mgdl: s.mgdl + c.margin });
   for (const { i, now, f } of ticks) {
@@ -121,9 +121,23 @@ function alertsFor(c: Candidate): number[] {
 
 const perthDay = (t: number) => new Date((t + 8 * 3600) * 1000).toISOString().slice(0, 10);
 const days = [...new Set(ticks.map((t) => perthDay(t.now)))];
-interface DayScore { highs: number; warned: number; leads: number[]; alerts: number; falseAlarms: number; score: number }
+interface DayScore { highs: number; warned: number; leads: number[]; alerts: number; falseAlarms: number; score: number;
+                    /** Penalty from false alarms whose follow-up window reaches into the next Perth day. */ spill: number }
+const lastReading = readings[readings.length - 1].t;
+// The follow-up was seen if it ends before the export does and has no gap over 15 minutes.
+function followUpSeen(a: number): boolean {
+  if (a + window > lastReading) return false;
+  let prev = a;
+  for (const r of readings) {
+    if (r.t <= a) continue;
+    if (r.t - prev > 15 * 60) return false;
+    if (r.t > a + window) return true;
+    prev = r.t;
+  }
+  return false;
+}
 function score(alerts: number[]): Map<string, DayScore> {
-  const byDay = new Map<string, DayScore>(days.map((d) => [d, { highs: 0, warned: 0, leads: [], alerts: 0, falseAlarms: 0, score: 0 }]));
+  const byDay = new Map<string, DayScore>(days.map((d) => [d, { highs: 0, warned: 0, leads: [], alerts: 0, falseAlarms: 0, score: 0, spill: 0 }]));
   for (const h of highs) {
     if (h.t < scoreFrom || !byDay.has(perthDay(h.t))) continue;
     const d = byDay.get(perthDay(h.t))!;
@@ -136,12 +150,13 @@ function score(alerts: number[]): Map<string, DayScore> {
     }
   }
   for (const a of alerts) {
-    if (a < scoreFrom) continue;
+    if (a < scoreFrom || !followUpSeen(a)) continue;
     const d = byDay.get(perthDay(a))!;
     d.alerts++;
     if (!readings.some((r) => r.t > a && r.t <= a + window && r.mgdl > highMgdl)) {
       d.falseAlarms++;
       d.score -= penalty;
+      if (perthDay(a + window) !== perthDay(a)) d.spill += penalty;
     }
   }
   return byDay;
@@ -152,7 +167,9 @@ for (const look of ["drawn", "trend"] as Look[]) for (const lead of [15, 20, 25,
   for (const rise of [0.2, 0.3, 0.4, 0.5]) for (const margin of [0, 4, 8, 12]) candidates.push({ look, lead, rise, margin });
 const scored = candidates.map((c) => ({ c, days: score(alertsFor(c)) }));
 const shippedScore = scored.find((s) => name(s.c) === name(shipped))!;
-const total = (m: Map<string, DayScore>, skip?: string) => [...m].filter(([d]) => d !== skip).reduce((a, [, s]) => a + s.score, 0);
+// Training on the other days leaves out false-alarm penalties decided by the held-out day's readings.
+const total = (m: Map<string, DayScore>, skip?: string) => [...m].filter(([d]) => d !== skip)
+  .reduce((a, [d, s]) => a + s.score + (skip !== undefined && days[days.indexOf(d) + 1] === skip ? s.spill : 0), 0);
 const sum = (m: Map<string, DayScore>, k: "highs" | "warned" | "alerts" | "falseAlarms") => [...m.values()].reduce((a, s) => a + s[k], 0);
 const leadsOf = (m: Map<string, DayScore>) => [...m.values()].flatMap((s) => s.leads).sort((a, b) => a - b);
 const describe = (m: Map<string, DayScore>) => {
