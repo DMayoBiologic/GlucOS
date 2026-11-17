@@ -57,6 +57,7 @@ let package = Package(
                 "Shared/WidgetGlance.swift",
                 "Shared/SpokenGlucose.swift",
                 "Shared/ReadingDetails.swift",
+                "Shared/UndoCountdown.swift",
                 "Core/RelayProtocol.swift",
                 "Core/RelayRetry.swift",
                 "Core/FunctionRegion.swift",
