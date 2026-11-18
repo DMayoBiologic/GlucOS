@@ -1,7 +1,7 @@
 // The relay's behaviour, with an in-memory store and fake LibreLinkUp and APNs. Ported from the
 // Swift relay's tests.
 import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1";
-import { type PushRequest, type PushResult, type PushSender, importAPNsKey, payloads, providerToken } from "./apns.ts";
+import { alertSoundName, type PushRequest, type PushResult, type PushSender, importAPNsKey, payloads, providerToken } from "./apns.ts";
 import { cardPriority, claimWindow, newRow, type RelayRow, RelayEngine, type Store, type Tx, rotateAfter, startRetry, urgentPushEvery, urgentPushGap } from "./engine.ts";
 import { type AlertChart, alertChart, type CardState, type Reading, type Trend } from "./core.ts";
 import type { Account, FetchResult, GlucoseFetcher, LibreSession } from "./libre.ts";
@@ -284,7 +284,7 @@ Deno.test("status says the relay is delivering once it has fetched", async () =>
   assert(s.hasAccount && s.hasDeviceToken && s.alertsEnabled);
   assertEquals(s.lastFetchAt, t.clock());
   assertEquals(s.lastError, undefined);
-  assertEquals(s.version, "2.19.0");
+  assertEquals(s.version, "2.20.0");
   assertEquals(s.snoozes, {});
 });
 
@@ -325,6 +325,34 @@ Deno.test("critical sound only when entitled", () => {
   assertEquals(plain.sound, "default");
   assertEquals(plain["interruption-level"], "time-sensitive");
   assertEquals((payloads.alert(n, true).aps as Record<string, unknown>)["interruption-level"], "critical");
+});
+
+Deno.test("alert sound: a picked sound plays its bundled file, unknown ones the default", () => {
+  assertEquals(alertSoundName("chime"), "glucos-chime.wav");
+  assertEquals(alertSoundName("pulse"), "glucos-pulse.wav");
+  assertEquals(alertSoundName("beacon"), "glucos-beacon.wav");
+  for (const s of ["standard", "", "toString", "../x.wav", undefined, 3]) assertEquals(alertSoundName(s), "default");
+  const n = { kind: "urgentLow" as const, title: "URGENT LOW", body: "Treat now", critical: true };
+  assertEquals((payloads.alert(n, false, null, [], "glucos-pulse.wav").aps as Record<string, unknown>).sound, "glucos-pulse.wav");
+  assertEquals((payloads.alert(n, true, null, [], "glucos-pulse.wav").aps as Record<string, unknown>).sound,
+    { critical: 1, name: "glucos-pulse.wav", volume: 1.0 });
+});
+
+Deno.test("alert sound: the owner's pick reaches their alert pushes and the test push", async () => {
+  const t = await registered();
+  await t.engine.register({ alertSound: "chime" });
+  t.fetcher.mgdl = 62;
+  await t.engine.tick();
+  const alert = t.sender.sent.find((p) => p.type === "alert")!;
+  assertEquals((alert.payload.aps as Record<string, unknown>).sound, "glucos-chime.wav");
+  t.sender.sent = [];
+  await t.engine.sendTest();
+  assertEquals((t.sender.sent[0].payload.aps as Record<string, unknown>).sound, "glucos-chime.wav");
+  // Back to the phone's own sound.
+  await t.engine.register({ alertSound: "standard" });
+  t.sender.sent = [];
+  await t.engine.sendTest();
+  assertEquals((t.sender.sent[0].payload.aps as Record<string, unknown>).sound, "default");
 });
 
 Deno.test("LibreLinkUp timestamps are read as UTC", () => {

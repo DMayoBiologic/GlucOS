@@ -47,7 +47,7 @@ final class AlertManager {
         let content = UNMutableNotificationContent()
         content.title = TestAlert.title
         content.body = TestAlert.body(unit: settings.unit, lowMgdl: settings.lowMgdl)
-        content.sound = .default
+        content.sound = settings.alertSound.notificationSound(critical: false)
         content.interruptionLevel = .active
         content.threadIdentifier = TestAlert.threadIdentifier
         content.categoryIdentifier = TestAlert.categoryIdentifier
@@ -80,23 +80,28 @@ final class AlertManager {
         AlertLogRecorder.shared.logbook?.pruneExpiredAlerts(now: now)
         let ended = episodes.observe(s, now: now)
         let due = planner.evaluate(s, prefs: settings.alertPreferences, now: now)
-        for notice in planner.unsnoozed(due, snoozes: AlertSnoozeStore.shared.snoozes, now: now) { deliver(notice, snapshot: s) }
+        for notice in planner.unsnoozed(due, snoozes: AlertSnoozeStore.shared.snoozes, now: now) {
+            deliver(notice, snapshot: s, sound: settings.alertSound)
+        }
         for summary in ended { deliverBackInRange(summary, unit: s.unit) }
     }
 
     /// Heads-up alerts from the forecast. See `AlertPlanner.evaluatePrediction`.
     func evaluatePrediction(_ s: GlucoseSnapshot, forecast: GlucoseForecast?, settings: AppSettings, now: Date = Date()) {
         if let notice = planner.evaluatePrediction(s, forecast: forecast, prefs: settings.alertPreferences, now: now) {
-            for n in planner.unsnoozed([notice], snoozes: AlertSnoozeStore.shared.snoozes, now: now) { deliver(n, snapshot: s) }
+            for n in planner.unsnoozed([notice], snoozes: AlertSnoozeStore.shared.snoozes, now: now) {
+                deliver(n, snapshot: s, sound: settings.alertSound)
+            }
         }
     }
 
-    private func deliver(_ notice: AlertNotice, snapshot: GlucoseSnapshot) {
+    private func deliver(_ notice: AlertNotice, snapshot: GlucoseSnapshot, sound: AlertSound) {
         guard deliversLocally() else { return }
         let content = UNMutableNotificationContent()
         content.title = notice.title
         content.body = notice.body
-        content.sound = notice.critical ? .defaultCritical : .default
+        // The sound picked in Settings › Alerts (docs/AlertSounds.md); urgent lows its critical variant.
+        content.sound = sound.notificationSound(critical: notice.critical)
         content.interruptionLevel = notice.critical ? .timeSensitive : .active
         content.threadIdentifier = "glucos.alerts"
         // Alerts from one low or one high share an identifier, so the newest replaces the last one

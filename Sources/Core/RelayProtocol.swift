@@ -34,6 +34,8 @@ struct RelayRegistration: Codable, Hashable {
     var signedOut: Bool?
     var display: Display?
     var alerts: AlertPreferences?
+    /// `AlertSound.rawValue` (relay 2.20.0): the owner's alert pushes play its bundled file.
+    var alertSound: String?
 
     struct Account: Codable, Hashable {
         var email: String

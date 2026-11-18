@@ -32,6 +32,7 @@ let package = Package(
                 "Core/AlertChartSource.swift",
                 "Core/AlertEpisodes.swift",
                 "Core/TestAlert.swift",
+                "Core/AlertSound.swift",
                 "Shared/GlucoseActivityState.swift",
                 "Shared/ClockLabel.swift",
                 "Shared/ChartSummary.swift",

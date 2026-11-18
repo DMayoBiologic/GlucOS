@@ -257,7 +257,7 @@ struct PhoneSettingsView: View {
         switch anchor {
         case .insulins, .bolus: return settings.therapy.logsInsulin
         case .presets: return !logbook.presets.isEmpty
-        case .highAlert, .rapidAlert, .staleAlert, .sensorEndingAlert, .predictedLows, .predictedHighs, .alertRepeat, .testAlert:
+        case .highAlert, .rapidAlert, .staleAlert, .sensorEndingAlert, .predictedLows, .predictedHighs, .alertRepeat, .alertSound, .testAlert:
             return settings.alertsEnabled
         case .warnAhead:
             return settings.alertsEnabled && (settings.alertOnPredictedLow || settings.alertOnPredictedHigh)
@@ -442,6 +442,8 @@ struct PhoneSettingsView: View {
                         ForEach([5, 10, 15, 30, 60], id: \.self) { Text("\($0) min").tag($0) }
                     }
                     .settingsAnchor(.alertRepeat)
+                    AlertSoundPickerLink()
+                        .settingsAnchor(.alertSound)
                     TestAlertButton(requestsAuthorization: true)
                         .settingsAnchor(.testAlert)
                 }
@@ -462,7 +464,7 @@ struct PhoneSettingsView: View {
     private var alertOptionNames: [String] {
         var names = ["High", "Rising or falling quickly", "No recent data", "Sensor ending", "Predicted lows", "Predicted highs"]
         if showsWarnAhead { names.append("Warn me ahead by") }
-        names += ["Repeat no more than every", "Send a test alert"]
+        names += ["Repeat no more than every", AlertSound.pickerTitle, "Send a test alert"]
         return names
     }
 
