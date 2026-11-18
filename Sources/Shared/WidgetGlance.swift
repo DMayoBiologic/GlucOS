@@ -127,10 +127,15 @@ enum WidgetSpeech {
             var out = parts.joined(separator: ", ") + "."
             if let back = s.backInRange(at: now) { out += " " + BackInRangeText.spoken(minutes: back.minutes) + "." }
             return out
-        case .stale:
-            return "Stale. The last reading was \(value), \(age(cur.age(at: now))). Waiting for a new reading."
-        case .expired, .none:
+        case .stale, .expired, .none:
             let time = cur.timestamp.formatted(date: .omitted, time: .shortened)
+            // Ten minutes on, the calm no-readings words, the same as the chart's gaps.
+            if let gap = WidgetGap.state(s, at: now) {
+                return WidgetGap.spoken(gap, last: "The last reading was \(value) at \(time).")
+            }
+            if state == .stale {
+                return "Stale. The last reading was \(value), \(age(cur.age(at: now))). Waiting for a new reading."
+            }
             let tail = s.lastError == nil ? "" : " Can't connect. Open GlucOS to reconnect."
             return "No recent reading. The last was \(value) at \(time).\(tail)"
         }
@@ -144,12 +149,153 @@ enum WidgetSpeech {
     /// "just now", "1 minute ago", "12 minutes ago", "2 hours 5 minutes ago": whole words, because
     /// VoiceOver reads the drawn "12m" as metres.
     static func age(_ interval: TimeInterval) -> String {
+        Int(max(0, interval) / 60) == 0 ? "just now" : duration(interval) + " ago"
+    }
+
+    /// "1 minute", "12 minutes", "2 hours 5 minutes": a length of time in whole words.
+    static func duration(_ interval: TimeInterval) -> String {
         let m = max(0, Int(interval / 60))
-        if m == 0 { return "just now" }
         func plural(_ n: Int, _ word: String) -> String { n == 1 ? "1 \(word)" : "\(n) \(word)s" }
-        if m < 60 { return plural(m, "minute") + " ago" }
+        if m < 60 { return plural(m, "minute") }
         let h = m / 60, rest = m % 60
-        return (rest == 0 ? plural(h, "hour") : plural(h, "hour") + " " + plural(rest, "minute")) + " ago"
+        return rest == 0 ? plural(h, "hour") : plural(h, "hour") + " " + plural(rest, "minute")
+    }
+}
+
+// MARK: - No readings
+
+/// The calm "No readings for 12 min" state on the widgets, StandBy, the Lock Screen accessories
+/// and the Glucose control, in the same words as the gaps in readings on iPhone Today and the Mac
+/// popover (`ReadingGaps`, #388). It starts where a gap does, 10 minutes after the last reading;
+/// before that a late reading is only stale. Where GlucOS can tell why, it says so:
+///
+/// - *Sensor warming up* / *Sensor ended*, from the sensor, as in the chart,
+/// - *Can't connect to LibreLinkUp*, when the app's last check failed,
+/// - *No signal from LibreLinkUp*, when the app checked for at least half the stretch and
+///   LibreLinkUp had nothing newer. A successful check is enough on its own: LibreLinkUp would
+///   have handed back any readings in between, so it had none up to then,
+/// - *Not checked since 2:40 pm*, when the app hasn't checked for most of it (in the background
+///   iOS lets it check about every 15 minutes at best). Readings may be waiting in LibreLinkUp.
+///
+/// Worked out from the snapshot alone at each timeline entry: no new data, no extra reloads or
+/// wakes (§80, docs/ForecastAccuracy.md). Nothing in it moves, so Reduce Motion changes nothing.
+enum WidgetGap {
+    enum Reason: Hashable, Sendable {
+        case warmUp
+        case sensorEnded
+        case cantConnect
+        case noSignal
+        /// The app's last successful check, after which nobody has asked LibreLinkUp.
+        case notChecked(since: Date)
+
+        /// The full line, where there's room: the chart card's own titles where they apply.
+        func title(calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent) -> String {
+            switch self {
+            case .warmUp: return ReadingGaps.Reason.warmUp.title
+            case .sensorEnded: return ReadingGaps.Reason.sensorEnded.title
+            case .noSignal: return ReadingGaps.Reason.noSignal.title
+            case .cantConnect: return "Can't connect to LibreLinkUp"
+            case .notChecked(let since):
+                return "Not checked since \(ClockLabel.time(since, calendar: calendar, locale: locale))"
+            }
+        }
+
+        /// A word or two, for the status pill and the Lock Screen.
+        var short: String {
+            switch self {
+            case .warmUp: return "Warming up"
+            case .sensorEnded: return "Sensor ended"
+            case .noSignal: return "No signal"
+            case .cantConnect: return "Can't connect"
+            case .notChecked: return "Not checked"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .warmUp: return ReadingGaps.Reason.warmUp.systemImage
+            case .sensorEnded: return ReadingGaps.Reason.sensorEnded.systemImage
+            case .noSignal: return ReadingGaps.Reason.noSignal.systemImage
+            case .cantConnect: return "wifi.exclamationmark"
+            case .notChecked: return "arrow.clockwise"
+            }
+        }
+
+        /// What to do about it, for VoiceOver, where there's something to do.
+        var spokenHint: String? {
+            switch self {
+            case .cantConnect: return "Open GlucOS to reconnect."
+            case .notChecked: return "Open GlucOS to check."
+            case .warmUp, .sensorEnded, .noSignal: return nil
+            }
+        }
+    }
+
+    struct State: Hashable, Sendable {
+        /// The last reading.
+        let since: Date
+        /// How long there's been none.
+        let length: TimeInterval
+        /// Nil when GlucOS can't tell: the words just say there are no readings.
+        let reason: Reason?
+    }
+
+    /// The state starts this long after the last reading: the chart's own gap.
+    static var after: TimeInterval { ReadingGaps.minimum }
+
+    /// The state at `now`, or nil while the reading is under 10 minutes old (or there's never been one).
+    static func state(_ s: GlucoseSnapshot, at now: Date) -> State? {
+        guard let cur = s.current else { return nil }
+        let length = now.timeIntervalSince(cur.timestamp)
+        guard length >= after else { return nil }
+        return State(since: cur.timestamp, length: length, reason: reason(s, from: cur.timestamp, to: now))
+    }
+
+    static func reason(_ s: GlucoseSnapshot, from start: Date, to now: Date) -> Reason? {
+        // The sensor first, by the chart's rules (an empty record of checks gives nothing else).
+        let context = ReadingGaps.Context(sensor: s.sensor, polls: PollLog(), device: .iPhone)
+        switch ReadingGaps.reason(from: start, to: now, context: context) {
+        case .warmUp: return .warmUp
+        case .sensorEnded: return .sensorEnded
+        default: break
+        }
+        if s.lastError != nil { return .cantConnect }
+        guard s.fetchedAt > .distantPast else { return nil }
+        // The last good check found nothing after `start`, so up to it there was nothing to find.
+        let checked = s.fetchedAt.timeIntervalSince(start)
+        if checked > 0, checked / now.timeIntervalSince(start) >= ReadingGaps.checkedShare { return .noSignal }
+        return .notChecked(since: s.fetchedAt)
+    }
+
+    /// "No readings for 12 min", "No readings for 1 hr 5 min".
+    static func headline(_ state: State) -> String {
+        "No readings for \(ReadingGaps.length(state.length))"
+    }
+
+    /// "No readings for 12m", for the Lock Screen's few characters.
+    static func compactHeadline(_ state: State) -> String {
+        "No readings for \(AccessoryGlance.age(state.length))"
+    }
+
+    /// The headline and the reason: "No readings for 12 min · No signal from LibreLinkUp".
+    static func line(_ state: State, calendar: Calendar = .autoupdatingCurrent,
+                     locale: Locale = .autoupdatingCurrent) -> String {
+        guard let reason = state.reason else { return headline(state) }
+        return "\(headline(state)) · \(reason.title(calendar: calendar, locale: locale))"
+    }
+
+    /// What VoiceOver hears, the chart's sentence shape: "No readings for 12 minutes: No signal
+    /// from LibreLinkUp." (just "No readings for 12 minutes." when the reason isn't known), then
+    /// what to do where there's something to do.
+    /// `last`, a sentence about the last reading, goes before the hint.
+    static func spoken(_ state: State, last: String? = nil, calendar: Calendar = .autoupdatingCurrent,
+                       locale: Locale = .autoupdatingCurrent) -> String {
+        var out = "No readings for \(WidgetSpeech.duration(state.length))"
+        if let reason = state.reason { out += ": " + reason.title(calendar: calendar, locale: locale) }
+        out += "."
+        if let last { out += " " + last }
+        if let hint = state.reason?.spokenHint { out += " " + hint }
+        return out
     }
 }
 
@@ -181,8 +327,9 @@ enum AccessoryGlance {
         return compact || m % 60 == 0 ? "\(h)h" : "\(h)h \(m % 60)m"
     }
 
-    /// The inline accessory (one line above the clock): "6.1 ↗ · 2m", "Stale 6.1 · 12m",
-    /// "No reading for 45m". The trend is only drawn while the reading is fresh.
+    /// The inline accessory (one line above the clock): "6.1 ↗ · 2m", "Stale 6.1 · 8m", then from
+    /// 10 minutes "No readings for 12m" (`WidgetGap`). The trend is only drawn while the reading is
+    /// fresh.
     static func inline(_ s: GlucoseSnapshot, at now: Date) -> String {
         guard let cur = s.current else { return s.lastError == nil ? "No reading yet" : "Can't connect" }
         let value = s.unit.format(mgdl: cur.mgdl)
@@ -190,11 +337,22 @@ enum AccessoryGlance {
         switch state(s, at: now) {
         case .fresh:
             return cur.trend == .unknown ? "\(value) · \(age)" : "\(value) \(cur.trend.arrow) · \(age)"
-        case .stale:
+        case .stale, .expired, .none:
+            if let gap = WidgetGap.state(s, at: now) {
+                return s.lastError == nil ? WidgetGap.compactHeadline(gap) : "Can't connect · \(age)"
+            }
             return "Stale \(value) · \(age)"
-        case .expired, .none:
-            return s.lastError == nil ? "No reading for \(age)" : "Can't connect · \(age)"
         }
+    }
+
+    /// The rectangular accessory's middle line once there have been no readings for 10 minutes:
+    /// why, in a word or two ("No signal"), or "No readings" while the number still shows and
+    /// the reason isn't known. Nil otherwise (and once withdrawn with no reason, when the bottom
+    /// line already says "No readings for 45m").
+    static func gapCaption(_ s: GlucoseSnapshot, at now: Date) -> String? {
+        guard let gap = WidgetGap.state(s, at: now) else { return nil }
+        if let reason = gap.reason { return reason.short }
+        return state(s, at: now) == .stale ? "No readings" : nil
     }
 
     /// What sits under the figure on the circular accessory instead of the trend arrow, once the
@@ -211,7 +369,7 @@ enum AccessoryGlance {
         guard let cur = s.current else { return s.lastError == nil ? "Waiting for GlucOS" : "Open GlucOS to reconnect" }
         guard state(s, at: now) == .expired else { return nil }
         let age = age(cur.age(at: now))
-        return s.lastError == nil ? "No reading for \(age)" : "Can't connect · \(age)"
+        return s.lastError == nil ? "No readings for \(age)" : "Can't connect · \(age)"
     }
 }
 
@@ -223,7 +381,7 @@ enum AccessoryGlance {
 /// trend, a withdrawn one shows no number at all. A control only redraws when the app reloads it
 /// (`WidgetReload.Group.controlKinds`), so the age is as of that reload.
 enum ControlGlance {
-    /// "6.1 ↗ · 2m", "Stale 6.1 · 12m", "No reading for 45m": the same line as the inline
+    /// "6.1 ↗ · 2m", "Stale 6.1 · 8m", "No readings for 12m": the same line as the inline
     /// Lock Screen accessory.
     static func title(_ s: GlucoseSnapshot, at now: Date) -> String {
         AccessoryGlance.inline(s, at: now)
@@ -424,7 +582,8 @@ enum StandByGlance {
         return state == .fresh || state == .stale
     }
 
-    /// The one line under the figure: "Rising · 2m", "Stale · 12m", "No reading for 45m". Ages are
+    /// The one line under the figure: "Rising · 2m", "Stale · 8m", "No readings for 12 min · No
+    /// signal" (`WidgetGap`). Ages are
     /// in whole minutes at the entry's date, never a ticking seconds timer, which would be the only
     /// thing moving on a bedside screen.
     static func caption(_ s: GlucoseSnapshot, at now: Date) -> String {
@@ -433,10 +592,14 @@ enum StandByGlance {
         switch AccessoryGlance.state(s, at: now) {
         case .fresh:
             return cur.trend == .unknown ? age : "\(cur.trend.description) · \(age)"
-        case .stale:
+        case .stale, .expired, .none:
+            // Ten minutes on: "No readings for 12 min · No signal", the reason in a word or two
+            // so the line still fits across the bedside view.
+            if let gap = WidgetGap.state(s, at: now) {
+                if gap.reason == .cantConnect { return "Can't connect · \(ReadingGaps.length(gap.length))" }
+                return gap.reason.map { "\(WidgetGap.headline(gap)) · \($0.short)" } ?? WidgetGap.headline(gap)
+            }
             return "Stale · \(age)"
-        case .expired, .none:
-            return s.lastError == nil ? "No reading for \(age)" : "Can't connect · \(age)"
         }
     }
 }

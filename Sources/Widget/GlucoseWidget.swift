@@ -295,7 +295,7 @@ struct GlucoseWidgetView: View {
 
     private var trendHeadline: String {
         guard let cur = s.current else { return "No reading" }
-        guard entry.freshness == .fresh else { return entry.freshness == .stale ? "Trend paused" : "No recent data" }
+        guard entry.freshness == .fresh else { return entry.freshness == .stale ? "Trend paused" : "No readings" }
         return cur.trend == .unknown ? "Trend unknown" : cur.trend.description
     }
 

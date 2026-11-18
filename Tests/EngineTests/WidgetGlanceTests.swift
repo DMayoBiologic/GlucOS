@@ -24,16 +24,23 @@ final class WidgetGlanceTests: XCTestCase {
     }
 
     func testStaleReadingNeverSaysItsRangeOrTrend() {
-        let text = WidgetSpeech.reading(snapshot(minutesOld: 12, mgdl: 60, trend: .falling), state: .stale, at: referenceNow)
+        let text = WidgetSpeech.reading(snapshot(minutesOld: 8, mgdl: 60, trend: .falling), state: .stale, at: referenceNow)
         XCTAssertTrue(text.hasPrefix("Stale."), text)
-        XCTAssertTrue(text.contains("12 minutes ago"), text)
+        XCTAssertTrue(text.contains("8 minutes ago"), text)
         XCTAssertFalse(text.lowercased().contains("low"), text)
         XCTAssertFalse(text.lowercased().contains("falling"), text)
+        // From 10 minutes, the no-readings words; still never the range or trend.
+        let gap = WidgetSpeech.reading(snapshot(minutesOld: 12, mgdl: 60, trend: .falling), state: .stale, at: referenceNow)
+        XCTAssertTrue(gap.hasPrefix("No readings for 12 minutes: No signal from LibreLinkUp."), gap)
+        XCTAssertTrue(gap.contains("The last reading was 3.3"), gap)
+        XCTAssertFalse(gap.lowercased().contains("low"), gap)
+        XCTAssertFalse(gap.lowercased().contains("falling"), gap)
     }
 
     func testExpiredReadingSaysWhenTheLastWasAndHowToFixIt() {
         var s = snapshot(minutesOld: 45)
-        XCTAssertTrue(WidgetSpeech.reading(s, state: .expired, at: referenceNow).hasPrefix("No recent reading. The last was 6.1"))
+        XCTAssertTrue(WidgetSpeech.reading(s, state: .expired, at: referenceNow)
+            .hasPrefix("No readings for 45 minutes: No signal from LibreLinkUp. The last reading was 6.1"))
         s.lastError = "offline"
         XCTAssertTrue(WidgetSpeech.reading(s, state: .expired, at: referenceNow).hasSuffix("Open GlucOS to reconnect."))
         XCTAssertEqual(WidgetSpeech.reading(.empty, state: .none, at: referenceNow), "No glucose reading yet. Waiting for GlucOS.")
@@ -69,14 +76,15 @@ final class WidgetGlanceTests: XCTestCase {
     func testInlineShowsTrendAndAgeOnlyWhileFresh() {
         XCTAssertEqual(AccessoryGlance.inline(snapshot(minutesOld: 2), at: referenceNow), "6.1 ↗ · 2m")
         XCTAssertEqual(AccessoryGlance.inline(snapshot(minutesOld: 2, trend: .unknown), at: referenceNow), "6.1 · 2m")
-        let stale = AccessoryGlance.inline(snapshot(minutesOld: 12), at: referenceNow)
-        XCTAssertEqual(stale, "Stale 6.1 · 12m")
+        let stale = AccessoryGlance.inline(snapshot(minutesOld: 8), at: referenceNow)
+        XCTAssertEqual(stale, "Stale 6.1 · 8m")
         XCTAssertFalse(stale.contains("↗"))
+        XCTAssertEqual(AccessoryGlance.inline(snapshot(minutesOld: 12), at: referenceNow), "No readings for 12m")
     }
 
     func testInlineWithdrawsTheNumberOnceExpired() {
         var s = snapshot(minutesOld: 45)
-        XCTAssertEqual(AccessoryGlance.inline(s, at: referenceNow), "No reading for 45m")
+        XCTAssertEqual(AccessoryGlance.inline(s, at: referenceNow), "No readings for 45m")
         s.lastError = "offline"
         XCTAssertEqual(AccessoryGlance.inline(s, at: referenceNow), "Can't connect · 45m")
         XCTAssertEqual(AccessoryGlance.inline(.empty, at: referenceNow), "No reading yet")
@@ -85,11 +93,11 @@ final class WidgetGlanceTests: XCTestCase {
     func testControlSaysStaleAndDropsTheTrend() {
         XCTAssertEqual(ControlGlance.title(snapshot(minutesOld: 2), at: referenceNow), "6.1 ↗ · 2m")
         XCTAssertEqual(ControlGlance.symbol(snapshot(minutesOld: 2), at: referenceNow), "drop.fill")
-        let stale = ControlGlance.title(snapshot(minutesOld: 12), at: referenceNow)
-        XCTAssertEqual(stale, "Stale 6.1 · 12m")
+        let stale = ControlGlance.title(snapshot(minutesOld: 8), at: referenceNow)
+        XCTAssertEqual(stale, "Stale 6.1 · 8m")
         XCTAssertFalse(stale.contains("↗"))
         XCTAssertEqual(ControlGlance.symbol(snapshot(minutesOld: 12), at: referenceNow), "clock.badge.exclamationmark")
-        XCTAssertEqual(ControlGlance.title(snapshot(minutesOld: 45), at: referenceNow), "No reading for 45m")
+        XCTAssertEqual(ControlGlance.title(snapshot(minutesOld: 45), at: referenceNow), "No readings for 45m")
         XCTAssertEqual(ControlGlance.symbol(.empty, at: referenceNow), "drop.degreesign.slash")
     }
 
@@ -97,7 +105,7 @@ final class WidgetGlanceTests: XCTestCase {
         let fresh = ControlGlance.spoken(snapshot(minutesOld: 2), at: referenceNow)
         XCTAssertTrue(fresh.hasPrefix("Glucose 6.1"))
         XCTAssertTrue(fresh.hasSuffix("Opens Today in GlucOS."))
-        let stale = ControlGlance.spoken(snapshot(minutesOld: 12), at: referenceNow)
+        let stale = ControlGlance.spoken(snapshot(minutesOld: 8), at: referenceNow)
         XCTAssertTrue(stale.hasPrefix("Stale."))
         XCTAssertFalse(stale.lowercased().contains("rising"))
         XCTAssertTrue(ControlGlance.treatmentSpoken.contains("Nothing is logged"))
@@ -121,7 +129,7 @@ final class WidgetGlanceTests: XCTestCase {
     func testRectangularWithdrawnLine() {
         XCTAssertNil(AccessoryGlance.withdrawnLine(snapshot(minutesOld: 2), at: referenceNow))
         XCTAssertNil(AccessoryGlance.withdrawnLine(snapshot(minutesOld: 12), at: referenceNow))
-        XCTAssertEqual(AccessoryGlance.withdrawnLine(snapshot(minutesOld: 45), at: referenceNow), "No reading for 45m")
+        XCTAssertEqual(AccessoryGlance.withdrawnLine(snapshot(minutesOld: 45), at: referenceNow), "No readings for 45m")
         XCTAssertEqual(AccessoryGlance.withdrawnLine(.empty, at: referenceNow), "Waiting for GlucOS")
     }
 
@@ -298,11 +306,14 @@ final class WidgetGlanceTests: XCTestCase {
     func testStandByCaptionPerFreshness() {
         XCTAssertEqual(StandByGlance.caption(snapshot(minutesOld: 2), at: referenceNow), "Rising · 2m")
         XCTAssertEqual(StandByGlance.caption(snapshot(minutesOld: 2, trend: .unknown), at: referenceNow), "2m")
-        XCTAssertEqual(StandByGlance.caption(snapshot(minutesOld: 12), at: referenceNow), "Stale · 12m")
+        XCTAssertEqual(StandByGlance.caption(snapshot(minutesOld: 8), at: referenceNow), "Stale · 8m")
+        XCTAssertEqual(StandByGlance.caption(snapshot(minutesOld: 12), at: referenceNow), "No readings for 12 min · No signal")
         var s = snapshot(minutesOld: 45)
-        XCTAssertEqual(StandByGlance.caption(s, at: referenceNow), "No reading for 45m")
+        XCTAssertEqual(StandByGlance.caption(s, at: referenceNow), "No readings for 45 min · No signal")
+        s.fetchedAt = .distantPast
+        XCTAssertEqual(StandByGlance.caption(s, at: referenceNow), "No readings for 45 min")
         s.lastError = "offline"
-        XCTAssertEqual(StandByGlance.caption(s, at: referenceNow), "Can't connect · 45m")
+        XCTAssertEqual(StandByGlance.caption(s, at: referenceNow), "Can't connect · 45 min")
         XCTAssertEqual(StandByGlance.caption(.empty, at: referenceNow), "Waiting for GlucOS")
     }
 

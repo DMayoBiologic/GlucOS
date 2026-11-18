@@ -186,6 +186,9 @@ enum WhatsNewCatalog {
             .init(symbol: "chart.line.uptrend.xyaxis",
                   title: "Forecasts after gaps in readings",
                   detail: "We checked forecasts in the hour after readings come back from a gap and kept the range as it is for now."),
+            .init(symbol: "clock",
+                  title: "Missing readings on widgets",
+                  detail: "When readings stop, widgets, StandBy, the Lock Screen and the Live Activity calmly say for how long, and why where GlucOS knows."),
         ]),
         WhatsNewRelease(version: "1.74.0", highlights: [
             .init(symbol: "syringe",

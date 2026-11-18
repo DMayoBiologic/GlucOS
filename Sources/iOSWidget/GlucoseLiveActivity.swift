@@ -168,7 +168,7 @@ extension GlucoseActivityState {
         // "Low alerts snoozed until 2:30 pm.", last: owner's card only.
         let snoozed = person == nil ? runningSnooze().map { " " + $0.sentence() + "." } ?? "" : ""
         if stale {
-            return who + "Glucose reading is out of date. Last reading \(value) \(glucoseUnit.spokenLabel)." + snoozed
+            return who + "\(noReadingsLine()). Last reading \(value) \(glucoseUnit.spokenLabel)." + snoozed
         }
         var parts = ["Glucose \(value) \(glucoseUnit.spokenLabel)", range.label]
         if glucoseTrend != .unknown { parts.append(glucoseTrend.description) }
@@ -475,7 +475,7 @@ private struct IslandValue: View {
     }
 }
 
-/// "In range", "Low", "No recent reading", with the person on a follower's card. The range word
+/// "In range", "Low", "No readings since 2:10 pm", with the person on a follower's card. The range word
 /// pushes in from the direction of travel when it changes.
 private struct ActivityStatusLabel: View {
     let state: GlucoseActivityState
@@ -492,9 +492,10 @@ private struct ActivityStatusLabel: View {
                     .lineLimit(1)
                 Text("·").foregroundStyle(.tertiary)
             }
-            Label(stale ? "No recent reading" : state.range.label,
-                  systemImage: stale ? "exclamationmark.triangle.fill" : state.range.systemImage)
-                .foregroundStyle(stale ? AnyShapeStyle(Tone.warning.color) : AnyShapeStyle(tone.color))
+            // Stale: "No readings since 2:10 pm" in a calm grey with a clock, the widgets' words.
+            Label(stale ? state.noReadingsLine() : state.range.label,
+                  systemImage: stale ? "clock" : state.range.systemImage)
+                .foregroundStyle(stale ? AnyShapeStyle(HierarchicalShapeStyle.secondary) : AnyShapeStyle(tone.color))
                 .lineLimit(1)
                 .id(stale ? "stale" : state.range.label)
                 .transition(.push(from: state.glucoseTrend.isFalling ? .top : .bottom))
