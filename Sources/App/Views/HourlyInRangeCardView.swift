@@ -12,8 +12,10 @@ import SwiftUI
 /// section (docs/LogbookSearch.md, "From the Insights cards").
 ///
 /// Motion is the other cards': the overall figure counts up where `figuresCountUp` is on and rolls
-/// when the period changes, and the cells cross-fade to their new colours. Nothing loops, and Reduce
-/// Motion shows the new values at once. VoiceOver reads the summary, then each hour as its own
+/// when the period changes. Where `figuresCountUp` is on the cells also fill in a left-to-right wave
+/// the first time the card rises in (`onEntrance`), and on a period change each cell cross-fades to
+/// its new colour a short step after the one to its left (`HourlyCellMotion`). Nothing loops, and
+/// Reduce Motion shows the new values at once. VoiceOver reads the summary, then each hour as its own
 /// button ("7 am to 8 am, 54 percent in range, ..."). Callers give it their own card surface.
 struct HourlyInRangeCardView: View {
     let readings: [GlucoseReading]
@@ -29,9 +31,15 @@ struct HourlyInRangeCardView: View {
     @State private var shownKey: HourlyInRangeCache.Key?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
+    @Environment(\.figuresCountUp) private var countsUp
+    /// The cells have filled in (first reveal). Only waited for where `waves` is on.
+    @State private var filled = false
     /// "Compare to previous period" (docs/InsightsCompare.md) and the period before, while it's on.
     @AppStorage(InsightsCompare.storageKey) private var compare = false
     @State private var previous: HourlyInRange?
+
+    /// The fill wave plays on Insights screens only: never in a shared picture or under Reduce Motion.
+    private var waves: Bool { countsUp && !reduceMotion && !shareSnapshot }
 
     private var period: HourlyInRange.Period { HourlyInRange.Period(rawValue: periodDays) ?? .fortnight }
     /// The readings up to where the period ends once Insights is stepped back; all of them on
@@ -164,12 +172,23 @@ struct HourlyInRangeCardView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Hours")
+        .onEntrance {
+            guard !filled else { return }
+            if waves {
+                // Next frame, so the empty strip is drawn before it fills.
+                DispatchQueue.main.async { filled = true }
+            } else {
+                filled = true
+            }
+        }
     }
 
     private func row(_ s: HourlyInRange, hours: [Int], tickEvery: Int) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.xxs) {
             HStack(spacing: Self.cellSpacing) {
-                ForEach(hours, id: \.self) { h in cell(h, s) }
+                ForEach(Array(hours.enumerated()), id: \.element) { i, h in
+                    cell(h, s, position: i, of: hours.count)
+                }
             }
             // Ticks sit in overlays so a label wider than its cell doesn't push the cells apart.
             HStack(spacing: Self.cellSpacing) {
@@ -191,7 +210,8 @@ struct HourlyInRangeCardView: View {
         }
     }
 
-    private func cell(_ h: Int, _ s: HourlyInRange) -> some View {
+    /// `position` is the cell's column in its row of `count`, which sets when it fills and recolours.
+    private func cell(_ h: Int, _ s: HourlyInRange, position: Int, of count: Int) -> some View {
         let hour = s.hour(h)
         let delta = InsightsCompare.hourRange(h, s, before(s))
         let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
@@ -203,6 +223,17 @@ struct HourlyInRangeCardView: View {
                         shape.strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
                     }
                 }
+                // A new period: this cell cross-fades a step after the one to its left.
+                .animation(reduceMotion ? nil : .easeInOut(duration: HourlyCellMotion.recolourDuration)
+                    .delay(HourlyCellMotion.recolourDelay(position: position, count: count)),
+                           value: hour?.shade)
+                // First reveal: rises from the baseline and fades in, left to right. Only the
+                // drawing moves; the button, its frame and its VoiceOver element are there throughout.
+                .opacity(filled || !waves ? 1 : 0)
+                .scaleEffect(x: 1, y: filled || !waves ? 1 : 0.35, anchor: .bottom)
+                .animation(waves ? DSMotion.arrival.animation
+                    .delay(HourlyCellMotion.fillDelay(position: position, count: count)) : nil,
+                           value: filled)
                 .frame(minWidth: Self.minimumCellWidth, idealWidth: Self.minimumCellWidth, maxWidth: .infinity,
                        minHeight: Self.cellHeight, maxHeight: Self.cellHeight)
                 .contentShape(shape)
