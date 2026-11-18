@@ -33,6 +33,8 @@ struct MenuBarView: View {
     @State private var resizeSettled = false
     /// The ⌘? list, shown over the popover.
     @State private var showsShortcutList = false
+    /// What's New after an update, over the popover the first time it opens (docs/WhatsNew.md).
+    @State private var whatsNew: [WhatsNewRelease]?
     /// False only for the moment between the popover opening and its sections starting to come
     /// in (`PopoverStagger`). Anything that goes wrong leaves it true, so content is never hidden.
     @State private var sectionsIn = true
@@ -93,12 +95,14 @@ struct MenuBarView: View {
         }
         .overlay(alignment: .bottom) { toastView }
         .overlay { shortcutList }
+        .overlay { whatsNewCard }
         .background { shortcuts }
         .animation(PopoverMotion.standard(reduceMotion), value: s.current)
         .animation(PopoverMotion.standard(reduceMotion), value: s.lastError)
         .animation(PopoverMotion.standard(reduceMotion), value: s.isStale())
         .animation(PopoverMotion.quick(reduceMotion), value: toast)
         .animation(PopoverMotion.quick(reduceMotion), value: showsShortcutList)
+        .animation(PopoverMotion.quick(reduceMotion), value: whatsNew != nil)
         .animation(PopoverMotion.standard(reduceMotion), value: snoozeStore.isSnoozing)
         .animation(PopoverMotion.standard(reduceMotion), value: lowTreat != nil)
         .task { await store.checkNotificationPermission() }
@@ -106,10 +110,12 @@ struct MenuBarView: View {
             commandKey.start(); staggerSectionsIn(); revealUnitChange(); settleResizing()
             // Opening counts as a look: after 2 hours or more unseen, the line sums up the gap.
             whileAway.opened(isFollower: false)
+            showPendingWhatsNew()
         }
         .onDisappear {
             whileAway.closed(isFollower: false)
             commandKey.stop(); showsShortcutList = false
+            whatsNew = nil
             resizeSettled = false
             sectionsIn = true
             // Units are changed in the Settings window, with the popover closed: hold the change
@@ -351,6 +357,28 @@ struct MenuBarView: View {
         }
     }
 
+    /// What's New over the popover, scrolling if the popover is shorter than the list.
+    @ViewBuilder
+    private var whatsNewCard: some View {
+        if let whatsNew {
+            WhatsNewView(releases: whatsNew, compact: true) { self.whatsNew = nil }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.regularMaterial)
+                .transition(.opacity)
+        }
+    }
+
+    /// The first opening after an update shows What's New, once. Not during a low: the reading
+    /// comes first, and What's New waits for the next opening.
+    private func showPendingWhatsNew() {
+        let pending = WhatsNewPending.shared
+        guard let releases = pending.releases, !WhatsNew.holdsFor(s.range) else { return }
+        pending.releases = nil
+        whatsNew = releases
+        WhatsNewLaunch().markSeen(WhatsNewVersion.current)
+        VoiceOver.announce(WhatsNew.title(for: releases))
+    }
+
     private func toggleShortcutList() {
         showsShortcutList.toggle()
         if showsShortcutList { VoiceOver.announce("Keyboard shortcuts") }
@@ -558,5 +586,22 @@ private struct PopoverEntrance: ViewModifier {
             $0.opacity(visible ? 1 : 0)
                 .offset(y: visible ? 0 : PopoverStagger.rise)
         }
+    }
+}
+
+/// What's New waiting for the popover to open, decided once at launch (docs/WhatsNew.md). Sparkle
+/// relaunches the app by itself after an update, often while nobody's looking, so nothing opens on
+/// its own: the card shows over the popover the next time it's opened.
+final class WhatsNewPending {
+    static let shared = WhatsNewPending()
+    var releases: [WhatsNewRelease]?
+    private var checked = false
+
+    /// At launch, before setup opens: a fresh install (still to be set up) is remembered without
+    /// showing anything.
+    func check(hasUsedBefore: Bool) {
+        guard !checked else { return }
+        checked = true
+        releases = WhatsNewLaunch().check(current: WhatsNewVersion.current, hasUsedBefore: hasUsedBefore)
     }
 }

@@ -117,6 +117,8 @@ struct MenuBarLabel: View {
             }
             .task {
                 store.start()   // ensure polling starts even if the popover is never opened
+                // What's New after an update waits for the popover (docs/WhatsNew.md).
+                WhatsNewPending.shared.check(hasUsedBefore: !AppSettings.shared.needsOnboarding)
                 if AppSettings.shared.needsOnboarding {
                     openWindow(id: OnboardingView.windowID)
                     NSApp.activate()

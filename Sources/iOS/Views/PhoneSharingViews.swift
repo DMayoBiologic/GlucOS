@@ -715,6 +715,7 @@ struct FollowerSettingsView: View {
             DiagnosticsSettingsSection()
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
+                WhatsNewSettingsRow()
                 Link("Privacy", destination: URL(string: "https://gluc-os-seven.vercel.app/privacy/")!)
                 Text("Not a medical device. Readings and alerts can be delayed or missed; confirm with the sensor app before acting.")
                     .dsFont(.caption)

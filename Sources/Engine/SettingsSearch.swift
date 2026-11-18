@@ -23,7 +23,7 @@ enum SettingsAnchor: String, CaseIterable, Hashable, Sendable {
     // Lock Screen, sharing, relay
     case liveActivity, shareLive, following, relay
     // Advanced
-    case pollInterval, sensorLifetime, clientVersion, updates, diagnostics, dataFolder, version
+    case pollInterval, sensorLifetime, clientVersion, updates, whatsNew, diagnostics, dataFolder, version
 }
 
 /// One searchable setting: what the row is called, where it lives, and other words for it.
@@ -180,6 +180,8 @@ enum SettingsCatalog {
         static let relay = ["relay", "push", "server", "supabase", "background", "secret", "closed"]
         static let diagnostics = ["diagnostics", "error", "report", "crash", "logs", "problem", "privacy"]
         static let version = ["version", "about", "build", "medical"]
+        static let whatsNew = ["what's new", "whats new", "new", "changes", "changelog", "release notes",
+                               "features", "update", "latest"]
         static let readSensor = ["nfc", "scan", "sensor", "libre 2", "bluetooth", "read", "start sensor"]
     }
 
@@ -216,6 +218,7 @@ enum SettingsCatalog {
         .init(anchor: .relay, title: "Push relay", place: "Push relay", keywords: K.relay),
         .init(anchor: .diagnostics, title: "Automatic error reports", place: "Diagnostics", keywords: K.diagnostics),
         .init(anchor: .version, title: "Version", place: "About", keywords: K.version),
+        .init(anchor: .whatsNew, title: "What's New", place: "About", keywords: K.whatsNew),
     ]
 
     /// Mac Settings, tab by tab in toolbar order.
@@ -280,6 +283,7 @@ enum SettingsCatalog {
               keywords: ["librelinkup", "version", "abbott", "minimum", "app version"]),
         .init(anchor: .updates, title: "Check for updates", place: "Advanced › Updates", tab: "advanced",
               keywords: ["update", "sparkle", "version", "upgrade", "new version", "install"]),
+        .init(anchor: .whatsNew, title: "What's New", place: "Advanced › Updates", tab: "advanced", keywords: K.whatsNew),
         .init(anchor: .diagnostics, title: "Automatic error reports", place: "Advanced › Diagnostics", tab: "advanced", keywords: K.diagnostics),
         .init(anchor: .dataFolder, title: "Data folder", place: "Advanced › Diagnostics", tab: "advanced",
               keywords: ["finder", "files", "storage", "history", "folder", "path"]),

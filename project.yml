@@ -189,6 +189,7 @@ targets:
       - path: Sources/App/Views/SensorEndViews.swift
       - path: Sources/App/Views/FlowComponents.swift
       - path: Sources/App/Views/SettingsSearchViews.swift
+      - path: Sources/App/Views/WhatsNewViews.swift
       - path: Sources/App/Views/DependentRowsViews.swift
       - path: Sources/App/Views/TargetRangePreviewChart.swift
       - path: Sources/App/Views/AlertCountPreviewLine.swift

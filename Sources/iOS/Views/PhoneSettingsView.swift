@@ -256,6 +256,8 @@ struct PhoneSettingsView: View {
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
                     .settingsAnchor(.version)
+                WhatsNewSettingsRow()
+                    .settingsAnchor(.whatsNew)
                 Text("Personal use. Not a medical device. Confirm readings and alerts with your sensor app before acting.")
                     .dsFont(.caption)
                     .foregroundStyle(.secondary)
