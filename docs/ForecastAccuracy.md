@@ -5812,3 +5812,112 @@ select (payload->>'firedAt')::float::bigint fired, payload->>'kind' kind
 from glucos.logbook where kind = 'alert' and not deleted and payload->>'kind' like 'predicted%Low'
 order by 1;
 ```
+
+## 80. How old are the reading and forecast while they're on the Lock Screen, Home Screen, StandBy and the Live Activity? (18 Nov 2026)
+
+The question: while each iPhone surface is showing GlucOS, how old are the reading and the forecast
+it draws, where does that pass 10 minutes, and is there one clear cause that can be fixed without
+waking the phone more (#94)? **The forecast never passes 10 minutes anywhere: every surface hides it
+once its reading is 6 minutes old. The reading does. The Live Activity is almost always fresh, and
+its few old minutes are LibreLinkUp gaps. The Home Screen and Lock Screen widgets and StandBy are
+past 10 minutes for most of the time the app isn't open, because they only get a new reading when
+iOS runs the app, which in background is at best every 15 minutes and overnight can be 3–4 hours
+apart. That cause is clear, but every fix adds network wakes, so nothing ships. Docs only; no app or
+relay code changed (relay stays 2.20.0). Retest on 2 Dec 2026, or straight after anything changes
+how widgets get their data.**
+
+Nothing here touches dosing, insulin on board, the carb or insulin effects, the forecast line,
+alerts or `web/`.
+
+**How each surface gets its data.**
+
+| Surface | Where its reading comes from | How often it changes | Forecast hidden after | Reading greyed / withdrawn |
+|---|---|---|---|---|
+| Live Activity (Lock Screen, Dynamic Island, StandBy when one is running) | Relay push every minute (`relay/v1/tick`, `apns.ts`) | Each new LibreLinkUp reading | 6 min (`core.ts`, `now - issuedAt <= staleAfter`) | `stale-date` = reading + 6 min |
+| Home Screen widgets, StandBy's small Glucose widget | `SharedStore` snapshot the app writes in `GlucoseStore.publish` | Only when the app runs: each minute in front, otherwise `BackgroundRefresh` | 6 min (`currentOutlook`, `OutlookSnapshot.isCurrent`) | 6 min / 30 min (`ReadingFreshness`) |
+| Lock Screen accessories | Same snapshot | Same | No forecast drawn | 6 min / 30 min (`AccessoryGlance`) |
+
+The widgets' timeline already has one entry a minute for the reading's first hour
+(`FreshnessSchedule`), so "3m ago", the grey and the withdrawal land on time without a reload. What
+it can't do is show a newer reading than the one the app last saved.
+
+**Method.** The relay's readings table (`glucos.readings`, one-minute LibreLinkUp readings) gives the
+Live Activity: for each minute of the last 72 hours, the age of the newest reading at that minute.
+The iPhone app calls `relay/v1/history` and `relay/v1/status` each time it comes to the front and on
+every background refresh (`PhoneServices.scenePhaseChanged`, `backgroundRefresh`), and each of those
+runs publishes a fresh snapshot, so the edge function logs (`function_edge_logs`, 16 Nov 07:44 to
+18 Nov 07:44 UTC) give every moment the widgets' snapshot was renewed: 144 minutes with a call over
+47.8 hours. Between two calls the snapshot ages from about 1 minute (the reading's own age when it's
+fetched, §67) to the gap plus 1. That counts time with the app open as aging too, so the widget
+figures are an upper bound; with the app open the widgets aren't on screen anyway, except in
+StandBy, which needs the phone locked. Night is 22:00–07:00 Perth.
+
+**Live Activity**, 4,321 minutes:
+
+| Mean age | Median | 95th percentile | Longest | Minutes over 6 | Minutes over 10 |
+|---|---|---|---|---|---|
+| 0.8 min | 0.5 | 2.5 | 14.6 | 94 (2.2%) | 31 (0.7%) |
+
+All 31 minutes over 10 are inside 9 LibreLinkUp gaps of 11–15 minutes (exactly 15 is the live feed
+dropping a slot that only the 15-minute history fills, §72), the longest two back-to-back 15-minute gaps on 16 Nov, 11:16–11:46 Perth.
+The relay ticked every minute through them (1,438 good ticks in the last 24 hours), and the card
+went grey at 6 minutes as it should. Nothing on our side to fix.
+
+**Widgets and StandBy**, 47.8 hours, upper bound:
+
+| | Reading over 6 min | Over 10 min | Over 30 min (withdrawn) |
+|---|---|---|---|
+| All | 79% | 66% | 35% |
+| Day (07–22) | | 61% | |
+| Night (22–07) | | 74% | |
+
+The median gap between renewals is 15.0 minutes, and 43 of them are 14–17 minutes: iOS honouring
+`earliestBeginDate` of 15 minutes. Even at that best cadence the widget's reading is over 10 minutes
+old for 6 minutes of every 15 (40%), and over 6 minutes for two thirds. The rest is long gaps when
+iOS skipped refreshes: 8 over an hour, among them 01:59–06:03 and 01:53–05:08 Perth (overnight, so
+StandBy on a charger), and 09:24–12:38 and 19:01–21:42 Perth on 17 Nov. StandBy can't be told apart from the
+Home Screen in these logs; when a Live Activity is running, StandBy shows that instead, which is
+fresh.
+
+**Fixes looked at, and why none ships.**
+
+- *Ask for background refresh more often.* iOS treats 15 minutes as a floor and already gives
+  exactly that at best; a smaller `earliestBeginDate` changes nothing.
+- *Let the widget fetch the relay's latest card itself* (`TimelineProvider` calls a relay `GET` on
+  each reload, with a 5-minute `.after` policy). WidgetKit caps reloads at roughly 40–70 a day, so
+  at best every 20–35 minutes, and each reload becomes a network wake of the phone. New power cost.
+- *WidgetKit push updates from the relay.* The relay would push a widget reload every minute or on
+  each new reading; iOS budgets these too, and each one wakes the extension to fetch. New power cost
+  and an APNs stream as big as the Live Activity's.
+- *Write the reading from alert pushes* (a notification service extension). Free, since the push
+  arrives anyway, but alerts are a few a day, so it barely moves the figures above.
+
+The widgets already say how old their number is and never show a forecast or a range colour once
+it's 6 minutes old, so the stale time is honest, not misleading. The Live Activity is the fresh
+surface on the Lock Screen and in StandBy whenever one is running.
+
+**Aside.** About 1,600 calls a day reach `relay/v1/tick` from other Supabase projects' `pg_net`
+(different regions and versions) with the wrong secret and get 401 before any work; they cost
+nothing and changed nothing here.
+
+**Decision.** No change. Retest on **2 Dec 2026**, or straight after any change to how widgets get
+their data (a widget fetch or push updates would need Declan's say-so, because they add power
+cost). Ship such a change only if the widgets' time over 10 minutes falls by at least half with no
+more than one extra wake an hour.
+
+```sql
+-- Live Activity: age of the newest reading at each minute.
+with g as (select generate_series(date_trunc('minute', now() - interval '72 hours'),
+                                  date_trunc('minute', now()), interval '1 minute') t),
+a as (select t, extract(epoch from t - (select max(at) from glucos.readings r where r.at <= g.t)) / 60 age from g)
+select avg(age), percentile_cont(0.95) within group (order by age), max(age),
+       sum((age > 6)::int), sum((age > 10)::int) from a;
+```
+
+```sql
+-- Widgets: every minute the iPhone app renewed its snapshot (Supabase logs, 24 hours per call).
+select distinct toStartOfMinute(timestamp) t from logs
+where source = 'function_edge_logs'
+  and log_attributes['request.pathname'] in ('/functions/v1/relay/v1/history', '/functions/v1/relay/v1/status')
+order by t
+```
