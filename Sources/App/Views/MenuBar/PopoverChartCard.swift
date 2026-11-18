@@ -144,7 +144,7 @@ struct PopoverChartCard: View {
         .dsCard(.standard)
     }
 
-    /// Doses, meals and wake-ups over the longest range (24 hours), whatever's on screen, so
+    /// Doses, meals, wake-ups and notes over the longest range (24 hours), whatever's on screen, so
     /// switching range doesn't count as markers arriving. Something just logged pops in.
     private var markers: [ChartLogMarker] {
         ChartLogMarker.logbook(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts,

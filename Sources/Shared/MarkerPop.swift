@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the glucose chart does when something logged appears on it or leaves it: a new meal, dose,
-/// treatment or wake-up pops in at its time with a small spring, and a deleted one shrinks out
+/// treatment, wake-up or note pops in at its time with a small spring, and a deleted one shrinks out
 /// (Undo brings it back the same way). Plain Foundation so it can be unit-tested; `GlucoseChart`
 /// draws the movement and posts the VoiceOver line.
 ///
@@ -10,7 +10,7 @@ import Foundation
 enum MarkerPop {
     /// What a marker is, for what VoiceOver says about it.
     enum Kind: String, CaseIterable, Equatable, Sendable {
-        case meal, treatment, insulin, wake
+        case meal, treatment, insulin, wake, note
 
         /// "Meal", as said at the start of a sentence.
         var title: String {
@@ -19,6 +19,7 @@ enum MarkerPop {
             case .treatment: return "Treatment"
             case .insulin: return "Insulin"
             case .wake: return "Wake-up"
+            case .note: return "Note"
             }
         }
     }

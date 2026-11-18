@@ -37,6 +37,8 @@ final class MarkerPopTests: XCTestCase {
         XCTAssertEqual(MarkerPop.announcement(added: [.insulin, .insulin], removed: []), "Insulin added to chart")
         XCTAssertEqual(MarkerPop.announcement(added: [.wake, .insulin, .meal], removed: []),
                        "Meal, insulin and wake-up added to chart")
+        XCTAssertEqual(MarkerPop.announcement(added: [.note], removed: []), "Note added to chart")
+        XCTAssertEqual(MarkerPop.announcement(added: [.note, .wake], removed: []), "Wake-up and note added to chart")
         XCTAssertEqual(MarkerPop.announcement(added: [.meal], removed: [.insulin]),
                        "Meal added to chart. Insulin removed from chart")
         XCTAssertNil(MarkerPop.announcement(added: [], removed: []))

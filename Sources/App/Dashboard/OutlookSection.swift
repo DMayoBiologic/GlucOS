@@ -8,6 +8,7 @@ struct OutlookSection: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var outlookStore: OutlookStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var logbook: LogbookStore
     let onLog: () -> Void
 
     /// When the forecast starts drawing in: the card's `dsEntrance(0)` starts at once and is most
@@ -18,6 +19,20 @@ struct OutlookSection: View {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
             content(now: ctx.date)
         }
+    }
+
+    /// What was logged, notes included (`ChartNote`), as in the popover: something just logged pops
+    /// in, hover peeks at it, a click opens its callout, a scrub snaps onto it. Over the popover's
+    /// longest range rather than the chart's 3 hours, so a marker sliding off the left edge isn't
+    /// taken for one being deleted; the chart only draws what's in its window.
+    private func markers(now: Date) -> [ChartLogMarker] {
+        ChartLogMarker.logbook(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts,
+                               since: now.addingTimeInterval(-ChartHours.longestPlotted * 3600))
+    }
+
+    /// The Logbook page with this entry selected (`DashboardRequest`).
+    private func openInLogbook(_ id: UUID) {
+        DashboardRequest.shared.logbookEntry = id
     }
 
     @ViewBuilder
@@ -50,9 +65,11 @@ struct OutlookSection: View {
                     ForecastMotion(forecast: current?.forecast ?? [], drawInDelay: Self.forecastDelay) { forecast, reveal in
                         GlucoseChart(readings: recent, unit: unit, lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl,
                                      hours: 3, interactive: true, forecast: forecast, forecastReveal: reveal,
+                                     events: markers(now: now), popsMarkers: true,
                                      yesterday: settings.showYesterdayLine
                                         ? GlucoseAnalytics.slice(store.archive, from: now.addingTimeInterval(-29 * 3600), to: now)
-                                        : [])
+                                        : [],
+                                     peeksMarkers: true, openInLogbook: openInLogbook, snapsScrub: true)
                     }
                         .yesterdayLineMenu($settings.showYesterdayLine)
                         .frame(height: layout.chartHeight(reserving: 420, minimum: 220, maximum: 380))

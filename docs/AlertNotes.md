@@ -67,3 +67,14 @@ under Reduce Motion. The undo toast moves as it does everywhere (fade only under
 - Store: `LogbookStore.saveAlertNote(_:firedAt:offersUndo:)`, `lastAdd`, `undoAdd`;
   `LogbookUndoOffer.added`.
 - Views: `AlertHistoryContent` / `AlertHistoryRow` in Sources/App/Views/AlertHistoryViews.swift.
+
+## Notes on the chart
+
+Every plain note (a Logbook context entry with text and no tags, alert notes included) shows as a
+small note marker at its time on iPhone Today, the Mac popover and the Mac Outlook chart
+(`ChartNote`, `Sources/Shared/ChartNotes.swift`). It shares the wake-up lane, one lane higher when
+a wake-up is within 20 minutes. Like every other marker it pops in and shrinks out, a hold (iPhone)
+or hover (Mac) peeks at it, a tap or click opens the callout with the note, the peek card offers
+Edit only, and a scrub snaps onto it. VoiceOver reads one line per note ("Note at 3:05 pm: Felt
+shaky"); the marker's button reads the note itself. Static under Reduce Motion. Followers never see
+the person's notes on their chart.
