@@ -12,11 +12,15 @@ Usage: python3 -I scripts/low-treatment-recheck.py windows.txt
 windows.txt: one line per low, "<ISO start> <sec>:<mgdl>,<sec>:<mgdl>,...", seconds from start.
 Export, per window (Supabase, glucos.readings):
 
-    select w.s, string_agg(round(extract(epoch from r.at - w.s))::text||':'||r.mgdl::int, ','
-      order by r.at) from (values ('2026-11-18 01:45'::timestamptz)) w(s)
-    join glucos.readings r on r.at between w.s and w.s + interval '200 min' group by 1;
+    select to_char(w.s at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') || ' ' ||
+      string_agg(round(extract(epoch from r.at - w.s))::text||':'||r.mgdl::int, ',' order by r.at)
+    from (values ('2026-11-18 01:45'::timestamptz)) w(s)
+    join glucos.readings r on r.at between w.s and w.s + interval '200 min' group by w.s;
 
 The logged entries are listed in LOWS / OTHER_CARBS / DOSES below (Logbook, 12–18 Nov 2026).
+To rerun on new lows, add each new treatment to LOWS (episode label, UTC time, grams; a second
+treatment inside the same low shares its episode), each later carb entry that ends a clean window
+to OTHER_CARBS, each rapid dose to DOSES, each new episode to NEW, and a readings window for it.
 """
 import sys, math
 from datetime import datetime, timezone
@@ -80,7 +84,7 @@ def load(path):
 
 def trend(series, t0):
     r = [(t, g) for t, g in series if t0 - 1200 <= t <= t0]
-    if len(r) < 3 or r[-1][0] - r[0][0] < 540: return None
+    if len(r) < 2 or r[-1][0] - r[0][0] < 540: return None
     xs = [(t - t0) / 60 for t, _ in r]; ys = [g for _, g in r]
     mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
     den = sum((x - mx) ** 2 for x in xs)
@@ -126,7 +130,7 @@ def points(series, horizons=(15, 30, 60)):
             if any(t_log < l <= t0 for l in logs): break   # next entry logged: its own forecasts
             tr = trend(series, t0)
             if tr is None: continue
-            nxt = min([l for l in logs if l > t_iss + 1], default=1e18)
+            nxt = min([log for log in logs if log > t0], default=1e18)
             for h in horizons:
                 if t0 + h * 60 > nxt: continue       # after a later log: not clean
                 a = actual(series, t0 + h * 60)
@@ -171,6 +175,8 @@ def main(path):
     tot = {}
     for ep in eps:
         train = [p for p in pts if p['ep'] != ep and p['h'] in (15, 30, 60)]
+        if not train:
+            print(f"  hold out {ep:4s}: no other lows to fit on, refit unavailable"); continue
         best = min(GRID, key=lambda c: mae(train, c))
         test = [p for p in pts if p['ep'] == ep]
         line = []

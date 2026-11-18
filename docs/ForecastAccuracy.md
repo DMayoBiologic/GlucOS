@@ -5712,20 +5712,22 @@ coverage. If 3 or more treatments are again logged during a low that an earlier 
 lifted, test the meal-curve rule above held out on those. §35: nothing to retest on its own; it is
 covered by §70's retest.
 
-To rerun the live §37 table:
+To rerun the live §37 table (drop the time bound for the 2 Dec retest):
 
 ```sql
 with p as (select c.start_mgdl s, c.trend_per_minute tr, (e->>'minutes')::int m,
   (e->>'actual')::float a, (e->>'mgdl')::float f, (e->>'lower')::float lo, (e->>'upper')::float up
   from glucos.forecast_checks c, jsonb_array_elements(c.points) e
   where 'lowTreatment' = any(c.limitations) and e->>'actual' is not null
-    and not coalesce((e->>'after_log')::bool, false))
+    and not coalesce((e->>'after_log')::bool, false)
+    and c.issued_at between '2026-11-18 02:23' and '2026-11-18 03:50')
 select m, count(*), avg(abs(a - f)) shipped,
   avg(abs(a - greatest(39, s + tr * case when m >= 30 then 15 else m - m * m / 60.0 end))) trend_only,
   avg(abs(a - s)) no_change, avg((a between lo and up)::int) inside
 from p group by 1 order by 1;
 ```
 
-and the replay (readings export SQL in its docstring):
+and the replay (readings export SQL in its docstring; for new lows, add them to `LOWS`,
+`OTHER_CARBS`, `DOSES` and `NEW` in the script first, as its docstring lists):
 
     python3 -I scripts/low-treatment-recheck.py windows.txt
