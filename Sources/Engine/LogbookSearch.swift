@@ -298,16 +298,19 @@ enum LogbookSearch {
         }.map(\.id))
     }
 
-    /// Whether an entry is found by the search: inside its time, and every word somewhere in it.
-    static func matches(_ entry: LogEntry, _ query: LogbookQuery, lowIDs: Set<UUID> = []) -> Bool {
+    /// Whether an entry is found by the search: inside its time, and every word somewhere in it or
+    /// in its day's note (`DayNotes`), so "sick" finds everything logged on a "Sick day" and
+    /// "sick pizza" the pizza eaten on one.
+    static func matches(_ entry: LogEntry, _ query: LogbookQuery, lowIDs: Set<UUID> = [], dayNote: String? = nil) -> Bool {
         if let p = query.period, !p.contains(entry.timestamp) { return false }
-        let text = entry.searchText + (lowIDs.contains(entry.id) ? " low hypo" : "")
+        let text = entry.searchText + (lowIDs.contains(entry.id) ? " low hypo" : "") + (dayNote.map { " " + $0 } ?? "")
         return query.terms.allSatisfy { contains(text, $0) }
     }
 
-    static func matches(_ alert: AlertLogRow, _ query: LogbookQuery) -> Bool {
+    static func matches(_ alert: AlertLogRow, _ query: LogbookQuery, dayNote: String? = nil) -> Bool {
         if let p = query.period, !p.contains(alert.timestamp) { return false }
-        return query.terms.allSatisfy { contains(alert.searchText, $0) }
+        let text = alert.searchText + (dayNote.map { " " + $0 } ?? "")
+        return query.terms.allSatisfy { contains(text, $0) }
     }
 
     /// Case and accent blind, and forgiving of a plural ("pizzas" finds "Pizza").

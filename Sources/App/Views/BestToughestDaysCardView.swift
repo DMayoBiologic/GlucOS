@@ -10,6 +10,10 @@ import SwiftUI
 /// shows and again when a new day takes its place; under Reduce Motion it cross-fades instead.
 /// Nothing loops. Callers give it their own card surface.
 ///
+/// A day with a note ("sick day", written from its Logbook header) shows it as a small caption
+/// under its chart, which cross-fades when a new day takes the slot; VoiceOver reads it after the
+/// day. A shared picture leaves notes out.
+///
 /// With `openLogbook`, each day is a button that opens the Logbook on the Best day or Toughest day
 /// chip over that day, midnight to midnight (`LogbookLink.bestDay`). The iPhone zooms the card into
 /// it; the Mac cross-fades to its Logbook section (docs/LogbookSearch.md, "From the Insights cards").
@@ -19,6 +23,9 @@ struct BestToughestDaysCardView: View {
     @Environment(\.insightsStep) private var step
     /// What was logged, marked along the bottom of each day's chart.
     var entries: [LogEntry] = []
+    /// Day notes by date key (`LogbookStore.dayNotes`): a day with one shows it as a caption
+    /// under its chart (`DayNotes`). Left off a shared picture.
+    var dayNotes: [String: String] = [:]
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
@@ -119,20 +126,36 @@ struct BestToughestDaysCardView: View {
         let d = s.day(which)
         let markers = ChartLogMarker.day(entries, start: d.start)
         let logged = entries.filter { d.interval.contains($0.timestamp) && $0.timestamp < d.end }.count
+        let note = shareSnapshot ? nil : DayNotes.note(on: d.start, in: dayNotes)
         let tone: Tone = which == .best || s.muchAlike ? .glucose(.inRange) : .neutral
         let tile = StatTile(which.title, value: BestToughestDaysText.percent(d.figures.inRange),
                             caption: "\(BestToughestDaysText.dayTitle(d, now: now)) · \(BestToughestDaysText.caption(d))",
                             tone: tone, boxed: true,
                             rolling: .init(d.figures.inRange, order: which == .best ? 0 : 1) { BestToughestDaysText.percent($0) }) {
-            HStack(alignment: .bottom, spacing: DS.Space.xs) {
-                DayMiniChart(start: d.start, segments: d.segments, markers: markers, unit: unit,
-                             lowMgdl: lowMgdl, highMgdl: highMgdl, height: 84)
-                    .dayChartDrawIn(d.start)
-                if openLogbook != nil {
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .padding(.bottom, DS.Space.lg)
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                HStack(alignment: .bottom, spacing: DS.Space.xs) {
+                    DayMiniChart(start: d.start, segments: d.segments, markers: markers, unit: unit,
+                                 lowMgdl: lowMgdl, highMgdl: highMgdl, height: 84)
+                        .dayChartDrawIn(d.start)
+                    if openLogbook != nil {
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .padding(.bottom, DS.Space.lg)
+                    }
+                }
+                if let note {
+                    Label {
+                        Text(note).lineLimit(1).truncationMode(.tail)
+                    } icon: {
+                        Image(systemName: "note.text").foregroundStyle(.tertiary)
+                    }
+                    .labelStyle(.titleAndIcon)
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                    // A new day in the slot brings its own note: it cross-fades, never slides.
+                    .id(d.start)
+                    .transition(.opacity)
                 }
             }
             .padding(.top, DS.Space.xs)
@@ -143,8 +166,9 @@ struct BestToughestDaysCardView: View {
             .keyStop("insights.bestDays.\(which)", kind: .control, radius: DS.Radius.tile) { open(which, s) }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(which.title)
-            .accessibilityValue(BestToughestDaysText.spoken(which, s, unit: unit, low: lowMgdl, high: highMgdl,
-                                                            logged: logged, now: now))
+            .accessibilityValue(DayNoteText.withNote(BestToughestDaysText.spoken(which, s, unit: unit, low: lowMgdl,
+                                                                                 high: highMgdl, logged: logged, now: now),
+                                                     note))
             .accessibilityHint(openLogbook == nil ? "" : BestToughestDaysText.logbookHint(which))
     }
 

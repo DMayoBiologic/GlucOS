@@ -31,6 +31,9 @@ final class LogbookStore: ObservableObject {
     /// Each Insights screen's card order and hidden cards (docs/InsightsLayout.md). Synced, one
     /// record per screen; a screen missing here shows the shipped order.
     @Published private(set) var insightsLayouts: [InsightsScreen: InsightsLayout] = [:]
+    /// A few words about a whole day, by date key ("2026-11-18", `DayNotes`). Synced, one record per
+    /// day; shown under the Logbook's day headers and on the Best and toughest days charts.
+    @Published private(set) var dayNotes: [String: String] = [:]
     /// The entries removed by the last delete, kept in memory so it can be undone.
     @Published private(set) var lastDeleted: [LogEntry] = []
     /// When each entry in `lastDeleted` was deleted, as pushed, so sync can tell this device's own
@@ -70,6 +73,8 @@ final class LogbookStore: ObservableObject {
         var alerts: [AlertRecord]? = []
         /// Keyed by `InsightsScreen` raw value.
         var insightsLayouts: [String: InsightsLayout]? = [:]
+        /// Keyed by `DayNotes.key`.
+        var dayNotes: [String: String]? = [:]
     }
 
     private static var url: URL? {
@@ -114,6 +119,7 @@ final class LogbookStore: ObservableObject {
         for (raw, layout) in file.insightsLayouts ?? [:] {
             if let screen = InsightsScreen(rawValue: raw), !layout.isStandard { insightsLayouts[screen] = layout }
         }
+        for (key, text) in file.dayNotes ?? [:] where DayNotes.isValid(key) && !text.isEmpty { dayNotes[key] = text }
         pruneExpiredAlerts()
     }
 
@@ -565,12 +571,33 @@ final class LogbookStore: ObservableObject {
         if moved { persist(notify: false) }
     }
 
+    // MARK: Day notes
+
+    /// The note for the day `date` falls on, if any.
+    func dayNote(on date: Date) -> String? {
+        DayNotes.note(on: date, in: dayNotes)
+    }
+
+    /// Keeps the day's note (tidied by `DayNotes.cleaned`) and syncs it. An empty note removes the
+    /// day's note everywhere. Returns the note as kept, nil when there's none now.
+    @discardableResult
+    func saveDayNote(_ text: String, on date: Date) -> String? {
+        let key = DayNotes.key(for: date)
+        guard let id = DayNotes.recordID(for: key) else { return dayNotes[key] }
+        let kept = DayNotes.cleaned(text)
+        guard kept != (dayNotes[key] ?? "") else { return dayNotes[key] }
+        dayNotes[key] = kept.isEmpty ? nil : kept
+        touch(id, kind: .dayNote, deleted: kept.isEmpty)
+        persist()
+        return dayNotes[key]
+    }
+
     // MARK: Sync
 
     var contents: LogbookContents {
         LogbookContents(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets,
                         foods: foods, bolusSettings: bolusSettings, lowAnswers: lowAnswers, alerts: alerts,
-                        insightsLayouts: insightsLayouts)
+                        insightsLayouts: insightsLayouts, dayNotes: dayNotes)
     }
 
     private func touch(_ id: UUID, kind: LogbookRecordKind, deleted: Bool = false) {
@@ -601,6 +628,7 @@ final class LogbookStore: ObservableObject {
             if c.lowAnswers != lowAnswers { lowAnswers = c.lowAnswers }
             if c.alerts != alerts { alerts = c.alerts }
             if c.insightsLayouts != insightsLayouts { insightsLayouts = c.insightsLayouts }
+            if c.dayNotes != dayNotes { dayNotes = c.dayNotes }
             // Another device may have sent records this one would already have let go.
             pruneAlerts(now: Date())
             persist(notify: false)
@@ -636,7 +664,8 @@ final class LogbookStore: ObservableObject {
         guard let url = Self.url else { return }
         let file = File(doses: doses, meals: meals, siteChanges: siteChanges, contexts: contexts, presets: presets,
                         foods: foods, bolusSettings: bolusSettings, lowAnswers: lowAnswers, alerts: alerts,
-                        insightsLayouts: Dictionary(uniqueKeysWithValues: insightsLayouts.map { ($0.key.rawValue, $0.value) }))
+                        insightsLayouts: Dictionary(uniqueKeysWithValues: insightsLayouts.map { ($0.key.rawValue, $0.value) }),
+                        dayNotes: dayNotes)
         Self.writeQueue.async {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .secondsSince1970
