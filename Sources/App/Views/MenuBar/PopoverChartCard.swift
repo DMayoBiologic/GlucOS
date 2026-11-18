@@ -21,6 +21,10 @@ struct PopoverChartCard: View {
     /// closes it, so Esc closes the callout before anything else.
     @State private var calloutOpen = false
     @State private var closeCallout = 0
+    /// A right-click over a marker opens its peek card (`MarkerActions`) instead of the
+    /// yesterday-line menu: the monitor takes it while the chart says the pointer is on one.
+    @State private var rightClicks = MarkerRightClickMonitor()
+    @State private var pinHovered = 0
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -67,9 +71,13 @@ struct PopoverChartCard: View {
                              hours: Double(settings.chartHours), interactive: true, pinnedDate: pinned,
                              forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true, ripplesNewReading: true,
                              yesterday: yesterday, peeksMarkers: true,
-                             openInLogbook: openInLogbook, closesCallout: closeCallout, snapsScrub: true)
+                             openInLogbook: openInLogbook, closesCallout: closeCallout, snapsScrub: true,
+                             markerActions: markerAction, pinsHoveredMarker: pinHovered)
             }
                 .onPreferenceChange(MarkerCalloutOpenKey.self) { calloutOpen = $0 }
+                .onPreferenceChange(MarkerHoveredKey.self) { rightClicks.armed = $0 }
+                .onAppear { rightClicks.start { pinHovered += 1 } }
+                .onDisappear { rightClicks.stop() }
                 .frame(height: 136)
                 .focusable()
                 .focused($chartFocused)
@@ -103,9 +111,10 @@ struct PopoverChartCard: View {
                 .onChange(of: settings.chartHours) { _, _ in pinned = nil }
                 // Pinch on the trackpad steps through the spans, as on iPhone.
                 .chartHoursPinch($settings.chartHours)
-                // Right-click for yesterday's faint line (also in Settings → Menu Bar).
+                // Right-click for yesterday's faint line (also in Settings → Menu Bar); right-click a
+                // marker for its Edit / Log Again Now card instead.
                 .yesterdayLineMenu($settings.showYesterdayLine)
-                .help("Hover to see readings, click a marker for what was logged, or click and use ← →")
+                .help("Hover to see readings, click a marker for what was logged, right-click it to edit or log it again, or click and use ← →")
                 // A group, so its name doesn't land on the marker buttons inside it.
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
@@ -142,6 +151,21 @@ struct PopoverChartCard: View {
         DashboardRequest.shared.logbookEntry = id
         openWindow(id: DashboardView.windowID)
         NSApp.activate()
+    }
+
+    /// Edit or Log Again Now on a marker's peek card. Edit opens the log window on the entry;
+    /// Log Again Now logs the same entry at the current time (`LogEntry.copied`), as the Logbook's
+    /// right-click menu does, and its marker pops in. Gone meanwhile (deleted on the iPhone): nothing.
+    private func markerAction(_ action: MarkerActions.Action, _ id: UUID) {
+        guard let entry = logbook.entry(id: id) else { return }
+        switch action {
+        case .edit:
+            LogWindowRequest.shared.target = .edit(entry)
+            openWindow(id: LogWindow.id)
+            NSApp.activate()
+        case .logAgainNow:
+            _ = DS.animate(.standard, reduceMotion: reduceMotion) { logbook.duplicate(entry) }
+        }
     }
 
     private func withoutForecast(_ o: OutlookSnapshot) -> OutlookSnapshot {
@@ -232,6 +256,46 @@ struct PopoverChartCard: View {
               let line = YesterdayLine.spoken(YesterdayLine.reading(at: window.last?.timestamp ?? Date(), in: yesterday), unit: store.shownUnit)
         else { return sentence }
         return sentence + " " + line
+    }
+}
+
+/// Takes a right-click (or Control-click) over a chart marker for its peek card, before it reaches
+/// the chart's yesterday-line menu. Only while `armed` (the pointer is on a marker, from
+/// `MarkerHoveredKey`); every other click goes through untouched.
+@MainActor
+final class MarkerRightClickMonitor {
+    /// Set as the pointer comes onto a marker, with the window it's over (the popover's), so a
+    /// right-click in any other window (the dashboard, after the popover closed) is never taken.
+    var armed = false {
+        didSet {
+            guard armed != oldValue else { return }
+            window = armed ? Self.windowUnderPointer() : nil
+        }
+    }
+    private var window: NSWindow?
+    private var monitor: Any?
+
+    nonisolated init() {}
+
+    private static func windowUnderPointer() -> NSWindow? {
+        let number = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+        return NSApp.window(withWindowNumber: number)
+    }
+
+    func start(_ pin: @escaping () -> Void) {
+        stop()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
+            guard let self, self.armed, let window = self.window, event.window === window else { return event }
+            if event.type == .leftMouseDown, !event.modifierFlags.contains(.control) { return event }
+            pin()
+            return nil
+        }
+    }
+
+    func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        armed = false
     }
 }
 

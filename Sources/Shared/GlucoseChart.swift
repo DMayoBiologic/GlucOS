@@ -69,6 +69,15 @@ struct GlucoseChart: View {
     /// iPhone and one VoiceOver line. Instant under Reduce Motion. iPhone Today and the Mac popover;
     /// interactive charts only.
     var snapsScrub: Bool = false
+    /// Does what's picked on a marker's peek card (`MarkerActions`): Edit or Log Again Now, for the
+    /// entry with that id. Given, holding a marker on iPhone past the peek, or right-clicking one on
+    /// the Mac (`pinsHoveredMarker`), opens its callout with those buttons, and VoiceOver offers it
+    /// as an action on each marker. The card never logs anything by itself: only these buttons do.
+    /// iPhone Today and the Mac popover; interactive charts only.
+    var markerActions: ((MarkerActions.Action, UUID) -> Void)? = nil
+    /// Mac: bump to open the peek card on the marker under the pointer, from a right-click the
+    /// screen around the chart caught while `MarkerHoveredKey` said the pointer was on one.
+    var pinsHoveredMarker: Int = 0
 
     @State private var hoverDate: Date?
     /// What Charts' two-finger range selection last reported, armed or not.
@@ -88,6 +97,10 @@ struct GlucoseChart: View {
     @State private var pressingMarker = false
     /// The marker whose callout is open, after a tap or click on it (`MarkerCallout`).
     @State private var callout: UUID?
+    /// What the open callout shows: the details a tap opens, or the peek card's actions.
+    @State private var calloutStyle: MarkerActions.Style = .details
+    /// The marker under the pointer (Mac), whatever else is showing, for a right-click's card.
+    @State private var hoveredMarker: UUID?
     /// VoiceOver moves onto an open callout, so what was logged is read straight away.
     @AccessibilityFocusState private var calloutVoiceOverFocus: Bool
     #if os(macOS)
@@ -218,8 +231,12 @@ struct GlucoseChart: View {
             if let new {
                 // A peek has the finger, or two fingers are picking a span: the readout stays
                 // away until they lift.
-                // A scrub starting while a callout is open only closes it.
-                if callout != nil { closeCallout(); return }
+                // A scrub starting while a callout is open only closes it. Not while the finger that
+                // held a marker into its peek card is still down on it: lifting leaves the card open.
+                if callout != nil {
+                    if !pressingMarker { closeCallout() }
+                    return
+                }
                 guard peeked == nil, span == nil, spanTouch == nil else { return }
                 if !touching { touching = true; scrubbedFrom = nil; resetSnap(); snapStart = new }
                 touchGeneration += 1
@@ -502,6 +519,9 @@ struct GlucoseChart: View {
     /// Whether a tap on a marker opens its callout.
     private var opensCallouts: Bool { interactive && openInLogbook != nil }
 
+    /// Whether a long hold (iPhone) or right-click (Mac) on a marker opens its peek card.
+    private var opensActionCards: Bool { interactive && markerActions != nil }
+
     /// The layer that finds a held (iPhone) or hovered (Mac) marker, and the card over it. With
     /// callouts on, it also finds a tapped or clicked one.
     @ViewBuilder
@@ -515,7 +535,9 @@ struct GlucoseChart: View {
         }
         MarkerPeekLayer(proxy: proxy, markers: placed,
                         pressing: { pressingMarker = $0 }, peek: setPeek,
-                        tap: opensCallouts ? { tapMarker($0) } : nil)
+                        tap: opensCallouts ? { tapMarker($0) } : nil,
+                        pin: opensActionCards ? { pinMarker($0) } : nil,
+                        hovering: { if hoveredMarker != $0 { hoveredMarker = $0 } })
         if peeksMarkers, let id = peeked, let marker = markers.first(where: { $0.id == id }) {
             MarkerPeekCard(proxy: proxy, marker: marker, value: markerY(lane: marker.lane, yd: yd),
                            detail: MarkerPeek.detail(date: marker.date, now: Date(), readings: window, unit: unit))
@@ -552,20 +574,37 @@ struct GlucoseChart: View {
     // MARK: Marker callout
 
     /// A tap (iPhone) or click (Mac) on a marker: its callout opens, moves to it from another
-    /// marker, or closes when it was already open (`MarkerCallout.toggled`).
+    /// marker, or closes when it was already open (`MarkerCallout.toggled`), whichever it showed.
     private func tapMarker(_ id: UUID) {
-        let next = MarkerCallout.toggled(open: callout, tapped: id)
-        guard next != nil else { closeCallout(); return }
+        guard let next = MarkerCallout.toggled(open: callout, tapped: id) else { closeCallout(); return }
+        openCallout(next, style: .details)
+    }
+
+    /// A hold past the peek (iPhone) or a right-click (Mac) on a marker: its peek card, with Edit
+    /// and Log Again Now (`MarkerActions`). Doing it again on the open card leaves it open.
+    private func pinMarker(_ id: UUID) {
+        guard opensActionCards, callout != id || calloutStyle != .actions else { return }
+        openCallout(id, style: .actions)
+    }
+
+    /// Opens the callout on `next` as `style`. A peek showing makes way as the card grows out of
+    /// the same marker, so a held peek turns into the card rather than blinking out first.
+    private func openCallout(_ next: UUID, style: MarkerActions.Style) {
+        let fromPeek = peeked != nil
         withTransaction(Transaction(animation: nil)) {
             hoverDate = nil
             touching = false
             scrubbedFrom = nil
-            peeked = nil
+            if !fromPeek { peeked = nil }
         }
         #if os(iOS)
-        Haptics.play(.scrubLogged)
+        Haptics.play(style == .actions ? .choice : .scrubLogged)
         #endif
-        withAnimation(MarkerCalloutMotion.animation(showing: true, reduceMotion: reduceMotion)) { callout = next }
+        withAnimation(MarkerCalloutMotion.animation(showing: true, reduceMotion: reduceMotion)) {
+            peeked = nil
+            calloutStyle = style
+            callout = next
+        }
         // Once it's in place, VoiceOver reads it, and on the Mac it takes the keyboard for Esc.
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
@@ -575,6 +614,31 @@ struct GlucoseChart: View {
             calloutKeyFocus = true
             #endif
         }
+    }
+
+    /// Mac: a right-click the screen caught over a marker.
+    private func pinHoveredMarker() {
+        guard let id = hoveredMarker else { return }
+        pinMarker(id)
+    }
+
+    /// A button on the peek card. Edit goes at once, as the log sheet opens over it; Log Again Now
+    /// puts the card away and lets the new marker pop in, and VoiceOver hears it was logged.
+    private func act(_ action: MarkerActions.Action, on marker: ChartLogMarker) {
+        switch action {
+        case .edit:
+            withTransaction(Transaction(animation: nil)) { callout = nil }
+            calloutVoiceOverFocus = false
+            #if os(macOS)
+            calloutKeyFocus = false
+            #endif
+        case .logAgainNow:
+            closeCallout()
+            var spoken = AttributedString(MarkerActions.loggedAgain(kind: marker.kind, at: Date()))
+            spoken.accessibilitySpeechAnnouncementPriority = .high
+            AccessibilityNotification.Announcement(spoken).post()
+        }
+        markerActions?(action, marker.id)
     }
 
     private func closeCallout() {
@@ -597,7 +661,7 @@ struct GlucoseChart: View {
     /// into its summary.
     @ViewBuilder
     private func calloutLayer(proxy: ChartProxy, yd: ClosedRange<Double>, window: [GlucoseReading]) -> some View {
-        if opensCallouts {
+        if opensCallouts || opensActionCards {
             let markers = peekable(window).filter { $0.callout != nil }
             GeometryReader { geo in
                 if let plotFrame = proxy.plotFrame {
@@ -610,7 +674,10 @@ struct GlucoseChart: View {
                     ForEach(markers) { m in
                         if let p = point(m), let content = m.callout {
                             MarkerVoiceOverButton(label: MarkerCallout.spoken(content, date: m.date),
-                                                  open: callout == m.id) { tapMarker(m.id) }
+                                                  open: callout == m.id, opensDetails: opensCallouts,
+                                                  showActions: opensActionCards ? { pinMarker(m.id) } : nil) {
+                                if opensCallouts { tapMarker(m.id) } else { pinMarker(m.id) }
+                            }
                                 .position(p)
                         }
                     }
@@ -634,7 +701,8 @@ struct GlucoseChart: View {
         let bottom = max(marker.y - 14, 0)
         MarkerCalloutCard(marker: m, content: content, time: MarkerCallout.timeLine(m.date, now: Date()),
                           voiceOverFocus: $calloutVoiceOverFocus,
-                          open: { openCalloutEntry(m.id) }, close: closeCallout)
+                          actions: calloutStyle == .actions ? MarkerActions.actions(for: m.kind) : nil,
+                          open: { openCalloutEntry(m.id) }, act: { act($0, on: m) }, close: closeCallout)
             .calloutKeyFocus(calloutKeyFocusBinding)
             .frame(width: width)
             .fixedSize(horizontal: false, vertical: true)
@@ -701,6 +769,7 @@ struct GlucoseChart: View {
         peeked = nil
         pressingMarker = false
         callout = nil
+        hoveredMarker = nil
     }
 
     private func landed(_ flight: MarkerFlight) {
@@ -949,7 +1018,7 @@ struct GlucoseChart: View {
                 }
             }
             markerOverlays(proxy: proxy, yd: yd)
-            if interactive, peeksMarkers || opensCallouts {
+            if interactive, peeksMarkers || opensCallouts || opensActionCards {
                 markerPeek(proxy: proxy, yd: yd, window: window)
             }
             spanOverlay(proxy: proxy, window: window)
@@ -1008,6 +1077,8 @@ struct GlucoseChart: View {
             // elements of their own rather than folded into the summary.
             .chartOverlay { proxy in calloutLayer(proxy: proxy, yd: yd, window: window) }
             .preference(key: MarkerCalloutOpenKey.self, value: callout != nil)
+            .preference(key: MarkerHoveredKey.self, value: opensActionCards && hoveredMarker != nil)
+            .onChange(of: pinsHoveredMarker) { _, _ in pinHoveredMarker() }
             .onChange(of: peekable(window).map(\.id)) { _, ids in calloutMarkersChanged(ids) }
             .onChange(of: closesCallout) { _, _ in closeCallout() }
             .onChange(of: hours) { _, _ in closeCallout() }
@@ -1476,8 +1547,14 @@ private struct MarkerPeekLayer: View {
     let peek: (UUID?) -> Void
     /// A tap (iPhone) or click (Mac) on a marker, when callouts are on (`MarkerCallout`).
     var tap: ((UUID) -> Void)? = nil
+    /// A hold past the peek (iPhone), when peek cards are on (`MarkerActions`).
+    var pin: ((UUID) -> Void)? = nil
+    /// The marker under the pointer (Mac), or nil, as it changes, for a right-click.
+    var hovering: ((UUID?) -> Void)? = nil
     #if os(iOS)
     @State private var hold: Task<Void, Never>?
+    /// The finger slid past the slop after the peek showed: still a peek, never the card.
+    @State private var slid = false
     @State private var down: CGPoint?
     @State private var downAt: Date?
     @State private var downOn: UUID?
@@ -1518,12 +1595,21 @@ private struct MarkerPeekLayer: View {
                 guard !Task.isCancelled else { return }
                 peeking = true
                 peek(id)
+                // Held on, still, past `MarkerActions.pinAfter`: the peek turns into the card.
+                guard let pin else { return }
+                try? await Task.sleep(for: .seconds(MarkerActions.pinAfter - MarkerPeek.holdDuration))
+                guard !Task.isCancelled, !slid else { return }
+                pin(id)
             }
-        } else if !peeking, !MarkerPeek.isHolding(dx: Double(value.translation.width), dy: Double(value.translation.height)) {
-            hold?.cancel()
-            hold = nil
-            downOn = nil
-            pressing(false)
+        } else if !MarkerPeek.isHolding(dx: Double(value.translation.width), dy: Double(value.translation.height)) {
+            if peeking {
+                slid = true
+            } else {
+                hold?.cancel()
+                hold = nil
+                downOn = nil
+                pressing(false)
+            }
         }
     }
 
@@ -1542,6 +1628,7 @@ private struct MarkerPeekLayer: View {
         downOn = nil
         if peeking { peek(nil) }
         peeking = false
+        slid = false
         pressing(false)
         if let tapped, let tap { tap(tapped) }
     }
@@ -1550,8 +1637,13 @@ private struct MarkerPeekLayer: View {
     #if os(macOS)
     fileprivate func hovered(_ phase: HoverPhase, spots: [MarkerPeek.Spot]) {
         switch phase {
-        case .active(let p): peek(MarkerPeek.hit(x: Double(p.x), y: Double(p.y), in: spots))
-        case .ended: peek(nil)
+        case .active(let p):
+            let id = MarkerPeek.hit(x: Double(p.x), y: Double(p.y), in: spots)
+            hovering?(id)
+            peek(id)
+        case .ended:
+            hovering?(nil)
+            peek(nil)
         }
     }
 
@@ -1673,6 +1765,14 @@ private struct MarkerPeekCard: View {
 
 // MARK: - Marker callout
 
+/// Mac: whether the pointer is over a logged marker that a right-click would open the peek card
+/// on (`GlucoseChart.markerActions`). The popover reads it to take that right-click for the card
+/// rather than the yesterday-line menu, and bumps `pinsHoveredMarker`.
+struct MarkerHoveredKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
 /// Whether a marker's callout is open (`GlucoseChart.openInLogbook`). The Mac popover reads it so
 /// Esc closes the callout first, while the chart around it has focus, before it closes anything else.
 struct MarkerCalloutOpenKey: PreferenceKey {
@@ -1715,6 +1815,10 @@ private struct MarkerCalloutDismissLayer: View {
 private struct MarkerVoiceOverButton: View {
     let label: String
     let open: Bool
+    /// Whether activating it shows the details (a tap's callout) rather than the peek card.
+    var opensDetails = true
+    /// The "Edit or Log Again" action, opening the peek card (`MarkerActions`). Nil: not offered.
+    var showActions: (() -> Void)? = nil
     let action: () -> Void
 
     var body: some View {
@@ -1724,8 +1828,19 @@ private struct MarkerVoiceOverButton: View {
             .accessibilityElement()
             .accessibilityLabel(label)
             .accessibilityAddTraits(.isButton)
-            .accessibilityHint(open ? "Closes what was logged." : "Shows what was logged, with Open in Logbook.")
+            .accessibilityHint(hint)
             .accessibilityAction { action() }
+            .accessibilityActions {
+                if let showActions {
+                    Button(MarkerActions.voiceOverActionName, action: showActions)
+                }
+            }
+    }
+
+    private var hint: String {
+        if open { return "Closes what was logged." }
+        // VoiceOver says "actions available" itself when Edit or Log Again is offered.
+        return opensDetails ? "Shows what was logged, with Open in Logbook." : "Shows what was logged, with Edit and Log Again Now."
     }
 }
 
@@ -1736,7 +1851,10 @@ private struct MarkerCalloutCard: View {
     let content: MarkerCallout.Content
     let time: String
     var voiceOverFocus: AccessibilityFocusState<Bool>.Binding
+    /// The peek card's buttons, in place of Open in Logbook. Nil: the details a tap opens.
+    var actions: [MarkerActions.Action]? = nil
     let open: () -> Void
+    var act: (MarkerActions.Action) -> Void = { _ in }
     let close: () -> Void
 
     var body: some View {
@@ -1771,20 +1889,11 @@ private struct MarkerCalloutCard: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityFocused(voiceOverFocus)
-            Button(action: open) {
-                HStack(spacing: 2) {
-                    Text("Open in Logbook")
-                    Image(systemName: "chevron.right")
-                        .imageScale(.small)
-                        .accessibilityHidden(true)
-                }
-                .dsFont(.label)
-                .fontWeight(.semibold)
-                .contentShape(Rectangle())
+            if let actions {
+                actionButtons(actions)
+            } else {
+                openButton
             }
-            .buttonStyle(.borderless)
-            .padding(.leading, 16 + DS.Space.sm)
-            .accessibilityLabel("Open in Logbook")
         }
         .padding(.horizontal, DS.Space.sm)
         .padding(.vertical, DS.Space.xs + 2)
@@ -1798,6 +1907,47 @@ private struct MarkerCalloutCard: View {
             close()
             return .handled
         }
+    }
+
+    /// Edit and Log Again Now, side by side, or one above the other when they don't fit (larger
+    /// text). Each needs its own tap or click: nothing is logged by the card opening.
+    private func actionButtons(_ actions: [MarkerActions.Action]) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: DS.Space.xs) { ForEach(actions, id: \.self) { actionButton($0) } }
+            VStack(alignment: .leading, spacing: DS.Space.xs) { ForEach(actions, id: \.self) { actionButton($0) } }
+        }
+        .padding(.leading, 16 + DS.Space.sm)
+        .padding(.top, 2)
+    }
+
+    private func actionButton(_ action: MarkerActions.Action) -> some View {
+        Button { act(action) } label: {
+            Label(action.title, systemImage: action.systemImage)
+                .dsFont(.label)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .accessibilityLabel(action.title)
+        .accessibilityHint(MarkerActions.hint(action, kind: marker.kind))
+    }
+
+    private var openButton: some View {
+        Button(action: open) {
+            HStack(spacing: 2) {
+                Text("Open in Logbook")
+                Image(systemName: "chevron.right")
+                    .imageScale(.small)
+                    .accessibilityHidden(true)
+            }
+            .dsFont(.label)
+            .fontWeight(.semibold)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .padding(.leading, 16 + DS.Space.sm)
+        .accessibilityLabel("Open in Logbook")
     }
 }
 
