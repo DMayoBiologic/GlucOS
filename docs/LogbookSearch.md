@@ -264,14 +264,20 @@ tested in `DayCompareTests`; the view is `Sources/App/Logbook/DayCompareView.swi
 - **Figures.** Time in range (the day bar's figure and coverage rule, "–" when a day has too few
   readings), the average of the 5-minute means, and the number of lows and highs (runs of 15
   minutes or more outside the lines, the Insights rule). Nothing says which day was better.
-- **Stepping.** The chevrons beside the second day move it a day at a time, skipping the first
-  day and days without readings, never past today.
-- **Motion and VoiceOver.** The second line fades in when the comparison opens; stepping fades it
-  out and back while the figures roll. Under Reduce Motion the line switches at once and the
-  figures cross-fade. VoiceOver reads the chart as one element naming both days and the target,
-  then one summary per day ("Today: 78% in range, average 7.2 mmol/L, 1 low, 2 highs."), hears
-  "Comparing Today with Monday 11 November." when it opens or steps, and has Compare with Another
-  Day as a header action on iPhone and a Day cell action on the Mac. The calendar's Compare says
+- **Stepping and swapping.** The chevrons beside the second day move it a day at a time, skipping
+  the first day and days without readings, never past today. The swap button beside the first
+  day's name trades the two days' places (solid and dashed lines swap too).
+- **Motion and VoiceOver.** Round 75 (`DayCompareMotion`, Engine, tested in
+  `DayCompareMotionTests`): the second line draws in from midnight on the left when the comparison
+  opens. Stepping or swapping cross-slides each changed line: the old one slides 150 minutes away
+  and fades while the new one slides in from the other side (a later day from the right), and the
+  side-by-side figures roll with `rollingDigits`. The chart is redrawn per frame from cut and
+  shifted runs, so Swift Charts never animates on its own. Under Reduce Motion the lines and
+  figures switch at once. VoiceOver reads the chart as one element naming both days and the
+  target, then one summary per day ("Today: 78% in range, average 7.2 mmol/L, 1 low, 2 highs."),
+  hears "Comparing Today with Monday 11 November." once when it opens and once per step or swap,
+  and has Compare with Another Day as a header action on iPhone and a Day cell action on the Mac.
+  The calendar's Compare says
   what to pick.
 - iPhone: a sheet with Done (medium and large detents). Mac: a sheet with Done (Return or Esc).
 
