@@ -94,6 +94,10 @@ struct AlertSnoozes: Codable, Hashable {
     static let treatOnlyCategory = "glucos.alert.urgent"
     static let snoozeAction = "alert.snooze"
     static let treatAction = "alert.treat"
+    /// "Add note": a text field on the notification (docs/AlertNotes.md). It saves a Logbook note at
+    /// the alert's time and does nothing else: no snooze, no log sheet. Not on the in-app banner,
+    /// so it isn't in `buttonTitles`.
+    static let noteAction = "alert.note"
     /// The button titles. "Log treatment" only opens the log sheet: nothing is logged until Log.
     static let treatTitle = "Log treatment"
     static var snoozeTitle: String { "Snooze \(snoozeMinutes) min" }

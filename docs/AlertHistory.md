@@ -25,6 +25,8 @@ iPhone and the Mac, grouped by day (Today, Yesterday, Mon 16 Nov…), newest fir
   the history says it was tapped, not that the low was treated.
 - **Test alerts** (docs/TestAlert.md) are never recorded, so they never show.
 - Nothing to list: "No alerts in the last 7 days", saying why (alerts off, or none went off).
+- **Notes**: each row's pencil adds a short Logbook note at the alert's time, shown under the
+  outcome (docs/AlertNotes.md).
 
 ## Dismissed
 

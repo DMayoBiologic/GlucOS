@@ -45,11 +45,15 @@ final class LogbookStore: ObservableObject {
     /// The last change made to several entries at once (tags on the Logbook's selection), kept in
     /// memory so it can be undone (`LogbookBatchEditUndo`). Also one Undo at a time.
     @Published private(set) var lastBatch: LogbookBatchEditUndo?
+    /// The last note added from Alert History, kept so it can be taken back (`LogbookAddUndo`).
+    /// Also one Undo at a time.
+    @Published private(set) var lastAdd: LogbookAddUndo?
 
     /// What the undo toast offers, if anything.
     var undoOffer: LogbookUndoOffer? {
         if let lastEdit { return .edited(lastEdit) }
         if let lastBatch { return .batch(lastBatch) }
+        if let lastAdd { return .added(lastAdd) }
         return lastDeleted.isEmpty ? nil : .deleted(lastDeleted)
     }
 
@@ -153,6 +157,7 @@ final class LogbookStore: ObservableObject {
         // ends its Undo, so Undo never throws that change away.
         if lastEdit?.before.id == entry.id { lastEdit = nil }
         if let batch = lastBatch, batch.ids.contains(entry.id) { lastBatch = batch.dropping([entry.id]) }
+        if lastAdd?.entry.id == entry.id { lastAdd = nil }
         if case .dose(let d) = entry {
             // Only a new name is added to the list: editing an old dose's note mustn't bring back
             // an insulin the user deleted.
@@ -259,6 +264,7 @@ final class LogbookStore: ObservableObject {
         // One Undo at a time: the delete's replaces a pending edit's.
         lastEdit = nil
         lastBatch = nil
+        lastAdd = nil
         // Accumulate while the undo banner is up, so Undo restores every delete since.
         lastDeleted += removed
         doses.removeAll { ids.contains($0.id) }
@@ -293,6 +299,7 @@ final class LogbookStore: ObservableObject {
         deletedAt = [:]
         lastEdit = nil
         lastBatch = nil
+        lastAdd = nil
     }
 
     /// After a log sheet saves an edit: offers Undo for it, if the entry changed. `before` is the
@@ -305,6 +312,7 @@ final class LogbookStore: ObservableObject {
         lastDeleted = []
         deletedAt = [:]
         lastBatch = nil
+        lastAdd = nil
         lastEdit = offer
     }
 
@@ -343,6 +351,7 @@ final class LogbookStore: ObservableObject {
             lastDeleted = []
             deletedAt = [:]
             lastEdit = nil
+            lastAdd = nil
             lastBatch = offer
         }
         return changed.count
@@ -363,9 +372,57 @@ final class LogbookStore: ObservableObject {
         persist()
     }
 
-    /// Undo on the toast: the last edit, the last batch change, or the last delete.
+    /// Undo on the toast: the last edit, the last batch change, the last added note, or the last
+    /// delete.
     func undo() {
-        if lastEdit != nil { undoEdit() } else if lastBatch != nil { undoBatch() } else { undoDelete() }
+        if lastEdit != nil { undoEdit() } else if lastBatch != nil { undoBatch() } else if lastAdd != nil { undoAdd() } else { undoDelete() }
+    }
+
+    /// Takes the last added note off again, on every device (a delete with no Undo of its own).
+    /// Does nothing if it has gone since.
+    func undoAdd() {
+        guard let add = lastAdd else { return }
+        lastAdd = nil
+        guard let id = add.removal(current: entry(id: add.entry.id)) else { return }
+        doses.removeAll { $0.id == id }
+        meals.removeAll { $0.id == id }
+        siteChanges.removeAll { $0.id == id }
+        contexts.removeAll { $0.id == id }
+        touch(id, kind: add.entry.recordKind, deleted: true)
+        persist()
+    }
+
+    // MARK: Alert notes
+
+    /// Saves `text` as the note on the alert that went off at `firedAt` (docs/AlertNotes.md): a new
+    /// plain note at that time, or the alert's existing note with new text, or, for empty text,
+    /// the existing note deleted. Syncs like any entry. With `offersUndo` the toast offers
+    /// "Added note · Undo" (or the edit's or delete's Undo). Never logs a treatment, never
+    /// snoozes. Returns the note's id, nil when there's none now.
+    @discardableResult
+    func saveAlertNote(_ text: String, firedAt: Date, offersUndo: Bool = true) -> UUID? {
+        let existing = AlertNote.existing(near: firedAt, in: contexts)
+        switch AlertNote.change(text: text, firedAt: firedAt, existing: existing) {
+        case .none:
+            return existing?.id
+        case .remove(let id):
+            delete(ids: [id])
+            return nil
+        case .save(let note):
+            let before = existing.map(LogEntry.context)
+            save(.context(note))
+            guard offersUndo else { return note.id }
+            if before != nil {
+                offerEditUndo(before: before)
+            } else {
+                lastDeleted = []
+                deletedAt = [:]
+                lastEdit = nil
+                lastBatch = nil
+                lastAdd = LogbookAddUndo(entry: .context(note), addedAt: syncState.pending[note.id]?.modified)
+            }
+            return note.id
+        }
     }
 
     /// A copy of `entry` at `time` with a fresh id ("Log again now", `LogEntry.copied`). Returns the
@@ -701,6 +758,7 @@ final class LogbookStore: ObservableObject {
         // more. Our own tombstone coming back from the server leaves Undo alone.
         if let edit = lastEdit, edit.superseded(by: records) { lastEdit = nil }
         if let batch = lastBatch { lastBatch = batch.dropping(batch.superseded(by: records)) }
+        if let add = lastAdd, add.superseded(by: records) { lastAdd = nil }
         let gone = LogbookUndo.superseded(by: records, deletedAt: deletedAt)
         if !gone.isEmpty {
             lastDeleted.removeAll { gone.contains($0.id) }

@@ -224,6 +224,7 @@ enum LogbookExport {
             if c.tags == [.wokeUp] { type = "Woke up" }
             else if c.tags == [.bedtime] { type = "Went to sleep" }
             else if c.tags.contains(.hypoTreatment) { type = "Hypo treatment" }
+            else if AlertNote.isNote(c) { type = "Note" }
             else { type = "Event" }
             let details = c.sortedTags.filter { $0.title != type }.map(\.title).joined(separator: ", ")
             return Row(timestamp: c.timestamp, type: type, details: details, insulinUnits: nil,
