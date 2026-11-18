@@ -826,6 +826,41 @@ struct GlucoseChart: View {
         return out
     }
 
+    private func chartSummary(window: [GlucoseReading], stale: Bool, forecastEnd: ForecastSample?) -> String {
+        let from = window.first?.timestamp ?? .distantFuture
+        return ChartSummary.sentence(.init(
+            readings: window, lowMgdl: lowMgdl, highMgdl: highMgdl, unit: unit, hours: hours, stale: stale,
+            forecastEnd: forecastEnd, loggedCount: events.filter { $0.date >= from }.count))
+    }
+
+    /// The gaps among what's plotted, when this chart explains them.
+    private func readingGaps(in plotted: [GlucoseReading]) -> [ReadingGaps.Gap] {
+        guard interactive, let context = gapContext else { return [] }
+        return ReadingGaps.find(in: plotted, context: context)
+    }
+
+    private func gapCardShowing(_ gaps: [ReadingGaps.Gap]) -> Bool {
+        guard let id = openGap else { return false }
+        return gaps.contains { $0.id == id }
+    }
+
+    private func gapsSpoken(_ gaps: [ReadingGaps.Gap], visibleFrom: Date?) -> String {
+        let from = visibleFrom ?? .distantFuture
+        guard let line = ReadingGaps.spoken(gaps.filter { $0.end >= from }) else { return "" }
+        return " " + line
+    }
+
+    /// Each stretch's gradient, stretched over that stretch, so its stops follow what's drawn.
+    private func traceStyles(_ segments: [[GlucoseReading]]) -> [LinearGradient] {
+        var out: [LinearGradient] = []
+        for seg in segments {
+            let values = seg.map(\.mgdl)
+            out.append(ThresholdGradient.style(minMgdl: values.min() ?? lowMgdl, maxMgdl: values.max() ?? highMgdl,
+                                               low: lowMgdl, high: highMgdl))
+        }
+        return out
+    }
+
     private func color(for mgdl: Double) -> Color {
         GlucoseRange.classify(mgdl: mgdl, low: lowMgdl, high: highMgdl).color
     }
@@ -849,22 +884,17 @@ struct GlucoseChart: View {
         let floor = yd.lowerBound
         // Where readings stopped and started again, with why (`ReadingGaps`). The trace breaks at
         // each, so the dashed bridge over it is the only line there.
-        let gaps = interactive ? gapContext.map { ReadingGaps.find(in: plotted, context: $0) } ?? [] : []
-        let segments = Self.segments(plotted, gaps: gaps)
+        let gaps: [ReadingGaps.Gap] = readingGaps(in: plotted)
+        let segments: [[GlucoseReading]] = Self.segments(plotted, gaps: gaps)
         // A gap's card stands in for the readout while it shows.
-        let gapCardOpen = openGap.map { id in gaps.contains { $0.id == id } } ?? false
+        let gapCardOpen: Bool = gapCardShowing(gaps)
         // One line in VoiceOver's summary for the gaps that end on screen.
-        let visibleFrom = window.first?.timestamp ?? .distantFuture
-        let gapSpoken: String = ReadingGaps.spoken(gaps.filter { $0.end >= visibleFrom }).map { " " + $0 } ?? ""
-        let hovered = interactive && peeked == nil && callout == nil && span == nil && !forecastOpen && !gapCardOpen
-            ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
+        let gapSpoken: String = gapsSpoken(gaps, visibleFrom: window.first?.timestamp)
+        let readoutFree: Bool = interactive && peeked == nil && callout == nil && span == nil && !forecastOpen
+        let hovered: GlucoseReading? = readoutFree && !gapCardOpen ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
         // The gradient is stretched over the drawn line, so its stops follow what's plotted.
         // With gaps, each unbroken stretch is its own line, with its own stops.
-        let lineStyles = segments.map { seg in
-            ThresholdGradient.style(minMgdl: seg.map(\.mgdl).min() ?? lowMgdl,
-                                    maxMgdl: seg.map(\.mgdl).max() ?? highMgdl,
-                                    low: lowMgdl, high: highMgdl)
-        }
+        let lineStyles: [LinearGradient] = traceStyles(segments)
         let stale = latestIsStale
             ?? (window.last.map { Date().timeIntervalSince($0.timestamp) > GlucoseSnapshot.staleAfter } ?? true)
         let currentTint = stale ? Palette.stale : (window.last.map { color(for: $0.mgdl) } ?? Palette.stale)
@@ -872,6 +902,9 @@ struct GlucoseChart: View {
         // What's drawn of it so far. Indexed rather than keyed by time, so the marks keep their
         // identity while a new forecast slides and bends into place (`ForecastMotion`).
         let drawn = Array(ForecastMorph.revealed(projection, progress: forecastReveal).enumerated())
+        // What VoiceOver reads for the chart: a picked span, or the summary with yesterday and gaps.
+        let spokenValue: String = voiceOverSpanSentence(window: window)
+            ?? chartSummary(window: window, stale: stale, forecastEnd: projection.last) + yesterdaySpoken(newest: window.last) + gapSpoken
         let chart = Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
@@ -1091,12 +1124,7 @@ struct GlucoseChart: View {
         // the forecast as a second series) as an audio graph under "Chart Details" in the rotor.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(projection.isEmpty ? "Glucose chart" : "Glucose chart, with an estimated forecast")
-        .accessibilityValue(voiceOverSpanSentence(window: window) ?? (ChartSummary.sentence(.init(
-            readings: window, lowMgdl: lowMgdl, highMgdl: highMgdl, unit: unit, hours: hours, stale: stale,
-            forecastEnd: projection.last,
-            loggedCount: events.filter { $0.date >= (window.first?.timestamp ?? .distantFuture) }.count))
-            + yesterdaySpoken(newest: window.last)
-            + gapSpoken))
+        .accessibilityValue(spokenValue)
         .spanAdjustable(interactive && selectsSpans, adjustVoiceOverSpan)
         .forecastDetailsAction(opensForecast(projection)) { openForecast(at: nil) }
         .accessibilityChartDescriptor(GlucoseAudioGraph(readings: window, forecast: projection, unit: unit,
