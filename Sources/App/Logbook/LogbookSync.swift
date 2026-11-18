@@ -503,18 +503,79 @@ struct LogbookEditUndo: Equatable {
     var title: String { "Edited \(after.kindNoun)" }
 }
 
+/// One change made to several entries at once (tagging the Logbook's selection) that can still be
+/// taken back with the undo toast ("Added Exercise to 3 entries · Undo"). It holds each entry
+/// exactly as it was before, and Undo saves those back under the same ids, so they sync like any
+/// other edit. As with a single edit, GlucOS never works out a value here.
+struct LogbookBatchEditUndo: Equatable {
+    /// Fresh for every change, so a second one restarts the toast's countdown.
+    let token: UUID
+    /// The changed entries before the change, restored exactly. Shrinks as sync or a later local
+    /// change ends Undo for some of them.
+    private(set) var before: [LogEntry]
+    /// Each entry's edit time, as pushed (`LogbookPendingChange.modified`).
+    private(set) var editedAt: [UUID: Double]
+    /// The toast's text.
+    let title: String
+
+    /// An Undo for the change, or nil when nothing changed. Pairs `before` and `after` by id and
+    /// keeps only entries that are the same kind and really differ.
+    static func offer(before: [LogEntry], after: [LogEntry], editedAt: [UUID: Double], title: String,
+                      token: UUID = UUID()) -> LogbookBatchEditUndo? {
+        let saved = Dictionary(after.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
+        let changed = before.filter { b in saved[b.id].map { $0.sameKind(as: b) && $0 != b } ?? false }
+        guard !changed.isEmpty else { return nil }
+        let times = editedAt.filter { id, _ in changed.contains { $0.id == id } }
+        return LogbookBatchEditUndo(token: token, before: changed, editedAt: times, title: title)
+    }
+
+    var ids: [UUID] { before.map(\.id) }
+
+    var count: Int { before.count }
+
+    /// What Undo saves: each entry as it was, for the entries still there under the same id and
+    /// kind. One deleted since is left deleted.
+    func restore(current: (UUID) -> LogEntry?) -> [LogEntry] {
+        before.filter { b in current(b.id).map { $0.sameKind(as: b) } ?? false }
+    }
+
+    /// The entries `remote` changed after this change was made (an edit or delete on another
+    /// device). This device's own change coming back from the server doesn't count.
+    func superseded(by remote: [LogbookRecord]) -> Set<UUID> {
+        var out: Set<UUID> = []
+        for r in remote {
+            guard let t = editedAt[r.id] else { continue }
+            if r.modified > t + LogbookUndo.echoTolerance { out.insert(r.id) }
+        }
+        return out
+    }
+
+    /// The same Undo without these entries (changed since, so Undo mustn't overwrite them), or nil
+    /// when none are left.
+    func dropping(_ ids: Set<UUID>) -> LogbookBatchEditUndo? {
+        guard !ids.isEmpty else { return self }
+        var out = self
+        out.before.removeAll { ids.contains($0.id) }
+        for id in ids { out.editedAt[id] = nil }
+        return out.before.isEmpty ? nil : out
+    }
+}
+
 /// What the undo toast offers, on iPhone and Mac: the last delete (which may hold several
 /// entries) or the last edit. Only one at a time: a new edit replaces a pending delete's Undo,
 /// and a new delete replaces a pending edit's.
 enum LogbookUndoOffer: Equatable {
     case deleted([LogEntry])
     case edited(LogbookEditUndo)
+    /// Several entries changed at once (tags added or removed from the Logbook's selection).
+    case batch(LogbookBatchEditUndo)
 
     /// The toast's text.
     var title: String {
         switch self {
         case .deleted(let entries): return LogbookUndo.title(entries)
         case .edited(let edit): return edit.title
+        case .batch(let b): return b.title
         }
     }
 
@@ -523,6 +584,7 @@ enum LogbookUndoOffer: Equatable {
         switch self {
         case .deleted(let entries): return entries.map(\.id)
         case .edited(let edit): return [edit.token]
+        case .batch(let b): return [b.token]
         }
     }
 
@@ -531,6 +593,7 @@ enum LogbookUndoOffer: Equatable {
         switch self {
         case .deleted: return "trash"
         case .edited: return "pencil"
+        case .batch: return "tag"
         }
     }
 
@@ -539,6 +602,7 @@ enum LogbookUndoOffer: Equatable {
         switch self {
         case .deleted: return "Puts back what you deleted, on all your devices"
         case .edited: return "Puts back the entry as it was before your edit, on all your devices"
+        case .batch: return "Puts back the entries as they were before, on all your devices"
         }
     }
 
@@ -547,6 +611,7 @@ enum LogbookUndoOffer: Equatable {
         switch self {
         case .deleted(let entries): return entries.count
         case .edited: return 1
+        case .batch(let b): return b.count
         }
     }
 }

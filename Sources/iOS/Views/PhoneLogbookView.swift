@@ -144,6 +144,14 @@ struct PhoneLogbookView: View {
     /// The day whose note is being written (`DayNotes`), by its local midnight, and the words so far.
     @State private var noteDay: Date?
     @State private var noteDraft = ""
+    /// Select mode: a checkmark on each row, and Delete and Tag for every picked entry at once
+    /// (`LogbookSelection`, docs/LogbookSearch.md "Selecting several entries"). A meal and its
+    /// insulin shown as one row are picked together.
+    @State private var selecting = false
+    @State private var selection = LogbookSelection()
+    /// "New Tag…" for the picked entries: the alert's text.
+    @State private var askingTag = false
+    @State private var tagDraft = ""
 
     /// Opened from a card (`LogbookLink`): its chip picked and its period above the list. Opened on
     /// an entry (`opening`): that entry's row opens into its detail once the push has landed.
@@ -163,9 +171,7 @@ struct PhoneLogbookView: View {
         let search: LogbookQuery = LogbookQuery.parse(query, now: Date()).linked(linked)
         // The rows follow `listedQuery`, a moment behind, so rows that stop matching shrink out.
         let listedSearch: LogbookQuery = LogbookQuery.parse(listedQuery, now: Date()).linked(linked)
-        let lowIDs: Set<UUID> = LogbookSearch.lowTreatmentIDs(all)
-        let shown: [PhoneLogbookItem] = PhoneLogbookItem.merge(all, alerts)
-            .filter { $0.matches(listed.kind, listedSearch, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: listed.tag) }
+        let shown: [PhoneLogbookItem] = shownItems(all: all, alerts: alerts, search: listedSearch)
         let shownIDs: [UUID] = shown.map(\.id)
         let allIDs: [UUID] = all.map(\.id)
         list(all: all, kinds: kinds, shown: shown, search: search)
@@ -174,24 +180,7 @@ struct PhoneLogbookView: View {
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic),
                     prompt: "Food, insulin, notes, or a day")
         .autocorrectionDisabled()
-        .navigationTitle("Logbook")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                // Toolbar icons bounce once when tapped (round 48); still under Reduce Motion.
-                Button { exportTaps += 1; showsExport = true } label: {
-                    Image(systemName: "square.and.arrow.up").symbolBounce(on: exportTaps)
-                }
-                .accessibilityLabel("Export for a clinic visit")
-            }
-            ToolbarItem(placement: .topBarTrailing) { alertsMenu }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { logTaps += 1; router.open(nil) } label: {
-                    Image(systemName: "plus").symbolBounce(on: logTaps)
-                }
-                .accessibilityLabel("Log something")
-            }
-        }
+        .phoneLogbookChrome { v in chrome(v, shown: shown) }
         .sheet(isPresented: $showsExport) { exportSheet }
         // A day's note: one line, saved for the whole day and synced (`DayNotes`).
         .alert(noteTitle, isPresented: Binding(get: { noteDay != nil }, set: { if !$0 { noteDay = nil } })) {
@@ -223,9 +212,7 @@ struct PhoneLogbookView: View {
         }
         // The open entry went (deleted on the Mac, undone) or the search or a chip left its row
         // out: nothing to shrink back into, so the card just goes.
-        .onChange(of: shownIDs) { _, now in
-            if opener.isOpen, LogbookRowExpand.stillOpen(opener.openID, among: now) == nil { opener.dismiss() }
-        }
+        .onChange(of: shownIDs) { _, now in rowsChanged(now, shown: shown) }
         .onChange(of: kinds) { _, now in
             if let k = kind, k.isListed, !now.contains(k) { kind = nil }
         }
@@ -243,6 +230,52 @@ struct PhoneLogbookView: View {
         .onChange(of: searchingFolds) { _, now in if !now { folds.endSearch() } }
     }
 
+    /// The title, the toolbars (the usual icons, or Select mode's) and Select mode's "New Tag…"
+    /// alert. Its own builder: in `body` the chain is too long for the iOS build to type-check.
+    private func chrome<V: View>(_ v: V, shown: [PhoneLogbookItem]) -> some View {
+        v
+            .navigationTitle(selecting ? LogbookSelectionText.title(pickedEntries(shown).count) : "Logbook")
+            .navigationBarTitleDisplayMode(.large)
+            .navigationBarBackButtonHidden(selecting)
+            .toolbar { if selecting { selectionToolbar(shown) } }
+            .toolbar { if !selecting { standardToolbar } }
+            // "New Tag…" for the picked entries.
+            .alert("New Tag", isPresented: $askingTag) {
+                TextField("Tag", text: $tagDraft)
+                    .textInputAutocapitalization(.words)
+                Button("Add") { if let t = LogbookTags.cleaned(tagDraft) { tagPicked(t, adding: true, shown: shown) } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Added to every selected entry. Tags help you find entries; they don't change Insights or the forecast.")
+            }
+    }
+
+    /// The Logbook's usual icons: export, options and +.
+    @ToolbarContentBuilder
+    private var standardToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            // Toolbar icons bounce once when tapped (round 48); still under Reduce Motion.
+            Button { exportTaps += 1; showsExport = true } label: {
+                Image(systemName: "square.and.arrow.up").symbolBounce(on: exportTaps)
+            }
+            .accessibilityLabel("Export for a clinic visit")
+        }
+        ToolbarItem(placement: .topBarTrailing) { alertsMenu }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { logTaps += 1; router.open(nil) } label: {
+                Image(systemName: "plus").symbolBounce(on: logTaps)
+            }
+            .accessibilityLabel("Log something")
+        }
+    }
+
+    private func rowsChanged(_ now: [UUID], shown: [PhoneLogbookItem]) {
+        if opener.isOpen, LogbookRowExpand.stillOpen(opener.openID, among: now) == nil { opener.dismiss() }
+        // Rows the search, a chip, a fold or a sync took away leave the selection, so Delete
+        // never reaches an entry that isn't on screen.
+        if selecting { selection.keep(only: Set(pickable(shown))) }
+    }
+
     /// Whether a search is running, so folds are the search's own (`LogbookFolds`).
     private var searchingFolds: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
@@ -258,6 +291,7 @@ struct PhoneLogbookView: View {
     /// Show or hide alert rows. Remembered on this phone.
     private var alertsMenu: some View {
         Menu {
+            Button { startSelecting(nil) } label: { Label("Select Entries", systemImage: "checkmark.circle") }
             Toggle(isOn: $showsAlerts) { Label("Show Alerts", systemImage: "bell") }
         } label: {
             Image(systemName: showsAlerts ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
@@ -330,7 +364,9 @@ struct PhoneLogbookView: View {
         ForEach(Array(days.enumerated()), id: \.element.id) { i, day in
             // A meal and its insulin logged within 15 minutes show as one row, opening out into the
             // entries (`LogbookGrouping`). Worked out on the rows the chips and search leave.
-            let pieces = LogbookGrouping.listed(LogbookGrouping.runs(day.items, entry: \.entry), expanded: expandedGroups)
+            // While selecting, a group stays one row with one checkmark, so it's picked as a unit.
+            let pieces = LogbookGrouping.listed(LogbookGrouping.runs(day.items, entry: \.entry),
+                                                expanded: selecting ? [] : expandedGroups)
             // A folded day keeps its header and drops its rows (`LogbookCollapse`); the rows under
             // it slide up on a spring, and back down when it opens.
             let folded = folds.isFolded(day.id, searching: searchingFolds)
@@ -378,7 +414,22 @@ struct PhoneLogbookView: View {
     /// as it opens out into the entries under it. Each entry keeps its own swipes, menu and card;
     /// the combined row's menu reaches each of them too. VoiceOver reads it as one item, with
     /// Expand or Collapse as its action.
+    @ViewBuilder
     private func groupRow(_ g: LogbookGroup, expanded: Bool, order: Int, terms: [String]) -> some View {
+        if selecting {
+            let time = g.timeRange { ClockLabel.time($0) }
+            PhoneSelectableRow(picked: selection.contains(g.id), reduceMotion: reduceMotion, toggle: { togglePick(g.id) }) {
+                PhoneLogGroupRow(group: g, time: time, expanded: false, highlight: terms)
+            }
+            .accessibilityLabel(g.spoken)
+            .accessibilityValue(time)
+            .listRowBackground(Color(uiColor: .systemBackground))
+        } else {
+            plainGroupRow(g, expanded: expanded, order: order, terms: terms)
+        }
+    }
+
+    private func plainGroupRow(_ g: LogbookGroup, expanded: Bool, order: Int, terms: [String]) -> some View {
         let lit: Double = g.ids.contains { fresh.contains($0) } ? 0.14 : 0
         let time = g.timeRange { ClockLabel.time($0) }
         return Button { toggleGroup(g) } label: {
@@ -397,6 +448,7 @@ struct PhoneLogbookView: View {
             Button(expanded ? "Collapse" : "Show Entries", systemImage: expanded ? "chevron.up" : "chevron.down") {
                 toggleGroup(g)
             }
+            Button("Select", systemImage: "checkmark.circle") { startSelecting(g.id) }
             ForEach(g.newestFirst) { entry in
                 Section(entry.shortTitle) {
                     Button("Edit", systemImage: "pencil") {
@@ -434,6 +486,8 @@ struct PhoneLogbookView: View {
     /// delete or log again.
     private func alertRow(_ alert: AlertLogRow, order: Int, terms: [String]) -> some View {
         AlertLogRowView(row: alert, highlight: terms)
+            // Alerts are records, so they can't be picked: they step back while selecting.
+            .opacity(selecting ? 0.45 : 1)
             .dsEntrance(min(order, 8), enabled: !assembled && order < 12)
             .listRowBackground(Color(uiColor: .systemBackground))
     }
@@ -955,7 +1009,19 @@ struct PhoneLogbookView: View {
         }
     }
 
+    @ViewBuilder
     private func row(_ entry: LogEntry, terms: [String], indented: Bool = false) -> some View {
+        if selecting {
+            PhoneSelectableRow(picked: selection.contains(entry.id), reduceMotion: reduceMotion, toggle: { togglePick(entry.id) }) {
+                PhoneLogRow(entry: entry, site: entry.dose.flatMap { logbook.site(of: $0) }, showsChevron: false,
+                            highlight: terms)
+            }
+        } else {
+            plainRow(entry, terms: terms, indented: indented)
+        }
+    }
+
+    private func plainRow(_ entry: LogEntry, terms: [String], indented: Bool = false) -> some View {
         // While its card is open (and growing out of it) the row itself steps aside, so there is
         // one of it on screen. Under Reduce Motion the card fades in over it, so it stays.
         let lifted = opener.openID == entry.id && opener.style == .matched
@@ -988,8 +1054,159 @@ struct PhoneLogbookView: View {
         .contextMenu {
             Button("Edit", systemImage: "pencil") { router.edit(entry, from: LogbookEditMorph.sourceID(.row, entry.id)) }
             Button("Log Again Now", systemImage: "arrow.clockwise") { logAgain(entry) }
+            Button("Select", systemImage: "checkmark.circle") { startSelecting(entry.id) }
             Button("Delete", systemImage: "trash", role: .destructive) { delete(entry) }
         }
+    }
+
+    // MARK: Selecting several
+
+    /// The rows the list shows, after the chips, the tag chip and the search.
+    private func shownItems(all: [LogEntry], alerts: [AlertLogRow], search: LogbookQuery) -> [PhoneLogbookItem] {
+        let lowIDs: Set<UUID> = LogbookSearch.lowTreatmentIDs(all)
+        return PhoneLogbookItem.merge(all, alerts)
+            .filter { $0.matches(listed.kind, search, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: listed.tag) }
+    }
+
+    /// The shown rows in runs, as the list draws them, leaving out folded days (their rows aren't
+    /// on screen, so they can't stay picked).
+    private func selectionRuns(_ shown: [PhoneLogbookItem]) -> [LogbookRun<PhoneLogbookItem>] {
+        PhoneLogbookDay.group(shown, now: Date())
+            .filter { !folds.isFolded($0.id, searching: searchingFolds) }
+            .flatMap { LogbookGrouping.runs($0.items, entry: \.entry) }
+    }
+
+    private func pickable(_ shown: [PhoneLogbookItem]) -> [UUID] {
+        LogbookSelection.pickable(selectionRuns(shown), entry: \.entry)
+    }
+
+    /// The entries the picked rows stand for (a group's row is all of its entries).
+    private func pickedEntries(_ shown: [PhoneLogbookItem]) -> [LogEntry] {
+        guard selecting else { return [] }
+        return selection.entries(in: selectionRuns(shown), entry: \.entry)
+    }
+
+    /// The rows as they are now, for actions that run outside `body`.
+    private var currentShown: [PhoneLogbookItem] {
+        let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
+        let search = LogbookQuery.parse(listedQuery, now: Date()).linked(linked)
+        return shownItems(all: logbook.entries, alerts: alerts, search: search)
+    }
+
+    /// Into Select mode, with `row` already picked when it came from a row's menu. Checkmarks slide
+    /// in from the leading edge (a fade under Reduce Motion). Any open card or group closes.
+    private func startSelecting(_ row: UUID?) {
+        if opener.isOpen { opener.dismiss() }
+        Haptics.play(.choice)
+        DS.animate(.standard, reduceMotion: reduceMotion) {
+            selection.clear()
+            if let row { selection.toggle(row) }
+            selecting = true
+        }
+        let count = pickedEntries(currentShown).count
+        AccessibilityNotification.Announcement(count == 0 ? "Select entries" : LogbookSelectionText.spoken(count)).post()
+    }
+
+    private func endSelecting() {
+        DS.animate(.standard, reduceMotion: reduceMotion) {
+            selecting = false
+            selection.clear()
+        }
+    }
+
+    /// A tap on a row while selecting picks it or lets it go. VoiceOver hears the new count.
+    private func togglePick(_ row: UUID) {
+        Haptics.play(.choice)
+        DS.animate(.quick, reduceMotion: reduceMotion) { selection.toggle(row) }
+        AccessibilityNotification.Announcement(LogbookSelectionText.spoken(pickedEntries(currentShown).count)).post()
+    }
+
+    private func toggleAll(_ shown: [PhoneLogbookItem]) {
+        let rows = pickable(shown)
+        Haptics.play(.choice)
+        DS.animate(.quick, reduceMotion: reduceMotion) {
+            if LogbookSelection.allPicked(selection, of: rows) { selection.clear() } else { selection.set(Set(rows)) }
+        }
+        AccessibilityNotification.Announcement(LogbookSelectionText.spoken(pickedEntries(shown).count)).post()
+    }
+
+    /// Deletes every picked entry. The rows fold away together and one Undo brings all of them back
+    /// under the same ids (`LogbookStore.delete`). Select mode ends, as in Mail.
+    private func deletePicked(_ shown: [PhoneLogbookItem]) {
+        let ids = Set(pickedEntries(shown).map(\.id))
+        guard !ids.isEmpty else { return }
+        logbook.delete(ids: ids)
+        Haptics.play(.deleted)
+        endSelecting()
+    }
+
+    /// Adds a tag to every picked entry, or takes it off. Only the tags change, and one Undo puts
+    /// every entry back as it was (`LogbookStore.setTag`). The selection stays for another tag.
+    private func tagPicked(_ tag: String, adding: Bool, shown: [PhoneLogbookItem]) {
+        let ids = pickedEntries(shown).map(\.id)
+        guard !ids.isEmpty else { return }
+        let changed = DS.animate(.standard, reduceMotion: reduceMotion) { logbook.setTag(tag, adding: adding, ids: ids) }
+        if changed > 0 {
+            Haptics.play(.done)
+        } else {
+            AccessibilityNotification.Announcement(LogbookBulkTag.nothingToDo(tag, adding: adding)).post()
+        }
+    }
+
+    @ToolbarContentBuilder
+    private func selectionToolbar(_ shown: [PhoneLogbookItem]) -> some ToolbarContent {
+        let picked = pickedEntries(shown)
+        let all = LogbookSelection.allPicked(selection, of: pickable(shown))
+        ToolbarItem(placement: .topBarLeading) {
+            Button(all ? "Deselect All" : "Select All") { toggleAll(shown) }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("Done") { endSelecting() }
+                .fontWeight(.semibold)
+                .accessibilityHint("Leaves Select mode")
+        }
+        ToolbarItemGroup(placement: .bottomBar) {
+            tagMenu(picked, shown: shown)
+            Spacer()
+            Text(LogbookSelectionText.spoken(picked.count))
+                .dsFont(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .contentTransition(reduceMotion ? .identity : .numericText(value: Double(picked.count)))
+            Spacer()
+            Button(role: .destructive) { deletePicked(shown) } label: {
+                Label(LogbookSelectionText.deleteName(picked.count), systemImage: "trash")
+            }
+            .disabled(picked.isEmpty)
+            .accessibilityLabel(picked.count > 1 ? "Delete \(picked.count) entries" : "Delete")
+        }
+    }
+
+    /// Tag: add one of the usual tags (a checkmark when every picked entry has it), a new one, or
+    /// take off one the picked entries hold.
+    private func tagMenu(_ picked: [LogEntry], shown: [PhoneLogbookItem]) -> some View {
+        let removable = LogbookBulkTag.removable(picked)
+        return Menu {
+            Section("Add Tag") {
+                ForEach(LogbookTags.choices(entries: logbook.entries), id: \.self) { t in
+                    Button { tagPicked(t, adding: true, shown: shown) } label: {
+                        Label(t, systemImage: LogbookBulkTag.allHave(t, picked) ? "checkmark" : LogbookTags.symbol(t))
+                    }
+                }
+                Button { tagDraft = ""; askingTag = true } label: { Label("New Tag…", systemImage: "plus") }
+            }
+            if !removable.isEmpty {
+                Menu {
+                    ForEach(removable, id: \.self) { t in
+                        Button(t) { tagPicked(t, adding: false, shown: shown) }
+                    }
+                } label: { Label("Remove Tag", systemImage: "tag.slash") }
+            }
+        } label: {
+            Label("Tag", systemImage: "tag")
+        }
+        .disabled(picked.isEmpty)
+        .accessibilityLabel("Tag selected entries")
     }
 
     /// The same entry logged again at the current time (`LogEntry.copied`: nothing about it changes
@@ -1307,4 +1524,38 @@ private extension View {
     func dayChartMatch(_ id: String, in space: Namespace.ID, enabled: Bool) -> some View {
         if enabled { matchedGeometryEffect(id: "dayChart.\(id)", in: space) } else { self }
     }
+}
+
+/// A Logbook row in Select mode: a checkmark circle before the row, and a tap picks it or lets it
+/// go. The circle fills with a symbol swap (instant under Reduce Motion). VoiceOver reads the row as
+/// one item, Selected when picked, with what a tap does as the hint.
+struct PhoneSelectableRow<Content: View>: View {
+    let picked: Bool
+    let reduceMotion: Bool
+    let toggle: () -> Void
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: DS.Space.md) {
+                Image(systemName: picked ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(picked ? AnyShapeStyle(Palette.brand) : AnyShapeStyle(HierarchicalShapeStyle.tertiary))
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+                    .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
+                    .accessibilityHidden(true)
+                content
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(picked ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityHint(LogbookSelectionText.rowHint(picked: picked))
+    }
+}
+
+extension View {
+    /// Applies `transform` to the view: lets a long modifier chain hand part of itself to a helper.
+    fileprivate func phoneLogbookChrome<Out: View>(_ transform: (Self) -> Out) -> Out { transform(self) }
 }

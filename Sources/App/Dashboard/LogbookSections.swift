@@ -105,6 +105,9 @@ struct LogbookSection: View {
     /// The day whose note is being written (`DayNotes`), by its local midnight, and the words so far.
     @State private var noteDay: Date?
     @State private var noteDraft = ""
+    /// "New Tag…" for the selected entries: the alert's text (`LogbookBulkTag`).
+    @State private var askingTag = false
+    @State private var tagDraft = ""
     @Environment(\.dashboardPadding) private var padding
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -407,7 +410,18 @@ struct LogbookSection: View {
                     .keyStop("logbook.logAgain", row: Self.searchRow, kind: .control, radius: 6) { logAgain(entry) }
                     .help("Log a copy of this entry at the current time")
             }
+            if chosen.count > 1 {
+                // Shift-click and ⌘-click pick several rows; a grouped line counts as its entries.
+                Text(LogbookSelectionText.spoken(chosen.count))
+                    .dsFont(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .contentTransition(reduceMotion ? .identity : .numericText(value: Double(chosen.count)))
+            }
             if !chosen.isEmpty {
+                tagMenu(chosen)
+                    .fixedSize()
+                    .help(chosen.count == 1 ? "Add or remove a tag" : "Add or remove a tag on all \(chosen.count) selected entries")
                 Button(role: .destructive) { deleteSelection() } label: {
                     Label(chosen.count == 1 ? "Delete" : "Delete \(chosen.count)", systemImage: "trash")
                 }
@@ -688,6 +702,44 @@ struct LogbookSection: View {
         selection = []
     }
 
+    /// Adds a tag to every selected entry, or takes it off (`LogbookStore.setTag`). Only the tags
+    /// change; one Undo (⌘Z, or the toast) puts every entry back as it was, on all devices. The
+    /// selection stays, so another tag can follow.
+    private func tagSelection(_ tag: String, adding: Bool, ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        let changed = DS.animate(.standard, reduceMotion: reduceMotion) {
+            logbook.setTag(tag, adding: adding, ids: Array(ids))
+        }
+        if changed == 0 { LoggedElsewhere.announce(LogbookBulkTag.nothingToDo(tag, adding: adding)) }
+    }
+
+    /// The Tag menu, in the bar above the table and the right-click menu: add one of the usual
+    /// tags (a checkmark when every selected entry has it) or a new one, or take one off.
+    private func tagMenu(_ ids: Set<UUID>) -> some View {
+        let picked = ids.compactMap { logbook.entry(id: $0) }
+        let removable = LogbookBulkTag.removable(picked)
+        return Menu {
+            ForEach(LogbookTags.choices(entries: logbook.entries), id: \.self) { t in
+                Toggle(isOn: Binding(get: { LogbookBulkTag.allHave(t, picked) },
+                                     set: { on in tagSelection(t, adding: on, ids: ids) })) {
+                    Label(t, systemImage: LogbookTags.symbol(t))
+                }
+            }
+            Divider()
+            Button("New Tag…") { tagDraft = ""; askingTag = true }
+            if !removable.isEmpty {
+                Menu("Remove Tag") {
+                    ForEach(removable, id: \.self) { t in
+                        Button(t) { tagSelection(t, adding: false, ids: ids) }
+                    }
+                }
+            }
+        } label: {
+            Label("Tag", systemImage: "tag")
+        }
+        .accessibilityLabel(ids.count > 1 ? "Tag \(ids.count) selected entries" : "Tag selected entry")
+    }
+
     /// Lights the rows that just arrived, then lets the colour fade out once.
     private func markFresh(_ added: Set<UUID>) {
         guard !added.isEmpty else { return }
@@ -935,6 +987,7 @@ struct LogbookSection: View {
                 Divider()
             }
             if !ids.isEmpty {
+                tagMenu(ids)
                 Button(ids.count == 1 ? "Delete" : "Delete \(ids.count) Entries", role: .destructive) {
                     DS.animate(.standard, reduceMotion: reduceMotion) { logbook.delete(ids: ids) }
                     selection.subtract(picked)
@@ -960,6 +1013,24 @@ struct LogbookSection: View {
             if let g = groups[id] { toggleGroup(g) } else if let entry = logbook.entry(id: id) { open(.edit(entry)) }
         }
         .onDeleteCommand { deleteSelection() }
+        // VoiceOver hears how many entries are picked once the selection settles (Shift-arrows,
+        // Shift-click and ⌘-click can change it quickly), counting a grouped line as its entries.
+        .task(id: selectedEntries.count) {
+            let count = selectedEntries.count
+            guard count > 1 else { return }
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
+            LoggedElsewhere.announce(LogbookSelectionText.spoken(count))
+        }
+        .alert("New Tag", isPresented: $askingTag) {
+            TextField("Tag", text: $tagDraft)
+            Button("Add") {
+                if let t = LogbookTags.cleaned(tagDraft) { tagSelection(t, adding: true, ids: selectedEntries) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Added to every selected entry. Tags help you find entries; they don't change Insights or the forecast.")
+        }
         // A day's note: one line, saved for the whole day and synced (`DayNotes`).
         .alert(noteTitle, isPresented: Binding(get: { noteDay != nil }, set: { if !$0 { noteDay = nil } })) {
             TextField(DayNoteText.placeholder, text: $noteDraft)

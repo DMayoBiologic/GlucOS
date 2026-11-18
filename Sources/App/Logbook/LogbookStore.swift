@@ -42,10 +42,14 @@ final class LogbookStore: ObservableObject {
     /// The last edit saved from a log sheet, kept in memory so it can be undone (`LogbookEditUndo`).
     /// Never set at the same time as `lastDeleted`: the toast offers one Undo at a time.
     @Published private(set) var lastEdit: LogbookEditUndo?
+    /// The last change made to several entries at once (tags on the Logbook's selection), kept in
+    /// memory so it can be undone (`LogbookBatchEditUndo`). Also one Undo at a time.
+    @Published private(set) var lastBatch: LogbookBatchEditUndo?
 
     /// What the undo toast offers, if anything.
     var undoOffer: LogbookUndoOffer? {
         if let lastEdit { return .edited(lastEdit) }
+        if let lastBatch { return .batch(lastBatch) }
         return lastDeleted.isEmpty ? nil : .deleted(lastDeleted)
     }
 
@@ -148,6 +152,7 @@ final class LogbookStore: ObservableObject {
         // A later change to the edited entry (another edit, an answer to "Was it for a meal?")
         // ends its Undo, so Undo never throws that change away.
         if lastEdit?.before.id == entry.id { lastEdit = nil }
+        if let batch = lastBatch, batch.ids.contains(entry.id) { lastBatch = batch.dropping([entry.id]) }
         if case .dose(let d) = entry {
             // Only a new name is added to the list: editing an old dose's note mustn't bring back
             // an insulin the user deleted.
@@ -243,6 +248,7 @@ final class LogbookStore: ObservableObject {
         guard !removed.isEmpty else { return }
         // One Undo at a time: the delete's replaces a pending edit's.
         lastEdit = nil
+        lastBatch = nil
         // Accumulate while the undo banner is up, so Undo restores every delete since.
         lastDeleted += removed
         doses.removeAll { ids.contains($0.id) }
@@ -276,6 +282,7 @@ final class LogbookStore: ObservableObject {
         lastDeleted = []
         deletedAt = [:]
         lastEdit = nil
+        lastBatch = nil
     }
 
     /// After a log sheet saves an edit: offers Undo for it, if the entry changed. `before` is the
@@ -287,6 +294,7 @@ final class LogbookStore: ObservableObject {
         else { return }
         lastDeleted = []
         deletedAt = [:]
+        lastBatch = nil
         lastEdit = offer
     }
 
@@ -302,9 +310,52 @@ final class LogbookStore: ObservableObject {
         persist()
     }
 
-    /// Undo on the toast: the last edit, or the last delete.
+    /// Adds `tag` to the entries with these ids, or takes it off them (the Logbook's selection),
+    /// and offers one Undo for all of them. Only their tags change (`LogbookBulkTag`); entries that
+    /// wouldn't change aren't saved again. Returns how many changed.
+    @discardableResult
+    func setTag(_ tag: String, adding: Bool, ids: [UUID]) -> Int {
+        let picked = ids.compactMap { entry(id: $0) }
+        let changed = adding ? LogbookBulkTag.adding(tag, to: picked) : LogbookBulkTag.removing(tag, from: picked)
+        guard !changed.isEmpty else { return 0 }
+        let before = picked.filter { p in changed.contains { $0.id == p.id } }
+        for e in changed {
+            upsert(e)
+            touch(e.id, kind: e.recordKind)
+        }
+        persist()
+        let shown = LogbookTags.cleaned(tag) ?? tag
+        let times = Dictionary(changed.compactMap { e in syncState.pending[e.id].map { (e.id, $0.modified) } },
+                               uniquingKeysWith: { a, _ in a })
+        if let offer = LogbookBatchEditUndo.offer(before: before, after: changed, editedAt: times,
+                                                  title: LogbookBulkTag.title(shown, adding: adding, changed: changed)) {
+            // One Undo at a time: this replaces a pending delete's or edit's.
+            lastDeleted = []
+            deletedAt = [:]
+            lastEdit = nil
+            lastBatch = offer
+        }
+        return changed.count
+    }
+
+    /// Puts back every entry the last batch change touched, exactly as it was, under the same ids,
+    /// with fresh edit times so they sync to the other devices like any edit. Entries deleted since
+    /// stay deleted.
+    func undoBatch() {
+        guard let batch = lastBatch else { return }
+        lastBatch = nil
+        let restored = batch.restore(current: { self.entry(id: $0) })
+        guard !restored.isEmpty else { return }
+        for e in restored {
+            upsert(e)
+            touch(e.id, kind: e.recordKind)
+        }
+        persist()
+    }
+
+    /// Undo on the toast: the last edit, the last batch change, or the last delete.
     func undo() {
-        if lastEdit != nil { undoEdit() } else { undoDelete() }
+        if lastEdit != nil { undoEdit() } else if lastBatch != nil { undoBatch() } else { undoDelete() }
     }
 
     /// A copy of `entry` at `time` with a fresh id ("Log again now", `LogEntry.copied`). Returns the
@@ -639,6 +690,7 @@ final class LogbookStore: ObservableObject {
         // An entry changed or deleted elsewhere after it was deleted here can't be undone any
         // more. Our own tombstone coming back from the server leaves Undo alone.
         if let edit = lastEdit, edit.superseded(by: records) { lastEdit = nil }
+        if let batch = lastBatch { lastBatch = batch.dropping(batch.superseded(by: records)) }
         let gone = LogbookUndo.superseded(by: records, deletedAt: deletedAt)
         if !gone.isEmpty {
             lastDeleted.removeAll { gone.contains($0.id) }
