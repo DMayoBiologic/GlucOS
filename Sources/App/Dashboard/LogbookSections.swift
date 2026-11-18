@@ -79,6 +79,8 @@ struct LogbookSection: View {
     @State private var dayRanges = DayInRangeCache()
     /// Day bars that have drawn in, so each plays once.
     @State private var drawnBars = DrawnOnce()
+    /// What each Day cell's totals last showed, so they roll from there (`DayTotalsLabel`).
+    @State private var dayTotalsShown = DayTotalsMemory()
     /// The day whose chart is showing in a popover from its Day cell (`DayMiniChart`).
     @State private var openDay: Date?
     /// The jump-to-a-date calendar (⌘J, or the calendar button by the search).
@@ -725,18 +727,21 @@ struct LogbookSection: View {
         let folded: [UUID: LogbookTableLine.Fold] = Dictionary(uniqueKeysWithValues: lines.compactMap { l in l.fold.map { (l.id, $0) } })
         let lineDays: [UUID: Date] = Dictionary(lines.map { ($0.id, Calendar.autoupdatingCurrent.startOfDay(for: $0.timestamp)) },
                                                 uniquingKeysWith: { a, _ in a })
+        // Each day's insulin, carbs and count, over the whole day like the iPhone's headers, not
+        // just what the chips and search leave showing.
+        let sums = LogbookDayTotals.byDay(logbook.entries)
         return Table(lines, selection: $selection) {
             // The day's name and time in range on its first (newest) row, like the iPhone's day
             // headers; the rows under it leave the column empty.
             TableColumn("Day") { (l: LogbookTableLine) in
                 if let start = firsts[l.id] {
                     dayCell(start, range: ranges[start], now: now, fold: l.fold,
-                            count: l.fold?.count ?? counts[start] ?? LogbookDayCount())
+                            count: l.fold?.count ?? counts[start] ?? LogbookDayCount(), totals: sums[start])
                 } else {
                     Text("").accessibilityHidden(true)
                 }
             }
-            .width(min: 150, ideal: 190)
+            .width(min: 190, ideal: 270)
             TableColumn("Time") { (l: LogbookTableLine) in
                 if l.fold != nil {
                     Text("").accessibilityHidden(true)
@@ -758,6 +763,8 @@ struct LogbookSection: View {
                     Text(LogbookCollapseText.count(f.count))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
+                        .contentTransition(reduceMotion ? .identity : .numericText())
+                        .dsAnimation(.arrival, value: f.count)
                         .accessibilityLabel(LogbookCollapseText.spokenCount(f.count))
                 } else if let g = l.group {
                     groupEntryCell(g, expanded: l.expanded)
@@ -882,7 +889,7 @@ struct LogbookSection: View {
     /// The chevron before the name folds the day down to this one line, or opens it again
     /// (`toggleFold`). VoiceOver hears it as its own button: "Tuesday 12 November, Expanded".
     private func dayCell(_ start: Date, range: DayInRange?, now: Date, fold: LogbookTableLine.Fold?,
-                         count: LogbookDayCount) -> some View {
+                         count: LogbookDayCount, totals: LogbookDayTotals?) -> some View {
         let isFolded = fold != nil
         let day = ClockLabel.day(of: start, now: now)
         return HStack(spacing: DS.Space.xs) {
@@ -901,18 +908,24 @@ struct LogbookSection: View {
                 ? "\(LogbookCollapseText.spokenState(folded: true)), \(LogbookCollapseText.spokenCount(count))"
                 : LogbookCollapseText.spokenState(folded: false))
             .accessibilityAction(named: LogbookCollapseText.actionName(folded: isFolded)) { toggleFold(start, count: count) }
-            dayName(start, range: range, day: day)
+            dayName(start, range: range, day: day, totals: totals)
         }
     }
 
+    /// After the bar, the day's insulin and carbs ("14 u · 120 g"). When an entry is added, edited,
+    /// deleted or undone they roll to their new values (`DayTotalsLabel`), even though the cell
+    /// moves to the day's new first row, and the bar glides to its new split; both change at once
+    /// under Reduce Motion, and VoiceOver hears the new totals once.
     @ViewBuilder
-    private func dayName(_ start: Date, range: DayInRange?, day: ClockLabel.Day) -> some View {
+    private func dayName(_ start: Date, range: DayInRange?, day: ClockLabel.Day, totals: LogbookDayTotals?) -> some View {
+        let id = "\(Int(start.timeIntervalSince1970))"
+        let spokenTotals = totals.map { DayTotalsText.summary($0) } ?? ""
         let content = HStack(spacing: DS.Space.sm) {
             Text(ClockLabel.dayTitle(day))
                 .fontWeight(.semibold)
                 .lineLimit(1)
             if let range {
-                DayRangeBar(id: "\(Int(start.timeIntervalSince1970))", figures: range, drawn: drawnBars)
+                DayRangeBar(id: id, figures: range, drawn: drawnBars)
                     .frame(width: 44)
                 Text(DayInRangeText.percent(range))
                     .dsFont(.caption)
@@ -921,6 +934,14 @@ struct LogbookSection: View {
                     .contentTransition(.numericText())
                     .dsAnimation(.standard, value: range.inRange)
             }
+            if let totals, !totals.compact.isEmpty {
+                DayTotalsLabel(id: id, text: totals.compact, totals: totals,
+                               spokenDay: DayInRangeText.spokenDay(day), memory: dayTotalsShown)
+                    .dsFont(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
         if range != nil {
             Button { openDay = start } label: { content.contentShape(Rectangle()) }
@@ -928,6 +949,7 @@ struct LogbookSection: View {
                 .help("Show this day's chart")
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(DayInRangeText.spoken(day, range))
+                .accessibilityValue(spokenTotals)
                 .accessibilityHint("Shows the day's chart")
                 .popover(isPresented: Binding(get: { openDay == start },
                                               set: { if !$0, openDay == start { openDay = nil } }),
@@ -939,6 +961,7 @@ struct LogbookSection: View {
                 .help("Not enough readings for this day's time in range")
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(DayInRangeText.spoken(day, range))
+                .accessibilityValue(spokenTotals)
         }
     }
 

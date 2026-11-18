@@ -163,6 +163,14 @@ final class DrawnOnce {
 
     /// True the first time it's asked about `id`, false every time after.
     func first(_ id: String) -> Bool { drawn.insert(id).inserted }
+
+    private var figures: [String: DayInRange] = [:]
+
+    /// The split `id`'s bar last showed, so a copy the list rebuilt (after an entry is added,
+    /// edited, deleted or undone) starts there and glides to the new split rather than jumping.
+    func lastFigures(_ id: String) -> DayInRange? { figures[id] }
+
+    func remember(_ id: String, _ f: DayInRange) { figures[id] = f }
 }
 
 // MARK: - Days in a list

@@ -96,6 +96,33 @@ tested in DayInRangeTests).
 Mac: the bar only fills for days inside the readings the dashboard has loaded for the toolbar's
 period, like the Glucose column.
 
+### When an entry changes (round 68)
+
+Adding, editing, deleting or undoing an entry (or one arriving by sync) moves the day's header
+instead of swapping it, on iPhone and Mac.
+
+- **Totals roll.** The iPhone header's "14 u · 120 g carbs" (and "4 entries · …" on a folded day)
+  and the Mac Day cell's new "14 u · 120 g" after the bar roll digit by digit to their new values
+  on the `.arrival` spring: upward when the day grows, downward when it shrinks (`DayTotalsRoll`,
+  Engine, tested in LogbookDayTotalsTests). The Mac's folded line rolls its count the same way.
+  Totals are the whole day, whatever the chips or search leave showing, so a filter never rolls
+  them. Display only: the same sums the header always showed.
+- **Rebuilt headers keep their place.** The Mac's Day cell moves to the day's new first row when a
+  newer entry joins it, and the iPhone's pinned headers are rebuilt as the list changes, so each
+  screen remembers what every day last showed (`DayTotalsMemory`, and `DrawnOnce.lastFigures` for
+  the bar). A rebuilt header starts from the old figures and rolls or glides to the new ones.
+  Opening the Logbook rolls nothing.
+- **The bar glides.** A day's time in range comes from its readings, so an entry alone doesn't
+  change it, but whenever the split does change (new readings, a rebuilt header catching up) it
+  glides to its new widths on the emphasized spring instead of jumping.
+- **Grouped rows and folded days.** Totals count each entry once, grouped (#282) or not, and a
+  folded day (round 63) rolls its count and totals in its header like an open one.
+- **Reduce Motion.** The new figures and split replace the old at once.
+- **VoiceOver.** One low-priority announcement per change, after the undo toast or "Saved":
+  "Today now 14 units, 120 grams of carbs, 4 entries" (`DayTotalsText`, tested). A sync or undo
+  touching several days at once says only the first (1.5 s apart). The Mac Day cell's value
+  reads the same totals.
+
 ## Day charts
 
 Round 37 lets a day's bar open into that day's chart (`DayChart`, Engine, tested in
