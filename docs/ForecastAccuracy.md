@@ -5261,3 +5261,85 @@ directly if any have been stored. To rerun:
 
 **Dosing.** Not touched: the forecast line feeds the chart and predicted alerts, never insulin on
 board, the effect learner or the bolus figure.
+
+## 74. What happens to forecasts after a single-reading spike, and should spikes be left out? (18 Nov 2026)
+
+The question: when one reading jumps more than 15 mg/dL from both its neighbours and the next one
+comes straight back, how far off are the forecasts made while that reading sits in the trend fit,
+and would a held-out rule that leaves such spikes out beat the engine as it ships? The bar: better
+on held-out days at both 30 and 60 minutes, no low warning later or lost, and no line raised where
+glucose ended under 80. **No rule passes: leaving spikes out is slightly worse everywhere it acts,
+because the "spikes" aren't sensor glitches. Nothing ships; no app or relay code changed.**
+
+Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
+
+**Where spikes come from.** `scripts/reading-spikes.py` looks for a reading more than S away from
+both neighbours in the same direction, with the neighbours back within 10 mg/dL of each other and
+each under 3 minutes away. Over 9,907 stored readings (10–18 Nov, 9,193 live, 714 history):
+
+| S | Merged series the engine fits | Of them history points | Live readings alone |
+|---|---|---|---|
+| 25 | 1 | 1 | 0 |
+| 20 | 8 | 8 | 0 |
+| 15 | 23 | 22 | 0 |
+| 10 | 72 | 68 | 0 |
+
+The live LibreLinkUp readings have **no** single-reading spikes at all, even at 10 mg/dL: 12 live
+minute-to-minute moves top 15 (largest 22), and every one carried on rather than reverting. All 23
+spikes over 15 are where the 15-minute graph (history) point stored about a second from a live
+reading disagrees with it by 16–26 mg/dL (§72's twins; 26 of 656 twins differ by more than 15).
+The one "live" spike (13 Nov 03:31) is a live reading sitting next to a disagreeing twin. They're
+spread over 7 days with neighbours from 66 to 328 mg/dL, 10 up and 13 down, 14 of them between
+midnight and 6 am.
+
+**Error after a spike.** The engine's trend forecast as in §72/§73 (20-minute least-squares slope
+over every stored reading, clamped at ±4, 30-minute fade, line held to 39...401), made at every live
+reading and started from it, scored against the nearest live reading. 8,758 points; 396 (22 hours)
+have a spike over 15 in their slope window. Gain 0.6, no change / as shipped, mean miss in mg/dL,
+bias (actual − forecast) in brackets (gains 0.45 and 0.7 read the same):
+
+| | n | 15 min | 30 min | 60 min |
+|---|---|---|---|---|
+| After a spike | 396 | 23.2 / 25.5 (+2.1) | 27.1 / 29.3 (+1.8) | 29.0 / 31.9 (+2.3) |
+| Rest | 8,362 | 16.5 / 16.0 (−0.1) | 26.0 / 25.4 (−0.2) | 41.1 / 41.4 (−0.4) |
+
+Forecasts are worse after a spike at 15 minutes, but a single history point moves the 20-minute
+slope by only 0.10 mg/dL/min on average (at most 0.74), so the spike isn't what makes them worse:
+these are fast-moving, mostly overnight stretches, and no change does badly there too. The telling
+part is the direction: after an **up** spike glucose ended **above** the line (+14 / +16 / +16 at
+15 / 30 / 60), after a down spike below it (−6 / −8 / −7). The history point was pointing the way
+glucose went next, which fits §72's finding that the history point is smoothed and sits nearer the
+15-minute live mean.
+
+**Held out.** Each rule is picked on seven Perth days by miss at 30 + 60 minutes and scored on the
+eighth (training leaves out points whose 60-minute target lands on that day), with "off" in every
+grid:
+
+| Rule | Grid | Picked | Effect |
+|---|---|---|---|
+| Leave a confirmed spike out of the fit (both neighbours already in) | S = 25, 20, 15, 10 | off on 8 of 8 days, every gain | none |
+| Leave a history point out when its live twin differs by more than D | D = 25, 20, 15, 10 | off on 8 of 8 days, every gain | none |
+| Hold the newest live reading when it jumps more than S, until the next | S = 25, 20, 15 | off on 7 of 8; S = 15 on one, which it then lost | 25.58 → 25.59 at 30, 40.95 → 40.95 at 60 (gain 0.6) |
+
+Forced on at a fixed setting (gain 0.6), each spike rule makes the forecasts it changes worse at
+every horizon: leaving spikes over 15 out changes 393 forecasts, 25.5 / 29.1 / 31.9 → 25.9 / 29.6 /
+32.4, and dropping twins that differ by over 15 changes 467, 29.1 → 29.6 at 30 and 32.9 → 33.5 at
+60. The hold is the only rule that could catch a spike as it arrives, but with no live spikes it
+only ever holds real jumps: at S = 15 it changes 11 forecasts, 27.4 → 38.7 at 30. No rule loses or
+adds a low warning or raises a line where glucose ended under 80, but none wins at 30 or 60, so the
+low checks never come into it.
+
+The replay treats a history point as known from its own timestamp. In the apps it arrives with the
+next graph fetch, later than that, so a real-time rule would act even less often than here.
+
+**Decision.** Keep feeding every stored reading into the trend fit, twins included, as §72 also
+found. Retest on **8 Dec 2026** together with §72, and sooner if a direct NFC or Bluetooth source
+starts storing readings: that is where real single-reading sensor glitches could show up, since
+LibreLinkUp's live feed has none. To rerun:
+
+    python3 scripts/reading-spikes.py DIR
+
+`DIR` holds readings.json (`[[unix, mgdl, live], ...]`, export SQL in the script's docstring).
+
+**Dosing.** Not touched: the forecast line feeds the chart and predicted alerts, never insulin on
+board, the effect learner or the bolus figure.
