@@ -5936,7 +5936,7 @@ Nothing here touches dosing, the insulin or carb effects, the alerts, the relay 
 
 **Data.** `scripts/logging-density.sql` (runs as is in the Supabase SQL editor): clean shown points
 at 30 and 60 minutes, nothing logged before the reading came in, §40/§41 applied as drawn today, as
-in §42/§75. 12–18 Nov Perth, 432 points, 59 non-deleted Logbook entries. Logging level comes from
+in §42/§75. 12–18 Nov Perth, 432 points, 66 non-deleted Logbook entries. Logging level comes from
 the 24 hours before each forecast was issued: **well** = 3+ meals and 2+ rapid doses, **sparse** =
 0–1 meals or no rapid dose, **mid** = the rest. (A calendar-day split, well = 12 and 16 Nov with
 5/4 and 3/2 meals/rapid doses, tells the same story; see below.)
@@ -5955,7 +5955,7 @@ within 1.5 mg/dL of well-logged ones and the range holds more readings (75% vs 6
 well-logged stretches are the ones with meals and the post-meal swings in them. At 60 minutes the
 sparse figure is 38 of 42 points from 15 Nov (0 meals logged that day, 3 rapid doses), 68% inside
 with readings landing above the range (26% above, +20 mg/dL bias), which looks like unlogged food
-rather than a steady sparse-logging effect. On the calendar-day split, 60-minute coverage is 69% on
+rather than a steady sparse-logging effect. On the calendar-day split (ranges as stored), 60-minute coverage is 69% on
 the two well-logged days and 68% on the rest, so even that gap disappears once 15 Nov isn't
 weighted by itself.
 
