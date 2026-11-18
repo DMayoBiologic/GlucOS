@@ -5563,3 +5563,171 @@ pump is used, test the 24 hours after each `siteChange` the same way. To rerun:
 
 **Dosing.** Not touched: the site only labelled which doses to group. Nothing changes insulin on
 board, the activity curves, the effect learner or the bolus figure.
+
+## 78. Do the shipped §37 and §35 changes still beat what they replaced? (18 Nov 2026)
+
+The question: two forecast changes shipped on 16 Nov, §37 (logged low treatments on a fast carb
+curve, #193) and §35 (a forecast check every 5 minutes on the Mac and iPhone, #185). On the
+readings since, do they still beat what they replaced, at 30 and 60 minutes, for both the miss and
+the range? **§37 still wins on the four lows it was built on and on the one new treatment that
+behaved like a fast sugar, but it badly overshot one new entry: a chocolate croissant logged at 62
+mg/dL during a low that didn't lift. At 30 minutes on the new data it ties the forecast it
+replaced, and there are no clean 60-minute points yet. A refit of the curve loses held out, so
+nothing ships. §35's extras are fine: within the same hour they miss exactly as the quarter-hour
+checks do. Retest §37 on 2 Dec or at 10 treated lows, whichever is later.**
+
+Nothing here changes code. Nothing touches dosing, insulin on board, the carb-effect learner, the
+bolus figure, the alerts, the relay or `web/`.
+
+### §37: low treatments on the fast curve
+
+**What's new since it shipped.** Carb entries since 16 Nov 01:19 Perth that §37 counts as
+treatments (45 g or less, hypo-tagged or logged under 70 mg/dL), from the Logbook:
+
+| Logged (Perth) | Entry | Reading | Counted as | What glucose did |
+|---|---|---|---|---|
+| 18 Nov 10:23 | Mini Smarties + Snickers, 17.1 g, tagged | 69 | treatment | fell to 56, then up to 79 at ~40 min |
+| 18 Nov 11:19 | Chocolate croissant, 41 g | 62 | treatment | 54–63 for the next 30 min |
+
+Two more hypo-tagged entries are over 45 g (sundae 68 g on 17 Nov, burger 82.9 g on 18 Nov), so
+they keep the meal curve and are unaffected by §37. Both new treatments are one low: the croissant
+came 56 minutes after the sweets, and the burger, 32 minutes after the croissant, ends the clean
+window. No rapid insulin was logged in the 3 hours before.
+
+**Live checks.** Every `lowTreatment` check in `glucos.forecast_checks` with a scored point that
+isn't after a later log (Mac and iPhone, 17 checks, 02:23–03:49 UTC 18 Nov). Before #193 this low
+would have been drawn trend only: the sweets' hypo tag made every forecast for 3 h 10 min
+`uncountedFood`. That forecast is exact from each check's start and trend (both devices' trend-only
+checks that morning fit a trend gain of 1.0 and the 30-minute fade).
+
+| Horizon | Points | Shipped (fast curve) | Trend only (before #193) | No change | Inside range, shipped |
+|---|---|---|---|---|---|
+| 15 min | 13 | 8.4 | 14.1 | 6.6 | 85% |
+| 30 min | 10 | 21.5 | 20.5 | 9.6 | 80% |
+| 45 min | 4 | 7.1 | 30.1 | 4.6 | 100% |
+| 60 min | 0 | | | | |
+
+(Mean miss, mg/dL.) The sweets' forecasts were good: 30-minute lines of 60–78 against 60–75.
+The croissant's weren't. Issued at 03:20 UTC, the 30-minute line was 119 (iPhone) and 125 (Mac)
+against 54, outside the range (lower edge 84 and 92). Those two points are most of the 30-minute
+miss. With the trend-only line moved onto the same widths, every point would have been inside, so
+on this low the range did worse than before as well.
+
+**Replay, all six treatments.** `scripts/low-treatment-recheck.py` copies the engine's forecast
+(20-minute trend capped at ±4, 30-minute fade, gain 1.0 as now fitted, the model weighted by 1 −
+fade, learnt K = 2.8 mg/dL/g and S = 19.2 mg/dL/U) and makes a forecast every 5 minutes for the
+hour after each treatment, until the next entry. It scores only points that finish before a later
+log.
+
+| Mean miss, mg/dL (15 / 30 / 60 min) | Old 4 lows (12–16 Nov) | New low (18 Nov) |
+|---|---|---|
+| No change | 26.8 / 41.8 / 49.4 | 7.8 / 10.3 / – |
+| Trend only | 27.3 / 45.4 / 46.8 | 14.3 / 22.0 / – |
+| Meal curve | 27.7 / 45.9 / 44.7 | 14.3 / 20.0 / – |
+| **Fast curve as shipped** | **23.4 / 30.1 / 31.8** | 14.4 / 21.7 / – |
+
+| Per treatment, 30 min | Shipped | Meal curve | Trend only | No change |
+|---|---|---|---|---|
+| 12 Nov 19:08 burrito bowl | 30.2 | 44.3 | 43.1 | 40.1 |
+| 12 Nov 23:42 sports drink | 45.8 | 66.8 | 65.8 | 43.9 |
+| 13 Nov 19:27 sports drink | 9.8 | 21.3 | 20.2 | 38.5 |
+| 16 Nov 01:19 Coke | 34.5 | 51.1 | 52.7 | 44.8 |
+| 18 Nov 10:23 sweets (tagged) | 9.5 | 22.1 | 24.8 | 10.7 |
+| 18 Nov 11:19 croissant (1 point) | 95.2 | 7.1 | 4.7 | 8.0 |
+
+This replay runs the trend at full strength (§37 used 0.6), so its old-low numbers sit above §37's.
+The ranking is the same, though: the fast curve beats the meal curve and trend only at 30 and 60
+minutes on every old low. The new low has 13, 7 and 0 clean points
+at 15, 30 and 60 minutes, and 60 can't be judged until a treated low goes an hour with nothing else
+logged.
+
+**A held-out fix?** Refit the curve (delay 0–20 min, absorption 20–90 min, 0.5–2× the carb effect)
+on all but one low, and score the low left out (the 18 Nov sweets and croissant count as one low):
+
+| Held out, mean miss | Refit | Shipped (10 / 30 / 1.5×) | Trend only | Meal curve |
+|---|---|---|---|---|
+| 30 min (59 points) | 33.7 | **29.1** | 42.7 | 42.8 |
+| 60 min (48 points, old lows only) | 36.8 | **31.8** | 46.8 | 44.7 |
+
+The refit loses on four of the five lows at 30 minutes. With the croissant in the training set it
+reaches for a 20-minute absorption at 2×, which then overshoots the lows it hasn't seen. The
+shipped curve is still the best fit. It fails on one entry, and nothing in the data picks out that
+entry ahead of time. The croissant is a fatty pastry, so probably slow carbs, logged 56 minutes into a low
+that the earlier sweets had only briefly lifted, with something unlogged still pulling glucose
+down (it fell from 147 to 57 with no rapid dose). A rule like "a second treatment within an hour
+of one that hasn't raised glucose goes on the meal curve" would fix this one case. But it touches
+no other low, so it can't be tested held out. It also changes the carb sums, and this loop
+doesn't make those changes without a held-out win. Not shipped.
+
+**Alerts were not affected.** Predicted alerts still read the forecast without the fast curve
+(`Outlook.alertForecast`, `OutlookEngine.swift`, `lowTreatmentCurve = false`). The croissant's
+high line could not hide or delay a low warning, and lows on actual readings are untouched. What
+it did do is draw a recovery on the Mac's chart that didn't come. The iPhone's checks that
+morning were cut to no drawn horizon (`liveHorizon:0`), so the iPhone didn't show it.
+
+### §35: 5-minute extra checks
+
+§35 doesn't change what's drawn. The drawn range, live horizon and back-in-range gate still read
+`ForecastLedger.quarterHourly` (`ForecastLedgerStore.swift`), checked on main today. So the
+pre-change baseline is the quarter-hour checks, and the questions are whether the extras arrive and
+whether they score like the quarter-hour checks they sit beside. Mac and iPhone, clean points, 1.25
+release (16 Nov 14:43 Perth) as the cut:
+
+| Horizon | Checks | Points | Miss | No change | Ratio | Inside range | Width |
+|---|---|---|---|---|---|---|---|
+| 30 min | before (12–16 Nov, quarter-hour) | 210 | 26.6 | 29.5 | 0.90 | 73% | 67.7 |
+| 30 min | since, quarter-hour | 42 | 35.8 | 40.0 | 0.90 | 74% | 106.6 |
+| 30 min | since, extras | 37 | 44.5 | 45.5 | 0.98 | 65% | 111.8 |
+| 60 min | before (quarter-hour) | 116 | 46.4 | 45.2 | 1.03 | 67% | 104.8 |
+| 60 min | since, quarter-hour | 14 | 77.8 | 79.0 | 0.98 | 71% | 213.1 |
+| 60 min | since, extras | 19 | 79.5 | 83.9 | 0.95 | 84% | 246.5 |
+
+The days since have been harder (two lows, the 17 Nov evening highs), so misses are bigger in raw
+terms. Against "no change" the quarter-hour checks hold their ratio (0.90 at 30, slightly better at
+60), and coverage is about the same. The raw gap between extras and quarter-hour checks is about
+*when*, not *which*. Extras exist only while the Mac is awake with fresh readings, which since 16 Nov
+has mostly meant busy post-meal and low hours. Many of the quarter-hour checks are single checks
+from the Mac's hourly wake (one at :05, :19 or :25 in an otherwise empty hour). Paired within the
+same device and hour:
+
+| Horizon | Hours with both | Extras − quarter-hour, miss | Inside range, extras / quarter-hour |
+|---|---|---|---|
+| 30 min | 7 (34 / 20 points) | −1.1 ± 3.1 mg/dL | 58% / 63% |
+| 60 min | 3 (17 / 10 points) | +1.5 ± 9.3 mg/dL | 79% / 67% |
+
+There's no difference, so the extras don't bias the card or the server scorecard. They only change
+which hours weigh most, which is §70's sampling question, already open (retest 3 Dec).
+
+**Volume.** In an hour the Mac is awake with readings it now keeps 8–12 checks (8.1 on average
+over hours with at least 3; the old cap was 4). The iPhone keeps 3.9, up from 3.2, as expected
+from its short opens. But the Mac was awake far less: 7 such hours in 1.9 days since, against 37
+in 3.9 days before. So total checks per day are about what they were (Mac 38 a day against 40).
+That is the Mac's sleep, not the ledger, and §35 already ruled out polling while asleep.
+
+**Decision.** Keep both as shipped; no code changes. §37: retest on **2 Dec 2026** or once 10
+treated lows (45 g or less, tagged or logged under 70) are logged since 16 Nov, whichever is later.
+Count a second treatment inside an hour of a first as part of the same low. Judge on clean 30- and
+60-minute points, held out per low: fast curve against trend only and meal curve, plus range
+coverage. If 3 or more treatments are again logged during a low that an earlier treatment hasn't
+lifted, test the meal-curve rule above held out on those. §35: nothing to retest on its own; it is
+covered by §70's retest.
+
+To rerun the live §37 table (drop the time bound for the 2 Dec retest):
+
+```sql
+with p as (select c.start_mgdl s, c.trend_per_minute tr, (e->>'minutes')::int m,
+  (e->>'actual')::float a, (e->>'mgdl')::float f, (e->>'lower')::float lo, (e->>'upper')::float up
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where 'lowTreatment' = any(c.limitations) and e->>'actual' is not null
+    and not coalesce((e->>'after_log')::bool, false)
+    and c.issued_at between '2026-11-18 02:23' and '2026-11-18 03:50')
+select m, count(*), avg(abs(a - f)) shipped,
+  avg(abs(a - greatest(39, s + tr * case when m >= 30 then 15 else m - m * m / 60.0 end))) trend_only,
+  avg(abs(a - s)) no_change, avg((a between lo and up)::int) inside
+from p group by 1 order by 1;
+```
+
+and the replay (readings export SQL in its docstring; for new lows, add them to `LOWS`,
+`OTHER_CARBS`, `DOSES` and `NEW` in the script first, as its docstring lists):
+
+    python3 -I scripts/low-treatment-recheck.py windows.txt
