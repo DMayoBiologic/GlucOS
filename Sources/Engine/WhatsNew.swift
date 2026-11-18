@@ -180,6 +180,12 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.73.0", highlights: [
+            .init(symbol: "note.text",
+                  title: "Notes on the chart",
+                  detail: "Notes from your Logbook and your alerts now show as small markers on the chart. Hold one to read it."),
+            .init(symbol: "sparkles",
+                  title: "What's New after updates",
+                  detail: "Each update shows its highlights once, and Settings › About opens them again any time."),
             .init(symbol: "square.and.arrow.up",
                   title: "Export your alert history",
                   detail: "Share the alerts you're looking at as a PDF or CSV, straight from Alert History."),
