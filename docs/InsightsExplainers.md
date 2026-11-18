@@ -33,6 +33,17 @@ With fewer than 12 readings every note adds that the figure may change a lot as 
 
 ## Motion and accessibility
 
-The note scales in from 0.94 with a fade on the emphasized spring; under Reduce Motion it only
-fades (0.2 s). VoiceOver reads the note as one element in full: title, meaning, "How it's worked
-out", the worked-out line and the caveat. The buttons are labelled "About time in range" and so on.
+Since round 71 the note grows out of the figure it explains (`InsightsExplainerEntrance`):
+
+- **iPhone:** the sheet zooms out of the tapped figure (the ring, the Average, GMI or CV tile, or
+  the "Below" share) with a matched-geometry zoom, and shrinks back into it on Done or a swipe
+  down. Each figure is its own zoom source. The note inside doesn't scale as well.
+- **Mac:** the popover hangs off the whole figure tile, not just the ⓘ, and the note scales up
+  from 0.9 at its top edge (the side touching the figure) with a fade on the emphasized spring.
+- **Reduce Motion:** nothing zooms or scales. On iPhone the sheet opens and closes without its
+  slide and the note fades in (0.2 s); on the Mac the note only fades.
+
+It plays once per open and close; nothing loops. The note's title is a heading, and with
+VoiceOver on, focus moves to it once the note has landed (0.55 s, or 0.25 s under Reduce Motion).
+The rest of the note reads as one element after it: meaning, "How it's worked out", the
+worked-out line and the caveat. The buttons are labelled "About time in range" and so on.

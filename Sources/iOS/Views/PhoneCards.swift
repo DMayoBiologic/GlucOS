@@ -833,30 +833,27 @@ struct GlanceStatsContent: View {
     @Environment(\.figuresCountUp) private var countsUp
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
 
-    private func info(_ figure: InsightsFigure) -> some View {
-        InsightsInfoButton(figure: figure, context: explain, hidden: shareSnapshot)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             DSAccessibleStack(spacing: DS.Space.lg) {
                 TimeInRangeRing(stats: stats, lineWidth: 11, drawsIn: true)
                     .frame(width: 112, height: 112)
-                    .overlay(alignment: .topTrailing) { info(.timeInRange).offset(x: 8, y: -6) }
+                    .insightsExplainer(.timeInRange, context: explain, hidden: shareSnapshot,
+                                       buttonOffset: CGSize(width: 8, height: -6))
                 VStack(alignment: .leading, spacing: DS.Space.sm) {
                     StatTile("Average", value: unit.format(mgdl: stats.meanMgdl), unit: unit.label,
                              rolling: .init(stats.meanMgdl) { unit.format(mgdl: $0) }) {
                         InsightsDeltaBadge(delta: averageDelta, spokenLabel: "Average", previous: previous)
                     }
-                    .overlay(alignment: .topTrailing) { info(.average) }
+                    .insightsExplainer(.average, context: explain, hidden: shareSnapshot)
                     DSAccessibleStack(spacing: DS.Space.lg) {
                         StatTile("GMI", value: String(format: "%.1f", stats.gmiPercent), unit: "%",
                                  rolling: .init(stats.gmiPercent) { String(format: "%.1f", $0) })
-                            .overlay(alignment: .topTrailing) { info(.gmi) }
+                            .insightsExplainer(.gmi, context: explain, hidden: shareSnapshot)
                         StatTile("CV", value: Format.percent(stats.coefficientOfVariation),
                                  tone: stats.coefficientOfVariation > 0.36 ? .warning : .neutral,
                                  rolling: .init(stats.coefficientOfVariation) { Format.percent($0) })
-                            .overlay(alignment: .topTrailing) { info(.variability) }
+                            .insightsExplainer(.variability, context: explain, hidden: shareSnapshot)
                     }
                 }
             }
@@ -876,10 +873,8 @@ struct GlanceStatsContent: View {
 
     @ViewBuilder
     private func glanceLegend(_ stats: GlucoseStats, spaced: Bool) -> some View {
-        HStack(spacing: DS.Space.xxs) {
-            LegendText(color: GlucoseRange.low.tint, text: "Below", fraction: stats.timeBelowRange)
-            info(.lows)
-        }
+        LegendText(color: GlucoseRange.low.tint, text: "Below", fraction: stats.timeBelowRange)
+            .insightsExplainer(.lows, context: explain, hidden: shareSnapshot, beside: true)
         if spaced { Spacer() }
         LegendText(color: GlucoseRange.inRange.tint, text: "In range", fraction: stats.timeInRange)
         if spaced { Spacer() }

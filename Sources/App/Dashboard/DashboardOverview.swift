@@ -259,9 +259,9 @@ private struct HeadlineTile: View {
             .padding(.top, DS.Space.xxs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(alignment: .topTrailing) {
-            if let info { InsightsInfoButton(figure: info, context: explain).offset(x: 4, y: -4) }
-        }
+        // The note's popover hangs off the whole tile and grows out of it.
+        .insightsExplainer(info ?? .average, context: info == nil ? nil : explain,
+                           buttonOffset: CGSize(width: 4, height: -4))
         .dsCard(.standard, padding: DS.Space.md + 2)
     }
 }
@@ -427,9 +427,7 @@ private struct StatisticsCard: View {
                            tint: fullGMI ? nil : Color.secondary,
                            help: "Glucose Management Indicator: an A1c estimate from average glucose. Only reliable over 14+ days of data.",
                            rolling: .init(stats.gmiPercent, order: 1) { String(format: "%.1f%%", $0) })
-                        .overlay(alignment: .topTrailing) {
-                            InsightsInfoButton(figure: .gmi, context: data.explainerContext(stats))
-                        }
+                        .insightsExplainer(.gmi, context: data.explainerContext(stats))
                 }
                 GridRow {
                     Metric("Time above", Format.percent(stats.timeAboveRange),
