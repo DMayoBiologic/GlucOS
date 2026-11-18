@@ -5405,3 +5405,75 @@ Export SQL for both files is in the script's docstring.
 
 **Dosing.** Not touched: the range only changes the chart and predicted alerts, never insulin on
 board, the effect learner or the bolus figure.
+
+## 76. How well does the forecast line call exits from the target range, and how early? (18 Nov 2026)
+
+The question: when a forecast starts inside the target range (70–180 mg/dL), how often does its
+drawn line correctly say the glucose will leave the range within 30 or 60 minutes (precision), how
+many real exits does it call (recall), and how much warning does a correct call give (lead)? Then
+try one small held-out boundary-aware tweak, a margin at the range edge, and ship it only if it
+calls more exits held out **without** more false alarms. **It doesn't pass: any margin that calls
+more exits also raises false alarms, on every held-out day at 30 minutes. Nothing ships; no app or
+relay code changed.**
+
+Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
+
+**Data.** `scripts/range-exit-timing.py` reads every stored forecast check (660, 12–18 Nov Perth;
+export SQL in the script's docstring) and the server's readings (8,307 from 12 Nov). A check counts
+at horizon H when it started inside 70–180, has a stored point at H, and the readings cover the
+whole window (2 dropped at each horizon for gaps). The line "calls an exit" when the start plus the
+stored points, joined straight, first crosses 70 or 180 by H; the glucose "exits" when any reading
+in the window is under 70 or over 180. The relay's checks only store the 15-minute point, so every
+30- and 60-minute check here is from the Mac or iPhone (the relay's alerts were replayed tick by
+tick in §30 and §64). The Mac and iPhone often check the same moment, so the counts are not
+independent.
+
+| Horizon | Checks | Real exits | Called | Hits | False alarms | Precision | Recall |
+|---|---|---|---|---|---|---|---|
+| 30 min | 181 | 50 (10 low, 40 high) | 24 | 14 | 10 | 58% | 28% |
+| 30 min, clean | 170 | 44 | 21 | 12 | 9 | 57% | 27% |
+| 60 min | 122 | 59 (12 low, 47 high) | 18 | 11 | 5 | 61% | 19% |
+| 60 min, clean | 101 | 41 | 15 | 8 | 5 | 53% | 20% |
+
+Clean = nothing logged between the check and H. Lows are called far better than highs: at 30
+minutes the line caught 5 of 10 low exits (10 low calls, 5 false alarms) but only 9 of 40 high
+exits (14 high calls); at 60, 4 of 12 lows and 7 of 47 highs.
+
+**Timing.** When the line is right, it gives little warning: lead median 6 min (mean 8.5) at 30 and
+median 7 (mean 13.4) at 60. The line's crossing minute lands close to the real one (median +1 min,
+a little late). Counting each real exit once (after 30+ min in range, 32 of them, 9 low), some check
+in the 30 minutes before called it for 10, median 10 min ahead; at 60, 7, median 12 min ahead.
+
+**Why it misses.** At 30 minutes the missed exits happen a median 18 min after the check, 10 of 36
+in the first 10 min; at 60, a median 30 min after, and 15 of 48 had something logged after the
+check (meals the line couldn't know about). Most misses are highs from rises the trend hadn't
+shown yet, the same thing §65 found for unannounced rises. False alarms are mostly not near misses:
+the glucose stayed a median 16–18 mg/dL inside the edge, 2 of 10 (30 min) and 2 of 5 (60 min)
+within 10.
+
+**The tweak tried.** One margin d per horizon: the line calls an exit once it comes within d mg/dL
+of the edge (d > 0, earlier) or only once it is d past it (d < 0, fewer calls), d from −10 to +10,
+picked by leave-one-Perth-day-out on F1. The bar: more hits held out AND no more false alarms than
+as drawn, on most held-out days.
+
+| Horizon | As drawn | Held out (picks d = +10 every fold) | Days with more hits and no more FA |
+|---|---|---|---|
+| 30 min | 14 hits / 10 FA, recall 28%, F1 0.38 | 24 hits / 17 FA, recall 48%, F1 0.52 | 0 of 7 |
+| 60 min | 11 hits / 5 FA, recall 19%, F1 0.29 | 19 hits / 7 FA, recall 32%, F1 0.43 | 2 of 5 |
+
+The margin roughly doubles the hits and keeps precision about where it was, but every extra hit
+at 30 minutes comes with extra false alarms, so it fails the bar. Negative margins cut false alarms
+only by cutting hits faster (d = −4 at 30: 11 hits / 8 FA). The pick sits at the edge of the grid,
+so it is really saying "calls near the edge are about as good as calls past it", not that +10 is
+tuned. That's the same trade §30 and §64 found for the alerts themselves (earlier means more false
+alarms), so this tweak isn't new evidence for moving them.
+
+**Decision.** Keep the line and the range edges as drawn. Retest on **3 Dec 2026**, with §64, once
+there are at least 100 real exits at 30 minutes on 10+ days. Bar as above: more hits held out with
+no more false alarms on most held-out days, low and high counted apart. If the relay starts storing
+30/60-minute points, add its checks then. To rerun:
+
+    python3 -I scripts/range-exit-timing.py checks.txt readings.json
+
+**Dosing.** Not touched: this only reads the stored forecast line, never insulin on board, the
+effect learner or the bolus figure.
