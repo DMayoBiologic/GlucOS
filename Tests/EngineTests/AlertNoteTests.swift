@@ -80,6 +80,10 @@ final class AlertNoteTests: XCTestCase {
         let event = LogEntry.context(ContextEvent(timestamp: fired, tags: [.stress]))
         XCTAssertEqual(event.shortTitle, "Stress")
         XCTAssertEqual(event.kindNoun, "event")
+        // No tags and no text is still nothing to name (LogbookUndo says "Entry deleted").
+        let empty = LogEntry.context(ContextEvent(timestamp: fired, tags: []))
+        XCTAssertEqual(empty.shortTitle, "")
+        XCTAssertEqual(empty.kindNoun, "event")
     }
 
     // MARK: Undo of an added note

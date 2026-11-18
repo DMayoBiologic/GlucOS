@@ -366,7 +366,7 @@ enum LogEntry: Identifiable, Hashable {
         case .siteChange(let s): return "New site: \(s.site.title)"
         case .context(let c):
             // A plain note (an alert note, docs/AlertNotes.md) has no tags to name.
-            return c.tags.isEmpty ? "Note" : c.sortedTags.map(\.title).joined(separator: ", ")
+            return AlertNote.isNote(c) ? "Note" : c.sortedTags.map(\.title).joined(separator: ", ")
         }
     }
 

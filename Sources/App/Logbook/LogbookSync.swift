@@ -667,14 +667,14 @@ extension LogEntry {
         }
     }
 
-    /// "dose", "meal", "site change", "event", or "note" for a plain note (an event with no tags):
+    /// "dose", "meal", "site change", "event", or "note" for a plain note (an event with no tags, only text):
     /// what the edit Undo toast calls the entry.
     var kindNoun: String {
         switch self {
         case .dose: return "dose"
         case .meal: return "meal"
         case .siteChange: return "site change"
-        case .context(let c): return c.tags.isEmpty ? "note" : "event"
+        case .context(let c): return AlertNote.isNote(c) ? "note" : "event"
         }
     }
 }

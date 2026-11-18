@@ -431,7 +431,7 @@ extension LogEntry {
             parts += ["site", s.site.title]
         case .context(let c):
             // A plain note (an alert note) has no tags: "note" finds it.
-            parts += c.tags.isEmpty ? ["note"] : c.sortedTags.map(\.title)
+            parts += AlertNote.isNote(c) ? ["note"] : c.sortedTags.map(\.title)
         }
         return parts.filter { !$0.isEmpty }.joined(separator: " ")
     }
