@@ -192,6 +192,33 @@ Round 63 lets a day fold down to its header, on iPhone and Mac (`LogbookCollapse
 - **Safety.** Folding hides rows, nothing else: export, sync and the day totals still see every
   entry, and a folded day's lines leave the Mac selection, so Delete never reaches them.
 
+## Day notes
+
+Round 70. A few words about a whole day, such as "sick day", "travel" or "new sensor", kept with
+the day rather than with any one entry. Rules and words in `Sources/Engine/DayNotes.swift`
+(`DayNotes`, `DayNoteText`), tested in `DayNotesTests`.
+
+- **Writing one.** iPhone: hold a day header for **Add Note** (or **Edit Note** and **Remove
+  Note**), next to Collapse Day and Jump to a Date. A tap on the header already opens the calendar
+  and a tap on its bar opens the day's chart, so the note lives in the header's menu; once a note
+  is there, tapping it edits it. Mac: right-click the Day cell (any line of the day works, folded
+  or open) for **Add Note…**; clicking the note edits it. Both ask in a small prompt with one text
+  field. Notes are one line, at most 60 characters; an empty note removes it.
+- **Where it shows.** One quiet line under the iPhone day header, with a note icon, and after the
+  totals in the Mac Day cell, its whole text in the tooltip. In the Insights **Best and toughest
+  days** card a noted day shows the note as a small caption under its chart. A shared card picture
+  leaves notes out.
+- **Search.** A day's note is searched with every row of that day: "sick" lists everything logged
+  on a sick day, "sick pizza" the pizza eaten on one, and a typed day still narrows it. The note's
+  matching words are lit like a row's.
+- **Sync.** Notes sync like Logbook records, one record per date (docs/LogbookSync.md "Day notes").
+  The key is the local calendar date, so a note stays on its day after a time zone change.
+- **Motion and VoiceOver.** On iPhone the note slides in under the name on the emphasized spring
+  and slides out when removed; under Reduce Motion it fades. On the Mac it fades in, at once under
+  Reduce Motion. VoiceOver reads it with the header ("Note: sick day", before the totals), offers
+  Add Note or Edit Note as an action, says "Note added to Today" (changed, removed) once after a
+  save, and reads it after the day on the Best and toughest days tiles.
+
 ## From the Insights cards
 
 Round 34 joined the Insights Lows card to the Logbook, on iPhone and Mac (`LogbookLink`, Engine,

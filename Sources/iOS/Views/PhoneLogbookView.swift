@@ -132,6 +132,9 @@ struct PhoneLogbookView: View {
     @AppStorage(LogbookCollapse.defaultsKey) private var foldedStored = ""
     /// The folds in force: the kept ones, and a running search's own (`LogbookFolds`).
     @State private var folds = LogbookFolds()
+    /// The day whose note is being written (`DayNotes`), by its local midnight, and the words so far.
+    @State private var noteDay: Date?
+    @State private var noteDraft = ""
 
     /// Opened from a card (`LogbookLink`): its chip picked and its period above the list. Opened on
     /// an entry (`opening`): that entry's row opens into its detail once the push has landed.
@@ -150,7 +153,7 @@ struct PhoneLogbookView: View {
         let search: LogbookQuery = LogbookQuery.parse(query, now: Date()).linked(linked)
         let lowIDs: Set<UUID> = LogbookSearch.lowTreatmentIDs(all)
         let shown: [PhoneLogbookItem] = PhoneLogbookItem.merge(all, alerts)
-            .filter { $0.matches(listed.kind, search, lowIDs: lowIDs) && $0.matches(tag: listed.tag) }
+            .filter { $0.matches(listed.kind, search, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: listed.tag) }
         let shownIDs: [UUID] = shown.map(\.id)
         let allIDs: [UUID] = all.map(\.id)
         list(all: all, kinds: kinds, shown: shown, search: search)
@@ -178,6 +181,18 @@ struct PhoneLogbookView: View {
             }
         }
         .sheet(isPresented: $showsExport) { exportSheet }
+        // A day's note: one line, saved for the whole day and synced (`DayNotes`).
+        .alert(noteTitle, isPresented: Binding(get: { noteDay != nil }, set: { if !$0 { noteDay = nil } })) {
+            TextField(DayNoteText.placeholder, text: $noteDraft)
+                .textInputAutocapitalization(.sentences)
+            Button("Save") { saveNote() }
+            if let day = noteDay, logbook.dayNote(on: day) != nil {
+                Button(DayNoteText.removeName, role: .destructive) { saveNote(removing: true) }
+            }
+            Button("Cancel", role: .cancel) { noteDay = nil }
+        } message: {
+            Text(DayNoteText.editorMessage)
+        }
         // An opened row, drawn over the list it grew out of.
         .overlay { detail(all: all, terms: search.terms) }
         // Undo, just above the bottom edge. The countdown that sends it away runs on the home
@@ -315,7 +330,8 @@ struct PhoneLogbookView: View {
                 // Day headers stay pinned, on a blur, while their day scrolls under them.
                 dayHeader(day, totals: totals[day.id] ?? day.totals, sums: sums[day.id] ?? LogbookDayTotals(day.entries),
                           range: ranges[day.start], all: all, now: now,
-                          shownDays: shownDays, folded: folded)
+                          shownDays: shownDays, folded: folded,
+                          note: logbook.dayNote(on: day.start), terms: terms)
                     .opacity(rowsFade)
                     .padding(.horizontal, DS.Space.lg)
                     .padding(.vertical, DS.Space.xs + 2)
@@ -497,7 +513,7 @@ struct PhoneLogbookView: View {
         let search = LogbookQuery.parse(query, now: Date()).linked(linked)
         let lowIDs = LogbookSearch.lowTreatmentIDs(all)
         return PhoneLogbookItem.merge(all, alerts)
-            .filter { $0.matches(pick.kind, search, lowIDs: lowIDs) && $0.matches(tag: pick.tag) }
+            .filter { $0.matches(pick.kind, search, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: pick.tag) }
             .count
     }
 
@@ -604,8 +620,13 @@ struct PhoneLogbookView: View {
     ///
     /// The chevron before the name folds the day down to its header, or opens it again
     /// (`toggleFold`). A folded header keeps its bar and says how many rows it holds.
+    ///
+    /// Holding the header offers Add Note (or Edit Note and Remove Note) for the whole day
+    /// (`DayNotes`). The note shows as one line under the name, its searched words lit; tapping it
+    /// edits it. It slides in under the name on a spring, or fades under Reduce Motion, and
+    /// VoiceOver reads it with the header and offers the same actions.
     private func dayHeader(_ day: PhoneLogbookDay, totals: String, sums: LogbookDayTotals, range: DayInRange?, all: [LogEntry],
-                           now: Date, shownDays: Set<Date>, folded: Bool) -> some View {
+                           now: Date, shownDays: Set<Date>, folded: Bool, note: String?, terms: [String]) -> some View {
         let open = range != nil && openDay == day.id
         let snapshot = store.snapshot
         let segments: [[DayChartPoint]] = open
@@ -620,6 +641,7 @@ struct PhoneLogbookView: View {
             ? [LogbookCollapseText.spokenState(folded: true), LogbookCollapseText.spokenCount(count), totals]
                 .filter { !$0.isEmpty }.joined(separator: ", ")
             : [LogbookCollapseText.spokenState(folded: false), totals].filter { !$0.isEmpty }.joined(separator: ", ")
+        let spokenValue = [note.map(DayNoteText.spoken) ?? "", spokenTotals].filter { !$0.isEmpty }.joined(separator: ", ")
         return VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(alignment: .firstTextBaseline) {
                 // Folds the day: points down while open, right while folded.
@@ -659,6 +681,11 @@ struct PhoneLogbookView: View {
                 }
                 .presentationCompactAdaptation(.popover)
             }
+            if let note {
+                noteLine(note, terms: terms)
+                    .onTapGesture { editNote(day.start) }
+                    .transition(DS.Transition.banner(reduceMotion: reduceMotion))
+            }
             if let range {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     if open {
@@ -697,17 +724,83 @@ struct PhoneLogbookView: View {
             }
         }
         .textCase(nil)
+        .contextMenu {
+            Button { editNote(day.start) } label: {
+                Label(DayNoteText.actionName(hasNote: note != nil), systemImage: "note.text")
+            }
+            if note != nil {
+                Button(role: .destructive) { removeNote(day.start) } label: {
+                    Label(DayNoteText.removeName, systemImage: "trash")
+                }
+            }
+            Divider()
+            Button { toggleFold(day, now: now) } label: {
+                Label(LogbookCollapseText.actionName(folded: folded), systemImage: folded ? "chevron.down" : "chevron.up")
+            }
+            Button { openCalendar(day.id) } label: { Label("Jump to a Date", systemImage: "calendar") }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(open
             ? DayChartText.spoken(day: spokenDay, figures: range, segments: segments, unit: snapshot.unit,
                                   low: snapshot.lowMgdl, high: snapshot.highMgdl, logged: markers.count)
             : DayInRangeText.spoken(spokenDay, range))
-        .accessibilityValue(spokenTotals)
+        .accessibilityValue(spokenValue)
         .accessibilityAddTraits([.isHeader, .isButton])
         .accessibilityHint(range == nil ? "Jumps to a date" : (open ? "Hides the day's chart" : "Shows the day's chart"))
         .accessibilityAction { if range != nil { toggleDay(day.id) } else { openCalendar(day.id) } }
         .accessibilityAction(named: LogbookCollapseText.actionName(folded: folded)) { toggleFold(day, now: now) }
         .accessibilityAction(named: "Jump to a Date") { openCalendar(day.id) }
+        .accessibilityAction(named: DayNoteText.actionName(hasNote: note != nil)) { editNote(day.start) }
+    }
+
+    /// The day's note under its name: a small note icon and one line, the search's words lit.
+    private func noteLine(_ note: String, terms: [String]) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
+            Image(systemName: "note.text")
+                .imageScale(.small)
+                .foregroundStyle(.tertiary)
+            Text(SearchHighlight.attributed(note, terms: terms, tint: Palette.brand))
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, 28 - DS.Space.xs)
+        .contentShape(Rectangle())
+    }
+
+    private var noteTitle: String {
+        guard let noteDay else { return "Note" }
+        return DayNoteText.editorTitle(spokenDay: DayInRangeText.spokenDay(ClockLabel.day(of: noteDay, now: Date())))
+    }
+
+    /// Opens the note editor for the day starting at `start`, with its note so far.
+    private func editNote(_ start: Date) {
+        Haptics.play(.choice)
+        noteDraft = logbook.dayNote(on: start) ?? ""
+        noteDay = start
+    }
+
+    private func removeNote(_ start: Date) {
+        noteDay = start
+        saveNote(removing: true)
+    }
+
+    /// Keeps what was typed (an empty note removes it). The line under the header slides in or
+    /// out, or fades under Reduce Motion, and VoiceOver hears the change once.
+    private func saveNote(removing: Bool = false) {
+        guard let start = noteDay else { return }
+        noteDay = nil
+        let before = logbook.dayNote(on: start)
+        let after = withAnimation(reduceMotion ? .easeInOut(duration: 0.25) : DSMotion.emphasized.animation) {
+            logbook.saveDayNote(removing ? "" : noteDraft, on: start)
+        }
+        guard before != after else { return }
+        Haptics.play(.choice)
+        let spokenDay = DayInRangeText.spokenDay(ClockLabel.day(of: start, now: Date()))
+        if let line = DayNoteText.announcement(spokenDay: spokenDay, before: before, after: after) {
+            LoggedElsewhere.announce(line)
+        }
     }
 
     /// Folds a day down to its header or opens it again: the rows below slide up (or down) on a
@@ -926,12 +1019,16 @@ enum PhoneLogbookItem: Identifiable {
     }
 
     /// Whether the row shows under the chosen chip (if any) and the search.
-    func matches(_ filter: LogbookFilter?, _ query: LogbookQuery, lowIDs: Set<UUID>) -> Bool {
+    /// `dayNotes` (`LogbookStore.dayNotes`): a day's note is searched with each of its rows.
+    func matches(_ filter: LogbookFilter?, _ query: LogbookQuery, lowIDs: Set<UUID>,
+                 dayNotes: [String: String] = [:]) -> Bool {
+        // Only looked up when there are words to find.
+        let note = query.terms.isEmpty ? nil : DayNotes.note(on: timestamp, in: dayNotes)
         switch self {
         case .entry(let e):
-            return (filter?.matches(e, lowIDs: lowIDs) ?? true) && LogbookSearch.matches(e, query, lowIDs: lowIDs)
+            return (filter?.matches(e, lowIDs: lowIDs) ?? true) && LogbookSearch.matches(e, query, lowIDs: lowIDs, dayNote: note)
         case .alert(let a):
-            return (filter?.matches(a) ?? true) && LogbookSearch.matches(a, query)
+            return (filter?.matches(a) ?? true) && LogbookSearch.matches(a, query, dayNote: note)
         }
     }
 

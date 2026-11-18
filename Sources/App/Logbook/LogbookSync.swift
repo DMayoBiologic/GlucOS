@@ -73,6 +73,9 @@ enum LogbookRecordKind: String, CaseIterable {
     /// One Insights screen's card order and hidden cards (`SyncedInsightsLayout`): one record per
     /// screen, id `InsightsScreen.recordID`. A screen back on the shipped order is a delete.
     case insightsLayout
+    /// A few words about one whole day (`DayNote`): one record per date, id `DayNotes.recordID`.
+    /// An empty note is a delete.
+    case dayNote
 }
 
 /// One entry as the server keeps it.
@@ -136,6 +139,8 @@ struct LogbookContents: Equatable {
     var alerts: [AlertRecord] = []
     /// Each Insights screen's layout. A screen without one shows the shipped order.
     var insightsLayouts: [InsightsScreen: InsightsLayout] = [:]
+    /// Day notes by date key ("2026-11-18", `DayNotes.key`). Never holds an empty note.
+    var dayNotes: [String: String] = [:]
 
     var allIDs: [(UUID, LogbookRecordKind)] {
         insulins.map { ($0.id, LogbookRecordKind.insulin) } +
@@ -145,6 +150,15 @@ struct LogbookContents: Equatable {
             + lowAnswers.map { ($0.id, .lowAnswer) }
             + alerts.map { ($0.id, .alert) }
             + InsightsScreen.allCases.filter { insightsLayouts[$0] != nil }.map { ($0.recordID, .insightsLayout) }
+            + dayNoteIDs
+    }
+
+    private var dayNoteIDs: [(UUID, LogbookRecordKind)] {
+        var out: [(UUID, LogbookRecordKind)] = []
+        for key in dayNotes.keys.sorted() {
+            if let id = DayNotes.recordID(for: key) { out.append((id, LogbookRecordKind.dayNote)) }
+        }
+        return out
     }
 }
 
@@ -291,6 +305,9 @@ enum LogbookMerge {
             guard let screen = InsightsScreen(recordID: id), let layout = c.insightsLayouts[screen],
                   !layout.isStandard else { return nil }
             return json(SyncedInsightsLayout(screen: screen, layout: layout))
+        case .dayNote:
+            guard let key = DayNotes.key(recordID: id), let text = c.dayNotes[key], !text.isEmpty else { return nil }
+            return json(DayNote(day: key, text: text))
         case nil: return nil
         }
     }
@@ -346,6 +363,10 @@ enum LogbookMerge {
                   let screen = InsightsScreen(rawValue: synced.screen) else { return false }
             let layout = synced.layout
             c.insightsLayouts[screen] = layout.isStandard ? nil : layout
+        case .dayNote:
+            guard let note = decode(DayNote.self, from: payload), DayNotes.isValid(note.day) else { return false }
+            let text = DayNotes.cleaned(note.text)
+            c.dayNotes[note.day] = text.isEmpty ? nil : text
         }
         return true
     }
@@ -359,6 +380,11 @@ enum LogbookMerge {
         if kind == .insightsLayout {
             guard let screen = InsightsScreen(recordID: id), c.insightsLayouts[screen] != nil else { return false }
             c.insightsLayouts[screen] = nil
+            return true
+        }
+        if kind == .dayNote {
+            guard let key = DayNotes.key(recordID: id), c.dayNotes[key] != nil else { return false }
+            c.dayNotes[key] = nil
             return true
         }
         let before = c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count + c.foods.count
@@ -376,7 +402,7 @@ enum LogbookMerge {
         case .food: c.foods.removeAll { $0.id == id }
         case .lowAnswer: c.lowAnswers.removeAll { $0.id == id }
         case .alert: c.alerts.removeAll { $0.id == id }
-        case .bolusSettings, .insightsLayout: break
+        case .bolusSettings, .insightsLayout, .dayNote: break
         }
         return before != c.doses.count + c.meals.count + c.siteChanges.count + c.contexts.count + c.presets.count + c.foods.count
             + c.lowAnswers.count + c.alerts.count
