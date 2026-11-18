@@ -42,7 +42,7 @@ enum DoubleLog {
         switch (a, b) {
         case (.dose(let x), .dose(let y)):
             guard x.kind == y.kind, close(x.units, y.units, slack: unitsSlack) else { return false }
-            let kx = InsulinLibrary.key(x.name), ky = InsulinLibrary.key(y.name)
+            let kx = nameKey(x.name), ky = nameKey(y.name)
             return kx.isEmpty || ky.isEmpty || kx == ky
         case (.meal(let x), .meal(let y)):
             guard close(x.carbs, y.carbs, slack: carbsSlack) else { return false }
@@ -55,6 +55,12 @@ enum DoubleLog {
 
     static func close(_ a: Double, _ b: Double, slack: Double) -> Bool {
         abs(a - b) <= max(slack, share * max(abs(a), abs(b))) + 1e-9
+    }
+
+    /// "Novo Rapid", "novorapid" and "NovoRapid" match (as `InsulinLibrary.key`, which not every
+    /// target that builds the engine includes).
+    static func nameKey(_ name: String) -> String {
+        String(name.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init))
     }
 
     /// "Toast, butter" and " toast,  Butter " match.
