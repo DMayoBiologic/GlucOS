@@ -183,8 +183,9 @@ struct ExportFile: Identifiable {
     }
 }
 
-/// The system share sheet for one file: Mail, Messages, AirDrop, Save to Files, Print.
-private struct ActivitySheet: UIViewControllerRepresentable {
+/// The system share sheet for one file: Mail, Messages, AirDrop, Save to Files, Print. Also used
+/// by the Alert History export (`AlertHistoryExportRow`).
+struct ActivitySheet: UIViewControllerRepresentable {
     let url: URL
 
     func makeUIViewController(context: Context) -> UIActivityViewController {

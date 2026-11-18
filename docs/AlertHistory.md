@@ -110,6 +110,54 @@ Rules and words: `AlertHistory.KindFilter`, `OutcomeFilter`, `FilterPick`,
 `AlertHistoryText.filterAnnouncement` / `filteredEmptyMessage`. View: `AlertHistoryFilterBar` in
 Sources/App/Views/AlertHistoryViews.swift.
 
+## Export
+
+For a clinic visit. Under the chips, a line says how many alerts are shown ("12 alerts shown",
+"3 of 12 alerts shown") beside an **Export** menu:
+
+- **iPhone:** Share PDF / Share CSV. The file is made off the main thread in the app's temporary
+  export folder (cleared before each export, complete file protection, as the Logbook export's
+  `ExportFile`), then the share sheet opens (Mail, Messages, AirDrop, Save to Files, Print).
+- **Mac:** Save PDF… / Save CSV… asks where to save, then says "Saved “name”" under the count.
+
+What's in it is exactly what the list shows under the chips as picked at that moment: the same
+rows (the Mac's and the iPhone's copies merged, the same 7 days), the same reading and outcome,
+and each alert's note (docs/AlertNotes.md). Oldest first, since a clinic reads a log forwards.
+The menu is disabled when the chips leave nothing.
+
+| CSV column | Example |
+| --- | --- |
+| Date, Time | 2026-11-18, 14:14 (24 h) |
+| Alert | Low alert |
+| Type | Low, High or Predicted (the kind chip it falls under) |
+| Glucose (mmol/L or mg/dL) | 3.4, blank for no reading |
+| Outcome | Snoozed 30 min, Tapped Log treatment, Dismissed, No response |
+| Responded | 14:16, or 2026-11-18 00:02 when it was the next day |
+| Note | the alert's note |
+
+CSV is RFC 4180 with CRLF line ends and the Logbook export's formula guard (a note starting with
+= + - @ gets an apostrophe).
+
+The PDF (A4, the Logbook export's print colours, layout and footer) opens with "GlucOS Alert
+History", the period ("12 Nov – 18 Nov 2026 (7 days)"), the filter ("Showing: Snoozed low alerts ·
+3 of 12 alerts", or "Showing: All alerts · 12 alerts"), the unit and when it was made, then a
+"What happened" line counting each outcome, then every alert by day: time, a dot in the range's
+colour with the alert's name, the reading, what happened with its time, and the note in italics.
+The file name carries the days and any filter: "GlucOS Alert History 2026-11-12 to 2026-11-18
+(Snoozed low alerts).pdf". The footer says it was made on this iPhone or Mac from its own alerts,
+readings and notes, that "Tapped Log treatment" means the button was tapped rather than that a low
+was treated, and that it's observations, not advice.
+
+**Never anyone else's data.** It reads only the owner's alert records (a follower's copies of a
+shared person's alerts are never recorded, docs/AlertLog.md), the owner's stored readings and the
+owner's Logbook notes. Test alerts are never recorded, so they never appear. Nothing leaves the
+device until the person shares or saves the file.
+
+Rules and words: `Sources/Engine/AlertHistoryExport.swift` (`AlertHistoryExport`,
+`AlertHistoryExportText`), tests `AlertHistoryExportTests`. PDF: `Sources/App/Export/AlertHistoryPDF.swift`,
+drawn with `LogbookPDF.render` (shared with the Logbook export). View: `AlertHistoryExportRow` in
+Sources/App/Views/AlertHistoryViews.swift.
+
 ## Where it lives
 
 - Rules and words: `Sources/Engine/AlertHistory.swift` (`AlertHistory`, `AlertHistoryText`).
