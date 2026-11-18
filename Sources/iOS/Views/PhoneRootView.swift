@@ -353,6 +353,14 @@ struct PhoneHomeView: View {
             stack.append(PhoneRoute.logbookLink(link))
             path = stack
         }
+        // The Insights Alerts card: Settings opens on Alerts › Alert History, over Insights, so
+        // Done comes back to the card (docs/InsightsAlerts.md).
+        .onReceive(AlertHistoryOpenRequest.shared.$requestedAt) { _ in
+            guard AlertHistoryOpenRequest.shared.take() else { return }
+            showsSharing = false
+            settingsAnchor = .alertHistory
+            showsSettings = true
+        }
         .onChange(of: router.request?.id) { _, id in
             // A log link arriving while Settings or Sharing is open: show the log sheet instead.
             if id != nil { showsSettings = false; showsSharing = false }

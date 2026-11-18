@@ -17,7 +17,7 @@ final class InsightsLayoutTests: XCTestCase {
         var layout = InsightsLayout.standard
         // Drag Lows (index 1) to the top.
         layout.moveVisible(fromOffsets: IndexSet(integer: 1), toOffset: 0, defaults: mac)
-        XCTAssertEqual(layout.visible(mac), [.lows, .weekInReview, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .dayPattern, .hourlyInRange, .forecastAccuracy])
+        XCTAssertEqual(layout.visible(mac), [.lows, .weekInReview, .highs, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .dayPattern, .hourlyInRange, .forecastAccuracy])
         // Drag Week in review (now index 1) to the end: onMove reports the count as the destination.
         layout.moveVisible(fromOffsets: IndexSet(integer: 1), toOffset: mac.count, defaults: mac)
         XCTAssertEqual(layout.visible(mac).last, .weekInReview)
@@ -70,10 +70,10 @@ final class InsightsLayoutTests: XCTestCase {
         let layout = InsightsLayout(order: ["dayPattern", "weekInReview", "lows", "highs", "forecastAccuracy"],
                                     hidden: ["highs"])
         XCTAssertEqual(layout.arranged(mac),
-                       [.dayPattern, .hourlyInRange, .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy])
+                       [.dayPattern, .hourlyInRange, .weekInReview, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy])
         // New cards are never hidden.
         XCTAssertEqual(layout.visible(mac),
-                       [.dayPattern, .hourlyInRange, .weekInReview, .lows, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy])
+                       [.dayPattern, .hourlyInRange, .weekInReview, .lows, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy])
     }
 
     func testStreaksArriveAfterWeekdaysAndWeekendsInASavedLayout() {
@@ -114,6 +114,20 @@ final class InsightsLayoutTests: XCTestCase {
         XCTAssertEqual(InsightsCard(rawValue: "tags"), .tags)
         XCTAssertEqual(InsightsCard.tags.title, "Tags")
         let phoneLayout = InsightsLayout(order: InsightsCard.phoneDefault.filter { $0 != .tags }.map(\.rawValue),
+                                         hidden: [])
+        XCTAssertEqual(phoneLayout.visible(phone), phone)
+    }
+
+    func testAlertsArriveAfterHighsInASavedLayout() {
+        // A layout saved before the Alerts card shipped, with Highs moved to the top and hidden:
+        // Alerts shows straight after it, and isn't hidden.
+        let saved = InsightsCard.macDefault.filter { $0 != .alerts && $0 != .highs }.map(\.rawValue)
+        let layout = InsightsLayout(order: ["highs"] + saved, hidden: ["highs"])
+        XCTAssertEqual(Array(layout.arranged(mac).prefix(2)), [.highs, .alerts])
+        XCTAssertEqual(layout.visible(mac).first, .alerts)
+        XCTAssertEqual(InsightsCard(rawValue: "alerts"), .alerts)
+        XCTAssertEqual(InsightsCard.alerts.title, "Alerts")
+        let phoneLayout = InsightsLayout(order: InsightsCard.phoneDefault.filter { $0 != .alerts }.map(\.rawValue),
                                          hidden: [])
         XCTAssertEqual(phoneLayout.visible(phone), phone)
     }
