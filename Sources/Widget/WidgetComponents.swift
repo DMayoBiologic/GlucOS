@@ -115,6 +115,9 @@ struct StatusPill: View {
     /// entries; a cross-fade under Reduce Motion.
     private var swap: AnyTransition {
         if reduceMotion { return .opacity }
+        // "Stale" and the no-readings words fade in and out, like the line under the figure
+        // (`WidgetGapMotion`): nothing is travelling up or down while there are no readings.
+        if entry.freshness != .fresh { return .opacity }
         let falling = (entry.snapshot.deltaMgdl ?? 0) < 0
         return .push(from: falling ? .top : .bottom)
     }
@@ -156,6 +159,7 @@ struct HeroValue: View {
     var size: CGFloat
     var showsUnit = true
     @Environment(\.widgetRenderingMode) private var mode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var valueStyle: AnyShapeStyle {
         switch entry.freshness {
@@ -181,10 +185,15 @@ struct HeroValue: View {
                         // rendering mode: stale is never only a colour.
                         .staleStrike(entry.freshness == .stale, thickness: max(2, size * 0.05))
                         .widgetAccentable()
+                        .gapPhaseTransition()
                 } else {
+                    // The number withdrawn half an hour into a gap fades to dashes, and the first
+                    // reading after it fades back in.
                     Text("––").foregroundStyle(.tertiary)
+                        .gapPhaseTransition()
                 }
             }
+            .animation(GapSwapTiming.animation(reduceMotion: reduceMotion), value: entry.freshness.showsValue)
             .font(.system(size: size, weight: .bold, design: .rounded))
             .monospacedDigit()
             .minimumScaleFactor(0.55)
@@ -218,46 +227,57 @@ struct DetailLine: View {
 
     var body: some View {
         let s = entry.snapshot
+        let motion = WidgetGapMotion.key(s, at: entry.date)
         Group {
             if let cur = s.current, let gap = WidgetGap.state(s, at: entry.date) {
                 // "No readings for 12 min", and once the number has gone, what it was. The words
-                // step with the timeline's per-minute entries; nothing ticks or moves.
+                // fade in over the reading's line, the minutes roll with the timeline's
+                // per-minute entries, and the line fades back when readings resume
+                // (`WidgetGapMotion`). Nothing ticks between entries.
                 HStack(spacing: 3) {
                     Image(systemName: "clock")
                     if entry.freshness == .expired {
                         ViewThatFits(in: .horizontal) {
                             Text("\(WidgetGap.headline(gap)) · last \(s.unit.format(mgdl: cur.mgdl))")
+                                .gapMinutesRoll(motion)
                             Text(WidgetGap.headline(gap))
+                                .gapMinutesRoll(motion)
                         }
                     } else {
                         Text(WidgetGap.headline(gap))
+                            .gapMinutesRoll(motion)
                     }
                 }
                 .foregroundStyle(.secondary)
+                .gapPhaseTransition()
             } else if let cur = s.current {
-                switch entry.freshness {
-                case .fresh, .stale:
-                    HStack(spacing: 4) {
-                        if showsTrendWord, entry.freshness == .fresh, cur.trend != .unknown {
-                            Text(cur.trend.description).fontWeight(.semibold)
+                Group {
+                    switch entry.freshness {
+                    case .fresh, .stale:
+                        HStack(spacing: 4) {
+                            if showsTrendWord, entry.freshness == .fresh, cur.trend != .unknown {
+                                Text(cur.trend.description).fontWeight(.semibold)
+                            }
+                            if let d = s.deltaMgdl {
+                                Text(s.unit.formatDelta(mgdl: d)).monospacedDigit().foregroundStyle(.secondary)
+                            }
+                            AgeLabel(entry: entry, live: live)
                         }
-                        if let d = s.deltaMgdl {
-                            Text(s.unit.formatDelta(mgdl: d)).monospacedDigit().foregroundStyle(.secondary)
+                    case .expired, .none:
+                        HStack(spacing: 3) {
+                            Image(systemName: "clock.badge.exclamationmark")
+                            Text("Last \(s.unit.format(mgdl: cur.mgdl)) at \(cur.timestamp.formatted(date: .omitted, time: .shortened))")
                         }
-                        AgeLabel(entry: entry, live: live)
+                        .foregroundStyle(Tone.warning.textColor)
                     }
-                case .expired, .none:
-                    HStack(spacing: 3) {
-                        Image(systemName: "clock.badge.exclamationmark")
-                        Text("Last \(s.unit.format(mgdl: cur.mgdl)) at \(cur.timestamp.formatted(date: .omitted, time: .shortened))")
-                    }
-                    .foregroundStyle(Tone.warning.textColor)
                 }
+                .gapPhaseTransition()
             } else {
                 Text(s.lastError == nil ? "Waiting for GlucOS" : "Open GlucOS to reconnect")
                     .foregroundStyle(.secondary)
             }
         }
+        .gapSwapAnimation(motion)
         .font(.caption2.weight(.medium))
         .lineLimit(1)
         .minimumScaleFactor(0.75)

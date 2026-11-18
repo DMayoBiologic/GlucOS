@@ -58,6 +58,8 @@ struct AccessoryGlucoseView: View {
         return s.unit.format(mgdl: c.mgdl)
     }
     private var trend: Trend { s.current?.trend ?? .unknown }
+    /// What the no-readings words fade and roll on (`WidgetGapMotion`).
+    private var gapMotion: WidgetGapMotion.Key { WidgetGapMotion.key(s, at: entry.date) }
     /// Lock Screen accessories are drawn monochrome, so the tone only times the figure's change
     /// (`readingChange`); the colour itself is the system's.
     private var tone: Tone {
@@ -118,7 +120,9 @@ struct AccessoryGlucoseView: View {
                     HStack(spacing: 1) {
                         Image(systemName: "clock")
                         Text(caption).monospacedDigit()
+                            .gapMinutesRoll(gapMotion)
                     }
+                    .gapSwapAnimation(gapMotion)
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -139,7 +143,9 @@ struct AccessoryGlucoseView: View {
     private var inline: some View {
         HStack(spacing: 4) {
             if !fresh { Image(systemName: freshness.showsValue ? "clock.badge.exclamationmark" : "drop.degreesign.slash") }
+            // "6.1 ↗ · 2m" fades into "No readings for 12m", and back (`WidgetGapMotion`).
             Text(AccessoryGlance.inline(s, at: entry.date))
+                .gapSwap(gapMotion)
         }
     }
 
@@ -171,8 +177,10 @@ struct AccessoryGlucoseView: View {
             } else if fresh, let range = s.range {
                 Text(range.label).font(.caption)
             } else if let caption = AccessoryGlance.gapCaption(s, at: entry.date) {
-                // Ten minutes without a reading: why, where GlucOS can tell (`WidgetGap`).
+                // Ten minutes without a reading: why, where GlucOS can tell (`WidgetGap`). Fades
+                // in over the line it replaces (`WidgetGapMotion`).
                 Text(caption).font(.caption).lineLimit(1).minimumScaleFactor(0.8)
+                    .gapSwap(gapMotion)
             } else if stale {
                 // The Lock Screen has no colour to carry it, so stale says so in words.
                 Text("Stale · trend paused").font(.caption)
@@ -187,9 +195,11 @@ struct AccessoryGlucoseView: View {
                         .font(.caption2)
                         .lineLimit(1)
                 } else if let line = AccessoryGlance.withdrawnLine(s, at: entry.date) {
+                    // "No readings for 45m", the minutes rolling with each entry.
                     Text(line).font(.caption2).foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
+                        .gapSwap(gapMotion)
                 }
             }
         }

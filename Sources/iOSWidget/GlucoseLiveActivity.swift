@@ -287,6 +287,7 @@ struct LockScreenGlucoseCard: View {
             // The card's own colour, so StandBy (which drops the background tint) still has it.
             RangeField(tone: tone, intensity: stale ? 0.6 : 0.9)
         }
+        .staleFade(stale)
         .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(state.accessibilitySummary(stale: stale, person: person))
@@ -318,6 +319,7 @@ struct SmallGlucoseCard: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, actions ? 6 : 8)
+        .staleFade(stale)
         .accessibilityElement(children: .contain)
     }
 
@@ -493,17 +495,34 @@ private struct ActivityStatusLabel: View {
                 Text("·").foregroundStyle(.tertiary)
             }
             // Stale: "No readings since 2:10 pm" in a calm grey with a clock, the widgets' words.
-            Label(stale ? state.noReadingsLine() : state.range.label,
-                  systemImage: stale ? "clock" : state.range.systemImage)
-                .foregroundStyle(stale ? AnyShapeStyle(HierarchicalShapeStyle.secondary) : AnyShapeStyle(tone.color))
-                .lineLimit(1)
-                .id(stale ? "stale" : state.range.label)
-                .transition(.push(from: state.glucoseTrend.isFalling ? .top : .bottom))
+            // It fades in over the range word, and the range word fades back when a reading
+            // arrives; a range change between readings pushes from the direction of travel.
+            ZStack(alignment: .leading) {
+                if stale {
+                    Label(state.noReadingsLine(), systemImage: "clock")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .transition(fade)
+                } else {
+                    ZStack(alignment: .leading) {
+                        Label(state.range.label, systemImage: state.range.systemImage)
+                            .foregroundStyle(tone.color)
+                            .lineLimit(1)
+                            .id(state.range.label)
+                            .transition(.push(from: state.glucoseTrend.isFalling ? .top : .bottom))
+                    }
+                    .transition(fade)
+                }
+            }
+            // Under Reduce Motion both swap at once.
+            .dsAnimation(.emphasized, value: state.range.label)
+            .animation(reduceMotion ? nil : DSMotion.standard.animation, value: stale)
             if person == nil { ActivitySnoozeBadge(snooze: state.runningSnooze()) }
         }
-        // The push needs an animation on the change; under Reduce Motion the word swaps at once.
-        .dsAnimation(.emphasized, value: stale ? "stale" : state.range.label)
     }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var fade: AnyTransition { reduceMotion ? .identity : .opacity }
 }
 
 /// While the owner's alerts are snoozed: a bell-slash and "until 2:30 pm", after the status on the
@@ -723,5 +742,27 @@ private struct CheckInButton<I: AppIntent>: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibility)
+    }
+}
+
+// MARK: - Grey state fade
+
+extension View {
+    /// The card going grey when its reading goes stale ("No readings since 2:10 pm"), and its
+    /// colour coming back with the next reading: the figure, needle, field and status fade together
+    /// on the calm `.sweep` curve instead of snapping. ActivityKit plays it between the two states it
+    /// draws (a new card, or the stale date passing), so it costs no update. Instant under Reduce
+    /// Motion.
+    fileprivate func staleFade(_ stale: Bool) -> some View {
+        modifier(StaleFade(stale: stale))
+    }
+}
+
+private struct StaleFade: ViewModifier {
+    let stale: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.animation(reduceMotion ? nil : DSMotion.sweep.animation, value: stale)
     }
 }

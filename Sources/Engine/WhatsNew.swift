@@ -180,6 +180,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.77.0", highlights: [
+            .init(symbol: "clock.arrow.circlepath",
+                  title: "Smoother missing-readings widgets",
+                  detail: "Widgets and the Live Activity now fade gently into the no-readings state and back, with the minutes rolling as they pass."),
             .init(symbol: "sensor.tag.radiowaves.forward",
                   title: "New sensors in your Logbook",
                   detail: "When you start a new sensor, GlucOS adds Sensor started to your Logbook and chart at the time it began."),
