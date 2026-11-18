@@ -1646,6 +1646,8 @@ struct InsightsSection: View {
         switch card {
         case .tags: return TagInsightsCardView.shows(logbook.entries)
         case .alerts: return AlertsSummary.shows(logbook.alerts)
+        case .sensorCoverage:
+            return SensorCoverageCache.shared.shows(readings: readings, context: store.gapContext, back: step.back)
         default: return true
         }
     }
@@ -1716,6 +1718,10 @@ struct InsightsSection: View {
                 .id(Self.cardID(.hourOfDay))
         case .forecastAccuracy:
             ForecastScorecardCard(outlook: outlookStore)
+        case .sensorCoverage:
+            SensorCoverageCardView(readings: readings, context: store.gapContext, openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.aroundGap))
         case .glance, .days, .mornings:
             // iPhone-only cards; never in the Mac's list.
             EmptyView()

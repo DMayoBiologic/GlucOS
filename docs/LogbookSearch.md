@@ -465,3 +465,9 @@ back into it, rather than sliding up from the bottom of the screen. The rules ar
 - **VoiceOver.** Once the sheet has landed (0.55 s, or 0.25 s under Reduce Motion) focus moves to
   its title ("Edit Insulin", "Edit Food"…), which is marked as a header.
 - **Power.** It plays once per open and once per close. Nothing loops.
+
+### Sensor coverage
+
+Round 81: the Insights Sensor coverage card opens the Logbook around its longest gap, an hour
+either side, on the unlisted **Around a gap** chip (`LogbookFilter.aroundGap`). No kind chip; the
+period chip ("Around Yesterday 2:10 am") says it all. See [SensorCoverage.md](SensorCoverage.md).
