@@ -6352,3 +6352,85 @@ three to four more weeks). Then fit the same factor and, per §31, also test dra
 
 **Dosing.** Not touched: the insulin curve, sensitivity and the bolus calculator's insulin on board
 are unchanged.
+
+## 87. After a correction-only dose, does the line fall too fast or too slowly, and is the range right? (18 Nov 2026)
+
+**Question.** When rapid insulin is logged while above range with no meal within an hour either
+side (a correction), does the forecast line fall too fast or too slowly, and does its range cover
+the readings as often as after meal-covered doses? And would reshaping the range after corrections
+help on days it wasn't fitted on? The line, the insulin curve, insulin on board and sensitivity are
+out of scope (dosing maths).
+
+**Data.** Rapid doses 7–18 Nov 2026 (24 logged) against the accuracy log from 12 Nov 15:02 Perth.
+A correction is a rapid dose with no meal within 60 minutes either side and a reading above 180 at
+the dose: six scorable ones on three days, 14 Nov 20:04 (1.5 u, 239) and 22:00 (4 u, 202), 15 Nov
+11:30 (4.5 u, 283), 12:51 (10 u, 294) and 18:38 (6 u, 217), and 18 Nov 18:23 (4 u, 188). 11 Nov
+10:46 and 12:56 qualify but are before the log. Meal-covered: six scorable doses with a meal within
+60 minutes (12 Nov 14:43 and 19:08, 13 Nov 09:58, 14 Nov 17:04, 16 Nov 11:14 and 14:10). A point
+belongs to the latest rapid dose in the 3 hours before issue; correction points with a meal logged
+after the dose are dropped. "Early" means issued 0–60 minutes after the dose, "late" 60–180. Clean
+shown points. SQL: `scripts/correction-doses.sql`; held-out test: `scripts/correction-doses.py`.
+
+Bias is actual − line, so negative means the line ran high (glucose fell faster than drawn).
+
+| Horizon | Group | Points (doses) | MAE | No change | Bias | Inside | Below | Above | Score |
+|---|---|---|---|---|---|---|---|---|---|
+| 30 min | correction, early | 26 (6) | 28.7 | 34.8 | −23.4 | 81% | 15% | 4% | 115.2 |
+| 30 min | correction, late | 55 (5) | 27.8 | 28.4 | +12.4 | 84% | 2% | 15% | 160.3 |
+| 30 min | meal-covered, early | 20 (6) | 33.4 | 34.6 | −5.6 | 50% | 30% | 20% | 181.9 |
+| 30 min | meal-covered, late | 67 (6) | 26.1 | 31.5 | +10.2 | 75% | 9% | 16% | 122.0 |
+| 30 min | no rapid dose in 3 h | 196 | 27.3 | 31.4 | +0.6 | 78% | 13% | 9% | 151.7 |
+| 60 min | correction, early | 13 (2) | 60.4 | 67.7 | −51.5 | 92% | 0% | 8% | 233.0 |
+| 60 min | correction, late | 30 (3) | 61.2 | 49.8 | +37.3 | 73% | 0% | 27% | 291.9 |
+| 60 min | meal-covered, early | 15 (5) | 45.7 | 47.7 | −36.2 | 73% | 27% | 0% | 170.7 |
+| 60 min | meal-covered, late | 53 (5) | 57.7 | 62.0 | +21.8 | 68% | 17% | 15% | 234.3 |
+| 60 min | no rapid dose in 3 h | 73 | 49.7 | 51.7 | +17.7 | 78% | 11% | 11% | 246.5 |
+
+After a correction the line falls **too slowly at first and too far later**: in the first hour
+glucose ends up 23 below the line at 30 minutes and 52 below at 60, and from the second hour on it
+ends up 12 and 37 above. Meal-covered doses show the same shape, weaker at 30 minutes (−6/+10; −36/+22 at
+60), so it is not special to corrections. Much of the late overshoot is one afternoon: 15 Nov
+12:51, the near-stacked pair §85 already flagged, when glucose fell from 294 to 86 by 15:00 and
+then rose unlogged to 236 by 15:28 (30 min: 38% inside, 46% above; 60 min: 40% inside, 60% above).
+Without it the late bias is +5.9 at 30 and +17.6 at 60, the early bias stays −20.5 and −51.5, and
+coverage is 83–95%.
+
+The range after corrections is **better calibrated than after meals**: 79–92% inside against
+50–75% after meal-covered doses. Its misses are one-sided by phase (below in the first hour, above
+after it), which is what the tweak below targets.
+
+At 30 minutes the line beats "no change" after corrections (28.1 against 30.4 overall). At 60
+minutes it loses late (61.2 against 49.8), all from 15 Nov; without that day it is 50.2 against
+42.9, from 20 points on one dose (18 Nov), so still too few to call.
+
+**Held out.** Range only, the line doesn't move: after a correction, one factor per horizon, phase
+(early/late) and side scaling the drawn distance below and above the line. Each factor is the 90th
+percentile of the training points' side ratios (how far past the line the reading fell on that side
+over the drawn distance, 0 when it fell on the other side), clamped 0.6–2.5, only with 8+ training
+points, fitted leave-one-Perth-day-out over 14, 15 and 18 Nov. Bar: better on every held-out day at
+30 and 60, and no reading under 70 dropped out of the range.
+
+| Held-out day | Horizon | Factors lower/upper (early; late) | Score, shipped → tweak | Inside | Lows dropped |
+|---|---|---|---|---|---|
+| 14 Nov | 30 min | 1.10/0.60; 0.60/2.15 | 98.1 → 106.3 | 18 → 17 of 21 | 0 |
+| 14 Nov | 60 min | 0.60/0.60; 0.60/1.92 | 170.0 → 265.4 | 5 → 3 of 8 | 0 |
+| 15 Nov | 30 min | 1.01/0.60; 0.60/0.73 | 232.7 → 241.3 | 16 → 13 of 24 | 1 |
+| 15 Nov | 60 min | 0.60/0.60; 0.82/1.06 | 494.4 → 469.2 | 4 → 4 of 10 | 0 |
+| 18 Nov | 30 min | 0.97/0.60; 0.78/2.25 | 115.7 → 152.8 | 33 → 33 of 36 | 0 |
+| 18 Nov | 60 min | —; 0.82/2.50 | 219.3 → 328.4 | 25 → 25 of 25 | 0 |
+
+Better on 1 of 6 held-out day-horizons, and on 15 Nov at 30 minutes the narrowed lower side drops a
+reading under 70 (59.6 at 21:48 Perth on 15 Nov, after the 18:38 correction) out of the range. With one
+messy afternoon in every training set the factors swing between the clamps from day to day (late
+upper side 0.73–2.50). It fails the bar.
+
+**Decision.** Keep the line and range as they are after corrections. The slow-then-overshooting
+shape is the insulin curve's timing, which is dosing maths and needs Declan's approval to change;
+the analysis only records it. §20 fitted the curve's peak and duration on four of these same correction windows and nothing won on unseen ones; this is the forecast-side view of the same doses, with more points and the same answer.
+Retest on **16 Dec 2026**, only if `scripts/correction-doses.sql` finds 10+ correction doses on 5+
+days with 40+ clean points at 60 minutes in each phase. Then refit the same side factors
+leave-one-day-out, and report the early/late bias by dose size; if the shape holds on 5+ days,
+raise it with Declan as a decision card instead of shipping anything.
+
+**Dosing.** Not touched: the insulin curve, insulin on board, sensitivity and the bolus calculator
+are unchanged.
