@@ -35,6 +35,8 @@ final class GlucoseStore: ObservableObject {
     /// When GlucOS was checking LibreLinkUp, so the chart can say why readings are missing
     /// (`ReadingGaps`). Not published: every fetch already sends the snapshot.
     private(set) var polls = PollLog.load()
+    /// "Check now" on a gap card that says no signal or can't connect (`ReadingGapCheck`).
+    @Published private(set) var gapCheck = ReadingGapCheck.Status()
 
     let settings = AppSettings.shared
     let alerts = AlertManager()
@@ -193,6 +195,8 @@ final class GlucoseStore: ObservableObject {
             setStatusLine("Connected to \(host)")
         } catch {
             guard !accountChanged() else { return }
+            polls.recordFailure(lastAttempt ?? Date(), interval: TimeInterval(max(30, settings.pollIntervalSeconds)))
+            polls.save()
             snapshot.lastError = error.localizedDescription
             let problem = ConnectionProblem(error)
             if problem != connectionProblem { connectionProblem = problem }
@@ -215,6 +219,41 @@ final class GlucoseStore: ObservableObject {
         #else
         ReadingGaps.Context(sensor: snapshot.sensor, polls: polls, device: .iPhone)
         #endif
+    }
+
+    /// What the chart's Check Now needs (`ReadingGapCheck`). Nil for followers, who have no
+    /// LibreLinkUp login to check.
+    var gapCheckControl: ReadingGapCheck.Control? {
+        guard settings.hasCredentials else { return nil }
+        return ReadingGapCheck.Control(status: gapCheck) { [weak self] in
+            Task { @MainActor in await self?.checkNow() }
+        }
+    }
+
+    /// "Check now" on a gap card (`ReadingGapCheck`): one fetch through `refresh()`, joining one
+    /// already in flight, at most once per 30 seconds. Only on a tap: it never schedules anything.
+    /// Followers (no LibreLinkUp login) aren't offered it, and it does nothing for them.
+    func checkNow() async {
+        let started = Date()
+        guard settings.hasCredentials else { return }
+        var status = gapCheck
+        guard status.start(at: started) else { return }
+        gapCheck = status
+        let before = snapshot.current?.timestamp
+        // A fetch already under way is this check: wait for it rather than fetching twice.
+        let joined = isRefreshing
+        while isRefreshing { try? await Task.sleep(nanoseconds: 150_000_000) }
+        if !joined { await refresh() }
+        // Long enough for the spinner to read as a check rather than a flicker.
+        let spun = Date().timeIntervalSince(started)
+        if spun < ReadingGapCheck.minimumSpin {
+            try? await Task.sleep(nanoseconds: UInt64((ReadingGapCheck.minimumSpin - spun) * 1_000_000_000))
+        }
+        let problem = snapshot.lastError == nil ? nil : (connectionProblem?.title ?? "Couldn't reach LibreLinkUp")
+        status = gapCheck
+        status.finish(ReadingGapCheck.outcome(before: before, latest: snapshot.current, problem: problem, unit: shownUnit))
+        gapCheck = status
+        if let line = status.announcement { AccessibilityNotification.Announcement(line).post() }
     }
 
     /// Whether the reading on screen is still the one saved before this launch (`LaunchReading`).

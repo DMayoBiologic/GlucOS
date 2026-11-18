@@ -84,6 +84,25 @@ final class ReadingGapsTests: XCTestCase {
         XCTAssertEqual(ReadingGaps.reason(from: at(0), to: at(25), context: context(polls: log)), .noSignal)
     }
 
+    func testCantConnectWhenMostChecksFailed() {
+        // Checking every minute throughout; failing from 2 to 20 of the 25-minute gap.
+        var log = polls(-30...60)
+        var m = 2.0
+        while m <= 20 { log.recordFailure(at(m)); m += 1 }
+        XCTAssertEqual(ReadingGaps.reason(from: at(0), to: at(25), context: context(polls: log)), .cantConnect)
+        // A few failures in a long stretch of good checks is still no signal.
+        var brief = polls(-30...60)
+        brief.recordFailure(at(3)); brief.recordFailure(at(4))
+        XCTAssertEqual(ReadingGaps.reason(from: at(0), to: at(25), context: context(polls: brief)), .noSignal)
+    }
+
+    /// Failing while the device was mostly asleep is still asleep: it wasn't checking.
+    func testAsleepWinsOverFailures() {
+        var log = polls(-30...1, 38...45)
+        log.recordFailure(at(0)); log.recordFailure(at(1))
+        XCTAssertEqual(ReadingGaps.reason(from: at(0), to: at(40), context: context(polls: log)), .asleep(.mac))
+    }
+
     func testAsleepWhenGlucOSWasntChecking() {
         // Checked until 1 min after the last reading, then again only on waking at 38.
         let log = polls(-30...1, 38...45)
@@ -112,6 +131,25 @@ final class ReadingGapsTests: XCTestCase {
         XCTAssertEqual(log.covered(from: at(5), to: at(5)), 0)
     }
 
+    func testFailuresJoinAndAreDroppedWithTheRest() {
+        var log = PollLog()
+        log.record(at(0)); log.recordFailure(at(0))
+        log.record(at(1)); log.recordFailure(at(1))
+        log.record(at(2))
+        XCTAssertEqual(log.failed.count, 1)
+        XCTAssertEqual(log.failing(from: at(0), to: at(10)), 60)
+        log.record(at(3 * 1440))
+        XCTAssertTrue(log.failed.isEmpty)
+    }
+
+    /// A record saved before failures were kept still loads, with none.
+    func testRecordSavedWithoutFailuresLoads() throws {
+        let json = #"{"spans":[{"start":0,"end":60}],"began":0}"#
+        let log = try JSONDecoder().decode(PollLog.self, from: Data(json.utf8))
+        XCTAssertEqual(log.spans.count, 1)
+        XCTAssertTrue(log.failed.isEmpty)
+    }
+
     func testALongPollIntervalStillJoins() {
         var log = PollLog()
         log.record(at(0), interval: 300)
@@ -130,7 +168,8 @@ final class ReadingGapsTests: XCTestCase {
     func testRecordSurvivesSaving() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "ReadingGapsTests"))
         defaults.removePersistentDomain(forName: "ReadingGapsTests")
-        let log = polls(0...5, 30...31)
+        var log = polls(0...5, 30...31)
+        log.recordFailure(at(30))
         log.save(defaults)
         XCTAssertEqual(PollLog.load(defaults), log)
         defaults.removePersistentDomain(forName: "ReadingGapsTests")
@@ -140,7 +179,7 @@ final class ReadingGapsTests: XCTestCase {
     // MARK: Words
 
     func testCardTitlesFitAndDetailsAreOneSentence() {
-        let reasons: [ReadingGaps.Reason] = [.warmUp, .sensorEnded, .noSignal, .asleep(.mac), .asleep(.iPhone), .unknown]
+        let reasons: [ReadingGaps.Reason] = [.warmUp, .sensorEnded, .noSignal, .cantConnect, .asleep(.mac), .asleep(.iPhone), .unknown]
         XCTAssertEqual(ReadingGaps.Reason.asleep(.mac).title, "Mac was asleep")
         XCTAssertEqual(ReadingGaps.Reason.asleep(.iPhone).title, "iPhone was asleep")
         XCTAssertEqual(ReadingGaps.Reason.unknown.title, "No readings")

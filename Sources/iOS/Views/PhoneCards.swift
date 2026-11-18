@@ -607,7 +607,8 @@ struct PhoneChartCard: View {
                              openInLogbook: navigator.map { nav in { (id: UUID) in nav.push(.chartMarkerEntry(id)) } },
                              snapsScrub: true,
                              markerActions: navigator.map { _ in { (action: MarkerActions.Action, id: UUID) in markerAction(action, id) } },
-                             forecastDetails: details, gapContext: store.gapContext)
+                             forecastDetails: details, gapContext: store.gapContext,
+                             gapCheck: store.gapCheckControl)
             }
                 .frame(height: 260)
                 .chartHoursPinch($settings.chartHours)

@@ -92,6 +92,9 @@ struct GlucoseChart: View {
     /// or the pointer resting on it on the Mac says why. VoiceOver hears one line in the summary.
     /// iPhone Today and the Mac popover; interactive charts only.
     var gapContext: ReadingGaps.Context? = nil
+    /// "Check now" on the newest gap's card when it says no signal or can't connect
+    /// (`ReadingGapCheck`): the store's state and what a tap runs. Nil (followers): no button.
+    var gapCheck: ReadingGapCheck.Control? = nil
 
     /// The gap whose card is showing, after a tap (iPhone) or while the pointer is on it (Mac).
     @State private var openGap: Date?
@@ -844,6 +847,12 @@ struct GlucoseChart: View {
         return ReadingGaps.find(in: withLead, context: context)
     }
 
+    /// Whether VoiceOver gets "Check now": the newest gap on the chart is one checking helps with.
+    private func offersGapCheck(_ gaps: [ReadingGaps.Gap]) -> Bool {
+        guard gapCheck != nil, let last = gaps.last else { return false }
+        return ReadingGapCheck.offers(last, among: gaps)
+    }
+
     private func gapCardShowing(_ gaps: [ReadingGaps.Gap]) -> Bool {
         guard let id = openGap else { return false }
         return gaps.contains { $0.id == id }
@@ -1083,7 +1092,7 @@ struct GlucoseChart: View {
                 }
             }
             if !gaps.isEmpty {
-                ReadingGapLayer(proxy: proxy, gaps: gaps, unit: unit, open: $openGap)
+                ReadingGapLayer(proxy: proxy, gaps: gaps, unit: unit, open: $openGap, check: gapCheck)
             }
             markerOverlays(proxy: proxy, yd: yd)
             // Under the markers' layer, so a marker near "Now" still takes its own taps.
@@ -1133,6 +1142,7 @@ struct GlucoseChart: View {
         .accessibilityValue(spokenValue)
         .spanAdjustable(interactive && selectsSpans, adjustVoiceOverSpan)
         .forecastDetailsAction(opensForecast(projection)) { openForecast(at: nil) }
+        .gapCheckAction(offersGapCheck(gaps)) { gapCheck?.run() }
         .accessibilityChartDescriptor(GlucoseAudioGraph(readings: window, forecast: projection, unit: unit,
                                                         lowMgdl: lowMgdl, highMgdl: highMgdl, yDomain: yd,
                                                         yesterday: ghost.filter { $0.date >= domain.lowerBound }))
@@ -1711,6 +1721,16 @@ private extension View {
         accessibilityActions {
             if enabled {
                 Button(ForecastDetails.voiceOverActionName, action: open)
+            }
+        }
+    }
+
+    /// VoiceOver's "Check now" on the chart, while the newest gap says no signal or can't connect
+    /// (`ReadingGapCheck`). The result is announced when it lands. Always the same modifier.
+    func gapCheckAction(_ enabled: Bool, _ run: @escaping () -> Void) -> some View {
+        accessibilityActions {
+            if enabled {
+                Button(ReadingGapCheck.voiceOverActionName, action: run)
             }
         }
     }
@@ -2440,7 +2460,12 @@ private struct ReadingGapLayer: View {
     let gaps: [ReadingGaps.Gap]
     let unit: GlucoseUnit
     @Binding var open: Date?
+    let check: ReadingGapCheck.Control?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Mac: where the pointer is, so moving it from a bridge onto its card (for Check Now) keeps
+    /// the card up.
+    @State private var overBridge = false
+    @State private var overCard = false
 
     var body: some View {
         GeometryReader { geo in
@@ -2480,27 +2505,49 @@ private struct ReadingGapLayer: View {
         withAnimation(ReadingGapCard.animation(reduceMotion)) { open = open == id ? nil : id }
     }
 
-    /// Mac: the pointer resting on a bridge shows its card, and leaving it hides it.
+    /// Mac: the pointer resting on a bridge shows its card, and leaving it hides it, unless it
+    /// went onto a card with Check Now (a moment's grace to get there).
     private func hovering(_ id: Date, _ inside: Bool) {
-        withAnimation(ReadingGapCard.animation(reduceMotion)) {
-            if inside { open = id } else if open == id { open = nil }
+        overBridge = inside
+        if inside {
+            withAnimation(ReadingGapCard.animation(reduceMotion)) { open = id }
+        } else {
+            closeUnlessHovered(id)
+        }
+    }
+
+    private func hoveringCard(_ id: Date, _ inside: Bool) {
+        overCard = inside
+        if !inside { closeUnlessHovered(id) }
+    }
+
+    private func closeUnlessHovered(_ id: Date) {
+        let wait: TimeInterval = check == nil ? 0 : ReadingGapCheck.hoverGrace
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+            guard !overBridge, !overCard, open == id else { return }
+            withAnimation(ReadingGapCard.animation(reduceMotion)) { open = nil }
         }
     }
 
     /// The card above the bridge's middle (below it when that's near the top), kept inside the plot
-    /// sideways. It never takes the pointer or a touch, so it can't steal the bridge's hover.
+    /// sideways. It never takes the pointer or a touch, so it can't steal the bridge's hover, except
+    /// when it carries Check Now (`ReadingGapCheck`): then the card itself takes them.
     @ViewBuilder
     private func card(_ gap: ReadingGaps.Gap, mid: CGPoint, plot: CGRect, height: CGFloat) -> some View {
         let width = min(ReadingGapCard.width, plot.width)
         let cx = min(max(mid.x, plot.minX + width / 2), plot.maxX - width / 2)
         let above = mid.y > plot.minY + plot.height * 0.45
         let room = above ? max(mid.y - 10, 0) : max(height - mid.y - 10, 0)
-        ReadingGapCard(gap: gap)
+        let offered: ReadingGapCheck.Control? = ReadingGapCheck.offers(gap, among: gaps) ? check : nil
+        ReadingGapCard(gap: gap, check: offered)
             .frame(width: width)
             .fixedSize(horizontal: false, vertical: true)
+            #if os(macOS)
+            .onHover { hoveringCard(gap.id, $0) }
+            #endif
             .frame(width: width, height: room, alignment: above ? .bottom : .top)
             .position(x: cx, y: above ? room / 2 : mid.y + 10 + room / 2)
-            .allowsHitTesting(false)
+            .allowsHitTesting(offered != nil)
             .transition(reduceMotion ? .opacity
                         : .opacity.combined(with: .scale(scale: 0.92, anchor: above ? .bottom : .top)))
             .id(gap.id)
@@ -2575,6 +2622,8 @@ private struct GapBridge: View {
 /// What a gap's card says: why, when and how long, and one sentence more.
 private struct ReadingGapCard: View {
     let gap: ReadingGaps.Gap
+    /// Given, the card ends with Check Now and the last check's result.
+    var check: ReadingGapCheck.Control? = nil
 
     static let width: CGFloat = 230
 
@@ -2598,11 +2647,80 @@ private struct ReadingGapCard: View {
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let check {
+                ReadingGapCheckRow(check: check)
+                    .padding(.top, DS.Space.xxs)
+            }
         }
         .padding(.horizontal, DS.Space.sm)
         .padding(.vertical, DS.Space.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background { DSSurface(style: .standard, radius: DS.Radius.control) }
         .dsShadow(.medium)
+    }
+}
+
+/// Check Now and what the last check found, at the foot of a gap's card (`ReadingGapCheck`). The
+/// button's spinner turns into a check mark (or an alert mark) when the fetch lands; under Reduce
+/// Motion it simply swaps. While the 30 seconds after a tap run out the button says how long is
+/// left, ticking once a second only until then.
+private struct ReadingGapCheckRow: View {
+    let check: ReadingGapCheck.Control
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.explicit(tickDates(from: Date()))) { context in
+            row(now: context.date)
+        }
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : DSMotion.quick.animation, value: check.status)
+    }
+
+    /// One tick a second until the button works again, then none.
+    private func tickDates(from now: Date) -> [Date] {
+        let left = Int(check.status.wait(at: now).rounded(.up))
+        guard left > 0 else { return [now] }
+        return (0...left).map { now.addingTimeInterval(Double($0)) }
+    }
+
+    @ViewBuilder
+    private func row(now: Date) -> some View {
+        let status = check.status
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Button(action: check.run) {
+                HStack(spacing: DS.Space.xs) {
+                    statusIcon(status)
+                    Text(status.buttonTitle(at: now)).monospacedDigit()
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!status.canCheck(at: now))
+            if let outcome = status.outcome {
+                Text(outcome.line)
+                    .dsFont(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(outcome.succeeded ? Color.primary : Palette.amberText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func statusIcon(_ status: ReadingGapCheck.Status) -> some View {
+        ZStack {
+            if status.running {
+                ProgressView().controlSize(.mini)
+                    .transition(.opacity)
+            } else if let outcome = status.outcome {
+                Image(systemName: outcome.systemImage)
+                    .foregroundStyle(outcome.succeeded ? Palette.brandText : Palette.amberText)
+                    .transition(reduceMotion ? .opacity : .scale(scale: 0.4).combined(with: .opacity))
+            } else {
+                Image(systemName: "arrow.clockwise")
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: 14, height: 14)
     }
 }
