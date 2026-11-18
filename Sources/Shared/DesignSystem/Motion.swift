@@ -611,3 +611,79 @@ extension View {
         modifier(UnitMorph(unit: unit))
     }
 }
+
+// MARK: - No-readings swap (widgets, StandBy, Lock Screen)
+
+extension View {
+    /// A widget line that says something different on each side of the no-readings edge
+    /// (`WidgetGapMotion`): when `key.phase` changes, the old words fade out as the new ones fade
+    /// in; within a gap, the minute count rolls to the next minute. Apply it to the `Text` itself
+    /// (or the line's view) as the last modifier. Plays between two timeline entries the system
+    /// already has, so it costs no reload or wake. Instant under Reduce Motion.
+    func gapSwap(_ key: WidgetGapMotion.Key) -> some View {
+        modifier(GapSwap(key: key))
+    }
+
+    /// The branch of an `if`/`else` on one side of the no-readings edge: it fades as it comes and
+    /// goes. Pair with `gapSwapAnimation` on the container that holds the branches.
+    func gapPhaseTransition() -> some View {
+        modifier(GapPhaseTransition())
+    }
+
+    /// Words inside a gap branch whose minute count rolls to the next minute. The container's
+    /// `gapSwapAnimation` carries it. Still under Reduce Motion.
+    func gapMinutesRoll(_ key: WidgetGapMotion.Key) -> some View {
+        modifier(GapMinutesRoll(key: key))
+    }
+
+    /// The animation for a container whose branches use `gapPhaseTransition`: nil under Reduce Motion.
+    func gapSwapAnimation(_ key: WidgetGapMotion.Key) -> some View {
+        modifier(GapSwapAnimation(key: key))
+    }
+}
+
+/// The no-readings swap's timing: the calm `.standard` fade, the digits on the same curve.
+enum GapSwapTiming {
+    static func animation(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : DSMotion.standard.animation
+    }
+}
+
+private struct GapSwap: ViewModifier {
+    let key: WidgetGapMotion.Key
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(reduceMotion ? .identity : .numericText(value: Double(key.minutes)))
+            .id(key.phase)
+            .transition(reduceMotion ? AnyTransition.identity : AnyTransition.opacity)
+            .animation(GapSwapTiming.animation(reduceMotion: reduceMotion), value: key)
+    }
+}
+
+private struct GapPhaseTransition: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.transition(reduceMotion ? AnyTransition.identity : AnyTransition.opacity)
+    }
+}
+
+private struct GapSwapAnimation: ViewModifier {
+    let key: WidgetGapMotion.Key
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.animation(GapSwapTiming.animation(reduceMotion: reduceMotion), value: key)
+    }
+}
+
+private struct GapMinutesRoll: ViewModifier {
+    let key: WidgetGapMotion.Key
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.contentTransition(reduceMotion ? .identity : .numericText(value: Double(key.minutes)))
+    }
+}

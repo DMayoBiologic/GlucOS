@@ -52,7 +52,10 @@ struct StandByGlucoseView: View {
                 .opacity(secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .contentTransition(.numericText())
+                // Ten minutes on, the reading's line fades into "No readings for 12 min", whose
+                // minutes roll with each per-minute entry, and fades back when readings resume
+                // (`WidgetGapMotion`). Instant under Reduce Motion.
+                .gapSwap(WidgetGapMotion.key(s, at: entry.date))
         }
         .animation(reduceMotion ? .easeInOut(duration: 0.25) : .smooth(duration: 0.5), value: entry.freshness)
         .accessibilityElement(children: .ignore)
