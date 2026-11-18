@@ -485,6 +485,9 @@ private struct AlertSettingsTab: View {
                         .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                         .dependentRow()
                 }
+                AlertSoundPickerButton()
+                    .disabled(!settings.alertsEnabled)
+                    .settingsAnchor(.alertSound)
                 LabeledContent("Check it works") {
                     TestAlertButton()
                         .disabled(notificationsAllowed != true)

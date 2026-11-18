@@ -43,6 +43,13 @@ final class SettingsSearchTests: XCTestCase {
         XCTAssertEqual(top("cooldown", SettingsCatalog.mac), .alertRepeat)
     }
 
+    func testSoundWordsFindTheAlertSoundPicker() {
+        for q in ["sound", "ringtone", "chime", "alert tone"] {
+            XCTAssertEqual(top(q), .alertSound, q)
+            XCTAssertEqual(top(q, SettingsCatalog.mac), .alertSound, "Mac: \(q)")
+        }
+    }
+
     func testEverydayWordsLandOnTheRightRow() {
         XCTAssertEqual(top("hypo", SettingsCatalog.mac), .lowAlerts)
         XCTAssertEqual(top("dynamic island"), .liveActivity)

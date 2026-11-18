@@ -276,6 +276,7 @@ final class PhoneServices: ObservableObject {
         }
         r.display = .init(unit: s.unit.rawValue, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl)
         r.alerts = s.alertPreferences
+        r.alertSound = s.alertSound.rawValue
         if s.hasCredentials {
             r.account = .init(email: s.email, password: s.password, region: s.region,
                               clientVersion: s.clientVersion, sensorLifetimeDays: s.sensorLifetimeDays)

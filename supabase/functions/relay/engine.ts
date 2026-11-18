@@ -9,7 +9,7 @@ import {
   effectiveRangeScale, minutesBack, rangeScaleFrom, rangeWindow, type Sensor, type Trend, type Unit, unitOf,
   type AlertSnoozes, cardSnooze, ownerNotices, pruneSnoozes, runningSnoozes, snoozeAlert, snoozeLevel, withSnooze,
 } from "./core.ts";
-import { payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
+import { alertSoundName, payloads, type PushRequest, type PushResult, type PushSender } from "./apns.ts";
 import {
   type CheckIn, type CheckInAnswer, type CheckInCard, checkInOpenFor, checkInPayloads, checkInRemindAfter,
   followerCheckInCard, isOpen, ownerCheckInCard, sameCheckIn, withCheckIn,
@@ -23,7 +23,7 @@ import {
   shareURL,
 } from "./sharing.ts";
 
-export const version = "2.19.0";
+export const version = "2.20.0";
 /// iOS ends a Live Activity after 8 hours. The relay ends it a little before and starts the next
 /// one, so the Lock Screen card never just disappears.
 export const rotateAfter = 7 * 3600 + 40 * 60;
@@ -105,6 +105,8 @@ export interface RelayPrefs {
   liveActivityEnabled: boolean;
   display: Display;
   alerts: AlertPreferences;
+  /// `AlertSound.rawValue` (2.20.0); missing means the standard sound.
+  alertSound?: string;
 }
 
 export interface ActivityRecord {
@@ -222,6 +224,7 @@ export interface RelayRegistration {
   signedOut?: boolean;
   display?: Display;
   alerts?: AlertPreferences;
+  alertSound?: string;
 }
 
 export interface RelayStatus {
@@ -304,6 +307,7 @@ export class RelayEngine {
       if (r.apnsEnvironment !== undefined) row.prefs.sandbox = r.apnsEnvironment === "sandbox";
       if (r.display) row.prefs.display = r.display;
       if (r.alerts) row.prefs.alerts = { ...defaultAlertPreferences(), ...r.alerts };
+      if (typeof r.alertSound === "string") row.prefs.alertSound = r.alertSound;
 
       if (r.signedOut === true) {
         row.accountGeneration += 1;
@@ -505,7 +509,7 @@ export class RelayEngine {
       if (row.prefs.deviceToken) {
         await this.push(row, {
           deviceToken: row.prefs.deviceToken, type: "alert", topic: this.config.bundleId, priority: 10,
-          payload: payloads.test(), collapseId: "glucos.test", expiration: this.clock() + 600, sandbox: row.prefs.sandbox,
+          payload: payloads.test(alertSoundName(row.prefs.alertSound)), collapseId: "glucos.test", expiration: this.clock() + 600, sandbox: row.prefs.sandbox,
         }, (r) => { delete r.prefs.deviceToken; });
       } else {
         row.work.lastPushError = "The phone hasn't registered for notifications yet";
@@ -612,7 +616,8 @@ export class RelayEngine {
             const episode = recordEpisodeAlert(ownerEpisodes, n.kind, now);
             await this.push(row, {
               deviceToken: token, type: "alert", topic: this.config.bundleId, priority: 10,
-              payload: payloads.alert(n, this.config.criticalAlerts, alertChart(n.kind, result.card), episode?.earlier ?? []),
+              payload: payloads.alert(n, this.config.criticalAlerts, alertChart(n.kind, result.card), episode?.earlier ?? [],
+                alertSoundName(row.prefs.alertSound)),
               collapseId: episode?.identifier ?? noticeIdentifier(n),
               expiration: now + 15 * 60, sandbox: row.prefs.sandbox,
             }, (r) => { delete r.prefs.deviceToken; });

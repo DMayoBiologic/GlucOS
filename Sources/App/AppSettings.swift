@@ -30,6 +30,8 @@ final class AppSettings: ObservableObject {
     /// Draw the forecast on charts.
     @Published var showForecast: Bool { didSet { d.set(showForecast, forKey: "showForecast") } }
     @Published var alertCooldownMinutes: Int { didSet { d.set(alertCooldownMinutes, forKey: "alertCooldown") } }
+    /// The sound glucose alerts play (docs/AlertSounds.md). Sent to the push relay too.
+    @Published var alertSound: AlertSound { didSet { d.set(alertSound.rawValue, forKey: "alertSound") } }
     @Published var sensorLifetimeDays: Int { didSet { d.set(sensorLifetimeDays, forKey: "sensorLifetimeDays") } }
     @Published var showDeltaInMenuBar: Bool { didSet { d.set(showDeltaInMenuBar, forKey: "showDelta") } }
     /// The menu bar reading in its range colour. On unless turned off (urgent lows are always coloured).
@@ -109,6 +111,7 @@ final class AppSettings: ObservableObject {
         predictiveAlertMinutes = [10, 15, 20, 30].contains(lead) ? lead : 30
         showForecast = d.object(forKey: "showForecast") as? Bool ?? true
         alertCooldownMinutes = d.object(forKey: "alertCooldown") as? Int ?? 15
+        alertSound = AlertSound(stored: d.string(forKey: "alertSound"))
         sensorLifetimeDays = d.object(forKey: "sensorLifetimeDays") as? Int ?? 15   // Libre 2 Plus
         showDeltaInMenuBar = d.object(forKey: "showDelta") as? Bool ?? false
         colorMenuBarIcon = d.object(forKey: "colorMenuBarIcon") as? Bool ?? true

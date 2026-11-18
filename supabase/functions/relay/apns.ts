@@ -39,17 +39,27 @@ export const activityAttributesType = "GlucoseActivityAttributes";
 /// The follower alerts that offer a Check in button.
 export const followerLowKinds: ReadonlySet<string> = new Set(["urgentLow", "low", "predictedUrgentLow", "predictedLow"]);
 
+/// The owner's alert sound (Sources/Core/AlertSound.swift, relay 2.20.0): the bundled file a
+/// picked sound plays, or "default" for the phone's own. Anything unknown is the default.
+export const alertSoundFiles: Readonly<Record<string, string>> = {
+  chime: "glucos-chime.wav", pulse: "glucos-pulse.wav", beacon: "glucos-beacon.wav",
+};
+export function alertSoundName(sound: unknown): string {
+  return typeof sound === "string" && Object.hasOwn(alertSoundFiles, sound) ? alertSoundFiles[sound] : "default";
+}
+
 export const payloads = {
   /// `chart`: the owner's alert chart (`alertChart`), drawn by the iPhone's content extension.
   /// `earlier`: the alerts from the same low or high this one replaces (docs/AlertEpisodes.md), so
-  /// the phone's Logbook still records them.
-  alert(n: AlertNotice, criticalSound: boolean, chart: AlertChart | null = null, earlier: EpisodeShown[] = []) {
+  /// the phone's Logbook still records them. `sound`: `alertSoundName`, the owner's pick.
+  alert(n: AlertNotice, criticalSound: boolean, chart: AlertChart | null = null, earlier: EpisodeShown[] = [],
+        sound = "default") {
     const aps: Record<string, unknown> = {
       alert: { title: n.title, body: n.body },
       "thread-id": "glucos.alerts",
       "interruption-level": n.critical ? (criticalSound ? "critical" : "time-sensitive") : "active",
       "relevance-score": n.critical ? 1.0 : 0.8,
-      sound: n.critical && criticalSound ? { critical: 1, name: "default", volume: 1.0 } : "default",
+      sound: n.critical && criticalSound ? { critical: 1, name: sound, volume: 1.0 } : sound,
     };
     // "Snooze 30 min" and "I'm treating it" (urgent lows: only the second).
     const category = alertCategory(n.kind);
@@ -89,11 +99,12 @@ export const payloads = {
     return { ...base, followID: shareId };
   },
 
-  test() {
+  /// `sound`: the owner's alert sound, so the test sounds like their alerts.
+  test(sound = "default") {
     return {
       aps: {
         alert: { title: "GlucOS test alert", body: "Sent by your GlucOS relay. Alerts will reach you even when the app is closed." },
-        sound: "default", "thread-id": "glucos.alerts",
+        sound, "thread-id": "glucos.alerts",
       },
     };
   },

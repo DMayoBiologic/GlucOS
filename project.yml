@@ -132,6 +132,9 @@ targets:
       - path: Sources/Engine
       - path: Sources/Shared
       - path: Sources/App/AlertManager.swift
+      # The alert sound picker's previews and the bundled alert sounds (docs/AlertSounds.md).
+      - path: Sources/App/AlertSoundPlayer.swift
+      - path: Sources/App/Sounds
       - path: Sources/App/AppSettings.swift
       - path: Sources/App/Keychain.swift
       - path: Sources/App/LibreLinkUpClient.swift
@@ -190,6 +193,7 @@ targets:
       - path: Sources/App/Views/AlertSnoozeChipView.swift
       - path: Sources/App/Views/AlertBannerView.swift
       - path: Sources/App/Views/TestAlertButton.swift
+      - path: Sources/App/Views/AlertSoundViews.swift
       - path: Sources/App/Views/LowTreatButtonView.swift
       - path: Sources/App/Views/LastLoggedLineView.swift
       - path: Sources/App/Views/WhileAwayLineView.swift
