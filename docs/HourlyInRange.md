@@ -38,6 +38,18 @@ in range, 30 percent above, 16 percent below, over 12 days", with the hint that 
 Logbook. The legend and ticks are hidden from VoiceOver. Colour changes cross-fade; Reduce Motion
 shows them at once.
 
+## Motion
+
+- First reveal (iPhone and Mac Insights, where `figuresCountUp` is on): the cells fill in a
+  left-to-right wave as the card rises in (`onEntrance`), each rising from its baseline and fading
+  in on the arrival spring. 0.12 s lead, 0.45 s from first cell to last; in two rows both rows fill
+  together, column by column, so both layouts take the same time (`HourlyCellMotion`).
+- Period change: each cell cross-fades to its new colour over 0.3 s, a step after the one to its
+  left, 0.18 s from first to last. Cells whose colour doesn't change stay still.
+- Plays once per appearance and never loops. Never in a shared picture. Reduce Motion shows the
+  cells and new colours at once. Only the drawing moves: every hour's button, its order, label and
+  value are there for VoiceOver from the start.
+
 ## Works with
 
 - **Card order and hiding** (docs/InsightsLayout.md): `InsightsCard.hourlyInRange`, after Your

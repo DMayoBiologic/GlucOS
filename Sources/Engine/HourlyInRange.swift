@@ -331,3 +331,33 @@ final class HourlyInRangeCache {
         return v
     }
 }
+
+/// When each hour cell moves on the "Time in range by hour" card (docs/HourlyInRange.md, Motion).
+/// The same spread from first cell to last whether the strip is one row of 24 or two rows of 12,
+/// so both layouts take the same time; in two rows both fill together, column by column.
+enum HourlyCellMotion {
+    /// First reveal: how long after the card rises in the first cell starts to fill.
+    static let fillLead: Double = 0.12
+    /// First reveal: first cell to last cell across one row.
+    static let fillSpread: Double = 0.45
+    /// Period change: first cell to last cell across one row, for the colour cross-fade.
+    static let recolourSpread: Double = 0.18
+    /// Period change: how long each cell's cross-fade takes.
+    static let recolourDuration: Double = 0.3
+
+    /// Delay before the cell at `position` (0 at the left) of a row of `count` starts to fill.
+    static func fillDelay(position: Int, count: Int) -> Double {
+        fillLead + step(position, count, fillSpread)
+    }
+
+    /// Delay before the cell at `position` of a row of `count` starts its colour cross-fade.
+    static func recolourDelay(position: Int, count: Int) -> Double {
+        step(position, count, recolourSpread)
+    }
+
+    private static func step(_ position: Int, _ count: Int, _ spread: Double) -> Double {
+        guard count > 1 else { return 0 }
+        let p = min(max(position, 0), count - 1)
+        return spread * Double(p) / Double(count - 1)
+    }
+}
