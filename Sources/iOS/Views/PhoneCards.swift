@@ -602,7 +602,8 @@ struct PhoneChartCard: View {
                              forecast: forecast, forecastReveal: reveal, events: events(hours: Self.longest),
                              timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true, ripplesNewReading: true,
                              yesterday: yesterday, peeksMarkers: true, selectsSpans: true,
-                             openInLogbook: navigator.map { nav in { (id: UUID) in nav.push(.chartMarkerEntry(id)) } })
+                             openInLogbook: navigator.map { nav in { (id: UUID) in nav.push(.chartMarkerEntry(id)) } },
+                             snapsScrub: true)
             }
                 .frame(height: 260)
                 .chartHoursPinch($settings.chartHours)

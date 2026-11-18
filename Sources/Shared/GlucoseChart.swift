@@ -64,6 +64,11 @@ struct GlucoseChart: View {
     var openInLogbook: ((UUID) -> Void)? = nil
     /// Bump to close an open callout from outside, e.g. Esc while the chart around it has focus.
     var closesCallout: Int = 0
+    /// Whether the scrub line snaps onto a logged marker or a day's lowest or highest reading when
+    /// the finger (or pointer) comes within a few points of it (`ScrubSnap`), with a light tap on
+    /// iPhone and one VoiceOver line. Instant under Reduce Motion. iPhone Today and the Mac popover;
+    /// interactive charts only.
+    var snapsScrub: Bool = false
 
     @State private var hoverDate: Date?
     /// What Charts' two-finger range selection last reported, armed or not.
@@ -97,6 +102,18 @@ struct GlucoseChart: View {
     @State private var scrubTick = ScrubTickTrigger()
     /// Counts touches, so a snap-back still finishing never clears a scrub that started after it.
     @State private var touchGeneration = 0
+    /// What the scrub is snapped onto right now (`ScrubSnap`), if anything.
+    @State private var snapped: ScrubSnap.Target?
+    /// The last thing it snapped onto in this touch, kept after letting go: the snap already
+    /// ticked for that marker, so passing it again on the way out doesn't tick a second time.
+    @State private var lastSnap: ScrubSnap.Target?
+    /// What VoiceOver has been told about in this touch, so each snapped point is said once.
+    @State private var spokenSnaps: [ScrubSnap.Target] = []
+    /// Where the finger came down, until it has moved far enough to snap (`ScrubSnap.arms`).
+    /// Nil once it has, so the rest of the touch snaps.
+    @State private var snapStart: Date?
+    /// The plot area's width, for how many seconds one point of the time axis covers.
+    @State private var plotWidth: Double = 0
     /// The span on screen while `hours` changes (app screens only; `nil` follows `hours`, which is
     /// all a widget ever does since it never runs `onAppear`). See `ChartSpanTransition`.
     @State private var range: ChartSpanTransition?
@@ -196,7 +213,7 @@ struct GlucoseChart: View {
 
     /// What Charts' selection reads and writes. Lifting the finger glides the readout back to the
     /// newest reading and fades it there, rather than dropping it wherever the finger was.
-    private func selection(newest: Date?) -> Binding<Date?> {
+    private func selection(newest: Date?, snaps: [ScrubSnap.Target], secondsPerPoint: Double) -> Binding<Date?> {
         Binding(get: { hoverDate }, set: { new in
             if let new {
                 // A peek has the finger, or two fingers are picking a span: the readout stays
@@ -204,9 +221,9 @@ struct GlucoseChart: View {
                 // A scrub starting while a callout is open only closes it.
                 if callout != nil { closeCallout(); return }
                 guard peeked == nil, span == nil, spanTouch == nil else { return }
-                if !touching { touching = true; scrubbedFrom = nil }
+                if !touching { touching = true; scrubbedFrom = nil; resetSnap(); snapStart = new }
                 touchGeneration += 1
-                hoverDate = new
+                moveScrub(to: new, snaps: snaps, secondsPerPoint: secondsPerPoint)
             } else {
                 release(newest: newest)
             }
@@ -218,6 +235,7 @@ struct GlucoseChart: View {
     private func release(newest: Date?) {
         touching = false
         scrubbedFrom = nil
+        resetSnap()
         touchGeneration += 1
         let generation = touchGeneration
         #if os(iOS)
@@ -235,6 +253,60 @@ struct GlucoseChart: View {
             guard touchGeneration == generation else { return }
             withAnimation(DSMotion.quick.animation) { hoverDate = nil }
         }
+    }
+
+    // MARK: Scrub snapping
+
+    /// Moves the scrub to the finger, or onto what it's snapped to (`ScrubSnap`). Landing on
+    /// something taps once on iPhone and tells VoiceOver what it is, once per touch. The jump
+    /// onto it (and off again) is a quick glide, instant under Reduce Motion.
+    private func moveScrub(to finger: Date, snaps: [ScrubSnap.Target], secondsPerPoint: Double) {
+        guard snapsScrub else { hoverDate = finger; return }
+        // A tap or a hold on a marker has its own tap: nothing snaps until the finger has moved.
+        if let start = snapStart {
+            guard ScrubSnap.arms(start: start, finger: finger, secondsPerPoint: secondsPerPoint) else {
+                hoverDate = finger
+                return
+            }
+            snapStart = nil
+        }
+        let next = ScrubSnap.snap(finger: finger, targets: snaps, current: snapped, secondsPerPoint: secondsPerPoint)
+        guard next != snapped else {
+            if next == nil { hoverDate = finger }
+            return
+        }
+        let animation: Animation? = reduceMotion ? nil : DSMotion.quick.animation
+        withTransaction(Transaction(animation: animation)) {
+            snapped = next
+            hoverDate = next?.date ?? finger
+        }
+        guard let next else { return }
+        lastSnap = next
+        #if os(iOS)
+        scrubTick.fire(ScrubTickTrigger.Kind.snapped)
+        #endif
+        guard !spokenSnaps.contains(next) else { return }
+        spokenSnaps.append(next)
+        var spoken = AttributedString(ScrubSnap.spoken(next, unit: unit, now: Date()))
+        spoken.accessibilitySpeechAnnouncementPriority = .high
+        AccessibilityNotification.Announcement(spoken).post()
+    }
+
+    private func resetSnap() {
+        snapStart = nil
+        snapped = nil
+        lastSnap = nil
+        spokenSnaps = []
+    }
+
+    /// What the scrub can snap onto: the markers on screen with a reading near them (the readout
+    /// shows only real readings), and each day's lowest and highest reading on screen.
+    private func snapTargets(window: [GlucoseReading]) -> [ScrubSnap.Target] {
+        guard snapsScrub, interactive, let first = window.first?.timestamp, let last = window.last?.timestamp else { return [] }
+        let logged = peekable(window)
+            .filter { nearest(to: $0.date, in: window) != nil }
+            .map { ScrubSnap.Logged(id: $0.id, date: $0.date, label: $0.label) }
+        return ScrubSnap.targets(logged: logged, readings: readings, visible: first...last)
     }
 
     // MARK: Span stats
@@ -333,9 +405,16 @@ struct GlucoseChart: View {
     /// The scrub landed on another reading: tick if it crossed a range edge or something logged.
     private func scrubbed(to date: Date?, readings window: [GlucoseReading]) {
         guard touching, let date else { return }
+        // A marker the scrub snapped onto already ticked when it landed; passing it on the way
+        // off doesn't tick again.
+        let snappedMarkers = [snapped, lastSnap].compactMap { t -> Date? in
+            guard let t, case .logged = t.kind else { return nil }
+            return t.date
+        }
         if let from = scrubbedFrom,
            let tick = ChartScrub.tick(from: from, to: date, readings: window, lowMgdl: lowMgdl,
-                                      highMgdl: highMgdl, logged: events.map(\.date)) {
+                                      highMgdl: highMgdl,
+                                      logged: events.map(\.date).filter { !snappedMarkers.contains($0) }) {
             scrubTick.fire(tick)
         }
         scrubbedFrom = date
@@ -849,6 +928,14 @@ struct GlucoseChart: View {
             }
         }
         .chartOverlay { proxy in
+            // The plot's width, so a snap's few points can be turned into time (`ScrubSnap`).
+            if snapsScrub, interactive {
+                Color.clear
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .onAppear { plotWidth = proxy.plotSize.width }
+                    .onChange(of: proxy.plotSize.width) { _, w in plotWidth = w }
+            }
             // A slow ring breathing out of the newest reading while readings are arriving. App
             // screens only: widgets and the Live Activity don't animate, and it holds still (it
             // isn't drawn) under Reduce Motion or once the reading is stale.
@@ -886,7 +973,9 @@ struct GlucoseChart: View {
             voSpanMinutes = ChartSpanVoiceOver.clamped(voSpanMinutes, hours: new)
         }
         .onChange(of: readings.last?.timestamp) { old, new in newestChanged(from: old, to: new) }
-        .hoverSelection(interactive, selection(newest: window.last?.timestamp))
+        .hoverSelection(interactive, selection(newest: window.last?.timestamp, snaps: snapTargets(window: window),
+                                               secondsPerPoint: plotWidth > 0
+                                                   ? domain.upperBound.timeIntervalSince(domain.lowerBound) / plotWidth : 0))
         .spanSelection(interactive && selectsSpans, spanSelection)
         .onChange(of: hovered?.timestamp) { _, new in scrubbed(to: new, readings: window) }
         .scrubFeedback(interactive, trigger: scrubTick)
@@ -1285,12 +1374,25 @@ private struct ReadingDotRipple: View {
 
 /// Changes each time a scrub tick is due, so `.haptic` fires even for two of a kind in a row.
 private struct ScrubTickTrigger: Equatable {
+    enum Kind: Equatable {
+        case rangeEdge, logged
+        /// The scrub line snapped onto something (`ScrubSnap`).
+        case snapped
+    }
+
     private(set) var count = 0
-    private(set) var tick: ChartScrub.Tick?
+    private(set) var kind: Kind?
 
     mutating func fire(_ tick: ChartScrub.Tick) {
+        switch tick {
+        case .rangeEdge: fire(Kind.rangeEdge)
+        case .logged: fire(Kind.logged)
+        }
+    }
+
+    mutating func fire(_ kind: Kind) {
         count += 1
-        self.tick = tick
+        self.kind = kind
     }
 }
 
@@ -1302,9 +1404,10 @@ private extension View {
         #if os(iOS)
         if enabled {
             haptic(trigger: trigger) { _, new in
-                switch new.tick {
+                switch new.kind {
                 case .rangeEdge: return .scrubRangeEdge
                 case .logged: return .scrubLogged
+                case .snapped: return .scrubSnapped
                 case nil: return nil
                 }
             }

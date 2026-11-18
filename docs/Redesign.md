@@ -487,6 +487,7 @@ refreshes, dismissing a card and plain navigation stay silent.
 | Pull to refresh brought new readings (nothing on no change or failure) | `newData` | light impact 0.8 | `phonePullToRefresh` (#124) |
 | Scrubbing the chart crosses the low or high line | `scrubRangeEdge` | light impact 0.9 | `GlucoseChart` (#107) |
 | Scrubbing the chart passes something logged | `scrubLogged` | light impact 0.6 | `GlucoseChart` (#107) |
+| Scrubbing the chart snaps onto something logged or a day's lowest or highest reading | `scrubSnapped` | light impact 0.5 | `GlucoseChart` (`snapsScrub`, round 67) |
 | Two fingers resting on iPhone Today's chart turn into a span (its band fades in, round 64) | `spanPicked` | light impact 0.5 | `GlucoseChart` (`selectsSpans`) |
 | A new reading crosses into a low (on Today, once per crossing, `RangeCrossing`) | `enteredLow` | warning | Today hero, follower card |
 | The live reading crosses the high line, or comes back into range (once per crossing, never while hovering at the edge) | `rangeCrossed` | light impact 0.7 | Today hero (`.rangeCrossingCue`) |
