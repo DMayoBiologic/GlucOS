@@ -202,6 +202,114 @@ enum AlertHistory {
     }
 }
 
+// MARK: - Filters
+
+extension AlertHistory {
+    /// Which alerts the history shows (docs/AlertHistory.md, "Filters"). The kind chips split the
+    /// alerts with no overlap: Lows and Highs are the alerts about a reading, Predicted the ones
+    /// about the forecast (low or high).
+    enum KindFilter: String, CaseIterable, Identifiable, Hashable, Sendable {
+        case lows, highs, predicted
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .lows: return "Lows"
+            case .highs: return "Highs"
+            case .predicted: return "Predicted"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .lows: return "arrow.down"
+            case .highs: return "arrow.up"
+            case .predicted: return "chart.line.uptrend.xyaxis"
+            }
+        }
+
+        func matches(_ kind: AlertNotice.Kind) -> Bool {
+            let predicted = AlertNotice.Kind.predicted.contains(kind)
+            switch self {
+            case .lows: return !predicted && kind.treatment == .low
+            case .highs: return !predicted && kind.treatment == .high
+            case .predicted: return predicted
+            }
+        }
+    }
+
+    /// What was done about an alert, as a chip. Any snooze length counts as snoozed.
+    enum OutcomeFilter: String, CaseIterable, Identifiable, Hashable, Sendable {
+        case treated, snoozed, dismissed, noResponse
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .treated: return "Treated"
+            case .snoozed: return "Snoozed"
+            case .dismissed: return "Dismissed"
+            case .noResponse: return "No response"
+            }
+        }
+
+        /// What VoiceOver says for the chip: "Treated" only ever means the button was tapped.
+        var spoken: String {
+            switch self {
+            case .treated: return "Tapped Log treatment"
+            default: return title
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .treated: return Outcome.treating.symbol
+            case .snoozed: return Outcome.snoozed(minutes: nil).symbol
+            case .dismissed: return Outcome.dismissed.symbol
+            case .noResponse: return Outcome.noResponse.symbol
+            }
+        }
+
+        func matches(_ outcome: Outcome) -> Bool {
+            switch (self, outcome) {
+            case (.treated, .treating), (.snoozed, .snoozed), (.dismissed, .dismissed), (.noResponse, .noResponse):
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    /// The chips picked: a kind (All when nil) and an outcome (any when nil), which AND together.
+    /// The list follows a pick a moment behind the highlight so it can fade over to its new rows,
+    /// as the Logbook's chips do (`LogbookFilterPick`, whose fade timings it shares).
+    struct FilterPick: Hashable, Sendable {
+        var kind: KindFilter?
+        var outcome: OutcomeFilter?
+
+        init(kind: KindFilter? = nil, outcome: OutcomeFilter? = nil) {
+            self.kind = kind
+            self.outcome = outcome
+        }
+
+        static let all = FilterPick()
+
+        var isFiltered: Bool { kind != nil || outcome != nil }
+
+        func matches(_ item: Item) -> Bool {
+            (kind?.matches(item.kind) ?? true) && (outcome?.matches(item.outcome) ?? true)
+        }
+
+        func apply(_ items: [Item]) -> [Item] {
+            isFiltered ? items.filter(matches) : items
+        }
+
+        static let fadeOut = LogbookFilterPick.fadeOut
+        static let fadeIn = LogbookFilterPick.fadeIn
+    }
+}
+
 // MARK: - Words
 
 enum AlertHistoryText {
@@ -261,6 +369,38 @@ enum AlertHistoryText {
         if updated > 0 { parts.append("\(updated) updated") }
         return "Alert history: " + parts.joined(separator: ", ")
     }
+
+    /// What VoiceOver says once the list has switched to a new pick of chips: how many alerts it
+    /// leaves showing.
+    static func filterAnnouncement(count: Int) -> String {
+        count == 0 ? "No matching alerts" : self.count(count)
+    }
+
+    static let filteredEmptyTitle = "No matching alerts"
+    /// Why a filtered list is empty, by what the chips ask for: "No snoozed low alerts in the
+    /// last 7 days.", "No unanswered predicted alerts in the last 7 days."
+    static func filteredEmptyMessage(_ pick: AlertHistory.FilterPick) -> String {
+        let noun: String
+        switch pick.kind {
+        case .lows: noun = "low alerts"
+        case .highs: noun = "high alerts"
+        case .predicted: noun = "predicted alerts"
+        case nil: noun = "alerts"
+        }
+        let adjective: String?
+        switch pick.outcome {
+        case .treated: adjective = "treated"
+        case .snoozed: adjective = "snoozed"
+        case .dismissed: adjective = "dismissed"
+        case .noResponse: adjective = "unanswered"
+        case nil: adjective = nil
+        }
+        return "No " + [adjective, noun].compactMap { $0 }.joined(separator: " ") + " in the last 7 days."
+    }
+    static let showAllButton = "Show All Alerts"
+    static let kindChipsLabel = "Alert type"
+    static let outcomeChipsLabel = "Outcome"
+    static let allChip = "All"
 
     /// "3 alerts" for a day's header.
     static func count(_ n: Int) -> String { n == 1 ? "1 alert" : "\(n) alerts" }

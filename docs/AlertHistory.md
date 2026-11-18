@@ -81,6 +81,35 @@ sync in from the other device.
   listed unless it brings a new outcome (`AlertHistory.changes` matches it as the same alert).
 - **Reduce Motion**: rows appear, chips and counts change instantly. Announcements are the same.
 
+## Filters
+
+Two rows of chips sit above the list once there is anything in it.
+
+- **Kind:** All, Lows, Highs, Predicted. One at a time. Lows and Highs are the alerts about a
+  reading (urgent low and low; high and very high), Predicted the ones about the forecast, low or
+  high. Every alert falls under exactly one of the three.
+- **Outcome:** Treated ("Log treatment" tapped), Snoozed (any length), Dismissed, No response.
+  Tap one to show only those, tap it again for every outcome. It ANDs with the kind chip, so Lows
+  and Snoozed shows the snoozed lows. A row's outcome is its merged one: a low snoozed on the iPhone
+  counts as snoozed even if the Mac's copy went unanswered.
+
+The picked chip's highlight slides to the new chip on the `.emphasized` spring (the Logbook's
+`ChipButtonStyle` matched geometry, one namespace per row). The rows fade out, switch without
+sliding, and fade in, on the Logbook's timings (`AlertHistory.FilterPick.fadeOut/fadeIn`).
+VoiceOver hears the count once the list has switched ("3 alerts", "No matching alerts"); a quick
+run of taps only speaks for the last. The chips are selected buttons inside an "Alert type" and an
+"Outcome" group; Treated is read as "Tapped Log treatment". Under Reduce Motion the highlight and
+list switch at once. iPhone taps play the light `choice` haptic.
+
+When the chips leave nothing, the list says what they asked for ("No snoozed low alerts in the
+last 7 days.") with a Show All Alerts button that clears both rows. The pick lasts while the
+screen is open and starts at All next time. Live changes are still announced for alerts the chips
+hide, so a new low is never silent because Highs was picked.
+
+Rules and words: `AlertHistory.KindFilter`, `OutcomeFilter`, `FilterPick`,
+`AlertHistoryText.filterAnnouncement` / `filteredEmptyMessage`. View: `AlertHistoryFilterBar` in
+Sources/App/Views/AlertHistoryViews.swift.
+
 ## Where it lives
 
 - Rules and words: `Sources/Engine/AlertHistory.swift` (`AlertHistory`, `AlertHistoryText`).
