@@ -143,6 +143,8 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             if EveningRecapScheduler.isRecap(userInfo) {
                 // The evening recap: Insights, opened on today (docs/EveningRecap.md).
                 if action == UNNotificationDefaultActionIdentifier { EveningRecapRoute.shared.open(firedAt: date) }
+            } else if TestAlert.isTest(userInfo) {
+                // A test alert's buttons do nothing: no snooze, no log sheet (docs/TestAlert.md).
             } else if let tap = AlertNotifications.button(action: action, userInfo: userInfo) {
                 AlertLogRecorder.shared.tapped(tap, userInfo: userInfo, firedAt: date)
                 await PhoneAlertActions.handle(tap)

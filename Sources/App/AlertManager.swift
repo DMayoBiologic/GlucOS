@@ -38,14 +38,35 @@ final class AlertManager {
     static let notificationSettingsURL = URL(string: UIApplication.openNotificationSettingsURLString)!
     #endif
 
-    /// A harmless sample alert so you can check banners and sound are working.
-    func sendTest() {
+    /// "Send a test alert": a sample low alert through the same path as a real one, with its sound,
+    /// buttons and chart (docs/TestAlert.md). Sent even where the relay delivers alerts, since it
+    /// checks this device. Never logged, snoozed or counted, and its identifier is never an
+    /// episode's, so it can't replace a real low's alert (`TestAlert`). The planner and episodes
+    /// aren't touched.
+    func sendTest(settings: AppSettings, now: Date = Date()) {
         let content = UNMutableNotificationContent()
-        content.title = "GlucOS test alert"
-        content.body = "If you can see and hear this, glucose alerts will reach you."
+        content.title = TestAlert.title
+        content.body = TestAlert.body(unit: settings.unit, lowMgdl: settings.lowMgdl)
         content.sound = .default
-        let req = UNNotificationRequest(identifier: "glucos.test", content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(req)
+        content.interruptionLevel = .active
+        content.threadIdentifier = TestAlert.threadIdentifier
+        content.categoryIdentifier = TestAlert.categoryIdentifier
+        let chart = TestAlert.chart(unit: settings.unit, lowMgdl: settings.lowMgdl,
+                                    highMgdl: settings.highMgdl, now: now)
+        content.userInfo = TestAlert.userInfo(chart: chart)
+        let identifier = TestAlert.identifier(now: now)
+        #if os(macOS)
+        if let picture = Self.picture(chart, id: identifier) { content.attachments = [picture] }
+        #endif
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+        Task {
+            let center = UNUserNotificationCenter.current()
+            // One test in Notification Centre at a time; real alerts are left alone.
+            let old = await center.deliveredNotifications().map(\.request.identifier)
+                .filter { $0.hasPrefix(TestAlert.identifierPrefix) }
+            if !old.isEmpty { center.removeDeliveredNotifications(withIdentifiers: old) }
+            try? await center.add(request)
+        }
     }
 
     /// Shows local notifications for the alerts that are due. The iPhone app turns this off
@@ -167,7 +188,8 @@ final class AlertLogRecorder {
     func arrived(userInfo: [AnyHashable: Any], at time: Date) {
         // An alert can replace earlier ones from the same low or high (docs/AlertEpisodes.md), and a
         // "Back in range" summary replaces them all: each lists the ones it replaced.
-        if userInfo["followID"] == nil {
+        // A test alert lists none and is never recorded (docs/TestAlert.md).
+        if userInfo["followID"] == nil, !TestAlert.isTest(userInfo) {
             for e in AlertEpisodes.Shown.list(from: userInfo[AlertEpisodes.Shown.earlierKey]) where AlertLog.isLogged(e.kind) {
                 logbook?.alertFired(e.kind, at: e.at)
             }
@@ -195,10 +217,9 @@ final class AlertLogRecorder {
         for n in shown { arrived(userInfo: n.request.content.userInfo, at: n.date) }
     }
 
+    /// Never a test alert's or a follower's copy (`TestAlert.ownKind`).
     private static func ownKind(_ userInfo: [AnyHashable: Any]) -> AlertNotice.Kind? {
-        guard userInfo["followID"] == nil, let raw = userInfo["kind"] as? String,
-              let kind = AlertNotice.Kind(rawValue: raw), AlertLog.isLogged(kind) else { return nil }
-        return kind
+        TestAlert.ownKind(userInfo)
     }
 }
 
@@ -344,8 +365,9 @@ enum AlertNotifications {
     }
 
     /// The alert button behind a notification response, if it was one.
+    /// A test alert's buttons do nothing: it snoozes nothing and opens no log sheet.
     static func button(action: String, userInfo: [AnyHashable: Any]) -> Tap? {
-        guard let raw = userInfo["kind"] as? String, let kind = AlertNotice.Kind(rawValue: raw) else { return nil }
+        guard !TestAlert.isTest(userInfo), let raw = userInfo["kind"] as? String, let kind = AlertNotice.Kind(rawValue: raw) else { return nil }
         switch action {
         case AlertSnoozes.snoozeAction:
             return kind.snoozeLevel == nil ? nil : .snooze(kind)

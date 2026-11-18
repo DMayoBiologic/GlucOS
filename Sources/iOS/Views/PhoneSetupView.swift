@@ -256,7 +256,7 @@ struct PhoneSetupView: View {
                 Label("Notifications are allowed", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(Tone.success.textColor)
                 Spacer()
-                Button("Send Test") { store.alerts.sendTest() }
+                TestAlertButton(title: "Send Test")
             }
             .dsFont(.callout)
         case .some(false):

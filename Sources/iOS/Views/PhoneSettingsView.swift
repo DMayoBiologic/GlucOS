@@ -442,11 +442,8 @@ struct PhoneSettingsView: View {
                         ForEach([5, 10, 15, 30, 60], id: \.self) { Text("\($0) min").tag($0) }
                     }
                     .settingsAnchor(.alertRepeat)
-                    Button("Send Test Alert") {
-                        store.alerts.requestAuthorization()
-                        store.alerts.sendTest()
-                    }
-                    .settingsAnchor(.testAlert)
+                    TestAlertButton(requestsAuthorization: true)
+                        .settingsAnchor(.testAlert)
                 }
                 .dependentRow()
             }
@@ -465,7 +462,7 @@ struct PhoneSettingsView: View {
     private var alertOptionNames: [String] {
         var names = ["High", "Rising or falling quickly", "No recent data", "Sensor ending", "Predicted lows", "Predicted highs"]
         if showsWarnAhead { names.append("Warn me ahead by") }
-        names += ["Repeat no more than every", "Send test alert"]
+        names += ["Repeat no more than every", "Send a test alert"]
         return names
     }
 
