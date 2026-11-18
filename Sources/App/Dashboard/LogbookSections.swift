@@ -102,6 +102,9 @@ struct LogbookSection: View {
     @AppStorage(LogbookCollapse.defaultsKey) private var foldedStored = ""
     /// The folds in force: the kept ones, and a running search's own (`LogbookFolds`).
     @State private var folds = LogbookFolds()
+    /// The day whose note is being written (`DayNotes`), by its local midnight, and the words so far.
+    @State private var noteDay: Date?
+    @State private var noteDraft = ""
     @Environment(\.dashboardPadding) private var padding
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -121,7 +124,7 @@ struct LogbookSection: View {
                                : LogbookTableRow.merge(inRange, alertsInRange)
         let listedScope = listedPast ? LogbookTableRow.merge(logbook.entries, allAlerts)
                                      : LogbookTableRow.merge(inRange, alertsInRange)
-        let rows = listedScope.filter { $0.matches(listed.kind, listedQuery, lowIDs: lowIDs) && $0.matches(tag: listed.tag) }
+        let rows = listedScope.filter { $0.matches(listed.kind, listedQuery, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: listed.tag) }
         // A meal and its insulin logged within 15 minutes show as one line, opening out into the
         // entries (`LogbookGrouping`). Worked out on the rows the chips and search leave.
         let runs = LogbookGrouping.runs(rows, entry: \.entry)
@@ -261,7 +264,7 @@ struct LogbookSection: View {
         // A chip switch fades the table over to its new rows (`settleFilter`).
         .task(id: LogbookFilterPick(kind: filter, tag: tagFilter)) {
             await settleFilter(count: { pick in
-                scope.filter { $0.matches(pick.kind, query, lowIDs: lowIDs) && $0.matches(tag: pick.tag) }.count
+                scope.filter { $0.matches(pick.kind, query, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: pick.tag) }.count
             })
         }
     }
@@ -755,7 +758,7 @@ struct LogbookSection: View {
             ? LogbookTableRow.merge(logbook.entries, alerts)
             : LogbookTableRow.merge(logbook.entries.filter { data.domain.contains($0.timestamp) },
                                     alerts.filter { data.domain.contains($0.timestamp) })
-        return scope.filter { $0.matches(pick.kind, q, lowIDs: lowIDs) && $0.matches(tag: pick.tag) }
+        return scope.filter { $0.matches(pick.kind, q, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: pick.tag) }
     }
 
     /// The field changed. Rows the new text leaves out shrink out (`searchLeaving`); a moment later
@@ -819,12 +822,13 @@ struct LogbookSection: View {
             TableColumn("Day") { (l: LogbookTableLine) in
                 if let start = firsts[l.id] {
                     dayCell(start, range: ranges[start], now: now, fold: l.fold,
-                            count: l.fold?.count ?? counts[start] ?? LogbookDayCount(), totals: sums[start])
+                            count: l.fold?.count ?? counts[start] ?? LogbookDayCount(), totals: sums[start],
+                            note: logbook.dayNote(on: start), terms: terms)
                 } else {
                     Text("").accessibilityHidden(true)
                 }
             }
-            .width(min: 190, ideal: 270)
+            .width(min: 190, ideal: 330)
             TableColumn("Time") { (l: LogbookTableLine) in
                 Group {
                     if l.fold != nil {
@@ -941,12 +945,32 @@ struct LogbookSection: View {
                 Divider()
                 Button(LogbookCollapseText.actionName(folded: false)) { toggleFold(start, count: counts[start] ?? LogbookDayCount()) }
             }
+            // Any line of a day, folded or open, can write its note (`DayNotes`).
+            if picked.count == 1, let id = picked.first, let start = folded[id]?.start ?? lineDays[id] {
+                let hasNote = logbook.dayNote(on: start) != nil
+                Divider()
+                Button(DayNoteText.actionName(hasNote: hasNote) + "…") { editNote(start) }
+                if hasNote {
+                    Button(DayNoteText.removeName, role: .destructive) { removeNote(start) }
+                }
+            }
         } primaryAction: { ids in
             guard ids.count == 1, let id = ids.first else { return }
             if let f = folded[id] { toggleFold(f.start, count: f.count); return }
             if let g = groups[id] { toggleGroup(g) } else if let entry = logbook.entry(id: id) { open(.edit(entry)) }
         }
         .onDeleteCommand { deleteSelection() }
+        // A day's note: one line, saved for the whole day and synced (`DayNotes`).
+        .alert(noteTitle, isPresented: Binding(get: { noteDay != nil }, set: { if !$0 { noteDay = nil } })) {
+            TextField(DayNoteText.placeholder, text: $noteDraft)
+            Button("Save") { saveNote() }
+            if let day = noteDay, logbook.dayNote(on: day) != nil {
+                Button(DayNoteText.removeName, role: .destructive) { saveNote(removing: true) }
+            }
+            Button("Cancel", role: .cancel) { noteDay = nil }
+        } message: {
+            Text(DayNoteText.editorMessage)
+        }
         // New rows slide into place and deleted rows fold away, whether from here, an undo or a
         // sync. Instant under Reduce Motion.
         .dsAnimation(.standard, value: lines.map(\.id))
@@ -989,8 +1013,13 @@ struct LogbookSection: View {
     ///
     /// The chevron before the name folds the day down to this one line, or opens it again
     /// (`toggleFold`). VoiceOver hears it as its own button: "Tuesday 12 November, Expanded".
+    ///
+    /// Right-clicking the cell (any line of the day) offers Add Note… for the whole day
+    /// (`DayNotes`). The note follows the totals as one quiet line, its searched words lit, the
+    /// whole note in its tooltip; clicking it edits it. It fades in and out, at once under Reduce
+    /// Motion, and VoiceOver reads it as "Note: sick day" with Edit Note as its action.
     private func dayCell(_ start: Date, range: DayInRange?, now: Date, fold: LogbookTableLine.Fold?,
-                         count: LogbookDayCount, totals: LogbookDayTotals?) -> some View {
+                         count: LogbookDayCount, totals: LogbookDayTotals?, note: String?, terms: [String]) -> some View {
         let isFolded = fold != nil
         let day = ClockLabel.day(of: start, now: now)
         return HStack(spacing: DS.Space.xs) {
@@ -1010,6 +1039,59 @@ struct LogbookSection: View {
                 : LogbookCollapseText.spokenState(folded: false))
             .accessibilityAction(named: LogbookCollapseText.actionName(folded: isFolded)) { toggleFold(start, count: count) }
             dayName(start, range: range, day: day, totals: totals)
+            if let note {
+                Button { editNote(start) } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "note.text").imageScale(.small).foregroundStyle(.tertiary)
+                        Text(SearchHighlight.attributed(note, terms: terms, tint: Palette.brand))
+                            .dsFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(note)
+                .transition(.opacity)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(DayNoteText.spoken(note))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Edits the day's note")
+                .accessibilityAction(named: DayNoteText.removeName) { removeNote(start) }
+            }
+        }
+        .dsAnimation(.standard, value: note)
+    }
+
+    private var noteTitle: String {
+        guard let noteDay else { return "Note" }
+        return DayNoteText.editorTitle(spokenDay: DayInRangeText.spokenDay(ClockLabel.day(of: noteDay, now: Date())))
+    }
+
+    /// Opens the note editor for the day starting at `start`, with its note so far.
+    private func editNote(_ start: Date) {
+        noteDraft = logbook.dayNote(on: start) ?? ""
+        noteDay = start
+    }
+
+    private func removeNote(_ start: Date) {
+        noteDay = start
+        saveNote(removing: true)
+    }
+
+    /// Keeps what was typed (an empty note removes it); VoiceOver hears the change once.
+    private func saveNote(removing: Bool = false) {
+        guard let start = noteDay else { return }
+        noteDay = nil
+        let before = logbook.dayNote(on: start)
+        let after = DS.animate(.standard, reduceMotion: reduceMotion) {
+            logbook.saveDayNote(removing ? "" : noteDraft, on: start)
+        }
+        guard before != after else { return }
+        let spokenDay = DayInRangeText.spokenDay(ClockLabel.day(of: start, now: Date()))
+        if let line = DayNoteText.announcement(spokenDay: spokenDay, before: before, after: after) {
+            LoggedElsewhere.announce(line)
         }
     }
 
@@ -1389,7 +1471,8 @@ struct InsightsSection: View {
                 .dashboardCard()
                 .id(Self.cardID(.bestStreak))
         case .bestDays:
-            BestToughestDaysCardView(readings: readings, entries: logbook.entries, unit: unit, lowMgdl: lowMgdl,
+            BestToughestDaysCardView(readings: readings, entries: logbook.entries, dayNotes: logbook.dayNotes,
+                                     unit: unit, lowMgdl: lowMgdl,
                                      highMgdl: highMgdl, openLogbook: openLogbook)
                 .dashboardCard()
                 .id(Self.cardID(.bestDay))
@@ -2054,12 +2137,16 @@ enum LogbookTableRow: Identifiable {
 
     /// Whether the row shows under the chosen chip (if any) and the search, by the rules the iPhone
     /// Logbook uses (`LogbookSearch`).
-    func matches(_ filter: LogbookFilter?, _ query: LogbookQuery, lowIDs: Set<UUID>) -> Bool {
+    /// `dayNotes` (`LogbookStore.dayNotes`): a day's note is searched with each of its rows.
+    func matches(_ filter: LogbookFilter?, _ query: LogbookQuery, lowIDs: Set<UUID>,
+                 dayNotes: [String: String] = [:]) -> Bool {
+        // Only looked up when there are words to find.
+        let note = query.terms.isEmpty ? nil : DayNotes.note(on: timestamp, in: dayNotes)
         switch self {
         case .entry(let e):
-            return (filter?.matches(e, lowIDs: lowIDs) ?? true) && LogbookSearch.matches(e, query, lowIDs: lowIDs)
+            return (filter?.matches(e, lowIDs: lowIDs) ?? true) && LogbookSearch.matches(e, query, lowIDs: lowIDs, dayNote: note)
         case .alert(let a):
-            return (filter?.matches(a) ?? true) && LogbookSearch.matches(a, query)
+            return (filter?.matches(a) ?? true) && LogbookSearch.matches(a, query, dayNote: note)
         }
     }
 

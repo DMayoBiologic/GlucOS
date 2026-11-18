@@ -516,7 +516,8 @@ struct PhoneBestToughestDaysCard: View {
     @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        let card = BestToughestDaysCardView(readings: store.archive, entries: logbook.entries, unit: store.shownUnit,
+        let card = BestToughestDaysCardView(readings: store.archive, entries: logbook.entries, dayNotes: logbook.dayNotes,
+                                            unit: store.shownUnit,
                                             lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
                                             openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
             .dsCard(.standard, padding: DS.Space.lg)

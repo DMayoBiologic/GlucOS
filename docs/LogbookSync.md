@@ -12,7 +12,7 @@ LibreLinkUp account they already use.
   foreground and during its background refreshes. What's waiting to go up is in
   `logbook-sync.json` next to the logbook.
 - **Records.** One row per entry in `glucos.logbook`: its id, kind (`insulin`, `dose`, `meal`, `siteChange`,
-  `context`, `preset`, `food`, `bolusSettings`, `lowAnswer`, `alert`, `insightsLayout`), the entry as JSON (the same encoding as `logbook.json`), when it was last
+  `context`, `preset`, `food`, `bolusSettings`, `lowAnswer`, `alert`, `insightsLayout`, `dayNote`), the entry as JSON (the same encoding as `logbook.json`), when it was last
   changed, and a server change counter (`rev`). Devices pull everything above the last counter they
   saw, and everything from the start every 12 hours.
 - **Conflicts.** The later edit wins, by the editing device's clock (the server caps it at five
@@ -72,3 +72,11 @@ forecast is still trend-only.
 ## Tags
 
 Entry tags (`labels`, docs/LogbookTags.md) are part of the entry payload, so they sync with no server change.
+
+## Day notes (round 70)
+
+Each day note is one record of kind `dayNote`, payload `{"day": "2026-11-18", "text": "Sick day"}`.
+Its id is fixed by the date (`DA7E0000-0000-4000-8000-0000YYYYMMDD`, `DayNotes.recordID`), so a
+note written for the same day on the iPhone and the Mac is one record and the later edit wins.
+Clearing a note pushes a tombstone. A payload with a date that doesn't exist is left alone. Day
+notes aren't in the share allowlist, so followers never see them. Tests: `DayNotesTests`.
