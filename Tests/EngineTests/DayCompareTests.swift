@@ -111,6 +111,17 @@ final class DayCompareTests: XCTestCase {
         XCTAssertEqual(d.highs, 1)
     }
 
+    /// Lows count on bucket starts: three low readings late in their buckets still make 15 minutes.
+    func testLowsCountOnBucketStarts() {
+        let day = daysAgo(2)
+        let lowStart = day.addingTimeInterval(4 * 3600)
+        var r = every(5, from: day, to: lowStart.addingTimeInterval(-60))
+        r += [4, 9, 14].map { reading(lowStart.addingTimeInterval(Double($0) * 60), 60) }
+        r += every(5, from: lowStart.addingTimeInterval(15 * 60), to: day.addingTimeInterval(86_400))
+        let d = DayCompare.day(day, readings: r, low: 70, high: 180, now: referenceNow, calendar: utc)
+        XCTAssertEqual(d.lows, 1)
+    }
+
     func testOnlyTheDaysOwnReadings() throws {
         let day = daysAgo(2)
         let r = every(5, from: day.addingTimeInterval(-86_400), to: day.addingTimeInterval(2 * 86_400)) { t in
@@ -167,6 +178,14 @@ final class DayCompareTests: XCTestCase {
         XCTAssertEqual(step(daysAgo(4), -1), daysAgo(5))
         XCTAssertNil(step(daysAgo(5), -1))
         XCTAssertNil(step(daysAgo(5), 0))
+    }
+
+    func testCalendarSpokenInCompareMode() {
+        let cell = LogbookCalendar.Cell(day: daysAgo(2), number: 1, entries: 288, isToday: false, isFuture: false)
+        let dim = LogbookCalendar.Cell(day: daysAgo(2), number: 1, entries: 0, isToday: false, isFuture: false)
+        XCTAssertTrue(DayCompareText.calendarSpoken(cell, isFrom: false, now: referenceNow, calendar: utc).hasSuffix(", has readings"))
+        XCTAssertTrue(DayCompareText.calendarSpoken(dim, isFrom: false, now: referenceNow, calendar: utc).hasSuffix(", too few readings"))
+        XCTAssertTrue(DayCompareText.calendarSpoken(cell, isFrom: true, now: referenceNow, calendar: utc).hasSuffix(", the day being compared"))
     }
 
     func testPairIDNamesBothDays() {

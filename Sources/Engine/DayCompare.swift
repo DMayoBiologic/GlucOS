@@ -81,7 +81,13 @@ enum DayCompare {
         let sorted = zip(readings, readings.dropFirst()).allSatisfy { $0.timestamp <= $1.timestamp }
             ? readings : readings.sorted { $0.timestamp < $1.timestamp }
         let segments = DayChart.segments(sorted, from: start, to: end)
-        let points = segments.joined().map { ($0.date, $0.mgdl) }
+        // Lows and highs are counted on bucket starts, as `TodaySoFar` counts them; the chart keeps
+        // each point at its readings' mean time.
+        let size = Double(DayChart.bucketMinutes) * 60
+        let points = segments.joined().map { p -> (Date, Double) in
+            let k = (p.date.timeIntervalSince(start) / size).rounded(.down)
+            return (start.addingTimeInterval(k * size), p.mgdl)
+        }
         let average = points.isEmpty ? nil : points.map { $0.1 }.reduce(0, +) / Double(points.count)
         return DayCompareDay(
             start: start,
@@ -183,6 +189,17 @@ enum DayCompareText {
     /// Said once when the comparison opens or its second day changes: "Comparing Today with Monday
     /// 11 November."
     static func announcement(first: String, second: String) -> String { "Comparing \(first) with \(second)." }
+
+    /// A calendar day in compare mode as VoiceOver says it: "Tuesday 12 November, has readings", or
+    /// "too few readings" for a dimmed day, or "the day being compared" for the one it opened from.
+    static func calendarSpoken(_ cell: LogbookCalendar.Cell, isFrom: Bool, now: Date,
+                               calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent) -> String {
+        let name = DayInRangeText.spokenDay(ClockLabel.day(of: cell.day, now: now, calendar: calendar),
+                                            calendar: calendar, locale: locale)
+        if isFrom { return "\(name), the day being compared" }
+        if cell.isFuture { return name }
+        return cell.entries > 0 ? "\(name), has readings" : "\(name), too few readings"
+    }
 
     /// The hour labels along the bottom: "midnight", "6 am", "noon", "6 pm".
     static func tick(_ minute: Double) -> String { DayPatternText.clock(Int(minute)) }

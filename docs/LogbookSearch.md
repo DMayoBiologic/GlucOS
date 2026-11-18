@@ -250,7 +250,7 @@ words in `Sources/Engine/DayCompare.swift` (`DayCompare`, `DayCompareText`, `Day
 tested in `DayCompareTests`; the view is `Sources/App/Logbook/DayCompareView.swift`.
 
 - **Opening it.** From the jump-to-a-date calendar, **Compare** in its footer switches the grid to
-  picking a second day: days with at least an hour of readings are lit (`DayCompare.readingDays`),
+  picking a second day: days with at least 12 readings are lit (`DayCompare.readingDays`; an hour of 5-minute readings),
   the day it was opened from is filled and can't be picked, and **Back** returns to jumping. A
   day's own menu offers **Compare with Another Day…**, which opens the calendar already comparing:
   hold a day header on iPhone (next to Add Note and Jump to a Date), or right-click any line of a

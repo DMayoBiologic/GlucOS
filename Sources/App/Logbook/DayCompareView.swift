@@ -126,6 +126,7 @@ struct DayCompareView: View {
         let announce = { LoggedElsewhere.announce(DayCompareText.announcement(first: spokenDay(first, now: now),
                                                                               second: spokenDay(target, now: now))) }
         if reduceMotion {
+            // Figures cross-fade (`.opacity` content transition); the line switches with them.
             withAnimation(.easeInOut(duration: 0.2)) { second = target }
             announce()
             return
@@ -255,7 +256,7 @@ struct DayCompareView: View {
                 Text(value)
                     .dsFont(.body)
                     .monospacedDigit()
-                    .contentTransition(.numericText())
+                    .contentTransition(reduceMotion ? .opacity : .numericText())
             }
         }
         .frame(minWidth: 72, alignment: .trailing)

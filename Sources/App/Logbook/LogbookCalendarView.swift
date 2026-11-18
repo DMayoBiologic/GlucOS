@@ -173,7 +173,8 @@ struct LogbookCalendarView: View {
         }
         .buttonStyle(.plain)
         .disabled(!canPick)
-        .accessibilityLabel(LogbookJump.spoken(cell, now: now))
+        .accessibilityLabel(comparing ? DayCompareText.calendarSpoken(cell, isFrom: selected, now: now)
+                                      : LogbookJump.spoken(cell, now: now))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
