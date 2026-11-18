@@ -71,6 +71,7 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 - **Typing amounts**: in the log sheet, each digit you type rolls into place, so you can see the number change as you enter it (instant with Reduce Motion on).
 - **Insights explainers**: the ⓘ beside time in range, average, variability, time below and GMI on the Overview opens a short note on what the figure means and how it was worked out for the period shown.
 - **While you were away**: open the popover after 2 hours or more and a quiet line under the reading sums up the gap (lowest, highest, time in range and any alerts) for 10 seconds. Click it to see that time in the Logbook.
+- **Hourly range wave**: in Insights, the Time in range by hour card fills in left to right when it appears, and its cells cross-fade one after another to their new colours when you change the period (instant under Reduce Motion).
 - **Moving into or out of range**: the reading in the popover gets one brief colour wash as it crosses your target range. The wash only fires once the reading has been at least 5 mg/dL (0.3 mmol/L) inside its side before it crosses: with a low of 70, readings of 72 then 69 give no wash, but 75 then 69 do. So it won't repeat while you hover at the edge, and there's no wash with Reduce Motion on.
 - **Dashboard** (⌘D in the popover, or the expand button on the chart): a resizable window with
   - an interactive chart from 3 hours to 30 days: hover for any reading (with its 15-minute change),
