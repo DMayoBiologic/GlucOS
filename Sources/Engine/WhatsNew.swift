@@ -186,6 +186,9 @@ enum WhatsNewCatalog {
             .init(symbol: "line.diagonal",
                   title: "Gaps in readings explained",
                   detail: "Where readings are missing, a dashed line bridges the gap. Tap or hover it to see why."),
+            .init(symbol: "square.on.square",
+                  title: "Catch entries logged twice",
+                  detail: "Log the same meal or insulin twice within a few minutes and GlucOS asks \"Logged twice?\" with an Undo."),
         ]),
         WhatsNewRelease(version: "1.73.0", highlights: [
             .init(symbol: "note.text",

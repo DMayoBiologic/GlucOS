@@ -1481,6 +1481,15 @@ struct LogSheet: View {
                                          tags: tags))
         }
         logbook.offerEditUndo(before: beforeEdit)
+        // A new meal or dose that looks like one logged a few minutes ago gets "Logged twice?" with
+        // Undo on the toast (`DoubleLog`), unless the user already said "Log anyway" to the
+        // "Already logged?" check. Never blocks or deletes on its own.
+        if isNew && repeatWarning == nil {
+            var saved: [UUID] = []
+            if logsInsulin, units != nil { saved.append(doseID) }
+            if logsFood, carbs != nil { saved.append(mealID) }
+            logbook.offerRepeatUndo(for: saved)
+        }
         finishSaving()
     }
 

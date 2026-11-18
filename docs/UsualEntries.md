@@ -95,6 +95,10 @@ If anything matches, an "Already logged?" step names it ("You logged 4 u 12 minu
 same dose, don't log it again.") with Log anyway / Cancel. When the dose came from the calculator,
 the same text leads its existing confirm step, so there's still one dialog.
 
+Any new meal or dose, one-tap or typed, is also checked once it's saved: one nearly the same within
+5 minutes gets "Logged twice?" with Undo on the toast (docs/DoubleLog.md), unless Log anyway was
+already tapped here.
+
 ## Motion and accessibility
 
 - Tiles fade and scale in with `DSMotion.standard` (`.dsAnimation`), and filling the sheet animates
