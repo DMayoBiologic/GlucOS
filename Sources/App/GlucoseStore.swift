@@ -32,6 +32,9 @@ final class GlucoseStore: ObservableObject {
     @Published private(set) var shownUnit: GlucoseUnit
     /// True while Settings covers the screens that read `shownUnit`.
     private var holdsShownUnit = false
+    /// When GlucOS was checking LibreLinkUp, so the chart can say why readings are missing
+    /// (`ReadingGaps`). Not published: every fetch already sends the snapshot.
+    private(set) var polls = PollLog.load()
 
     let settings = AppSettings.shared
     let alerts = AlertManager()
@@ -161,6 +164,8 @@ final class GlucoseStore: ObservableObject {
         isRefreshing = true
         lastAttempt = Date()
         defer { isRefreshing = false }
+        polls.record(lastAttempt ?? Date(), interval: TimeInterval(max(30, settings.pollIntervalSeconds)))
+        polls.save()
 
         let creds = LibreLinkUpClient.Credentials(email: settings.email, password: settings.password)
         /// The account was signed out or switched while this fetch was in flight.
@@ -201,6 +206,15 @@ final class GlucoseStore: ObservableObject {
         alerts.evaluate(snapshot, settings: settings)
         alerts.evaluatePrediction(snapshot, forecast: outlook.outlook?.alertForecast, settings: settings)
         await checkNotificationPermission()
+    }
+
+    /// What the chart needs to explain a gap in readings (`ReadingGaps`) on this device.
+    var gapContext: ReadingGaps.Context {
+        #if os(macOS)
+        ReadingGaps.Context(sensor: snapshot.sensor, polls: polls, device: .mac)
+        #else
+        ReadingGaps.Context(sensor: snapshot.sensor, polls: polls, device: .iPhone)
+        #endif
     }
 
     /// Whether the reading on screen is still the one saved before this launch (`LaunchReading`).
