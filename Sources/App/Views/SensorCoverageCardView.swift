@@ -5,10 +5,14 @@ import SwiftUI
 /// docs/SensorCoverage.md). The screen leaves it out while coverage is 99% or more
 /// (`SensorCoverageCache.shows`).
 ///
-/// Motion is the other period cards': the figures count up as the card rises in and roll to new
-/// values when the period changes; the gap rows slide up into place one after another as the card
-/// rises (`onEntrance`). Nothing loops, and Reduce Motion shows it all at once. Callers give it their
-/// own card surface.
+/// Motion (`SensorCoverageCardMotion`, docs/SensorCoverage.md "Motion"): the figures count up as
+/// the card rises in and roll to new values when the period changes; the coverage meter fills, then
+/// each gap's row slides up and its bar grows from the leading edge a step behind the one above
+/// (`onEntrance`). New periods glide the bars to their new lengths. With Compare on, the period
+/// before's marks fade in on the meter and the bars, sharing their scale. Nothing loops. Under
+/// Reduce Motion the rows are there at once, the bars and marks fade in, and new values cross-fade.
+/// The bars are drawn inside the card's one VoiceOver stop, which says the same in words. Callers
+/// give it their own card surface.
 ///
 /// With `openLogbook`, tapping the card (or its "See the longest gap in the Logbook" row) opens the
 /// Logbook around the longest gap, an hour either side (`LogbookFilter.aroundGap`); a gap's own row
@@ -23,8 +27,8 @@ struct SensorCoverageCardView: View {
     @AppStorage(InsightsShare.Key.coverage) private var periodDays = SensorCoverage.Period.fortnight.rawValue
     @State private var value: SensorCoverage?
     @State private var shownKey: SensorCoverageCache.Key?
-    /// The gap rows have slid in (once per appearance).
-    @State private var rowsIn = false
+    /// The meter has filled and the gap rows and bars have grown in (once per appearance).
+    @State private var grown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
     /// "Compare to previous period" (docs/InsightsCompare.md) and the period before, while it's on.
@@ -109,6 +113,7 @@ struct SensorCoverageCardView: View {
                 .monospacedDigit()
                 .fixedSize(horizontal: false, vertical: true)
             tiles(s)
+            CoverageMeter(coverage: s.coverage, previous: before(s)?.coverage, grown: grown || shareSnapshot)
             if s.gaps.isEmpty {
                 Text(SensorCoverageText.noGapsLine)
                     .dsFont(.callout)
@@ -126,6 +131,11 @@ struct SensorCoverageCardView: View {
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        .onEntrance {
+            guard !grown else { return }
+            // A frame later, so the meter and bars are laid out empty first.
+            DispatchQueue.main.async { grown = true }
         }
         // One stop for VoiceOver: the period's coverage in a few sentences.
         .accessibilityElement(children: .ignore)
@@ -172,7 +182,11 @@ struct SensorCoverageCardView: View {
     /// The longest gaps, longest first, each with its reason. They slide up into place one after
     /// another as the card rises in; at once under Reduce Motion.
     private func gapRows(_ s: SensorCoverage, now: Date) -> some View {
-        VStack(alignment: .leading, spacing: DS.Space.sm) {
+        let lengths = SensorCoverageCardMotion.lengths(s)
+        let previous = SensorCoverageCardMotion.previousLengths(before(s))
+        let scale = SensorCoverageCardMotion.scale(lengths: lengths, previous: previous)
+        let shown = grown || reduceMotion || shareSnapshot
+        return VStack(alignment: .leading, spacing: DS.Space.sm) {
             Text("Longest gaps")
                 .dsFont(.label)
                 .foregroundStyle(.secondary)
@@ -190,6 +204,12 @@ struct SensorCoverageCardView: View {
                             Text(gap.reason.title)
                                 .dsFont(.caption)
                                 .foregroundStyle(.secondary)
+                            GapBar(fraction: SensorCoverageCardMotion.fraction(i < lengths.count ? lengths[i] : 0, scale: scale),
+                                   previous: SensorCoverageCardMotion.previousLength(at: i, in: previous)
+                                       .map { SensorCoverageCardMotion.fraction($0, scale: scale) },
+                                   grown: grown || shareSnapshot,
+                                   delay: SensorCoverageCardMotion.growDelay(order: i))
+                                .padding(.top, DS.Space.xxs)
                         }
                         Spacer(minLength: 0)
                     }
@@ -197,15 +217,12 @@ struct SensorCoverageCardView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(openLogbook == nil)
-                .opacity(rowsIn || reduceMotion || shareSnapshot ? 1 : 0)
-                .offset(y: rowsIn || reduceMotion || shareSnapshot ? 0 : 6)
-                .animation(reduceMotion ? nil : DSMotion.standard.animation.delay(0.06 * Double(i)), value: rowsIn)
+                .opacity(shown ? 1 : 0)
+                .offset(y: shown ? 0 : 6)
+                .animation(reduceMotion ? nil : DSMotion.standard.animation.delay(SensorCoverageCardMotion.growDelay(order: i) - SensorCoverageCardMotion.growStart),
+                           value: grown)
                 .transition(.opacity)
             }
-        }
-        .onEntrance {
-            guard !rowsIn else { return }
-            rowsIn = true
         }
     }
 
@@ -220,5 +237,119 @@ struct SensorCoverageCardView: View {
     private func open(_ gap: SensorCoverage.Gap?) {
         guard let openLogbook, let gap else { return }
         openLogbook(SensorCoverage.link(for: gap, now: Date()))
+    }
+}
+
+// MARK: - Bars
+
+/// A bar's first appearance: it grows from the leading edge after `delay`, as the card rises in.
+/// Under Reduce Motion it fades in where it is instead. Once per appearance.
+private struct CoverageBarEntrance: ViewModifier {
+    let grown: Bool
+    let delay: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+                .opacity(grown ? 1 : 0)
+                .animation(.easeInOut(duration: SensorCoverageCardMotion.reducedFade), value: grown)
+        } else {
+            content
+                .scaleEffect(x: grown ? 1 : 0.001, anchor: .leading)
+                .animation(.spring(response: 0.6, dampingFraction: 0.82).delay(delay), value: grown)
+        }
+    }
+}
+
+/// New lengths: the bar and its mark glide there, or cross-fade under Reduce Motion (nothing slides).
+private struct CoverageBarChange<Key: Hashable>: ViewModifier {
+    let key: Key
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            ZStack(alignment: .leading) {
+                content.id(key).transition(.opacity)
+            }
+            .animation(.easeInOut(duration: SensorCoverageCardMotion.reducedFade), value: key)
+        } else {
+            content.dsAnimation(.emphasized, value: key)
+        }
+    }
+}
+
+/// The period before, on a track: a thin upright mark where its bar would end. It fades in and out
+/// as Compare turns on and off.
+private struct CompareMark: View {
+    let fraction: Double?
+    let width: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Color.clear.frame(height: 1)
+            if let fraction {
+                Capsule()
+                    .fill(Color.primary.opacity(0.55))
+                    .frame(width: 2, height: 10)
+                    .offset(x: max(0, width * fraction - 2))
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: SensorCoverageCardMotion.reducedFade), value: fraction == nil)
+    }
+}
+
+/// The share of the period with readings, as a filled track under the figures. Hidden from
+/// VoiceOver with the rest of the card's drawing: the card's value says it.
+private struct CoverageMeter: View {
+    let coverage: Double
+    var previous: Double? = nil
+    let grown: Bool
+
+    private struct Key: Hashable { var coverage: Double; var previous: Double? }
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.06))
+                Capsule()
+                    .fill(Palette.brand)
+                    .frame(width: geo.size.width * max(0, min(1, coverage)))
+                    .modifier(CoverageBarEntrance(grown: grown, delay: SensorCoverageCardMotion.meterStart))
+                CompareMark(fraction: previous.map { max(0, min(1, $0)) }, width: geo.size.width)
+            }
+            .modifier(CoverageBarChange(key: Key(coverage: coverage, previous: previous)))
+        }
+        .frame(height: 6)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One gap's length against the longest shown (or the period before's, while Compare is on).
+private struct GapBar: View {
+    let fraction: Double
+    var previous: Double? = nil
+    let grown: Bool
+    let delay: Double
+
+    private struct Key: Hashable { var fraction: Double; var previous: Double? }
+
+    var body: some View {
+        GeometryReader { geo in
+            // A 10-minute gap beside a day-long one still shows.
+            let minimum = 4 / max(1, geo.size.width)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.06))
+                Capsule()
+                    .fill(Color.secondary)
+                    .frame(width: geo.size.width * (fraction > 0 ? max(minimum, fraction) : 0))
+                    .modifier(CoverageBarEntrance(grown: grown, delay: delay))
+                CompareMark(fraction: previous, width: geo.size.width)
+            }
+            .modifier(CoverageBarChange(key: Key(fraction: fraction, previous: previous)))
+        }
+        .frame(height: 4)
+        .accessibilityHidden(true)
     }
 }

@@ -35,9 +35,32 @@ asleep (6 hr)." when the biggest share has a known reason.
   the longest gap, an hour either side, on the unlisted "Around a gap" chip
   (`LogbookFilter.aroundGap`, `SensorCoverage.link`). Each gap row opens around its own gap. The
   iPhone zooms the card into the Logbook; the Mac cross-fades and Back scrolls to the card.
-- **Motion.** The card rises in with the others (`dsReveal`); its figures count up and the gap
-  rows slide up one after another as it rises (`onEntrance`); period changes roll the figures and
-  cross-fade the rows. All instant under Reduce Motion. VoiceOver reads the card as one element.
+- **Motion.** See "Motion" below.
 - **Share.** Its period picker key is `insights.coverageDays` (`InsightsShare.Key.coverage`).
 
 Observational only: no advice about insulin, food or settings.
+
+## Motion
+
+The rules are plain numbers in `SensorCoverageCardMotion` (tested in
+`SensorCoverageCardMotionTests`); the view is `SensorCoverageCardView`, on both the iPhone and the Mac.
+
+- **Entrance.** The card rises in with the others (`dsReveal`). As it does (`onEntrance`), the
+  Covered and Gaps figures count up (`RollingFigure`, the same roll as every Insights figure), the
+  coverage meter under them fills from the leading edge (0.1 s in), and each of the longest gaps
+  slides up with its bar growing from the leading edge, 0.18 s in and 0.06 s behind the one above.
+  Once per appearance.
+- **Gap bars.** Each bar is its gap's length against the longest one shown, never thinner than 4 pt
+  so a 10-minute gap beside a day-long one still shows.
+- **New period.** The figures roll, and the meter and bars glide to their new lengths.
+- **Compare.** With "Compare to previous period" on, a thin mark fades in on the meter at the period
+  before's coverage, and on each bar at the period before's gap in the same place (its longest,
+  second longest, third). The bars share one scale with those marks, so turning Compare on can glide
+  them shorter to make room. The badges fade in beside the figures.
+- **Opening the Logbook.** The iPhone zooms the card into the Logbook around the gap and shrinks it
+  back home on Back (`matchedTransitionSource`, keyed on the `aroundGap` link); the Mac cross-fades
+  the dashboard to the Logbook, with a way back to the card.
+- **Reduce Motion.** The rows are there at once, the meter, bars and marks fade in over 0.2 s, and
+  new values cross-fade instead of gliding. Nothing slides or zooms.
+- **VoiceOver.** The bars and meter are drawing only, inside the card's one stop, which reads the
+  coverage, the gaps and any comparison as one line.
