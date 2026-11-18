@@ -14,15 +14,19 @@ import Foundation
 enum MarkerCallout {
     /// What the callout says. Built by `ChartLogMarker.logbook` from the entry itself.
     struct Content: Equatable, Sendable {
-        /// "Insulin", "Meal", "Treatment", "Woke up".
+        /// "Insulin", "Meal", "Treatment", "Woke up", "Note".
         var title: String
         /// "4 u Novorapid", "45 g · Toast", or nil when nothing was logged with it.
         var amount: String?
         /// The note as typed, trimmed. Nil when there isn't one.
         var note: String?
+        /// The note is the whole entry (a plain note, `ChartNote`), so VoiceOver reads it rather
+        /// than saying "has a note".
+        var readsNote: Bool
 
-        init(title: String, amount: String? = nil, note: String? = nil) {
+        init(title: String, amount: String? = nil, note: String? = nil, readsNote: Bool = false) {
             self.title = title
+            self.readsNote = readsNote
             let amount = amount?.trimmingCharacters(in: .whitespacesAndNewlines)
             self.amount = (amount?.isEmpty ?? true) ? nil : amount
             self.note = MarkerCallout.note(note ?? "")
@@ -100,7 +104,9 @@ enum MarkerCallout {
         var parts = [content.title]
         if let amount = content.amount { parts.append(spokenAmount(amount)) }
         parts.append(ClockLabel.time(date, calendar: calendar))
-        if content.note != nil { parts.append("has a note") }
+        if let note = content.note {
+            parts.append(content.readsNote ? note.replacingOccurrences(of: "\n", with: ", ") : "has a note")
+        }
         return parts.joined(separator: ", ")
     }
 

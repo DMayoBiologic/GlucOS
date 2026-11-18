@@ -47,10 +47,10 @@ enum MarkerActions {
     /// VoiceOver's action on a marker that opens the card.
     static let voiceOverActionName = "Edit or Log Again"
 
-    /// What the card offers for a marker. Waking up isn't something to log twice in a row, so a
-    /// wake-up only offers Edit.
+    /// What the card offers for a marker. Waking up isn't something to log twice in a row, and a
+    /// note belongs to its moment, so a wake-up or a note only offers Edit.
     static func actions(for kind: MarkerPop.Kind?) -> [Action] {
-        kind == .wake ? [.edit] : [.edit, .logAgainNow]
+        kind == .wake || kind == .note ? [.edit] : [.edit, .logAgainNow]
     }
 
     /// Whether a finger that went down on a marker `heldFor` seconds ago, and moved `dx`, `dy`,
@@ -80,6 +80,7 @@ enum MarkerActions {
         case .treatment: return "treatment"
         case .insulin: return "dose"
         case .wake: return "wake-up"
+        case .note: return "note"
         case nil: return "entry"
         }
     }

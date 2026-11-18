@@ -574,8 +574,9 @@ struct FollowChartCard: View {
 
     private func events(hours: Double) -> [ChartLogMarker] {
         guard let c = detail?.logbook?.contents else { return [] }
+        // The person's own notes stay off a follower's chart.
         return ChartLogMarker.logbook(doses: c.doses, meals: c.meals, contexts: c.contexts,
-                                      since: now.addingTimeInterval(-hours * 3600))
+                                      since: now.addingTimeInterval(-hours * 3600), notes: false)
     }
 }
 
