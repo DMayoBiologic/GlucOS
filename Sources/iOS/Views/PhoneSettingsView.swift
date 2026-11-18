@@ -28,7 +28,7 @@ private struct PhoneBolusSettingsScreen: View {
 // MARK: - Alert history
 
 /// Settings › Alerts › History: the last 7 days of low and high alerts by day. A row closes
-/// Settings and opens the Logbook around it (`AlertHistoryRoute`).
+/// Settings and opens the Logbook around it (`AlertHistoryRoute`); its pencil adds a note.
 private struct PhoneAlertHistoryScreen: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
@@ -43,6 +43,9 @@ private struct PhoneAlertHistoryScreen: View {
             Section {} footer: { Text(AlertHistoryText.footer) }
         }
         .alertHistoryAnnouncements(records: logbook.alerts, readings: store.archive, unit: settings.unit)
+        // Each row's Add note, and "Added note · Undo" after one (docs/AlertNotes.md).
+        .alertNoteEditor()
+        .overlay(alignment: .bottom) { PhoneUndoToast() }
         .navigationTitle(AlertHistoryText.rowTitle)
         .navigationBarTitleDisplayMode(.inline)
     }

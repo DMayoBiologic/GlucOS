@@ -86,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let action = response.actionIdentifier
         let userInfo = response.notification.request.content.userInfo
         let date = response.notification.date
+        let typed = (response as? UNTextInputNotificationResponse)?.userText
         Task { @MainActor in
             // The evening recap opens the dashboard on Insights, with today at the top.
             if EveningRecapScheduler.isRecap(userInfo) {
@@ -103,6 +104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // opens (docs/AlertHistory.md).
             if AlertNotifications.isDismissal(action: action, userInfo: userInfo) {
                 AlertLogRecorder.shared.dismissed(userInfo: userInfo, firedAt: date)
+                return
+            }
+            // "Add note": a Logbook note at the alert's time, and nothing opens. No snooze, no log
+            // sheet (docs/AlertNotes.md).
+            if action == AlertSnoozes.noteAction {
+                if let text = AlertNotifications.note(action: action, userInfo: userInfo, text: typed) {
+                    AlertLogRecorder.shared.noted(text, firedAt: date)
+                }
                 return
             }
             // Meal, Correction or dismissing "Was that dose for a meal?" is answered on the spot.

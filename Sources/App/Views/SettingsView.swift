@@ -627,6 +627,8 @@ private struct AlertSettingsTab: View {
                 openWindow(id: DashboardView.windowID)
                 NSApp.activate()
             }
+            // The rows' notes are saved to the logbook.
+            .environmentObject(logbook)
         }
         .task { await refreshNotificationStatus() }
         // Pick up a change made in System Settings when the user comes back.
@@ -672,6 +674,9 @@ private struct MacAlertHistorySheet: View {
             }
             .listStyle(.inset)
             .alertHistoryAnnouncements(records: records, readings: readings, unit: unit)
+            // Each row's Add note, and "Added note · Undo" (⌘Z) after one (docs/AlertNotes.md).
+            .alertNoteEditor()
+            .overlay(alignment: .bottom) { LogbookUndoToast() }
             Divider()
             Text(AlertHistoryText.macFooter)
                 .dsFont(.caption)

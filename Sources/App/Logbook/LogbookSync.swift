@@ -503,6 +503,41 @@ struct LogbookEditUndo: Equatable {
     var title: String { "Edited \(after.kindNoun)" }
 }
 
+/// A new entry added outside a log sheet that can still be taken back with the undo toast ("Added
+/// note · Undo"): so far, a note typed in Settings › Alerts › Alert History (docs/AlertNotes.md).
+/// Undo deletes it on every device, like any delete, but offers no Undo of its own.
+struct LogbookAddUndo: Equatable {
+    /// Fresh for every add, so a second one restarts the toast's countdown.
+    let token: UUID
+    /// The entry as it was added.
+    let entry: LogEntry
+    /// The add's time, as pushed (`LogbookPendingChange.modified`), so the server echoing it back
+    /// keeps Undo, and only a newer change made elsewhere ends it.
+    var addedAt: Double?
+
+    init(entry: LogEntry, addedAt: Double?, token: UUID = UUID()) {
+        self.token = token
+        self.entry = entry
+        self.addedAt = addedAt
+    }
+
+    /// The id Undo deletes: only while the added entry is still there, under the same id and kind.
+    func removal(current: LogEntry?) -> UUID? {
+        guard let current, current.id == entry.id, current.sameKind(as: entry) else { return nil }
+        return entry.id
+    }
+
+    /// True when `remote` holds a change to the entry made after it was added (an edit or a delete
+    /// on another device). This device's own add coming back from the server doesn't count.
+    func superseded(by remote: [LogbookRecord]) -> Bool {
+        guard let addedAt else { return false }
+        return remote.contains { $0.id == entry.id && $0.modified > addedAt + LogbookUndo.echoTolerance }
+    }
+
+    /// "Added note".
+    var title: String { "Added \(entry.kindNoun)" }
+}
+
 /// One change made to several entries at once (tagging the Logbook's selection) that can still be
 /// taken back with the undo toast ("Added Exercise to 3 entries · Undo"). It holds each entry
 /// exactly as it was before, and Undo saves those back under the same ids, so they sync like any
@@ -569,6 +604,8 @@ enum LogbookUndoOffer: Equatable {
     case edited(LogbookEditUndo)
     /// Several entries changed at once (tags added or removed from the Logbook's selection).
     case batch(LogbookBatchEditUndo)
+    /// A new entry added outside a log sheet (a note from Alert History).
+    case added(LogbookAddUndo)
 
     /// The toast's text.
     var title: String {
@@ -576,6 +613,7 @@ enum LogbookUndoOffer: Equatable {
         case .deleted(let entries): return LogbookUndo.title(entries)
         case .edited(let edit): return edit.title
         case .batch(let b): return b.title
+        case .added(let a): return a.title
         }
     }
 
@@ -585,6 +623,7 @@ enum LogbookUndoOffer: Equatable {
         case .deleted(let entries): return entries.map(\.id)
         case .edited(let edit): return [edit.token]
         case .batch(let b): return [b.token]
+        case .added(let a): return [a.token]
         }
     }
 
@@ -594,6 +633,7 @@ enum LogbookUndoOffer: Equatable {
         case .deleted: return "trash"
         case .edited: return "pencil"
         case .batch: return "tag"
+        case .added: return "square.and.pencil"
         }
     }
 
@@ -603,6 +643,7 @@ enum LogbookUndoOffer: Equatable {
         case .deleted: return "Puts back what you deleted, on all your devices"
         case .edited: return "Puts back the entry as it was before your edit, on all your devices"
         case .batch: return "Puts back the entries as they were before, on all your devices"
+        case .added: return "Takes the note off again, on all your devices"
         }
     }
 
@@ -612,6 +653,7 @@ enum LogbookUndoOffer: Equatable {
         case .deleted(let entries): return entries.count
         case .edited: return 1
         case .batch(let b): return b.count
+        case .added: return 1
         }
     }
 }
@@ -625,13 +667,14 @@ extension LogEntry {
         }
     }
 
-    /// "dose", "meal", "site change", "event": what the edit Undo toast calls the entry.
+    /// "dose", "meal", "site change", "event", or "note" for a plain note (an event with no tags, only text):
+    /// what the edit Undo toast calls the entry.
     var kindNoun: String {
         switch self {
         case .dose: return "dose"
         case .meal: return "meal"
         case .siteChange: return "site change"
-        case .context: return "event"
+        case .context(let c): return AlertNote.isNote(c) ? "note" : "event"
         }
     }
 }

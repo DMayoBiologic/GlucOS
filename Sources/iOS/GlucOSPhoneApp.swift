@@ -138,13 +138,14 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         }
     }
 
-    /// Buttons on a notification: a tap on the evening recap opens Insights on today; "Snooze 30 min" and "Log treatment" on alerts, check-ins ("I'm
+    /// Buttons on a notification: a tap on the evening recap opens Insights on today; "Snooze 30 min", "Log treatment" and "Add note" on alerts, check-ins ("I'm
     /// okay", "I need help", "Check in") and "Was that dose for a meal?" (Meal, Correction).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let action = response.actionIdentifier
         let userInfo = response.notification.request.content.userInfo
         let date = response.notification.date
+        let typed = (response as? UNTextInputNotificationResponse)?.userText
         Task { @MainActor in
             if EveningRecapScheduler.isRecap(userInfo) {
                 // The evening recap: Insights, opened on today (docs/EveningRecap.md).
@@ -155,6 +156,13 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
                 // Swiped away: noted for Settings › Alerts › History, nothing else (docs/AlertHistory.md).
                 AlertLogRecorder.shared.dismissed(userInfo: userInfo, firedAt: date)
                 await PhoneServices.shared?.logbookSync?.sync()
+            } else if action == AlertSnoozes.noteAction {
+                // "Add note": a Logbook note at the alert's time, sent now while iOS keeps the app
+                // awake so the Mac has it too. No snooze, no log sheet (docs/AlertNotes.md).
+                if let text = AlertNotifications.note(action: action, userInfo: userInfo, text: typed) {
+                    AlertLogRecorder.shared.noted(text, firedAt: date)
+                    await PhoneServices.shared?.logbookSync?.sync()
+                }
             } else if let tap = AlertNotifications.button(action: action, userInfo: userInfo) {
                 AlertLogRecorder.shared.tapped(tap, userInfo: userInfo, firedAt: date)
                 await PhoneAlertActions.handle(tap)
