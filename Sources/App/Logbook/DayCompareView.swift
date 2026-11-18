@@ -32,6 +32,9 @@ struct DayCompareView: View {
     /// How much of the second day's line has drawn in (0...1).
     @State private var reveal = 0.0
     @State private var opened = false
+    /// True while the opening draw-in runs: a step then lets the new line keep drawing in
+    /// rather than sliding a half-drawn one away.
+    @State private var drawingIn = false
     /// Each change bumps `slideTarget` at once and animates `slidePhase` up to it, so the chart's
     /// slide progress always runs 0 to 1 even when a change lands mid-slide.
     @State private var slideTarget = 0.0
@@ -76,7 +79,9 @@ struct DayCompareView: View {
             opened = true
             switch DayCompareMotion.opening(reduceMotion: reduceMotion) {
             case .drawIn:
-                withAnimation(.easeInOut(duration: DayCompareMotion.drawInDuration).delay(0.1)) { reveal = 1 }
+                drawingIn = true
+                withAnimation(.easeInOut(duration: DayCompareMotion.drawInDuration).delay(0.1),
+                              completionCriteria: .logicallyComplete) { reveal = 1 } completion: { drawingIn = false }
             case .slide, .instant:
                 reveal = 1
             }
@@ -164,7 +169,9 @@ struct DayCompareView: View {
         Haptics.play(.choice)
         #endif
         let firstMotion = DayCompareMotion.change(from: first, to: newFirst, reduceMotion: reduceMotion)
-        let secondMotion = DayCompareMotion.change(from: second, to: newSecond, reduceMotion: reduceMotion)
+        // Mid draw-in the second line isn't fully there yet, so the new day just carries on drawing in.
+        let secondMotion: DayCompareMotion = drawingIn ? .instant
+            : DayCompareMotion.change(from: second, to: newSecond, reduceMotion: reduceMotion)
         var slides = false
         if case .slide(let d) = firstMotion { outgoingFirst = first; firstDirection = d; slides = true } else { outgoingFirst = nil }
         if case .slide(let d) = secondMotion { outgoingSecond = second; secondDirection = d; slides = true } else { outgoingSecond = nil }
@@ -174,7 +181,7 @@ struct DayCompareView: View {
             withAnimation(.smooth(duration: DayCompareMotion.slideDuration), completionCriteria: .logicallyComplete) {
                 first = newFirst
                 second = newSecond
-                reveal = 1
+                if !drawingIn { reveal = 1 }
                 slidePhase = target
             } completion: {
                 // A later change owns the outgoing lines now.
@@ -188,7 +195,7 @@ struct DayCompareView: View {
             withTransaction(t) {
                 first = newFirst
                 second = newSecond
-                reveal = 1
+                if !drawingIn { reveal = 1 }
                 slideTarget += 1
                 slidePhase = slideTarget
             }
@@ -306,8 +313,13 @@ private struct DayCompareChart: View, Animatable {
         let secondIn = outgoingSecond == nil ? shownSecond : DayCompareMotion.slid(shownSecond, by: fb.incomingOffset)
         let firstOut = outgoingFirst.map { DayCompareMotion.slid($0, by: fa.outgoingOffset) } ?? []
         let secondOut = outgoingSecond.map { DayCompareMotion.slid($0, by: fb.outgoingOffset) } ?? []
-        // The scale fits the days being compared, not the ones leaving.
-        let values = (first + second).joined().map(\.mgdl)
+        // The scale glides from one that fits what was on screen (the leaving lines included) to
+        // one that fits the new days, so nothing leaves the plot or jumps when a slide starts.
+        let newDomain = yDomain((first + second).joined().map(\.mgdl))
+        let oldRuns = (outgoingFirst ?? first) + (outgoingSecond ?? second)
+        let oldDomain = outgoingFirst == nil && outgoingSecond == nil ? newDomain
+            : yDomain((oldRuns + first + second).joined().map(\.mgdl))
+        let domain = DayCompareMotion.blend(oldDomain, newDomain, progress: p)
         return Chart {
             RectangleMark(
                 xStart: .value("Start", 0.0), xEnd: .value("End", DayCompare.minutesPerDay),
@@ -330,7 +342,7 @@ private struct DayCompareChart: View, Animatable {
                  color: DayCompareView.firstColor.opacity(outgoingFirst == nil ? 1 : fa.incomingOpacity), dashed: false)
         }
         .chartXScale(domain: 0...DayCompare.minutesPerDay)
-        .chartYScale(domain: yDomain(values))
+        .chartYScale(domain: domain)
         .chartYAxis {
             AxisMarks(position: .leading, values: [unit.value(fromMgdl: lowMgdl), unit.value(fromMgdl: highMgdl)]) { v in
                 AxisValueLabel {

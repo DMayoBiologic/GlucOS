@@ -52,6 +52,14 @@ enum DayCompareMotion: Equatable, Sendable {
                           outgoingOffset: -d * p * slideMinutes, outgoingOpacity: 1 - p)
     }
 
+    /// A chart scale part way from `old` to `new`, so the axis glides with a slide.
+    static func blend(_ old: ClosedRange<Double>, _ new: ClosedRange<Double>, progress: Double) -> ClosedRange<Double> {
+        let p = min(max(progress, 0), 1)
+        let lo = old.lowerBound + (new.lowerBound - old.lowerBound) * p
+        let hi = old.upperBound + (new.upperBound - old.upperBound) * p
+        return lo...max(hi, lo)
+    }
+
     /// The runs drawn up to `fraction` of the day (0...1), the last one ending on an interpolated
     /// point at the edge so the line's tip moves smoothly rather than jumping reading to reading.
     static func revealed(_ runs: [[DayComparePoint]], fraction: Double) -> [[DayComparePoint]] {

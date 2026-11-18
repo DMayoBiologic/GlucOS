@@ -52,13 +52,14 @@ final class DayCompareMotionTests: XCTestCase {
 
     // MARK: Draw-in
 
-    func testRevealCutsAtTheEdgeWithAnInterpolatedTip() {
+    func testRevealCutsAtTheEdgeWithAnInterpolatedTip() throws {
         let runs = [[DayComparePoint(minute: 0, mgdl: 100), DayComparePoint(minute: 720, mgdl: 200),
                      DayComparePoint(minute: 1_440, mgdl: 100)]]
         let half = DayCompareMotion.revealed(runs, fraction: 0.25)
         XCTAssertEqual(half.count, 1)
-        XCTAssertEqual(half[0].map(\.minute), [0, 360])
-        XCTAssertEqual(half[0].last?.mgdl ?? 0, 150, accuracy: 0.001)
+        let run = try XCTUnwrap(half.first)
+        XCTAssertEqual(run.map(\.minute), [0, 360])
+        XCTAssertEqual(run.last?.mgdl ?? 0, 150, accuracy: 0.001)
     }
 
     func testRevealEnds() {
@@ -76,26 +77,36 @@ final class DayCompareMotionTests: XCTestCase {
 
     // MARK: Cross-slide
 
-    func testSlidMovesAndClipsToTheDay() {
+    func testSlidMovesAndClipsToTheDay() throws {
         let runs = [[DayComparePoint(minute: 0, mgdl: 100), DayComparePoint(minute: 100, mgdl: 200),
                      DayComparePoint(minute: 1_400, mgdl: 100)]]
-        let right = DayCompareMotion.slid(runs, by: 100)
-        XCTAssertEqual(right[0].first?.minute, 100)
-        XCTAssertEqual(right[0].last?.minute, DayCompare.minutesPerDay)
-        let left = DayCompareMotion.slid(runs, by: -50)
-        XCTAssertEqual(left[0].first?.minute, 0)
-        XCTAssertEqual(left[0].first?.mgdl ?? 0, 150, accuracy: 0.001)
-        XCTAssertEqual(left[0].last?.minute, 1_350)
+        let right = try XCTUnwrap(DayCompareMotion.slid(runs, by: 100).first)
+        XCTAssertEqual(right.first?.minute, 100)
+        XCTAssertEqual(right.last?.minute, DayCompare.minutesPerDay)
+        let left = try XCTUnwrap(DayCompareMotion.slid(runs, by: -50).first)
+        XCTAssertEqual(left.first?.minute, 0)
+        XCTAssertEqual(left.first?.mgdl ?? 0, 150, accuracy: 0.001)
+        XCTAssertEqual(left.last?.minute, 1_350)
     }
 
-    func testSlidKeepsASegmentSpanningTheWholeDay() {
+    func testSlidKeepsASegmentSpanningTheWholeDay() throws {
         let runs = [run([-100, 1_600])]
-        let shown = DayCompareMotion.clipped(runs, from: 0, to: DayCompare.minutesPerDay)
-        XCTAssertEqual(shown[0].map(\.minute), [0, DayCompare.minutesPerDay])
+        let shown = try XCTUnwrap(DayCompareMotion.clipped(runs, from: 0, to: DayCompare.minutesPerDay).first)
+        XCTAssertEqual(shown.map(\.minute), [0, DayCompare.minutesPerDay])
     }
 
     func testSlidOffTheDayIsEmpty() {
         XCTAssertEqual(DayCompareMotion.slid([run([0, 60])], by: -200), [])
         XCTAssertEqual(DayCompareMotion.slid([run([0, 60])], by: 0), [run([0, 60])])
+    }
+
+    // MARK: Scale
+
+    func testScaleGlidesBetweenDomains() {
+        let mid = DayCompareMotion.blend(40...360, 40...210, progress: 0.5)
+        XCTAssertEqual(mid.lowerBound, 40)
+        XCTAssertEqual(mid.upperBound, 285)
+        XCTAssertEqual(DayCompareMotion.blend(40...360, 40...210, progress: 0), 40...360)
+        XCTAssertEqual(DayCompareMotion.blend(40...360, 40...210, progress: 5), 40...210)
     }
 }

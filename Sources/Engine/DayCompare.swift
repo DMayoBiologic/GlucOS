@@ -130,7 +130,9 @@ enum DayCompare {
         var d = calendar.startOfDay(for: second)
         repeat {
             guard let next = calendar.date(byAdding: .day, value: by > 0 ? 1 : -1, to: d) else { return nil }
-            d = next
+            // Back to the day's start: where midnight doesn't exist (a DST jump at 00:00) the day
+            // starts later, and adding a day to that start would never match a `days` key.
+            d = calendar.startOfDay(for: next)
             if d > today || d < earliest { return nil }
         } while d == firstDay || !days.contains(d)
         return d
