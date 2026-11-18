@@ -182,6 +182,7 @@ targets:
       - path: Sources/App/Views/TagInsightsCardView.swift
       - path: Sources/App/Views/InsightsEmptyNote.swift
       - path: Sources/App/Views/HourlyInRangeCardView.swift
+      - path: Sources/App/Views/SensorCoverageCardView.swift
       - path: Sources/App/Views/TodaySoFarView.swift
       - path: Sources/App/Views/EveningRecapCardView.swift
       - path: Sources/App/EveningRecapScheduler.swift

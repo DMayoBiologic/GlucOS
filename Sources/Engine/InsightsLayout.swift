@@ -34,6 +34,9 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
     /// iPhone: what GlucOS has learnt about mornings.
     case mornings
     case forecastAccuracy
+    /// How much of the period has readings, and the longest gaps with their reasons. Shows only
+    /// while some of the period is missing.
+    case sensorCoverage
 
     var id: String { rawValue }
 
@@ -55,6 +58,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         case .hourlyInRange: return "Time in range by hour"
         case .mornings: return "Mornings"
         case .forecastAccuracy: return "Forecast accuracy"
+        case .sensorCoverage: return "Sensor coverage"
         }
     }
 
@@ -76,13 +80,14 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         case .hourlyInRange: return "square.grid.4x3.fill"
         case .mornings: return "sunrise"
         case .forecastAccuracy: return "scope"
+        case .sensorCoverage: return "dot.radiowaves.left.and.right"
         }
     }
 
     /// The iPhone Insights screen's cards, in the order they ship.
     static let phoneDefault: [InsightsCard] = [
         .glance, .days, .weekInReview, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .streaks,
-        .bestDays, .tags, .dayPattern, .hourlyInRange, .mornings, .forecastAccuracy,
+        .bestDays, .tags, .dayPattern, .hourlyInRange, .mornings, .forecastAccuracy, .sensorCoverage,
     ]
 
     /// The Mac Dashboard Insights page's movable cards, in the order they ship. The logging cards
@@ -90,7 +95,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
     /// read as one block.
     static let macDefault: [InsightsCard] = [
         .weekInReview, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags,
-        .dayPattern, .hourlyInRange, .forecastAccuracy,
+        .dayPattern, .hourlyInRange, .forecastAccuracy, .sensorCoverage,
     ]
 }
 
