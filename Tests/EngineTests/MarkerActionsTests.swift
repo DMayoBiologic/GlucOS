@@ -9,8 +9,10 @@ final class MarkerActionsTests: XCTestCase {
         return c
     }
 
-    func testWakeUpsOnlyOfferEdit() {
+    func testWakeUpsAndNotesOnlyOfferEdit() {
         XCTAssertEqual(MarkerActions.actions(for: .wake), [.edit])
+        XCTAssertEqual(MarkerActions.actions(for: .note), [.edit])
+        XCTAssertEqual(MarkerActions.hint(.edit, kind: .note), "Opens this note in the log sheet.")
         for kind in [MarkerPop.Kind.meal, .treatment, .insulin] {
             XCTAssertEqual(MarkerActions.actions(for: kind), [.edit, .logAgainNow])
         }

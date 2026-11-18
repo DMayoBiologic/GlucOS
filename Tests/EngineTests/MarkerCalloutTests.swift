@@ -85,5 +85,8 @@ final class MarkerCalloutTests: XCTestCase {
         let dose = MarkerCallout.Content(title: "Insulin", amount: "1 u Novorapid · Pump")
         XCTAssertEqual(MarkerCallout.spoken(dose, date: at, calendar: utc), "Insulin, 1 unit Novorapid, Pump, \(time)")
         XCTAssertEqual(MarkerCallout.spoken(.init(title: "Woke up"), date: at, calendar: utc), "Woke up, \(time)")
+        // A plain note is the whole entry, so it's read out rather than "has a note".
+        let note = MarkerCallout.Content(title: "Note", note: "Felt shaky\n\nafter the walk", readsNote: true)
+        XCTAssertEqual(MarkerCallout.spoken(note, date: at, calendar: utc), "Note, \(time), Felt shaky, after the walk")
     }
 }
