@@ -5921,3 +5921,71 @@ where source = 'function_edge_logs'
   and log_attributes['request.pathname'] in ('/functions/v1/relay/v1/history', '/functions/v1/relay/v1/status')
 order by t
 ```
+
+## 81. Are forecasts worse on sparsely logged days, and should the range widen there? (18 Nov 2026)
+
+The question: when meals and insulin have been logged well, the forecast has more to go on; when
+they haven't, it has less (a sparse stretch can still have a meal logged, just not much else). Are
+30- and 60-minute forecasts measurably worse in sparsely logged stretches than well-logged ones, and
+does the range under-cover, after sparsely logged stretches? If so, does one held-out widening for
+sparse stretches only help? The bar (same as §75): more readings inside at 30 AND 60 on most
+held-out days, a better interval score, no range wider anywhere else, and no lows lost from inside.
+**There's no gap at 30 minutes. At 60 minutes sparse stretches hold fewer readings, but 38 of the
+42 points come from one day (15 Nov), so there's no way yet to tell a sparse-logging effect from a
+bad day. The widening loses at 30 and can't be fitted held out at 60. Nothing ships; no app or relay code changed.**
+
+Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
+
+**Data.** `scripts/logging-density.sql` (runs as is in the Supabase SQL editor): clean shown points
+at 30 and 60 minutes, nothing logged before the reading came in, §40/§41 applied as drawn today, as
+in §42/§75. 12–18 Nov Perth, 432 points, 66 non-deleted Logbook entries. Logging level comes from
+the 24 hours before each forecast was issued: **well** = 3+ meals and 2+ rapid doses, **sparse** =
+0–1 meals or no rapid dose, **mid** = the rest. The level is retrospective: it counts entries as
+they stand now by their event time, so a meal logged late still counts. The logbook keeps no creation
+time (`modified_at` moves on every edit), so the level as known when each forecast was issued can't
+be rebuilt. (A calendar-day split, well = 12 and 16 Nov with
+5/4 and 3/2 meals/rapid doses, tells the same story; see below.)
+
+| Horizon | Level | Points (days) | MAE | Bias | Inside / above | Score |
+|---|---|---|---|---|---|---|
+| 30 min | well | 139 (4) | 31.3 | −0.6 | 67% / 12 | 146.9 |
+| 30 min | mid | 39 (5) | 17.6 | −0.7 | 87% / 10 | 118.1 |
+| 30 min | sparse | 109 (5) | 32.8 | +4.6 | **75%** / 16 | 157.3 |
+| 60 min | well | 96 (3) | 48.1 | +8.5 | 81% / 9 | 200.5 |
+| 60 min | mid | 7 (3) | 27.5 | −2.8 | 100% / 0 | 176.9 |
+| 60 min | sparse | 42 (**2**) | 74.9 | +21.2 | **64%** / 31 | 304.6 |
+
+Bias is actual minus forecast (mg/dL). At 30 minutes sparse stretches are **not** worse: MAE is
+within 1.5 mg/dL of well-logged ones and the range holds more readings (75% vs 67%), because the
+well-logged stretches are the ones with meals and the post-meal swings in them. At 60 minutes the
+sparse figure is 38 of 42 points from 15 Nov (0 meals logged that day, 3 rapid doses): 68% inside,
+with readings landing above the range (26% above, +20 mg/dL bias), which fits unlogged food. The
+other 4 sparse points (14 Nov) are 1 of 4 inside, too few to say anything either way, so the gap
+can't be pinned on 15 Nov alone or on sparse logging in general yet. For what it's worth, the
+calendar-day split (different groups, ranges as stored rather than as drawn today) has 60-minute
+coverage at 69% on the two well-logged days and 68% on the rest.
+
+**Held out.** One factor per horizon for sparse points only: the 80th percentile of their miss
+ratios on the other days (leave one day out, 30+ points needed), clamped to ≥ 1 so it can only
+widen. Every other point keeps its drawn range.
+
+| Horizon | Factor | Inside drawn → held out | Score drawn → held out | Sparse days won |
+|---|---|---|---|---|
+| 30 min | 1.10–1.18 | 75 → 80% | 157.3 → 158.2 | 1 of 5 (one tie) |
+| 60 min | 1.00 / 1.45 | 64 → 67% | 304.6 → 300.2 | 4 points only |
+
+At 30 minutes the extra width buys coverage but not a better score on any day except a 0.2 win on
+4 points. At 60 minutes 15 Nov can't be fitted (the other sparse day has 4 points, under 30), and
+the 1.45 learned from 15 Nov only touches 4 points on 14 Nov, so there's nothing to judge. (The
+script's `ntrain` column shows how many ratios each held-out fit had.) Lows
+inside the range: 7 of 8 at 30, 1 of 2 at 60, unchanged.
+
+**Decision.** Keep the range as drawn. Retest on **3 Dec 2026** with §53/§60/§75, and only if
+sparse stretches have at least 30 points at 60 minutes on each of four or more days (count with the
+script's per-day rows). Same bar as above. If the 15 Nov pattern recurs (readings above the range,
+positive bias, no meal logged), the better lever is the "did you eat?" side of logging (§65
+unannounced rises), not a wider range. Logging level and meals are tangled here: well-logged
+stretches are the meal stretches, so compare within a time-of-day band first.
+
+**Dosing.** Not touched: the range only changes the chart and predicted alerts, never insulin on
+board, the effect learner or the bolus figure.
