@@ -792,6 +792,7 @@ struct GlucoseChart: View {
 
     private func disappeared() {
         voSpanMinutes = nil
+        openGap = nil
         endSpanTouch()
         onScreen = false
         glows = []
@@ -835,8 +836,12 @@ struct GlucoseChart: View {
 
     /// The gaps among what's plotted, when this chart explains them.
     private func readingGaps(in plotted: [GlucoseReading]) -> [ReadingGaps.Gap] {
-        guard interactive, let context = gapContext else { return [] }
-        return ReadingGaps.find(in: plotted, context: context)
+        guard interactive, let context = gapContext, let first = plotted.first else { return [] }
+        // With the reading just before what's plotted, so a gap crossing the left edge keeps its
+        // real start (its bridge runs in from off the edge).
+        let i = ChartSpan.firstIndex(in: readings, atOrAfter: first.timestamp)
+        let withLead = i > 0 ? [readings[i - 1]] + plotted : plotted
+        return ReadingGaps.find(in: withLead, context: context)
     }
 
     private func gapCardShowing(_ gaps: [ReadingGaps.Gap]) -> Bool {
@@ -1104,6 +1109,7 @@ struct GlucoseChart: View {
         }
         .onChange(of: hours) { old, new in
             changeRange(from: old, to: new)
+            openGap = nil
             // Hours changing under two fingers means they were pinching, not picking a span.
             if var touch = spanTouch { touch.wasPinch = true; spanTouch = touch }
             voSpanMinutes = ChartSpanVoiceOver.clamped(voSpanMinutes, hours: new)
@@ -2522,7 +2528,9 @@ private struct GapBridge: View {
     let highlighted: Bool
     let tap: () -> Void
     let hover: (Bool) -> Void
-    @State private var progress: CGFloat
+    let id: Date
+    let reduceMotion: Bool
+    @State private var progress: CGFloat = 0
 
     init(from: CGPoint, to: CGPoint, id: Date, highlighted: Bool, reduceMotion: Bool,
          tap: @escaping () -> Void, hover: @escaping (Bool) -> Void) {
@@ -2531,8 +2539,8 @@ private struct GapBridge: View {
         self.highlighted = highlighted
         self.tap = tap
         self.hover = hover
-        // Only the first view made for a gap draws in; any later one starts whole.
-        _progress = State(initialValue: ReadingGapDrawInLog.shared.shouldDraw(id, reduceMotion: reduceMotion) ? 0 : 1)
+        self.id = id
+        self.reduceMotion = reduceMotion
     }
 
     var body: some View {
@@ -2553,7 +2561,13 @@ private struct GapBridge: View {
         }
         .onAppear {
             guard progress < 1 else { return }
-            withAnimation(.easeOut(duration: ReadingGaps.drawInDuration)) { progress = 1 }
+            // Counted only once it's on screen, so a view that's made but never shown doesn't use
+            // up the gap's one draw-in. Any later bridge for the gap starts whole.
+            if ReadingGapDrawInLog.shared.shouldDraw(id, reduceMotion: reduceMotion) {
+                withAnimation(.easeOut(duration: ReadingGaps.drawInDuration)) { progress = 1 }
+            } else {
+                withTransaction(Transaction(animation: nil)) { progress = 1 }
+            }
         }
     }
 }

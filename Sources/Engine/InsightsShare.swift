@@ -60,6 +60,7 @@ enum InsightsShare {
         static let tags = "insights.tagsDays"
         static let dayPattern = "insights.dayPatternDays"
         static let hourly = "insights.hourlyDays"
+        static let coverage = "insights.coverageDays"
     }
 
     /// The period a card's picker is on, read from `defaults` (each card's own default when it has
@@ -89,6 +90,7 @@ enum InsightsShare {
         case .hourlyInRange: return days(Key.hourly)
         case .mornings: return .allStored(since: firstReading)
         case .forecastAccuracy: return .days(7)
+        case .sensorCoverage: return days(Key.coverage)
         }
     }
 

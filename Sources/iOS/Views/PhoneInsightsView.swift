@@ -48,7 +48,7 @@ struct PhoneInsightsRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressScaleStyle())
-        .accessibilityHint("Opens time in range by day, week in review, lows, highs, alerts, overnight, weekdays and weekends, your usual day, time in range by hour, mornings and forecast accuracy")
+        .accessibilityHint("Opens time in range by day, week in review, lows, highs, alerts, overnight, weekdays and weekends, your usual day, time in range by hour, mornings, forecast accuracy and sensor coverage")
     }
 }
 
@@ -222,6 +222,8 @@ struct PhoneInsightsView: View {
         switch card {
         case .tags: return TagInsightsCardView.shows(logbook.entries)
         case .alerts: return AlertsSummary.shows(logbook.alerts)
+        case .sensorCoverage:
+            return SensorCoverageCache.shared.shows(readings: store.archive, context: store.gapContext, back: step.back)
         default: return true
         }
     }
@@ -244,6 +246,7 @@ struct PhoneInsightsView: View {
         case .hourlyInRange: PhoneHourlyInRangeCard()
         case .mornings: PhoneMorningCard(outlook: store.outlook)
         case .forecastAccuracy: PhoneForecastAccuracyCard(outlook: store.outlook)
+        case .sensorCoverage: PhoneSensorCoverageCard()
         }
     }
 
@@ -595,6 +598,25 @@ struct PhoneHourlyInRangeCard: View {
             .dsCard(.standard, padding: DS.Space.lg)
         if let navigator {
             card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .hourOfDay)), in: navigator.zoom)
+        } else {
+            card
+        }
+    }
+}
+
+/// How much of the last 7, 14 or 30 days has readings, and the longest gaps with their reasons
+/// (`SensorCoverageCardView`). Shown only while some of the period is missing. Tapping it zooms the
+/// card into the Logbook around the longest gap; Back shrinks it home.
+struct PhoneSensorCoverageCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @Environment(\.phoneNavigator) private var navigator
+
+    var body: some View {
+        let card = SensorCoverageCardView(readings: store.archive, context: store.gapContext,
+                                          openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
+            .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .aroundGap)), in: navigator.zoom)
         } else {
             card
         }
