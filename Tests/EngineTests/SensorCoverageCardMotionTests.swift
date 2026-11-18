@@ -42,7 +42,8 @@ final class SensorCoverageCardMotionTests: XCTestCase {
 
     func testLengthsFollowTheListedOrder() throws {
         let start = referenceNow.addingTimeInterval(-14 * 86_400 + 300)
-        let holes: [(TimeInterval, TimeInterval)] = [(2 * 86_400, 1_800), (5 * 86_400, 7_200), (9 * 86_400, 900)]
+        // 20 minutes, not 15: a 15-minute step is LibreLinkUp history fill, not a gap.
+        let holes: [(TimeInterval, TimeInterval)] = [(2 * 86_400, 1_800), (5 * 86_400, 7_200), (9 * 86_400, 1_200)]
         var readings: [GlucoseReading] = []
         var t = start
         while t <= referenceNow {
@@ -56,7 +57,7 @@ final class SensorCoverageCardMotionTests: XCTestCase {
         let context = ReadingGaps.Context(sensor: nil, polls: PollLog(), device: .mac)
         let s = try XCTUnwrap(SensorCoverage.compute(readings: readings, context: context, period: .fortnight))
         let lengths = SensorCoverageCardMotion.lengths(s)
-        XCTAssertEqual(lengths, [7_200, 1_800, 900])
+        XCTAssertEqual(lengths, [7_200, 1_800, 1_200])
         XCTAssertEqual(SensorCoverageCardMotion.scale(lengths: lengths), 7_200)
     }
 }
