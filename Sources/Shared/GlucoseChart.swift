@@ -78,6 +78,15 @@ struct GlucoseChart: View {
     /// Mac: bump to open the peek card on the marker under the pointer, from a right-click the
     /// screen around the chart caught while `MarkerHoveredKey` said the pointer was on one.
     var pinsHoveredMarker: Int = 0
+    /// What the forecast details card says (`ForecastDetails`). Given, while a forecast is drawn, a
+    /// tap (iPhone) or click (Mac) on its dashed line or range opens the card as a popover growing
+    /// out of that point, and VoiceOver offers "Show forecast details" on the chart. Only a tap that
+    /// lands on the forecast and doesn't move: a scrub, a hold (the yesterday-line menu) and the
+    /// markers' own touches are unchanged, and nothing snaps. iPhone Today and the Mac popover;
+    /// interactive charts only.
+    var forecastDetails: ForecastDetails? = nil
+    /// Mac: bump to open the forecast details card from the keyboard (Return on the chart).
+    var opensForecastDetails: Int = 0
 
     @State private var hoverDate: Date?
     /// What Charts' two-finger range selection last reported, armed or not.
@@ -147,6 +156,11 @@ struct GlucoseChart: View {
     /// Bumped once per newly arrived reading that ripples (`ripplesNewReading`). The ring's phase
     /// animator plays once per change and is hidden in between.
     @State private var rippleBeat = 0
+    /// Whether the forecast details card is open (`forecastDetails`).
+    @State private var forecastOpen = false
+    /// Where on the forecast it was tapped, for the point the card grows out of. Nil: opened by
+    /// VoiceOver or the keyboard, which use the 30-minute point.
+    @State private var forecastTapped: Date?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
@@ -591,6 +605,7 @@ struct GlucoseChart: View {
     /// the same marker, so a held peek turns into the card rather than blinking out first.
     private func openCallout(_ next: UUID, style: MarkerActions.Style) {
         let fromPeek = peeked != nil
+        forecastOpen = false
         withTransaction(Transaction(animation: nil)) {
             hoverDate = nil
             touching = false
@@ -806,7 +821,7 @@ struct GlucoseChart: View {
             to: domain.upperBound)
         let yd = yDomain(onScreen, extra: ghost.map(\.mgdl))
         let floor = yd.lowerBound
-        let hovered = interactive && peeked == nil && callout == nil && span == nil
+        let hovered = interactive && peeked == nil && callout == nil && span == nil && !forecastOpen
             ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
         // The gradient is stretched over the drawn line, so its stops follow what's plotted.
         let lineStyle = ThresholdGradient.style(minMgdl: plotted.map(\.mgdl).min() ?? lowMgdl,
@@ -1018,6 +1033,10 @@ struct GlucoseChart: View {
                 }
             }
             markerOverlays(proxy: proxy, yd: yd)
+            // Under the markers' layer, so a marker near "Now" still takes its own taps.
+            if opensForecast(projection), forecastReveal >= 1 {
+                ForecastTapLayer(proxy: proxy, forecast: projection, unit: unit, yd: yd) { openForecast(at: $0) }
+            }
             if interactive, peeksMarkers || opensCallouts || opensActionCards {
                 markerPeek(proxy: proxy, yd: yd, window: window)
             }
@@ -1063,10 +1082,59 @@ struct GlucoseChart: View {
             loggedCount: events.filter { $0.date >= (window.first?.timestamp ?? .distantFuture) }.count))
             + yesterdaySpoken(newest: window.last)))
         .spanAdjustable(interactive && selectsSpans, adjustVoiceOverSpan)
+        .forecastDetailsAction(opensForecast(projection)) { openForecast(at: nil) }
         .accessibilityChartDescriptor(GlucoseAudioGraph(readings: window, forecast: projection, unit: unit,
                                                         lowMgdl: lowMgdl, highMgdl: highMgdl, yDomain: yd,
                                                         yesterday: ghost.filter { $0.date >= domain.lowerBound }))
-        withCallouts(chart, window: window, yd: yd)
+        withForecastDetails(withCallouts(chart, window: window, yd: yd), projection: projection)
+    }
+
+    // MARK: Forecast details
+
+    /// Whether the forecast details card can open: there's a forecast drawn and something to say.
+    private func opensForecast(_ projection: [ForecastSample]) -> Bool {
+        interactive && forecastDetails != nil && projection.count >= 2
+    }
+
+    /// A tap or click on the forecast (at `date`), VoiceOver's action or Return on the Mac (nil).
+    /// Anything else showing makes way: an open callout, a peek, the scrub readout.
+    private func openForecast(at date: Date?) {
+        guard forecastDetails != nil, !forecastOpen else { return }
+        if callout != nil { closeCallout() }
+        withTransaction(Transaction(animation: nil)) {
+            peeked = nil
+            hoverDate = nil
+            touching = false
+            scrubbedFrom = nil
+            forecastTapped = date
+        }
+        #if os(iOS)
+        Haptics.play(.scrubLogged)
+        #endif
+        forecastOpen = true
+    }
+
+    /// The popover's anchor, on the forecast where it was tapped, and the moments that close it.
+    /// A third overlay, after the chart's own VoiceOver element, so the card is an element of its own.
+    private func withForecastDetails(_ chart: some View, projection: [ForecastSample]) -> some View {
+        chart
+            .chartOverlay { proxy in
+                if interactive, forecastDetails != nil {
+                    ForecastPopoverAnchor(proxy: proxy, unit: unit,
+                                          anchor: ForecastDetails.anchor(tapped: forecastTapped, in: projection),
+                                          isPresented: $forecastOpen, details: forecastDetails)
+                }
+            }
+            .onChange(of: opensForecastDetails) { _, _ in
+                if opensForecast(projection) { openForecast(at: nil) }
+            }
+            // The forecast went (a stale reading, the setting turned off) or the span changed.
+            .onChange(of: projection.count >= 2 && forecastDetails != nil) { _, shown in
+                if !shown { forecastOpen = false }
+            }
+            .onChange(of: hours) { _, _ in forecastOpen = false }
+            .onChange(of: scenePhase) { _, phase in if phase == .background { forecastOpen = false } }
+            .onDisappear { forecastOpen = false }
     }
 
     /// The marker callout's overlay and the moments that close it, kept out of `body`'s chain so it
@@ -1076,11 +1144,15 @@ struct GlucoseChart: View {
             // After the chart's own VoiceOver element, so its marker buttons and the callout are
             // elements of their own rather than folded into the summary.
             .chartOverlay { proxy in calloutLayer(proxy: proxy, yd: yd, window: window) }
-            .preference(key: MarkerCalloutOpenKey.self, value: callout != nil)
+            // The forecast details card counts too, so Esc in the Mac popover closes it first.
+            .preference(key: MarkerCalloutOpenKey.self, value: callout != nil || forecastOpen)
             .preference(key: MarkerHoveredKey.self, value: opensActionCards && hoveredMarker != nil)
             .onChange(of: pinsHoveredMarker) { _, _ in pinHoveredMarker() }
             .onChange(of: peekable(window).map(\.id)) { _, ids in calloutMarkersChanged(ids) }
-            .onChange(of: closesCallout) { _, _ in closeCallout() }
+            .onChange(of: closesCallout) { _, _ in
+                closeCallout()
+                forecastOpen = false
+            }
             .onChange(of: hours) { _, _ in closeCallout() }
             .onChange(of: calloutKeyFocusChanged) { old, new in
                 if old == true, new == false { closeCallout() }
@@ -1512,6 +1584,16 @@ private extension View {
         #else
         self
         #endif
+    }
+
+    /// VoiceOver's "Show forecast details" on the chart (`ForecastDetails`), while there's a forecast
+    /// to describe. Always the same modifier, so the chart keeps its identity when it comes and goes.
+    func forecastDetailsAction(_ enabled: Bool, _ open: @escaping () -> Void) -> some View {
+        accessibilityActions {
+            if enabled {
+                Button(ForecastDetails.voiceOverActionName, action: open)
+            }
+        }
     }
 
     /// Swipe up or down with VoiceOver for a span's figures (`ChartSpanVoiceOver`).
@@ -2121,5 +2203,100 @@ private struct ChartSpanCard: View {
         if minutes < 60 { return "\(minutes) min" }
         let h = minutes / 60, m = minutes % 60
         return m == 0 ? "\(h) h" : "\(h) h \(m) min"
+    }
+}
+
+// MARK: - Forecast details
+
+/// An invisible layer that only answers over the forecast's dashed line and likely range
+/// (`ForecastDetails.outline`, padded so a thin range is still easy to hit). A tap or click there
+/// opens the forecast details card; it's a tap gesture alongside the chart's own selection, so a
+/// finger that moves is still a scrub, a hold is still the yesterday-line menu, and the page still
+/// scrolls. Hidden from VoiceOver, which has "Show forecast details" on the chart instead.
+private struct ForecastTapLayer: View {
+    let proxy: ChartProxy
+    let forecast: [ForecastSample]
+    let unit: GlucoseUnit
+    /// The glucose axis, in the unit shown, so a range running off the chart is cut at its edge.
+    let yd: ClosedRange<Double>
+    let tap: (Date) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            let origin = proxy.plotFrame.map { geo[$0].origin } ?? .zero
+            let outline = ForecastDetails.outline(points(origin: origin))
+            Color.clear
+                .contentShape(ForecastOutlineShape(points: outline))
+                .simultaneousGesture(
+                    SpatialTapGesture(coordinateSpace: .local).onEnded { value in
+                        guard let date = proxy.value(atX: value.location.x - origin.x, as: Date.self) else { return }
+                        tap(date)
+                    }
+                )
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func points(origin: CGPoint) -> [ForecastDetails.PlotPoint] {
+        let clamp = { (mgdl: Double) -> Double in min(max(unit.value(fromMgdl: mgdl), yd.lowerBound), yd.upperBound) }
+        return forecast.compactMap { s -> ForecastDetails.PlotPoint? in
+            guard let x = proxy.position(forX: s.date),
+                  let top = proxy.position(forY: clamp(s.upperMgdl)),
+                  let bottom = proxy.position(forY: clamp(s.lowerMgdl)),
+                  let line = proxy.position(forY: clamp(s.mgdl)) else { return nil }
+            return ForecastDetails.PlotPoint(x: Double(origin.x + x), top: Double(origin.y + top),
+                                             bottom: Double(origin.y + bottom), line: Double(origin.y + line))
+        }
+    }
+}
+
+/// The forecast's band as a closed shape: the only place the forecast tap layer answers.
+private struct ForecastOutlineShape: Shape {
+    let points: [(x: Double, y: Double)]
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        guard let first = points.first else { return p }
+        p.move(to: CGPoint(x: first.x, y: first.y))
+        for pt in points.dropFirst() { p.addLine(to: CGPoint(x: pt.x, y: pt.y)) }
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// Where the forecast details popover points from: the forecast's line at the tapped point (or
+/// the 30-minute point), opening below it when that's in the top half of the chart and above it
+/// otherwise. The card is a popover kept a popover on iPhone, like the reading's details card, so
+/// a tap anywhere else (or Esc on the Mac, or VoiceOver's escape gesture) closes it, and it comes
+/// and goes the system's way, which follows Reduce Motion.
+private struct ForecastPopoverAnchor: View {
+    let proxy: ChartProxy
+    let unit: GlucoseUnit
+    let anchor: ForecastSample?
+    @Binding var isPresented: Bool
+    let details: ForecastDetails?
+
+    var body: some View {
+        GeometryReader { geo in
+            let plot = proxy.plotFrame.map { geo[$0] } ?? CGRect(origin: .zero, size: geo.size)
+            let point = self.point(in: plot)
+            Color.clear
+                .frame(width: 8, height: 8)
+                .allowsHitTesting(false)
+                .popover(isPresented: $isPresented, arrowEdge: point.y < plot.midY ? .bottom : .top) {
+                    if let details {
+                        ForecastDetailsCard(details: details, unit: unit)
+                            .presentationCompactAdaptation(.popover)
+                    }
+                }
+                .position(point)
+        }
+    }
+
+    private func point(in plot: CGRect) -> CGPoint {
+        guard let anchor, let x = proxy.position(forX: anchor.date),
+              let y = proxy.position(forY: unit.value(fromMgdl: anchor.mgdl))
+        else { return CGPoint(x: plot.midX, y: plot.midY) }
+        return CGPoint(x: plot.minX + x, y: plot.minY + y)
     }
 }

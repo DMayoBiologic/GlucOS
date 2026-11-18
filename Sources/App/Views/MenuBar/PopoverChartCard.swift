@@ -25,6 +25,8 @@ struct PopoverChartCard: View {
     /// yesterday-line menu: the monitor takes it while the chart says the pointer is on one.
     @State private var rightClicks = MarkerRightClickMonitor()
     @State private var pinHovered = 0
+    /// Bumped by Return on the chart, to open the forecast details card (`ForecastDetails`).
+    @State private var forecastKey = 0
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -72,7 +74,8 @@ struct PopoverChartCard: View {
                              forecast: forecast, forecastReveal: reveal, events: markers, popsMarkers: true, ripplesNewReading: true,
                              yesterday: yesterday, peeksMarkers: true,
                              openInLogbook: openInLogbook, closesCallout: closeCallout, snapsScrub: true,
-                             markerActions: markerAction, pinsHoveredMarker: pinHovered)
+                             markerActions: markerAction, pinsHoveredMarker: pinHovered,
+                             forecastDetails: details(outlook), opensForecastDetails: forecastKey)
             }
                 .onPreferenceChange(MarkerCalloutOpenKey.self) { calloutOpen = $0 }
                 .onPreferenceChange(MarkerHoveredKey.self) { rightClicks.armed = $0 }
@@ -83,7 +86,9 @@ struct PopoverChartCard: View {
                 .focused($chartFocused)
                 .focusEffectDisabled()
                 // In the popover's arrow-key order: ↑ ↓ leave the chart, ← → still step readings.
-                .keyStop("popover.chart", kind: .native)
+                // Return opens the forecast details card while a forecast is drawn.
+                .keyStop("popover.chart", kind: .native,
+                         action: details(outlook) == nil ? nil : { forecastKey += 1 })
                 .overlay {
                     if chartFocused && pinned != nil {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -114,7 +119,7 @@ struct PopoverChartCard: View {
                 // Right-click for yesterday's faint line (also in Settings → Menu Bar); right-click a
                 // marker for its Edit / Log Again Now card instead.
                 .yesterdayLineMenu($settings.showYesterdayLine)
-                .help("Hover to see readings, click a marker for what was logged, right-click it to edit or log it again, or click and use ← →")
+                .help("Hover to see readings, click a marker for what was logged, right-click it to edit or log it again, click the forecast for its details, or click and use ← →")
                 // A group, so its name doesn't land on the marker buttons inside it.
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
@@ -166,6 +171,13 @@ struct PopoverChartCard: View {
         case .logAgainNow:
             _ = DS.animate(.standard, reduceMotion: reduceMotion) { logbook.duplicate(entry) }
         }
+    }
+
+    /// The forecast details card's contents, while a forecast is drawn: its 30 and 60 minute
+    /// figures, how often this Mac's range held there (the scorecard's checks), what it's based on.
+    private func details(_ outlook: OutlookSnapshot?) -> ForecastDetails? {
+        guard settings.showForecast, let outlook, !outlook.forecast.isEmpty else { return nil }
+        return ForecastDetails(outlook: outlook, held: ForecastDetails.held(store.outlook.ledger.scorecard))
     }
 
     private func withoutForecast(_ o: OutlookSnapshot) -> OutlookSnapshot {

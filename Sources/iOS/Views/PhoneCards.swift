@@ -582,6 +582,8 @@ struct PhoneChartCard: View {
         let s = store.snapshot
         let hours = Double(settings.chartHours)
         let outlook = settings.showForecast ? s.currentOutlook() : nil
+        // Tap the forecast for its 30 and 60 minute figures and how often the range held there.
+        let details = outlook.flatMap { ForecastDetails(outlook: $0, held: ForecastDetails.held(store.outlook.ledger.scorecard)) }
         VStack(alignment: .leading, spacing: DS.Space.md) {
             DSAccessibleStack(spacing: DS.Space.sm) {
                 Eyebrow(title: "Glucose", systemImage: "chart.xyaxis.line")
@@ -604,12 +606,14 @@ struct PhoneChartCard: View {
                              yesterday: yesterday, peeksMarkers: true, selectsSpans: true,
                              openInLogbook: navigator.map { nav in { (id: UUID) in nav.push(.chartMarkerEntry(id)) } },
                              snapsScrub: true,
-                             markerActions: navigator.map { _ in { (action: MarkerActions.Action, id: UUID) in markerAction(action, id) } })
+                             markerActions: navigator.map { _ in { (action: MarkerActions.Action, id: UUID) in markerAction(action, id) } },
+                             forecastDetails: details)
             }
                 .frame(height: 260)
                 .chartHoursPinch($settings.chartHours)
                 // Touch and hold for yesterday's faint line (also in Settings → Display); a hold on a
                 // logged marker peeks it instead, and held on it opens its Edit / Log Again Now card.
+                // A tap on the forecast opens its details card.
                 .yesterdayLineMenu($settings.showYesterdayLine)
                 .accessibilityAction(named: "Show fewer hours") {
                     settings.chartHours = ChartHours.shorter(than: settings.chartHours)

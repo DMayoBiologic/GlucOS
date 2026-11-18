@@ -49,6 +49,7 @@ let package = Package(
                 "Shared/CardReveals.swift",
                 "Shared/LoggedElsewhere.swift",
                 "Shared/ForecastMorph.swift",
+                "Shared/ForecastDetails.swift",
                 "Shared/PopoverStagger.swift",
                 "Shared/ContentResize.swift",
                 "Shared/DependentRows.swift",
