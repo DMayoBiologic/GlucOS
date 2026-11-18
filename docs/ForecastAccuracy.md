@@ -6336,7 +6336,8 @@ on every held-out day at each fittable horizon, and no reading under 70 dropped 
 | live, 0–30 | 15 min | 2 of 4 | 15 Nov 175.9 → 175.9, 16 Nov 64.0 → 72.8, 17 Nov 92.4 → 91.8, 18 Nov 75.6 → 65.3 |
 | live, 0–60 | 15 min | 0 of 4 | 118.8 → 118.8, 55.8 → 63.3, 77.9 → 77.9, 188.4 → 188.4 |
 | #388, 0–60 | 15 min | 1 of 4 | 216.4 → 216.4, 58.9 → 71.2, 77.8 → 119.5, 158.9 → 138.9 |
-| any | 30, 60 min | — | unfittable (under 10 training points on every held-out day) |
+| live, 0–60 | 30 min | 0 of 1 | 17 Nov 100.4 → 100.4 (factor 1.0); 15 and 16 Nov unfittable (7 and 9 training points) |
+| other windows | 30, 60 min | — | unfittable (under 10 training points on every held-out day) |
 
 #388's rule with the 0–30 window can't be fitted at all (7–9 training points). Where a factor
 could be fitted it wins two days and loses one; the day the range most needed help (15 Nov)
