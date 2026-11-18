@@ -5498,22 +5498,27 @@ the relay or `web/`.
 
 **Site day.** `SiteRotation` calls a site "used recently" when any dose (fast or long) went there in
 the last 3 days, so the same cut is used here. A dose that lands on a site with no dose in the 3
-days before is **site day 1**. A dose on a site used within the last 3 days is on a **later day**
-(day N = Perth calendar days since that site's stretch began + 1). A forecast point belongs to the
+days before starts a stretch on that site. Each dose is then on site day N = Perth calendar days
+since its stretch began + 1, so a second dose on the same site the same day is still **site day 1**,
+and any dose on day 2 or later of the stretch is a **later day**. A site already in use when the
+Logbook begins (first dose there within its first 3 days) has no known start, so its doses stay
+"unknown" until a 3-day gap starts a fresh stretch. A forecast point belongs to the
 latest fast dose with a site in the 4 hours before it was issued; points with none are the
 baseline. Long-acting doses only feed the site history (each is followed by the next day's at
 another site, so a long-acting site has no day 2 to compare).
 
-Of 22 fast doses, 11 had scored points: 4 on site day 1 (12, 14, 14 and 15 Nov) and 7 on later
-days (days 2–6). error = line − actual, so negative means the glucose ran above the line.
+Of 22 fast doses, 11 had scored points: 4 on site day 1 (12, 14, 14 and 15 Nov), 6 on later days
+(days 2–5) and 1 unknown (13 Nov, abdomenRight, in use since before the Logbook began). error = line − actual, so negative means the glucose ran above the line.
 
 | Horizon | Group | Points | Days | MAE | Bias | Inside range |
 |---|---|---|---|---|---|---|
 | 30 min | site day 1 | 49 (41 clean) | 3 | 22.5 | −1.3 | 73% |
-| 30 min | later day | 149 (142 clean) | 5 | 32.0 | −7.4 | 71% |
+| 30 min | later day | 122 (117 clean) | 4 | 36.5 | −9.4 | 67% |
+| 30 min | unknown site day | 27 | 1 | 11.7 | +1.7 | 89% |
 | 30 min | no fast dose in 4 h | 124 | 7 | 32.6 | +2.9 | 66% |
 | 60 min | site day 1 | 27 (23 clean) | 3 | 49.0 | −7.1 | 59% |
-| 60 min | later day | 117 (104 clean) | 5 | 56.1 | −13.5 | 71% |
+| 60 min | later day | 91 (79 clean) | 4 | 65.0 | −17.2 | 68% |
+| 60 min | unknown site day | 26 | 1 | 24.7 | −0.6 | 81% |
 | 60 min | no fast dose in 4 h | 46 | 5 | 50.1 | −23.6 | 67% |
 
 On the face of it, first-day sites look *better*, not worse: smaller misses and less lean. Doses on
@@ -5523,8 +5528,8 @@ score the same moment, so points aren't independent). Taking one mean per dose:
 
 | Horizon | Site day 1 bias (per dose) | Later day bias (per dose) | Later − day 1 |
 |---|---|---|---|
-| 30 min | +1, +4, −7, +8 → +1.6 | +11, +2, −18, −3, −3, −5, −23 → −5.6 | −7.2 ± 5.4 (1 SE) |
-| 60 min | −2, −5, −12 → −6.3 | +32, −1, −34, −6, −28, −22, −43 → −14.5 | −8.2 ± 10.1 |
+| 30 min | +1, +4, −7, +8 → +1.6 | +11, −18, −3, −3, −5, −23 → −6.8 | −8.4 ± 5.9 (1 SE) |
+| 60 min | −2, −5, −12 → −6.3 | +32, −34, −6, −28, −22, −43 → −16.9 | −10.5 ± 11.4 |
 
 Both gaps are under 1.5 SE, and one later-day dose (16 Nov 14:10, armLeft, 42 points at 30 min,
 −23) carries much of the 30-minute lean. Dose sizes are alike in both groups (1.5–7.5 U on day 1,
@@ -5534,18 +5539,18 @@ Both gaps are under 1.5 SE, and one later-day dose (16 Nov 14:10, armLeft, 42 po
 below the line (so it can widen or narrow, never move the line), fitted leave-one-Perth-day-out as
 the 80th percentile of the training points' miss ratios, clamped 0.6–2.5. Every other point keeps
 its drawn range. Score is the interval score at 80% (width + 10 × distance outside), lower is
-better. The bar: better score at 30 AND 60 on most held-out days, and no low (under 70) pushed out
-of the range.
+better. The bar: better score at 30 AND 60 on most held-out days and most doses, and no low
+(under 70) pushed out of the range.
 
-| Horizon | Group | Factor fitted | Held-out days won |
-|---|---|---|---|
-| 30 min | site day 1 | 1.13–1.32 | 1 of 3 |
-| 30 min | later day | 1.23–1.61 | 2 of 5 |
-| 60 min | site day 1 | 1.51–1.58 | 3 of 3 |
-| 60 min | later day | 1.14–1.41 | 2 of 5 |
+| Horizon | Group | Factor fitted | Held-out days won | Doses won |
+|---|---|---|---|---|
+| 30 min | site day 1 | 1.13–1.32 | 1 of 3 | 1 of 4 |
+| 30 min | later day | 1.31–1.74 | 2 of 4 | 3 of 6 |
+| 60 min | site day 1 | 1.51–1.58 | 3 of 3 | 2 of 3 |
+| 60 min | later day | 1.18–1.67 | 2 of 4 | 2 of 6 |
 
 No lows were pushed out under any fit. The one win, first-day sites at 60 minutes, is 27 points on 3
-days, and the same group loses at 30, so it fails the bar. Every factor is above 1, which says the
+days (2 of 3 doses), and the same group loses at 30 (1 of 4 doses), so it fails the bar. Every factor is above 1, which says the
 range is a bit narrow after fast doses in general (also seen in §53/§60), not that site day
 matters.
 

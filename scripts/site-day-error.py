@@ -81,10 +81,11 @@ def load_doses(path):
             continue
         prev = last_use.get(s)
         if prev is not None and d['t'] - prev < RECENT_DAYS * 86400:
-            d['site_day'] = (day(d['t']) - day(stretch_start[s])).days + 1
+            start = stretch_start[s]
+            d['site_day'] = None if start is None else (day(d['t']) - day(start)).days + 1
         elif prev is None and d['t'] - first < RECENT_DAYS * 86400:
             d['site_day'] = None  # history too short to know
-            stretch_start[s] = d['t']
+            stretch_start[s] = None  # stays unknown until a 3-day gap starts a new stretch
         else:
             d['site_day'] = 1
             stretch_start[s] = d['t']
@@ -93,13 +94,13 @@ def load_doses(path):
 
 
 def group_of(p, fast):
-    recent = [d for d in fast if d['t'] <= p['t'] <= d['t'] + WINDOW_H * 3600]
+    recent = [d for d in fast if d['site'] is not None and d['t'] <= p['t'] <= d['t'] + WINDOW_H * 3600]
     if not recent:
-        return 'none'
+        return 'none', None
     d = recent[-1]
-    if d['site'] is None or d['site_day'] is None:
-        return 'unknown'
-    return 'day1' if d['site_day'] == 1 else 'later'
+    if d['site_day'] is None:
+        return 'unknown', d['t']
+    return ('day1' if d['site_day'] == 1 else 'later'), d['t']
 
 
 def summary(ps):
@@ -135,7 +136,7 @@ def q80(xs):
 
 def held_out(ps, g):
     days = sorted({day(p['t']) for p in ps if p['g'] == g})
-    rows, won, tried = [], 0, 0
+    rows, won, tried, per_dose = [], 0, 0, {}
     for d in days:
         train = [p for p in ps if p['g'] == g and day(p['t']) != d]
         test = [p for p in ps if p['g'] == g and day(p['t']) == d]
@@ -146,11 +147,15 @@ def held_out(ps, g):
         s1 = sum(score(*scaled(p, c), p['act']) for p in test)
         in1 = sum(scaled(p, c)[0] <= p['act'] <= scaled(p, c)[1] for p in test)
         lows_lost = sum(p['act'] < 70 and p['lo'] <= p['act'] <= p['up']
-                        and not scaled(p, c)[0] <= p['act'] for p in test)
+                        and not scaled(p, c)[0] <= p['act'] <= scaled(p, c)[1] for p in test)
+        for p in test:
+            k = p['dose']
+            a, b = per_dose.get(k, (0.0, 0.0))
+            per_dose[k] = (a + score(p['lo'], p['up'], p['act']), b + score(*scaled(p, c), p['act']))
         tried += 1
         won += s1 < s0
         rows.append((d, len(test), c, s0 / len(test), s1 / len(test), in1, lows_lost))
-    return rows, won, tried
+    return rows, won, tried, per_dose
 
 
 def main():
@@ -162,7 +167,7 @@ def main():
         print(' ', day(d['t']), dt.datetime.fromtimestamp(d['t'] + 8 * 3600, dt.timezone.utc).strftime('%H:%M'),
               d['units'], d['site'], d['site_day'])
     for p in pts:
-        p['g'] = group_of(p, fast)
+        p['g'], p['dose'] = group_of(p, fast)
     for h in (30, 60):
         print(f'\n== {h} min ==')
         for g in ('day1', 'later', 'unknown', 'none'):
@@ -175,8 +180,7 @@ def main():
             per = {}
             for p in pts:
                 if p['h'] == h and p['g'] == g:
-                    key = max(d['t'] for d in fast if d['t'] <= p['t'])
-                    per.setdefault(key, []).append(p['line'] - p['act'])
+                    per.setdefault(p['dose'], []).append(p['line'] - p['act'])
             print(f'  {g} doses: ' + ', '.join(
                 f"{day(k).strftime('%d')}/{len(v)}pts/{st.mean(v):+.0f}" for k, v in sorted(per.items())))
             means[g] = [st.mean(v) for v in per.values()]
@@ -189,10 +193,15 @@ def main():
     for h in (30, 60):
         hp = [p for p in pts if p['h'] == h]
         for g in ('day1', 'later'):
-            rows, won, tried = held_out(hp, g)
-            print(f'  {h} min {g}: days won {won} of {tried}')
+            rows, won, tried, per_dose = held_out(hp, g)
+            print(f'  {h} min {g}: days won {won} of {tried}, '
+                  f'doses won {sum(b < a for a, b in per_dose.values())} of {len(per_dose)}')
             for d, n, c, s0, s1, in1, lost in rows:
                 print(f'    {d} n={n:2d} c={c:.2f} score {s0:6.1f} -> {s1:6.1f} inside {in1}/{n} lows lost {lost}')
+            for k, (a, b) in sorted(per_dose.items()):
+                n = sum(1 for p in hp if p['dose'] == k)
+                print(f'    dose {dt.datetime.fromtimestamp(k + 8 * 3600, dt.timezone.utc):%d %b %H:%M} '
+                      f'n={n:2d} score {a / n:6.1f} -> {b / n:6.1f}')
 
 
 if __name__ == '__main__':
