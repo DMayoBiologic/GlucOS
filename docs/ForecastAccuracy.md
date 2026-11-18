@@ -5924,13 +5924,15 @@ order by t
 
 ## 81. Are forecasts worse on sparsely logged days, and should the range widen there? (18 Nov 2026)
 
-The question: when meals and insulin have been logged well, the forecast knows what's coming; when
-they haven't, it's running on trend alone. Are 30- and 60-minute forecasts measurably worse, and
+The question: when meals and insulin have been logged well, the forecast has more to go on; when
+they haven't, it has less (a sparse stretch can still have a meal logged, just not much else). Are
+30- and 60-minute forecasts measurably worse in sparsely logged stretches than well-logged ones, and
 does the range under-cover, after sparsely logged stretches? If so, does one held-out widening for
 sparse stretches only help? The bar (same as §75): more readings inside at 30 AND 60 on most
 held-out days, a better interval score, no range wider anywhere else, and no lows lost from inside.
-**There's no gap at 30 minutes, and the 60-minute gap is one day (15 Nov). The widening loses at 30
-and can't be fitted held out at 60. Nothing ships; no app or relay code changed.**
+**There's no gap at 30 minutes. At 60 minutes sparse stretches hold fewer readings, but 38 of the
+42 points come from one day (15 Nov), so there's no way yet to tell a sparse-logging effect from a
+bad day. The widening loses at 30 and can't be fitted held out at 60. Nothing ships; no app or relay code changed.**
 
 Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
 
@@ -5938,7 +5940,10 @@ Nothing here touches dosing, the insulin or carb effects, the alerts, the relay 
 at 30 and 60 minutes, nothing logged before the reading came in, §40/§41 applied as drawn today, as
 in §42/§75. 12–18 Nov Perth, 432 points, 66 non-deleted Logbook entries. Logging level comes from
 the 24 hours before each forecast was issued: **well** = 3+ meals and 2+ rapid doses, **sparse** =
-0–1 meals or no rapid dose, **mid** = the rest. (A calendar-day split, well = 12 and 16 Nov with
+0–1 meals or no rapid dose, **mid** = the rest. The level is retrospective: it counts entries as
+they stand now by their event time, so a meal logged late still counts. The logbook keeps no creation
+time (`modified_at` moves on every edit), so the level as known when each forecast was issued can't
+be rebuilt. (A calendar-day split, well = 12 and 16 Nov with
 5/4 and 3/2 meals/rapid doses, tells the same story; see below.)
 
 | Horizon | Level | Points (days) | MAE | Bias | Inside / above | Score |
@@ -5953,11 +5958,12 @@ the 24 hours before each forecast was issued: **well** = 3+ meals and 2+ rapid d
 Bias is actual minus forecast (mg/dL). At 30 minutes sparse stretches are **not** worse: MAE is
 within 1.5 mg/dL of well-logged ones and the range holds more readings (75% vs 67%), because the
 well-logged stretches are the ones with meals and the post-meal swings in them. At 60 minutes the
-sparse figure is 38 of 42 points from 15 Nov (0 meals logged that day, 3 rapid doses), 68% inside
-with readings landing above the range (26% above, +20 mg/dL bias), which looks like unlogged food
-rather than a steady sparse-logging effect. On the calendar-day split (ranges as stored), 60-minute coverage is 69% on
-the two well-logged days and 68% on the rest, so even that gap disappears once 15 Nov isn't
-weighted by itself.
+sparse figure is 38 of 42 points from 15 Nov (0 meals logged that day, 3 rapid doses): 68% inside,
+with readings landing above the range (26% above, +20 mg/dL bias), which fits unlogged food. The
+other 4 sparse points (14 Nov) are 1 of 4 inside, too few to say anything either way, so the gap
+can't be pinned on 15 Nov alone or on sparse logging in general yet. For what it's worth, the
+calendar-day split (different groups, ranges as stored rather than as drawn today) has 60-minute
+coverage at 69% on the two well-logged days and 68% on the rest.
 
 **Held out.** One factor per horizon for sparse points only: the 80th percentile of their miss
 ratios on the other days (leave one day out, 30+ points needed), clamped to ≥ 1 so it can only
@@ -5970,7 +5976,8 @@ widen. Every other point keeps its drawn range.
 
 At 30 minutes the extra width buys coverage but not a better score on any day except a 0.2 win on
 4 points. At 60 minutes 15 Nov can't be fitted (the other sparse day has 4 points, under 30), and
-the 1.45 learned from 15 Nov only touches 4 points on 14 Nov, so there's nothing to judge. Lows
+the 1.45 learned from 15 Nov only touches 4 points on 14 Nov, so there's nothing to judge. (The
+script's `ntrain` column shows how many ratios each held-out fit had.) Lows
 inside the range: 7 of 8 at 30, 1 of 2 at 60, unchanged.
 
 **Decision.** Keep the range as drawn. Retest on **3 Dec 2026** with §53/§60/§75, and only if
