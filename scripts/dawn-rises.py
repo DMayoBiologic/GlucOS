@@ -17,13 +17,13 @@ Groups, judged only from what the app has at issue time:
   unlogged      no meal and no rapid dose logged in the 4 hours before issue
   dawn rise     an unlogged rise issued 03:00-07:59 Perth
   day rise      an unlogged rise issued 09:00-21:59 Perth (the §65 comparison, slower rises included)
-Points with a meal logged in the hour after issue are dropped from both groups when they are
-reported (the rise may be a late-logged meal), but the tweak can't see that and never uses it.
+Dawn and day points with a meal logged in the hour after issue are dropped from every report, fit
+and score (the rise may be a late-logged meal); the tweak itself can't see that and never uses it.
 
 Range: the app draws the 10th-90th percentile of its own past errors around the line
 (ForecastCalibration). The replay does the same: the band is the line plus the 10th and 90th
-percentiles of every replayed forecast's error at that horizon on the training days. "Inside" should
-be ~80% if the range is calibrated.
+percentiles of the replayed forecasts' errors at that horizon on the other Perth days (leave one day
+out, so no point helps set its own band). "Inside" should be ~80% if the range is calibrated.
 
 Lag: the median share of the line's drawn 30-minute rise that the reading actually delivered. Over 1
 means the reading rose further than drawn (the line lags the rise); under 1 means it stalled sooner.
@@ -116,14 +116,19 @@ def quantiles(sub, gain):
         q[h] = (e[int(0.1 * (len(e) - 1))], e[int(0.9 * (len(e) - 1))])
     return q
 
-def report(sub, gain, q, prm=(1.0, 0.0)):
+def day_quantiles(gain):
+    """Bands for each Perth day from the other days' errors only, so coverage is out of sample."""
+    return {dd: quantiles([p for p in pts if p["day"] != dd], gain) for dd in days}
+
+def report(sub, gain, qd, prm=(1.0, 0.0)):
     out = {}
     for h in HS:
         err = [p["act"][h] - fc(p, gain, prm)[h] for p in sub]
-        ins = [q[h][0] <= e <= q[h][1] for e in err]
+        lo = [qd[p["day"]][h][0] for p in sub]; hi = [qd[p["day"]][h][1] for p in sub]
         out[h] = dict(n=len(err), mae=st.mean(abs(e) for e in err), bias=st.mean(err), med=st.median(err),
-                      ins=100 * st.mean(ins), above=100 * st.mean(e > q[h][1] for e in err),
-                      below=100 * st.mean(e < q[h][0] for e in err),
+                      ins=100 * st.mean(l <= e <= u for e, l, u in zip(err, lo, hi)),
+                      above=100 * st.mean(e > u for e, u in zip(err, hi)),
+                      below=100 * st.mean(e < l for e, l in zip(err, lo)),
                       nc=st.mean(abs(p["act"][h] - p["g"]) for p in sub))
     return out
 
@@ -133,8 +138,8 @@ def delivered(sub, gain, h=30):
     return st.median((p["act"][h] - p["g"]) / (line(p["g"], p["tr"], gain)[h] - p["g"]) for p in sub)
 
 for gain in GAINS:
-    q = quantiles(pts, gain)
-    print(f"\n== Gain {gain}: as ships (band = 10th-90th pct of all errors: "
+    q = quantiles(pts, gain); qd = day_quantiles(gain)
+    print(f"\n== Gain {gain}: as ships (band = 10th-90th pct of the other days' errors; all days: "
           + ", ".join(f"{h}m {q[h][0]:+.0f}/{q[h][1]:+.0f}" for h in HS) + ") ==")
     for name, f in (("dawn rise", lambda p: p["grp"] == "dawn" and not p["mealafter"]),
                     ("day rise", lambda p: p["grp"] == "day" and not p["mealafter"]),
@@ -142,7 +147,7 @@ for gain in GAINS:
                     ("everything", lambda p: True)):
         sub = [p for p in pts if f(p)]
         if not sub: continue
-        r = report(sub, gain, q)
+        r = report(sub, gain, qd)
         print(f"  {name:28s} n={len(sub):4d} days={len({p['day'] for p in sub})} trend {st.mean(p['tr'] for p in sub):.2f}"
               f" start {st.mean(p['g'] for p in sub):.0f}"
               + (f"  reading delivered {delivered(sub, gain):.2f} of the drawn 30m rise (median)" if "rise" in name else ""))
@@ -155,7 +160,7 @@ for gain in GAINS:
         for dd in dawn_days:
             sub = [p for p in pts if p["day"] == dd and p["grp"] == "dawn" and not p["mealafter"]]
             if sub:
-                r = report(sub, gain, q)
+                r = report(sub, gain, qd)
                 print(f"    {dd} Nov n={len(sub):3d}  {r[15]['bias']:+6.1f} {r[30]['bias']:+6.1f} {r[60]['bias']:+6.1f}  "
                       f"{r[30]['ins']:3.0f}% {r[60]['ins']:3.0f}%  start {st.mean(p['g'] for p in sub):.0f} "
                       f"trend {st.mean(p['tr'] for p in sub):.2f}")
@@ -176,10 +181,12 @@ def highs(sub, gain, prm, level=250):
 for name in SCOPE:
     scope = SCOPE[name]
     for gain in GAINS:
+        scored = [p for p in pts if not (p["grp"] in ("dawn", "day") and p["mealafter"])]
         print(f"\n== Gain {gain}: trend scale k / carry-on b on {name}, leave one Perth morning out ==")
         wins = {30: 0, 60: 0}; dwins = {30: 0, 60: 0}; picks = []
         for dd in dawn_days:
-            train = [p for p in pts if p["day"] != dd]; test = [p for p in pts if p["day"] == dd]
+            train = [p for p in scored if p["day"] != dd]
+            test = [p for p in scored if p["day"] == dd]
             best = min(GRID, key=lambda prm: sum(mae(train, gain, prm).values())); picks.append(best)
             b0, b1 = mae(test, gain, (1.0, 0.0)), mae(test, gain, best)
             dt_ = [p for p in test if p["grp"] == "dawn"]
@@ -191,31 +198,32 @@ for name in SCOPE:
         print(f"  better held out (all points): 30m {wins[30]}/{len(dawn_days)}, 60m {wins[60]}/{len(dawn_days)}; "
               f"dawn rises: 30m {dwins[30]}/{len(dawn_days)}, 60m {dwins[60]}/{len(dawn_days)}")
         prm = max(set(picks), key=picks.count)
-        q = quantiles(pts, gain)
+        qd = day_quantiles(gain)
         for gname in ("dawn", "day"):
             sub = [p for p in pts if p["grp"] == gname and not p["mealafter"]]
-            r0, r1 = report(sub, gain, q), report(sub, gain, q, prm)
+            r0, r1 = report(sub, gain, qd), report(sub, gain, qd, prm)
             print(f"  {gname} rises with k={prm[0]} b={prm[1]}: " + "  ".join(
                 f"{h}m bias {r0[h]['bias']:+.1f}→{r1[h]['bias']:+.1f} inside {r0[h]['ins']:.0f}→{r1[h]['ins']:.0f}%" for h in HS))
-        w0, w1 = highs(pts, gain, (1.0, 0.0)), highs(pts, gain, prm)
-        print(f"  predicted highs (30m line crosses 250 from below): as ships {w0[0]} ({w0[1]} reached 250 in 45 min), "
+        w0, w1 = highs(scored, gain, (1.0, 0.0)), highs(scored, gain, prm)
+        print(f"  predicted-high crossings (30m line crosses 250 from below): as ships {w0[0]} ({w0[1]} reached 250 in 45 min), "
               f"tweak {w1[0]} ({w1[1]}); {w0[2]} forecasts were under 250 and reached it within 45 min")
 
 scope = SCOPE["dawn"]
 print("\n== Gain 0.45, dawn only: each fixed k scored per morning (no fitting) ==")
 for k in (0.0, 0.25, 0.4, 0.55, 0.7, 0.85, 1.0):
     w = {30: 0, 60: 0}
+    scored = [p for p in pts if not (p["grp"] in ("dawn", "day") and p["mealafter"])]
     for dd in dawn_days:
-        test = [p for p in pts if p["day"] == dd]
+        test = [p for p in scored if p["day"] == dd]
         a, b = mae(test, 0.45, (1.0, 0.0)), mae(test, 0.45, (k, 0.0))
         for h in (30, 60): w[h] += b[h] < a[h] - 1e-9
-    allm = mae(pts, 0.45, (k, 0.0)); hi = highs(pts, 0.45, (k, 0.0))
+    allm = mae(scored, 0.45, (k, 0.0)); hi = highs(scored, 0.45, (k, 0.0))
     print(f"  k={k:4.2f}: better on 30m {w[30]}/{len(dawn_days)}, 60m {w[60]}/{len(dawn_days)} mornings; all-point MAE "
-          f"30m {allm[30]:.2f} 60m {allm[60]:.2f}; predicted highs {hi[0]} ({hi[1]} reached 250)")
-dawn = [p for p in pts if p["grp"] == "dawn"]
+          f"30m {allm[30]:.2f} 60m {allm[60]:.2f}; predicted-high crossings {hi[0]} ({hi[1]} reached 250)")
+dawn = [p for p in scored if p["grp"] == "dawn"]
 print(f"  dawn rises: {len(dawn)}, by hour " + ", ".join(f"{h:02d}h {sum(p['hr'] == h for p in dawn)}" for h in range(3, 8))
       + f"; reading lower 30 min later on {sum(p['act'][30] < p['g'] for p in dawn)}, 60 min later on {sum(p['act'][60] < p['g'] for p in dawn)}")
-print("  true predicted highs at dawn that k = 0 removes:")
+print("  correct predicted-high crossings at dawn that k = 0 removes:")
 for p in dawn:
     if p["g"] < 250 <= line(p["g"], p["tr"], 0.45)[30] and p["peak45"] >= 250:
         print(f"    {perth(p['t']).strftime('%d Nov %H:%M')} reading {p['g']} trend {p['tr']:+.2f} peak in 45 min {p['peak45']}")
