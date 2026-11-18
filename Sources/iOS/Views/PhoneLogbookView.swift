@@ -103,6 +103,8 @@ struct PhoneLogbookView: View {
     @State private var dayRanges = DayInRangeCache()
     /// Day bars that have drawn in, so each plays once.
     @State private var drawnBars = DrawnOnce()
+    /// What each day header's totals last showed, so they roll from there (`DayTotalsLabel`).
+    @State private var dayTotalsShown = DayTotalsMemory()
     /// The day opened into its chart from its bar (`DayMiniChart`), one at a time.
     @State private var openDay: String?
     /// The open day's trace, worked out once per day or readings change.
@@ -284,9 +286,10 @@ struct PhoneLogbookView: View {
     @ViewBuilder
     private func daySections(all: [LogEntry], shown: [PhoneLogbookItem], now: Date, terms: [String]) -> some View {
         // Headers total the whole day, not just what the filter or search left showing.
-        let totals: [String: String] = Dictionary(PhoneLogbookDay.group(all.map(PhoneLogbookItem.entry), now: now)
-                                                    .map { ($0.id, $0.totals) },
-                                                  uniquingKeysWith: { a, _ in a })
+        let wholeDays = PhoneLogbookDay.group(all.map(PhoneLogbookItem.entry), now: now)
+        let totals: [String: String] = Dictionary(wholeDays.map { ($0.id, $0.totals) }, uniquingKeysWith: { a, _ in a })
+        let sums: [String: LogbookDayTotals] = Dictionary(wholeDays.map { ($0.id, LogbookDayTotals($0.entries)) },
+                                                          uniquingKeysWith: { a, _ in a })
         let days = PhoneLogbookDay.group(shown, now: now)
         let starts = PhoneLogbookDay.rowStarts(days)
         let snapshot = store.snapshot
@@ -310,7 +313,8 @@ struct PhoneLogbookView: View {
                 }
             } header: {
                 // Day headers stay pinned, on a blur, while their day scrolls under them.
-                dayHeader(day, totals: totals[day.id] ?? day.totals, range: ranges[day.start], all: all, now: now,
+                dayHeader(day, totals: totals[day.id] ?? day.totals, sums: sums[day.id] ?? LogbookDayTotals(day.entries),
+                          range: ranges[day.start], all: all, now: now,
                           shownDays: shownDays, folded: folded)
                     .opacity(rowsFade)
                     .padding(.horizontal, DS.Space.lg)
@@ -585,7 +589,10 @@ struct PhoneLogbookView: View {
 
     /// The day's name and totals, with its time in range under them as a thin bar and a figure
     /// (`DayRangeBar`). Days without enough readings have no bar. VoiceOver reads one header:
-    /// "Tuesday 12 November, 78% in range, 4% below", then the totals.
+    /// "Tuesday 12 November, 78% in range, 4% below", then the totals. When an entry is added,
+    /// edited, deleted or undone the totals roll to their new values (`DayTotalsLabel`) and the bar
+    /// glides to its new split; both change at once under Reduce Motion, and VoiceOver hears the
+    /// new totals once.
     ///
     /// Tapping a day with a bar opens it in place into that day's chart (`DayMiniChart`): the bar
     /// grows into the chart and the chart shrinks back into the bar on a second tap. Opening
@@ -597,7 +604,7 @@ struct PhoneLogbookView: View {
     ///
     /// The chevron before the name folds the day down to its header, or opens it again
     /// (`toggleFold`). A folded header keeps its bar and says how many rows it holds.
-    private func dayHeader(_ day: PhoneLogbookDay, totals: String, range: DayInRange?, all: [LogEntry],
+    private func dayHeader(_ day: PhoneLogbookDay, totals: String, sums: LogbookDayTotals, range: DayInRange?, all: [LogEntry],
                            now: Date, shownDays: Set<Date>, folded: Bool) -> some View {
         let open = range != nil && openDay == day.id
         let snapshot = store.snapshot
@@ -635,11 +642,12 @@ struct PhoneLogbookView: View {
                     .imageScale(.small)
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: DS.Space.sm)
-                Text(shownTotals)
+                // Rolls to the new totals when an entry is added, edited, deleted or undone.
+                DayTotalsLabel(id: day.id, text: shownTotals, totals: sums,
+                               spokenDay: DayInRangeText.spokenDay(spokenDay), memory: dayTotalsShown)
                     .dsFont(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                    .contentTransition(.opacity)
             }
             .contentShape(Rectangle())
             .onTapGesture { openCalendar(day.id) }
