@@ -6109,7 +6109,7 @@ minutes since the meal:
 
 Three things already keep small meals from pushing the line up. Once fewer than 5 g are left to
 absorb (`CarbActivity.tailGrams`) the carbs aren't counted at all, so a 10 g meal stops counting
-about 80 minutes in. In the first hour after a log the line is trend only (`freshLog`) unless this
+about 85 minutes in. In the first hour after a log the line is trend only (`freshLog`) unless this
 device's fresh-model checks allow it, so the 0 and 30 minute columns mostly never draw. And food
 logged with 0 g forces the line to trend only for 3 h 10 min (`uncountedFood`), so it can't
 draw a carb rise at all. Even a "skip under 10 g" rule could change a 30-minute line by at most
