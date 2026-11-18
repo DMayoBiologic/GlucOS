@@ -194,6 +194,7 @@ targets:
       - path: Sources/App/Views/AlertSnoozeChipView.swift
       - path: Sources/App/Views/AlertBannerView.swift
       - path: Sources/App/Views/TestAlertButton.swift
+      - path: Sources/App/Views/AlertHistoryViews.swift
       - path: Sources/App/Views/AlertSoundViews.swift
       - path: Sources/App/Views/LowTreatButtonView.swift
       - path: Sources/App/Views/LastLoggedLineView.swift

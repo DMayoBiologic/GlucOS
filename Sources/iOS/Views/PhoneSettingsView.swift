@@ -25,6 +25,28 @@ private struct PhoneBolusSettingsScreen: View {
     }
 }
 
+// MARK: - Alert history
+
+/// Settings › Alerts › History: the last 7 days of low and high alerts by day. A row closes
+/// Settings and opens the Logbook around it (`AlertHistoryRoute`).
+private struct PhoneAlertHistoryScreen: View {
+    @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var logbook: LogbookStore
+
+    var body: some View {
+        List {
+            AlertHistoryContent(records: logbook.alerts, readings: store.archive, unit: settings.unit,
+                                alertsOn: settings.alertsEnabled) { link in
+                AlertHistoryRoute.shared.open(link)
+            }
+            Section {} footer: { Text(AlertHistoryText.footer) }
+        }
+        .navigationTitle(AlertHistoryText.rowTitle)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 // MARK: - Sign in
 
 struct PhoneSignInView: View {
@@ -449,6 +471,13 @@ struct PhoneSettingsView: View {
                 }
                 .dependentRow()
             }
+            // Shown with alerts off too: what went off before still matters (docs/AlertHistory.md).
+            NavigationLink {
+                PhoneAlertHistoryScreen()
+            } label: {
+                Label(AlertHistoryText.rowTitle, systemImage: "clock.arrow.circlepath")
+            }
+            .settingsAnchor(.alertHistory)
         } header: {
             Text("Alerts")
         } footer: {

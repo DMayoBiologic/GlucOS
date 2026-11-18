@@ -343,6 +343,16 @@ struct PhoneHomeView: View {
             stack.append(PhoneRoute.insightsToday(firedAt))
             path = stack
         }
+        // A row of Settings › Alerts › History: Settings closes and the Logbook opens around that
+        // alert, from the top of the stack (docs/AlertHistory.md).
+        .onReceive(AlertHistoryRoute.shared.$request) { request in
+            guard request != nil, let link = AlertHistoryRoute.shared.take() else { return }
+            showsSettings = false
+            showsSharing = false
+            var stack = NavigationPath()
+            stack.append(PhoneRoute.logbookLink(link))
+            path = stack
+        }
         .onChange(of: router.request?.id) { _, id in
             // A log link arriving while Settings or Sharing is open: show the log sheet instead.
             if id != nil { showsSettings = false; showsSharing = false }

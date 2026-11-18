@@ -18,6 +18,9 @@ struct AlertRecord: Codable, Identifiable, Hashable {
         case snoozed
         /// "Log treatment". Opens the log sheet; only what the user then logs is a treatment.
         case treating
+        /// Swiped away or closed without a button: the notification, or the in-app banner. Never
+        /// replaces a button tapped on the same alert (`AlertLog.dismissed`).
+        case dismissed
         /// Written by a newer version in a way this one doesn't know: shown as no response.
         case other
 
@@ -86,9 +89,51 @@ enum AlertLog {
         return r
     }
 
+    /// The record a dismissal of the alert that went off at `time` answers: swiped away in
+    /// Notification Center or on the lock screen, or the in-app banner closed. Only an alert nothing
+    /// was tapped on yet takes it, so a snooze or "Log treatment" is never overwritten (the banner
+    /// goes away after its button too). A new record when this device hadn't seen the alert yet.
+    static func dismissed(_ kind: AlertNotice.Kind, firedAt time: Date, at now: Date,
+                          in records: [AlertRecord]) -> AlertRecord? {
+        guard isLogged(kind) else { return nil }
+        var r = match(kind, at: time, in: records).map { records[$0] }
+            ?? AlertRecord(kind: kind, firedAt: min(time, now))
+        guard r.response == nil || r.response == .other else { return nil }
+        r.response = .dismissed
+        r.respondedAt = now
+        r.snoozeMinutes = nil
+        return r
+    }
+
     /// The records older than `keptFor`.
     static func expired(_ records: [AlertRecord], now: Date) -> [AlertRecord] {
         records.filter { now.timeIntervalSince($0.firedAt) > keptFor }
+    }
+
+    /// "Urgent low alert", "Predicted high alert".
+    static func title(_ kind: AlertNotice.Kind) -> String {
+        switch kind {
+        case .urgentLow: return "Urgent low alert"
+        case .low: return "Low alert"
+        case .predictedUrgentLow: return "Predicted urgent low alert"
+        case .predictedLow: return "Predicted low alert"
+        case .veryHigh: return "Very high alert"
+        case .high: return "High alert"
+        case .predictedVeryHigh: return "Predicted very high alert"
+        case .predictedHigh: return "Predicted high alert"
+        default: return "Alert"
+        }
+    }
+
+    /// "Snoozed 30 min", "Tapped Log treatment", "Dismissed", "No response": the Logbook's rows and
+    /// the alert history say it the same way.
+    static func responseText(_ response: AlertRecord.Response?, snoozeMinutes: Int?) -> String {
+        switch response {
+        case .snoozed: return snoozeMinutes.map { "Snoozed \($0) min" } ?? "Snoozed"
+        case .treating: return "Tapped \(AlertSnoozes.treatTitle)"
+        case .dismissed: return "Dismissed"
+        case .other, nil: return "No response"
+        }
     }
 
     private static func match(_ kind: AlertNotice.Kind, at time: Date, in records: [AlertRecord]) -> Int? {
@@ -126,7 +171,7 @@ struct AlertLogRow: Identifiable, Hashable {
     let last: Date
     /// How many times it went off (across devices, the same alert counts once per device).
     let count: Int
-    /// What was tapped: Log treatment if it ever was, else a snooze, else nothing.
+    /// What was tapped: Log treatment if it ever was, else a snooze, else a dismissal, else nothing.
     let response: AlertRecord.Response?
     let respondedAt: Date?
     let snoozeMinutes: Int?
@@ -148,6 +193,7 @@ struct AlertLogRow: Identifiable, Hashable {
         }
         count = seen.count
         let tapped = records.filter { $0.response == .treating }.last ?? records.filter { $0.response == .snoozed }.last
+            ?? records.filter { $0.response == .dismissed }.last
         response = tapped?.response
         respondedAt = tapped?.respondedAt
         snoozeMinutes = tapped?.snoozeMinutes
@@ -168,27 +214,11 @@ struct AlertLogRow: Identifiable, Hashable {
     var isHigh: Bool { kind.treatment == .high }
 
     /// "Urgent low alert", "Predicted high alert".
-    var title: String {
-        switch kind {
-        case .urgentLow: return "Urgent low alert"
-        case .low: return "Low alert"
-        case .predictedUrgentLow: return "Predicted urgent low alert"
-        case .predictedLow: return "Predicted low alert"
-        case .veryHigh: return "Very high alert"
-        case .high: return "High alert"
-        case .predictedVeryHigh: return "Predicted very high alert"
-        case .predictedHigh: return "Predicted high alert"
-        default: return "Alert"
-        }
-    }
+    var title: String { AlertLog.title(kind) }
 
-    /// "Snoozed 30 min", "Tapped Log treatment", "No response".
+    /// "Snoozed 30 min", "Tapped Log treatment", "Dismissed", "No response".
     var responseText: String {
-        switch response {
-        case .snoozed: return snoozeMinutes.map { "Snoozed \($0) min" } ?? "Snoozed"
-        case .treating: return "Tapped \(AlertSnoozes.treatTitle)"
-        case .other, nil: return "No response"
-        }
+        AlertLog.responseText(response, snoozeMinutes: snoozeMinutes)
     }
 
     /// "Went off 3 times" when it repeated. Nil for one alert.

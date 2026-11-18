@@ -433,6 +433,10 @@ private struct AlertSettingsTab: View {
 
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var logbook: LogbookStore
+    @Environment(\.openWindow) private var openWindow
+    /// Settings › Alerts › History, in a sheet over the tab (docs/AlertHistory.md).
+    @State private var showsHistory = false
 
     @State private var notificationsAllowed: Bool?
     @State private var permissionChecked = false
@@ -588,6 +592,18 @@ private struct AlertSettingsTab: View {
             }
 
             Section {
+                LabeledContent("Last 7 days") {
+                    Button("Alert History…") { showsHistory = true }
+                }
+                .settingsAnchor(.alertHistory)
+            } header: {
+                Text("History")
+            } footer: {
+                Text(AlertHistoryText.macFooter)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Sensor change reminder", isOn: $settings.sensorEndReminderEnabled)
                     .onChange(of: settings.sensorEndReminderEnabled) { _, on in
                         if on { store.alerts.requestAuthorization() }
@@ -602,6 +618,16 @@ private struct AlertSettingsTab: View {
         }
         .formStyle(.grouped)
         .settingsSearchPage(.alerts)
+        .sheet(isPresented: $showsHistory) {
+            MacAlertHistorySheet(records: logbook.alerts, readings: store.archive, unit: settings.unit,
+                                 alertsOn: settings.alertsEnabled) { link in
+                showsHistory = false
+                // The dashboard, on the Logbook around that alert (as the "while you were away" line).
+                DashboardRequest.shared.logbookLink = link
+                openWindow(id: DashboardView.windowID)
+                NSApp.activate()
+            }
+        }
         .task { await refreshNotificationStatus() }
         // Pick up a change made in System Settings when the user comes back.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -616,6 +642,44 @@ private struct AlertSettingsTab: View {
         notificationsAllowed = await AlertManager.notificationsAllowed()
         permissionChecked = true
         await store.checkNotificationPermission()
+    }
+}
+
+/// The Mac's alert history: the last 7 days by day, a click on a row opens the dashboard's
+/// Logbook around it. Esc or Done closes it.
+private struct MacAlertHistorySheet: View {
+    let records: [AlertRecord]
+    let readings: [GlucoseReading]
+    let unit: GlucoseUnit
+    let alertsOn: Bool
+    let open: (LogbookLink) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(AlertHistoryText.rowTitle)
+                    .dsFont(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(DS.Space.md)
+            Divider()
+            List {
+                AlertHistoryContent(records: records, readings: readings, unit: unit, alertsOn: alertsOn, open: open)
+            }
+            .listStyle(.inset)
+            Divider()
+            Text(AlertHistoryText.macFooter)
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(DS.Space.md)
+        }
+        .frame(minWidth: 420, idealWidth: 460, minHeight: 420, idealHeight: 520)
+        .onExitCommand { dismiss() }
     }
 }
 

@@ -214,6 +214,14 @@ final class AlertLogRecorder {
         logbook?.alertAnswered(tap.kind, response, snoozeMinutes: tap.snoozeMinutes, firedAt: firedAt)
     }
 
+    /// One of the user's own alerts that arrived at `firedAt` was swiped away in Notification Center
+    /// (or the lock screen) with no button, or its in-app banner was closed. Never a test alert's or
+    /// a follower's copy. A button already tapped on it stands.
+    func dismissed(userInfo: [AnyHashable: Any], firedAt: Date) {
+        guard let kind = Self.ownKind(userInfo) else { return }
+        logbook?.alertDismissed(kind, firedAt: firedAt)
+    }
+
     /// The user's own alerts still in Notification Center, which arrived as pushes while GlucOS
     /// wasn't running. Already recorded ones are skipped.
     func collectDelivered() async {
@@ -362,11 +370,20 @@ enum AlertNotifications {
                                          options: [.foreground],
                                          icon: UNNotificationActionIcon(systemImageName: "cross.case.fill"))
         return [
+            // `.customDismissAction`: swiping one away reaches the app, so Settings › Alerts › History
+            // can say it was dismissed (docs/AlertHistory.md). It snoozes and logs nothing.
             UNNotificationCategory(identifier: AlertSnoozes.snoozeAndTreatCategory, actions: [treat, snooze],
-                                   intentIdentifiers: []),
+                                   intentIdentifiers: [], options: [.customDismissAction]),
             // Urgent lows are never snoozable.
-            UNNotificationCategory(identifier: AlertSnoozes.treatOnlyCategory, actions: [treat], intentIdentifiers: []),
+            UNNotificationCategory(identifier: AlertSnoozes.treatOnlyCategory, actions: [treat], intentIdentifiers: [],
+                                   options: [.customDismissAction]),
         ]
+    }
+
+    /// Whether a notification response is one of the user's own low or high alerts being swiped away
+    /// (`.customDismissAction`). A test alert's dismissal is nothing.
+    static func isDismissal(action: String, userInfo: [AnyHashable: Any]) -> Bool {
+        action == UNNotificationDismissActionIdentifier && TestAlert.ownKind(userInfo) != nil
     }
 
     /// The alert button behind a notification response, if it was one.

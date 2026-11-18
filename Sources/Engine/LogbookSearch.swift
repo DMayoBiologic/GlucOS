@@ -6,7 +6,7 @@ import Foundation
 
 /// The Logbook's quick filter chips. One at a time, on top of whatever the search says.
 enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
-    case meals, insulin, lows, highs, overnight, weekdays, weekends, thisWeek, lastWeek, bestStreak, bestDay, toughestDay, tagged, hourOfDay, whileAway, notes, sites, moments, alerts
+    case meals, insulin, lows, highs, overnight, weekdays, weekends, thisWeek, lastWeek, bestStreak, bestDay, toughestDay, tagged, hourOfDay, whileAway, aroundAlert, notes, sites, moments, alerts
 
     var id: String { rawValue }
 
@@ -27,6 +27,7 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .tagged: return "Tagged"
         case .hourOfDay: return "Hour of day"
         case .whileAway: return "While away"
+        case .aroundAlert: return "Around an alert"
         case .notes: return "Notes"
         case .sites: return "Sites"
         case .moments: return "Moments"
@@ -59,6 +60,8 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .hourOfDay: return true
         // The "while you were away" line under the reading: everything, over the span it covers.
         case .whileAway: return true
+        // A row of Settings › Alerts › History: everything, over the time around that alert.
+        case .aroundAlert: return true
         case .notes: return !entry.searchNote.isEmpty
         case .sites: if case .siteChange = entry { return true } else { return false }
         case .moments: if case .context = entry { return true } else { return false }
@@ -77,7 +80,7 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .highs: return alert.isHigh
         case .overnight: return OvernightSummary.isOvernight(alert.timestamp)
         case .weekdays, .weekends: return matchesWeekPart(alert.timestamp)
-        case .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .hourOfDay, .whileAway: return true
+        case .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .hourOfDay, .whileAway, .aroundAlert: return true
         default: return false
         }
     }
@@ -87,10 +90,10 @@ enum LogbookFilter: String, CaseIterable, Hashable, Identifiable, Sendable {
     }
 
     /// Whether the chip bar lists this chip by itself. Overnight, Weekdays, Weekends, This week,
-    /// Last week, Longest streak, Best day, Toughest day, Tagged, Hour of day and While away show only when a card or line
+    /// Last week, Longest streak, Best day, Toughest day, Tagged, Hour of day, While away and Around an alert show only when a card or line
     /// opens the Logbook on them: they're times, not kinds of entry.
     var isListed: Bool {
-        ![.overnight, .weekdays, .weekends, .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .tagged, .hourOfDay, .whileAway].contains(self)
+        ![.overnight, .weekdays, .weekends, .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .tagged, .hourOfDay, .whileAway, .aroundAlert].contains(self)
     }
 
     /// The Insights card that opens the Logbook on this chip, where Back on the Mac scrolls to:

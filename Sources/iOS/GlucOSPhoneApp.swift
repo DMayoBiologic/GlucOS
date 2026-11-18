@@ -151,6 +151,10 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
                 if action == UNNotificationDefaultActionIdentifier { EveningRecapRoute.shared.open(firedAt: date) }
             } else if TestAlert.isTest(userInfo) {
                 // A test alert's buttons do nothing: no snooze, no log sheet (docs/TestAlert.md).
+            } else if AlertNotifications.isDismissal(action: action, userInfo: userInfo) {
+                // Swiped away: noted for Settings › Alerts › History, nothing else (docs/AlertHistory.md).
+                AlertLogRecorder.shared.dismissed(userInfo: userInfo, firedAt: date)
+                await PhoneServices.shared?.logbookSync?.sync()
             } else if let tap = AlertNotifications.button(action: action, userInfo: userInfo) {
                 AlertLogRecorder.shared.tapped(tap, userInfo: userInfo, firedAt: date)
                 await PhoneAlertActions.handle(tap)
