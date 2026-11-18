@@ -60,20 +60,32 @@ in `Sources/iOSWidget/GlucoseControls.swift`, with their taps in `Sources/iOSInt
 
 ### Home Screen quick actions
 
-Long-press the GlucOS icon for three quick actions (`HomeQuickAction` in
+Long-press the GlucOS icon for four quick actions (`HomeQuickAction` and `HomeQuickItem` in
 `Sources/App/HomeQuickActions.swift`, tests `HomeQuickActionTests`; the app side is
 `PhoneQuickActions` and `PhoneSceneDelegate` in `Sources/iOS/GlucOSPhoneApp.swift`):
 
 - **Log treatment** opens the same low treatment sheet as Siri, the control and the alert's button
-  (`.treating(.low)`). **It never logs anything by itself.**
-- **Log meal** opens the log sheet on food.
-- **Latest reading** opens Today (out of Settings, Sharing or a pushed screen; an open log sheet
+  (`.treating(.low)`), filled in from the "Treat a low" usual when there is one. **It never logs
+  anything by itself.**
+- **Log meal** opens the log sheet on food. When there's a usual meal for this part of the day
+  ("Usual breakfast", docs/UsualEntries.md), it takes this place instead and opens the sheet filled
+  in from it, the same as the Your Usual widget's button. iOS shows four items at most, which is why
+  it replaces Log meal rather than joining it. The usual correction and Treat a low are never offered
+  here: a correction is a dose amount that only applies while a fresh high lasts, and Log treatment
+  already covers the low.
+- **Log insulin** opens the log sheet on the dose step, empty. **No units are ever filled in.**
+- **What's my glucose** opens Today (out of Settings, Sharing or a pushed screen; an open log sheet
   stays) and fetches a new reading straight away.
 
+The list is set from code at launch, on each return to the app and whenever the Your usual entries
+or the phone's mode change, so it appears after the first launch. iOS keeps the last list while the
+app isn't running, so a usual meal can outlast its part of the day; a tap then opens the sheet, which
+works the entry out again and starts on food with nothing filled in if it's no longer offered.
 Entries saved from a quick action's sheet get the one-time "Logged from the Home Screen" highlight
-(docs/LoggedElsewhere.md). The items are set from code at launch and on each return to the app, so
-they appear after the first launch, and only on a phone that wears a sensor: a follower-only phone
-gets none, and a leftover item does nothing there.
+(docs/LoggedElsewhere.md). A follower-only phone gets only **Latest readings**, which opens the
+people it follows; leftover logging items do nothing there. A phone that hasn't picked a mode gets
+none. The titles are read by VoiceOver as shown, and every sheet opens the way it does from inside
+the app, Reduce Motion included.
 
 The **Your Usual** Home Screen widget (medium) shows the same "Your usual" entries as the log sheet,
 up to three. A tap opens the log sheet filled in from that entry, the same as tapping its tile there;
