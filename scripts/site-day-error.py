@@ -150,8 +150,8 @@ def held_out(ps, g):
                         and not scaled(p, c)[0] <= p['act'] <= scaled(p, c)[1] for p in test)
         for p in test:
             k = p['dose']
-            a, b = per_dose.get(k, (0.0, 0.0))
-            per_dose[k] = (a + score(p['lo'], p['up'], p['act']), b + score(*scaled(p, c), p['act']))
+            a, b, n = per_dose.get(k, (0.0, 0.0, 0))
+            per_dose[k] = (a + score(p['lo'], p['up'], p['act']), b + score(*scaled(p, c), p['act']), n + 1)
         tried += 1
         won += s1 < s0
         rows.append((d, len(test), c, s0 / len(test), s1 / len(test), in1, lows_lost))
@@ -195,11 +195,10 @@ def main():
         for g in ('day1', 'later'):
             rows, won, tried, per_dose = held_out(hp, g)
             print(f'  {h} min {g}: days won {won} of {tried}, '
-                  f'doses won {sum(b < a for a, b in per_dose.values())} of {len(per_dose)}')
+                  f'doses won {sum(b < a for a, b, _ in per_dose.values())} of {len(per_dose)}')
             for d, n, c, s0, s1, in1, lost in rows:
                 print(f'    {d} n={n:2d} c={c:.2f} score {s0:6.1f} -> {s1:6.1f} inside {in1}/{n} lows lost {lost}')
-            for k, (a, b) in sorted(per_dose.items()):
-                n = sum(1 for p in hp if p['dose'] == k)
+            for k, (a, b, n) in sorted(per_dose.items()):  # n = held-out points scored
                 print(f'    dose {dt.datetime.fromtimestamp(k + 8 * 3600, dt.timezone.utc):%d %b %H:%M} '
                       f'n={n:2d} score {a / n:6.1f} -> {b / n:6.1f}')
 
