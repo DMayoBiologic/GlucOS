@@ -5085,3 +5085,79 @@ logs.json (`[[unix, "meal" | "dose"], ...]`, meals and rapid doses from `glucos.
 
 **Dosing.** Not touched: the trend feeds only the drawn forecast and predicted alerts, never insulin
 on board, the effect learner or the bolus figure.
+
+## 72. Are forecasts better or worse depending on where the readings came from? (18 Nov 2026)
+
+The question: GlucOS can in principle read three ways, LibreLinkUp's live reading (one a minute),
+LinkUp's 15-minute history (`graphData`, which the relay merges in), and the sensor directly (NFC
+Read sensor, Bluetooth "Live from sensor"). Is the forecast worse on one of them, and would treating
+that source differently help? The bar: better on held-out days at both 30 and 60 minutes, and no
+lifting of lows. **There are no direct readings to compare, LinkUp's history and live readings give
+the same forecast error, and neither candidate passes. Nothing ships; no app or relay code
+changed.**
+
+Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
+
+**No direct readings exist.** Declan's sensor is a Gen2 Libre 2 Plus, which refuses plain NFC reads
+(ISO 15693 error 0x01, PR #42, #44), so the Bluetooth takeover (#40) was never merged. The Read
+sensor screen only shows what it reads and never stores it, and the only `sensor.nfc` diagnostics
+are six failed memory reads on 12 Nov. Every row of `glucos.readings` (9,795, 10–18 Nov) is from
+LinkUp: 9,089 live (`trend > 0`) and 706 history points (`trend = 0`, every 15 minutes). A direct
+against LinkUp comparison has to wait until a direct source exists (the Juggluco → Nightscout
+bridge, or a Gen1 sensor).
+
+**The two LinkUp sources side by side.** 648 of the 706 history points have a live reading within
+90 s (median 2 s apart). They differ by 5.8 mg/dL on average but with no lean (history − live
+−0.1), and 259 differ by more than 5. A history point sits closer to the mean of the live readings
+over the surrounding 15 minutes (4.1 mg/dL) than to the live reading at its own time, so LinkUp's
+history looks smoothed. The relay keeps both in its `Series`, so its 20-minute trend fit always
+includes one or two history points next to their live twins. The apps' archive keeps one reading
+per 5-minute slot.
+
+**Error by source.** `scripts/reading-source.py` replays the engine's trend forecast (20-minute
+slope clamped at ±4, 30-minute fade, output held to the 40–400 sensor range ± 1) every 5 minutes on all stored readings, 11–18 Nov, 1,855
+points over 8 Perth days, scored at 15, 30 and 60 minutes against the nearest live reading. A point
+is *live* when no live minute is missing from its 20-minute window, *filled* when at least one
+live gap over 90 s is bridged by a history point or by nothing. Gain 0.6, mean miss in mg/dL, no
+change / as shipped, bias (actual − forecast) in brackets:
+
+| Window | n | 15 min | 30 min | 60 min |
+|---|---|---|---|---|
+| Live | 758 | 16.9 / 16.9 (+0.7) | 26.1 / 26.4 (+0.5) | 40.9 / 41.5 (+0.4) |
+| Filled | 1,097 | 17.1 / 16.0 (−0.4) | 26.8 / 25.2 (−0.4) | 41.3 / 41.1 (−1.0) |
+| Starts on a history point | 7 | 14.6 / 15.6 | 29.1 / 30.7 | 66.1 / 67.2 |
+
+Filled windows are no worse; if anything the line does a little better there against no change.
+Only 7 forecasts start on a history point (too few to read). Scoring the same forecasts against
+the history point instead of the live reading at that moment moves the miss by under 1.3 mg/dL
+(gain 0.6: 15.4 vs 15.5 at 15, 24.5 vs 25.4 at 30, 39.3 vs 40.5 at 60), slightly kinder because the
+history is smoother. So the scorecard isn't distorted by which source supplied the "actual".
+
+**Held out.** Two candidates, each picked on seven Perth days by miss at 30 + 60 minutes and scored
+on the eighth (training leaves out points whose 60-minute target lands on that day):
+
+- *Prefer live*: fit the trend without history points that have a live twin within 90 s, and start
+  from the live twin when the latest reading is a history point (a twin counts only if it had
+  arrived by the forecast's start). It changes the trend on almost
+  every point, but only by 0.03 mg/dL/min on average, and it is a little worse on all days (gain
+  0.6: 16.47 / 25.77 / 41.34 against 16.37 / 25.69 / 41.28). No fold picked it at any gain.
+- *Scale filled*: scale the trend by w in filled windows. Gain 0.45 always keeps w = 1. Gain 0.6
+  picks w = 0.75 in 7 folds and is worse at 30 (+0.3%), level at 60. Gain 0.7 picks 0.75 and wins at
+  both, but barely (−0.1% at 30, −0.5% at 60, 5 of 8 days), and lifts lows: at the picked
+  w = 0.75, 5 of the 10 lows warn later and forecasts where glucose ends under 80 move from −14.8
+  to −17.0; at w = 0.5, 6 warn later (15 Nov 17:16 loses 6 minutes) and the bias goes to −19.3.
+
+Neither passes: *prefer live* never wins, and *scale filled* wins only at the iPhone's highest gain,
+by under 1%, and makes low warnings later.
+
+**Decision.** Keep the trend and the relay's readings as they are. Retest on **8 Dec 2026** (three
+weeks of data), and run the direct against LinkUp comparison as soon as a direct source stores
+readings. To rerun:
+
+    python3 scripts/reading-source.py DIR
+
+`DIR` holds readings.json (`[[unix, mgdl, live], ...]` for every row of `glucos.readings`,
+live = 1 when `trend > 0`).
+
+**Dosing.** Not touched: the trend feeds only the drawn forecast and predicted alerts, never insulin
+on board, the effect learner or the bolus figure.
