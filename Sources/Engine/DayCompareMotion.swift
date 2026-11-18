@@ -52,6 +52,13 @@ enum DayCompareMotion: Equatable, Sendable {
                           outgoingOffset: -d * p * slideMinutes, outgoingOpacity: 1 - p)
     }
 
+    /// How far the scale has glided at slide `progress`: eased in, so it holds close to the old
+    /// scale while the leaving lines are still clearly visible and settles as they fade out.
+    static func scaleProgress(_ progress: Double) -> Double {
+        let p = min(max(progress, 0), 1)
+        return p * p
+    }
+
     /// A chart scale part way from `old` to `new`, so the axis glides with a slide.
     static func blend(_ old: ClosedRange<Double>, _ new: ClosedRange<Double>, progress: Double) -> ClosedRange<Double> {
         let p = min(max(progress, 0), 1)

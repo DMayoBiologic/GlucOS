@@ -109,4 +109,14 @@ final class DayCompareMotionTests: XCTestCase {
         XCTAssertEqual(DayCompareMotion.blend(40...360, 40...210, progress: 0), 40...360)
         XCTAssertEqual(DayCompareMotion.blend(40...360, 40...210, progress: 5), 40...210)
     }
+
+    func testScaleHoldsNearTheOldOneWhileTheLeavingPeakIsVisible() {
+        // A leaving 350 mg/dL peak on a 40...360 scale, new days fit 40...210.
+        XCTAssertEqual(DayCompareMotion.scaleProgress(0), 0)
+        XCTAssertEqual(DayCompareMotion.scaleProgress(1), 1)
+        let early = DayCompareMotion.blend(40...360, 40...210, progress: DayCompareMotion.scaleProgress(0.25))
+        XCTAssertGreaterThan(early.upperBound, 350) // still in view while it's 75% opaque
+        let half = DayCompareMotion.blend(40...360, 40...210, progress: DayCompareMotion.scaleProgress(0.5))
+        XCTAssertEqual(half.upperBound, 322.5, accuracy: 0.001)
+    }
 }

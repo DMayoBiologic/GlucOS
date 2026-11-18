@@ -313,13 +313,14 @@ private struct DayCompareChart: View, Animatable {
         let secondIn = outgoingSecond == nil ? shownSecond : DayCompareMotion.slid(shownSecond, by: fb.incomingOffset)
         let firstOut = outgoingFirst.map { DayCompareMotion.slid($0, by: fa.outgoingOffset) } ?? []
         let secondOut = outgoingSecond.map { DayCompareMotion.slid($0, by: fb.outgoingOffset) } ?? []
-        // The scale glides from one that fits what was on screen (the leaving lines included) to
-        // one that fits the new days, so nothing leaves the plot or jumps when a slide starts.
+        // The scale starts as the one that was on screen (the leaving lines and the line that
+        // stays) and glides to the new days' scale as the leaving lines fade, so nothing jumps
+        // when a slide starts. The plot is clipped, so a fading peak that's left the scale while
+        // it glides is cut at the plot's edge rather than drawn over the axis.
         let newDomain = yDomain((first + second).joined().map(\.mgdl))
-        let oldRuns = (outgoingFirst ?? first) + (outgoingSecond ?? second)
         let oldDomain = outgoingFirst == nil && outgoingSecond == nil ? newDomain
-            : yDomain((oldRuns + first + second).joined().map(\.mgdl))
-        let domain = DayCompareMotion.blend(oldDomain, newDomain, progress: p)
+            : yDomain(((outgoingFirst ?? first) + (outgoingSecond ?? second)).joined().map(\.mgdl))
+        let domain = DayCompareMotion.blend(oldDomain, newDomain, progress: DayCompareMotion.scaleProgress(p))
         return Chart {
             RectangleMark(
                 xStart: .value("Start", 0.0), xEnd: .value("End", DayCompare.minutesPerDay),
@@ -343,6 +344,7 @@ private struct DayCompareChart: View, Animatable {
         }
         .chartXScale(domain: 0...DayCompare.minutesPerDay)
         .chartYScale(domain: domain)
+        .chartPlotStyle { $0.clipped() }
         .chartYAxis {
             AxisMarks(position: .leading, values: [unit.value(fromMgdl: lowMgdl), unit.value(fromMgdl: highMgdl)]) { v in
                 AxisValueLabel {
