@@ -150,4 +150,35 @@ final class DoubleLogTests: XCTestCase {
         XCTAssertTrue(offer.superseded(by: [record(old.id, modified: 1, deleted: true)]))
         XCTAssertFalse(offer.superseded(by: [record(UUID(), modified: 999)]))
     }
+
+    func testUnchangedEarlierTwinEchoKeepsOffer() {
+        let old = dose(4), new = dose(4, at: 60)
+        let offer = LogbookRepeatUndo.offer(saved: [new], in: [old, new], addedAt: [new.id: 100])!
+        guard case .dose(let d) = old else { return XCTFail() }
+        var c = LogbookContents()
+        c.doses = [d]
+        let echo = LogbookRecord(id: old.id, kind: "dose", payload: LogbookMerge.payload(for: old.id, kind: "dose", in: c),
+                                 deleted: false, modified: 50)
+        XCTAssertFalse(offer.superseded(by: [echo]))
+        var edited = d
+        edited.units = 6
+        c.doses = [edited]
+        let edit = LogbookRecord(id: old.id, kind: "dose", payload: LogbookMerge.payload(for: old.id, kind: "dose", in: c),
+                                 deleted: false, modified: 200)
+        XCTAssertTrue(offer.superseded(by: [edit]))
+    }
+
+    func testCopyComesBackWhenTwinWasDeletedElsewhere() {
+        let old = dose(4), new = dose(4, at: 60)
+        let pair = LogbookRepeatUndo.Pair(entry: new, earlier: old)
+        let tombstone = record(old.id, modified: 300, deleted: true)
+        // Both gone after Undo and the twin's delete: the copy comes back.
+        XCTAssertEqual(LogbookRepeatUndo.restorations(undone: [pair], remote: [tombstone], current: { _ in nil }).map(\.id),
+                       [new.id])
+        // The twin still here, or no delete of it in the batch: nothing to do.
+        XCTAssertEqual(LogbookRepeatUndo.restorations(undone: [pair], remote: [tombstone],
+                                                      current: { $0 == old.id ? old : nil }), [])
+        XCTAssertEqual(LogbookRepeatUndo.restorations(undone: [pair], remote: [record(UUID(), modified: 1, deleted: true)],
+                                                      current: { _ in nil }), [])
+    }
 }

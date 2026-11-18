@@ -51,6 +51,9 @@ final class LogbookStore: ObservableObject {
     /// New meals or doses that look logged twice ("Logged twice?", `DoubleLog`), kept so the new
     /// copies can be taken back. Also one Undo at a time.
     @Published private(set) var lastRepeat: LogbookRepeatUndo?
+    /// Copies "Logged twice?" Undo took off in the last hour, in memory, so one can be put back if
+    /// its earlier twin turns out to have been deleted on another device (`LogbookRepeatUndo.restorations`).
+    private var undoneRepeats: [(pair: LogbookRepeatUndo.Pair, at: Date)] = []
 
     /// What the undo toast offers, if anything.
     var undoOffer: LogbookUndoOffer? {
@@ -433,6 +436,9 @@ final class LogbookStore: ObservableObject {
         doses.removeAll { ids.contains($0.id) }
         meals.removeAll { ids.contains($0.id) }
         for e in removed { touch(e.id, kind: e.recordKind, deleted: true) }
+        let now = Date()
+        undoneRepeats.removeAll { now.timeIntervalSince($0.at) > 3600 }
+        undoneRepeats += r.pairs.filter { ids.contains($0.entry.id) }.map { ($0, now) }
         persist()
     }
 
@@ -806,6 +812,19 @@ final class LogbookStore: ObservableObject {
         if let batch = lastBatch { lastBatch = batch.dropping(batch.superseded(by: records)) }
         if let add = lastAdd, add.superseded(by: records) { lastAdd = nil }
         if let r = lastRepeat, r.superseded(by: records) { lastRepeat = nil }
+        // A copy Undo took off whose earlier twin was deleted on another device meanwhile comes
+        // back, with a fresh edit time so every device takes it back too.
+        let back = LogbookRepeatUndo.restorations(undone: undoneRepeats.map(\.pair), remote: records,
+                                                  current: { self.entry(id: $0) })
+        if !back.isEmpty {
+            let ids = Set(back.map(\.id))
+            undoneRepeats.removeAll { ids.contains($0.pair.entry.id) }
+            for e in back {
+                upsert(e)
+                touch(e.id, kind: e.recordKind)
+            }
+            persist()
+        }
         let gone = LogbookUndo.superseded(by: records, deletedAt: deletedAt)
         if !gone.isEmpty {
             lastDeleted.removeAll { gone.contains($0.id) }

@@ -541,7 +541,9 @@ struct LogbookAddUndo: Equatable {
 /// New meals or doses that look like a second copy of ones logged a few minutes before
 /// (`DoubleLog`), offered on the undo toast as "Logged twice? 4 u NovoRapid · Undo". Nothing is
 /// taken off unless the user taps Undo, which deletes only the new entries, on every device, and
-/// only while the earlier twin is still there, so Undo can never leave the user with neither.
+/// only while the earlier twin is still there, so Undo can never leave the user with neither. If
+/// another device deleted the twin before this one heard of it, the copy is put back when that
+/// delete arrives (`restorations`).
 struct LogbookRepeatUndo: Equatable {
     /// Fresh for every offer, so a second one restarts the toast's countdown.
     let token: UUID
@@ -588,14 +590,36 @@ struct LogbookRepeatUndo: Equatable {
         }
     }
 
-    /// True when `remote` holds a later change to a new entry, or any change to an earlier twin
-    /// (an edit or delete on another device). This device's own adds echoing back don't count.
+    /// True when `remote` holds a later change to a new entry, or an edit or delete of an earlier
+    /// twin on another device. This device's own adds echoing back, and an earlier twin coming back
+    /// unchanged, don't count.
     func superseded(by remote: [LogbookRecord]) -> Bool {
         remote.contains { r in
-            if pairs.contains(where: { $0.earlier.id == r.id }) { return true }
+            if let p = pairs.first(where: { $0.earlier.id == r.id }) { return Self.changes(p.earlier, r) }
             guard let t = addedAt[r.id] else { return false }
             return r.modified > t + LogbookUndo.echoTolerance
         }
+    }
+
+    /// Whether `record` deletes `entry` or holds something other than it.
+    static func changes(_ entry: LogEntry, _ record: LogbookRecord) -> Bool {
+        guard !record.deleted, let payload = record.payload else { return true }
+        switch entry {
+        case .dose(let d): return LogbookMerge.decode(InsulinDose.self, from: payload) != d
+        case .meal(let m): return LogbookMerge.decode(MealEntry.self, from: payload) != m
+        case .siteChange(let s): return LogbookMerge.decode(SiteChange.self, from: payload) != s
+        case .context(let c): return LogbookMerge.decode(ContextEvent.self, from: payload) != c
+        }
+    }
+
+    /// After Undo has taken new copies off: the ones to put back because `remote` deletes their
+    /// earlier twin (deleted on another device before this one heard of it), so the user is never
+    /// left with neither. Only copies still gone (`current` nil) whose twin is gone too.
+    static func restorations(undone: [Pair], remote: [LogbookRecord], current: (UUID) -> LogEntry?) -> [LogEntry] {
+        let deleted = Set(remote.filter { $0.deleted || $0.payload == nil }.map(\.id))
+        return undone.filter { p in
+            deleted.contains(p.earlier.id) && current(p.earlier.id) == nil && current(p.entry.id) == nil
+        }.map(\.entry)
     }
 
     var title: String { DoubleLog.title(entries) }

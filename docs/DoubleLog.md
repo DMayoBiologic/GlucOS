@@ -35,9 +35,11 @@ actions and the Mac shortcut all end up, and every Log Again Now. One-tap fills 
   countdown bar, pause on touch or hover, swipe to dismiss, ⌘Z on the Mac and VoiceOver
   announcement. One Undo at a time, as always.
 - Undo deletes only the **new** entries, on every device, and only while the earlier twin is still
-  there, so the user can never be left with neither. It has no Undo of its own.
-- The offer ends when the new entry is edited, or when sync brings a change to either entry from
-  another device.
+  there, so the user can never be left with neither. It has no Undo of its own. If another device
+  deleted the earlier one before this device heard about it, the new copy is put back when that
+  delete syncs in, so one entry always survives (kept in memory for an hour after Undo).
+- The offer ends when the new entry is edited, or when sync brings an edit or delete of either
+  entry from another device. An entry coming back from sync unchanged leaves it alone.
 - iPhone: the toast shows wherever the undo toast already does. Mac: in the Logbook, Settings and
   Alert History as before, and now also over the menu bar popover and the dashboard's other pages,
   showing only "Logged twice?" there.
