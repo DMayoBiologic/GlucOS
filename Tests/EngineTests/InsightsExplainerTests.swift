@@ -125,12 +125,48 @@ final class InsightsExplainerTests: XCTestCase {
 
     // MARK: Entrance
 
-    func testEntranceScalesInAndOnlyFadesUnderReduceMotion() {
-        XCTAssertLessThan(InsightsExplainerEntrance.scale(shown: false, reduceMotion: false), 1)
-        XCTAssertGreaterThan(InsightsExplainerEntrance.startScale, 0.9)
-        XCTAssertEqual(InsightsExplainerEntrance.scale(shown: true, reduceMotion: false), 1)
-        XCTAssertEqual(InsightsExplainerEntrance.scale(shown: false, reduceMotion: true), 1)
-        XCTAssertEqual(InsightsExplainerEntrance.opacity(shown: false), 0)
-        XCTAssertEqual(InsightsExplainerEntrance.opacity(shown: true), 1)
+    func testEntranceStyleFollowsPlatformAndReduceMotion() {
+        typealias E = InsightsExplainerEntrance
+        XCTAssertEqual(E.Style(reduceMotion: false, zooms: true), .zoom)
+        XCTAssertEqual(E.Style(reduceMotion: false, zooms: false), .scale)
+        XCTAssertEqual(E.Style(reduceMotion: true, zooms: true), .crossFade)
+        XCTAssertEqual(E.Style(reduceMotion: true, zooms: false), .crossFade)
+    }
+
+    func testZoomLeavesTheNoteFullSizeAndOpaque() {
+        // The sheet's zoom grows the note out of the figure; the note doesn't scale or fade on top.
+        typealias E = InsightsExplainerEntrance
+        XCTAssertEqual(E.scale(shown: false, style: .zoom), 1)
+        XCTAssertEqual(E.opacity(shown: false, style: .zoom), 1)
+    }
+
+    func testMacScalesFromTheFigureAndReduceMotionOnlyFades() {
+        typealias E = InsightsExplainerEntrance
+        XCTAssertLessThan(E.scale(shown: false, style: .scale), 1)
+        XCTAssertGreaterThanOrEqual(E.startScale, 0.85)
+        XCTAssertEqual(E.scale(shown: true, style: .scale), 1)
+        XCTAssertEqual(E.opacity(shown: false, style: .scale), 0)
+        XCTAssertEqual(E.scale(shown: false, style: .crossFade), 1)
+        XCTAssertEqual(E.opacity(shown: false, style: .crossFade), 0)
+        XCTAssertEqual(E.opacity(shown: true, style: .crossFade), 1)
+    }
+
+    func testEachFigureHasItsOwnZoomSource() {
+        let ids = Set(InsightsFigure.allCases.map(InsightsExplainerEntrance.sourceID))
+        XCTAssertEqual(ids.count, InsightsFigure.allCases.count)
+    }
+
+    func testTitleFocusWaitsForTheNoteToLand() {
+        typealias E = InsightsExplainerEntrance
+        XCTAssertGreaterThan(E.titleFocusDelay(reduceMotion: false), E.titleFocusDelay(reduceMotion: true))
+        XCTAssertGreaterThanOrEqual(E.titleFocusDelay(reduceMotion: true), E.fadeDuration)
+    }
+
+    func testSpokenBodyIsEverythingAfterTheTitle() {
+        for figure in InsightsFigure.allCases {
+            let e = InsightsExplainer.make(figure, context())
+            XCTAssertEqual(e.spoken, e.title + ". " + e.spokenBody)
+            XCTAssertFalse(e.spokenBody.hasPrefix(e.title + "."))
+        }
     }
 }

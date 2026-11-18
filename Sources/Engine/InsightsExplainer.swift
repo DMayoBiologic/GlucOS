@@ -61,9 +61,17 @@ struct InsightsExplainer: Equatable {
 
     /// Everything VoiceOver reads, in the order it's shown.
     var spoken: String {
-        [title + ".", meaning, Self.workedOutHeading + ".", workedOut, note]
-            .compactMap { $0 }
-            .joined(separator: " ")
+        ([title + "."] + spokenBodyParts).joined(separator: " ")
+    }
+
+    /// Everything VoiceOver reads after the title, which is its own heading so focus can land on
+    /// it when the note opens.
+    var spokenBody: String {
+        spokenBodyParts.joined(separator: " ")
+    }
+
+    private var spokenBodyParts: [String] {
+        [meaning, Self.workedOutHeading + ".", workedOut, note].compactMap { $0 }
     }
 
     /// The period's figures the notes quote.
@@ -157,17 +165,47 @@ struct InsightsExplainer: Equatable {
     }
 }
 
-/// How the note arrives: a gentle scale-in with a fade, and only the fade under Reduce Motion.
+/// How the note arrives (docs/InsightsExplainers.md "Motion and accessibility"). Round 71: it
+/// grows out of the figure that was tapped. On the iPhone the sheet zooms out of the figure and
+/// shrinks back into it on dismiss, so the note itself doesn't scale as well. On the Mac the popover
+/// hangs off the whole figure and the note scales up from its top edge, the side that touches the
+/// figure. Under Reduce Motion both only fade. Once per open and close, nothing loops (#94).
 enum InsightsExplainerEntrance {
-    /// The scale the note starts at before it settles to 1.
-    static let startScale: Double = 0.94
+    /// How the note gets from the figure to open.
+    enum Style: Equatable, Sendable {
+        /// iPhone: the sheet zooms out of the figure; the note inside is already full size.
+        case zoom
+        /// Mac: the note scales up from `startScale` with a fade, anchored to the figure's side.
+        case scale
+        /// Reduce Motion: a plain fade where it sits, nothing moves or scales.
+        case crossFade
+
+        init(reduceMotion: Bool, zooms: Bool) {
+            self = reduceMotion ? .crossFade : (zooms ? .zoom : .scale)
+        }
+    }
+
+    /// The scale the Mac note starts at before it settles to 1: small enough to read as growing
+    /// out of the figure, not so small that its text jumps.
+    static let startScale: Double = 0.9
     static let fadeDuration: Double = 0.2
 
-    static func scale(shown: Bool, reduceMotion: Bool) -> Double {
-        shown || reduceMotion ? 1 : startScale
+    static func scale(shown: Bool, style: Style) -> Double {
+        shown || style != .scale ? 1 : startScale
     }
 
-    static func opacity(shown: Bool) -> Double {
-        shown ? 1 : 0
+    /// The zoom brings the note in by itself, so it isn't faded on top of that.
+    static func opacity(shown: Bool, style: Style) -> Double {
+        shown || style == .zoom ? 1 : 0
     }
+
+    /// The zoom source for a figure's note. Each figure keys its own, so the sheet finds its way
+    /// back into the right figure on dismiss.
+    static func sourceID(_ figure: InsightsFigure) -> String {
+        "insights-explainer.\(figure.rawValue)"
+    }
+
+    /// How long after the note opens VoiceOver focus moves to its title: once the zoom, scale or
+    /// fade has landed, so VoiceOver doesn't read a view that's still moving.
+    static func titleFocusDelay(reduceMotion: Bool) -> Double { reduceMotion ? 0.25 : 0.55 }
 }
