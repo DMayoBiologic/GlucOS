@@ -23,7 +23,8 @@ and score (the rise may be a late-logged meal); the tweak itself can't see that 
 Range: the app draws the 10th-90th percentile of its own past errors around the line
 (ForecastCalibration). The replay does the same: the band is the line plus the 10th and 90th
 percentiles of the replayed forecasts' errors at that horizon on the other Perth days (leave one day
-out, so no point helps set its own band). "Inside" should be ~80% if the range is calibrated.
+out, so no point helps set its own band). This is retrospective (the other days include later ones,
+the app uses past errors only). "Inside" should be ~80% if the range is calibrated.
 
 Lag: the median share of the line's drawn 30-minute rise that the reading actually delivered. Over 1
 means the reading rose further than drawn (the line lags the rise); under 1 means it stalled sooner.

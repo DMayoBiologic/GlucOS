@@ -6451,7 +6451,8 @@ of +0.5 mg/dL a minute or more and no meal or rapid dose logged in the 4 hours b
 rise** is the same from 09:00 to 21:59. Points with a meal logged in the next hour are left out of
 both (a late-logged meal). The replay's range is the line plus the 10th–90th percentile of all
 replayed errors at that horizon on the other Perth days (leave one day out, so no point sets its own
-band), which is how the app calibrates its range from past errors. Dawn and day points with a meal
+band). That is retrospective: the other days include later ones, while the app calibrates from past
+errors only, so this checks the band's shape, not the exact range the app drew that morning. Dawn and day points with a meal
 logged in the next hour are left out of the fit and the held-out scores too. Script:
 `scripts/dawn-rises.py`.
 
