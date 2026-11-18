@@ -5477,3 +5477,84 @@ no more false alarms on most held-out days, low and high counted apart. If the r
 
 **Dosing.** Not touched: this only reads the stored forecast line, never insulin on board, the
 effect learner or the bolus figure.
+
+## 77. Are forecasts worse on the first day of an injection site than on later days? (18 Nov 2026)
+
+The question: using the sites saved with each dose (#33, `SiteRotation`), do 30- and 60-minute
+forecasts after a fast-acting dose miss more, or lean one way, when the dose went into a site on
+its first day than when it went into a site that was already in use? Then try one held-out tweak
+that may only change the range width, and ship it only if it wins held out. **It doesn't pass:
+there are only 4 first-day doses with scored points (3 at 60 minutes), the difference between the
+groups is inside the noise of single doses, and a first-day width factor wins at 60 but not at 30.
+Nothing ships; no app or relay code changed.**
+
+Nothing here touches dosing, the insulin or carb effects, the insulin activity curves, the alerts,
+the relay or `web/`.
+
+**Data.** `scripts/site-day-error.py` takes every scored 30- and 60-minute point in
+`glucos.forecast_checks` (512 points, 12–18 Nov Perth) and every non-deleted dose in the Logbook (30,
+7–18 Nov; export SQL for both in the script's docstring). All doses are pen doses: there are no
+`siteChange` records, so a pump site's day 1 can't be tested yet.
+
+**Site day.** `SiteRotation` calls a site "used recently" when any dose (fast or long) went there in
+the last 3 days, so the same cut is used here. A dose that lands on a site with no dose in the 3
+days before is **site day 1**. A dose on a site used within the last 3 days is on a **later day**
+(day N = Perth calendar days since that site's stretch began + 1). A forecast point belongs to the
+latest fast dose with a site in the 4 hours before it was issued; points with none are the
+baseline. Long-acting doses only feed the site history (each is followed by the next day's at
+another site, so a long-acting site has no day 2 to compare).
+
+Of 22 fast doses, 11 had scored points: 4 on site day 1 (12, 14, 14 and 15 Nov) and 7 on later
+days (days 2–6). error = line − actual, so negative means the glucose ran above the line.
+
+| Horizon | Group | Points | Days | MAE | Bias | Inside range |
+|---|---|---|---|---|---|---|
+| 30 min | site day 1 | 49 (41 clean) | 3 | 22.5 | −1.3 | 73% |
+| 30 min | later day | 149 (142 clean) | 5 | 32.0 | −7.4 | 71% |
+| 30 min | no fast dose in 4 h | 124 | 7 | 32.6 | +2.9 | 66% |
+| 60 min | site day 1 | 27 (23 clean) | 3 | 49.0 | −7.1 | 59% |
+| 60 min | later day | 117 (104 clean) | 5 | 56.1 | −13.5 | 71% |
+| 60 min | no fast dose in 4 h | 46 | 5 | 50.1 | −23.6 | 67% |
+
+On the face of it, first-day sites look *better*, not worse: smaller misses and less lean. Doses on
+a later day run a little more above the line, which is the direction slower uptake from a
+well-used site would give. But the points cluster on a handful of doses (the Mac and iPhone often
+score the same moment, so points aren't independent). Taking one mean per dose:
+
+| Horizon | Site day 1 bias (per dose) | Later day bias (per dose) | Later − day 1 |
+|---|---|---|---|
+| 30 min | +1, +4, −7, +8 → +1.6 | +11, +2, −18, −3, −3, −5, −23 → −5.6 | −7.2 ± 5.4 (1 SE) |
+| 60 min | −2, −5, −12 → −6.3 | +32, −1, −34, −6, −28, −22, −43 → −14.5 | −8.2 ± 10.1 |
+
+Both gaps are under 1.5 SE, and one later-day dose (16 Nov 14:10, armLeft, 42 points at 30 min,
+−23) carries much of the 30-minute lean. Dose sizes are alike in both groups (1.5–7.5 U on day 1,
+4–10 U later), so size doesn't explain it either way.
+
+**Held out.** One factor per horizon and group that scales the drawn range's distance above and
+below the line (so it can widen or narrow, never move the line), fitted leave-one-Perth-day-out as
+the 80th percentile of the training points' miss ratios, clamped 0.6–2.5. Every other point keeps
+its drawn range. Score is the interval score at 80% (width + 10 × distance outside), lower is
+better. The bar: better score at 30 AND 60 on most held-out days, and no low (under 70) pushed out
+of the range.
+
+| Horizon | Group | Factor fitted | Held-out days won |
+|---|---|---|---|
+| 30 min | site day 1 | 1.13–1.32 | 1 of 3 |
+| 30 min | later day | 1.23–1.61 | 2 of 5 |
+| 60 min | site day 1 | 1.51–1.58 | 3 of 3 |
+| 60 min | later day | 1.14–1.41 | 2 of 5 |
+
+No lows were pushed out under any fit. The one win, first-day sites at 60 minutes, is 27 points on 3
+days, and the same group loses at 30, so it fails the bar. Every factor is above 1, which says the
+range is a bit narrow after fast doses in general (also seen in §53/§60), not that site day
+matters.
+
+**Decision.** Keep the range as drawn. Retest on **16 Dec 2026**, and only once there are at least
+12 first-day and 12 later-day fast doses with scored 60-minute points, on 8+ days (the script's
+first table lists each dose's site day). Bar as above, judged per dose as well as per point. If a
+pump is used, test the 24 hours after each `siteChange` the same way. To rerun:
+
+    python3 -I scripts/site-day-error.py points.txt doses.txt
+
+**Dosing.** Not touched: the site only labelled which doses to group. Nothing changes insulin on
+board, the activity curves, the effect learner or the bolus figure.
