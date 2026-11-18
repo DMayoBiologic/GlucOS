@@ -934,7 +934,9 @@ struct LogbookSection: View {
                     .contentTransition(.numericText())
                     .dsAnimation(.standard, value: range.inRange)
             }
-            if let totals, !totals.compact.isEmpty {
+            // Kept mounted while the day has entries, even with nothing to show, so a delete that
+            // leaves only site changes or moments still records zero and an Undo rolls back.
+            if let totals {
                 DayTotalsLabel(id: id, text: totals.compact, totals: totals,
                                spokenDay: DayInRangeText.spokenDay(day), memory: dayTotalsShown)
                     .dsFont(.caption)
