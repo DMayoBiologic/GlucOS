@@ -6280,3 +6280,75 @@ lower-side-only widening (the misses here were below the range), against the sam
 
 **Dosing.** Not touched: the insulin curve, sensitivity and the bolus calculator's insulin on board
 are unchanged; the range only changes the chart and the forecast card.
+
+## 86. Are forecasts worse in the first hour after a gap in readings ends? (18 Nov 2026)
+
+**Question.** Using the gap rule the charts now draw (PR #388: 10 minutes or more between stored
+readings, except LinkUp's 15-minute history step), do forecasts issued in the first 30 minutes, or
+30–60 minutes, after a gap ends miss more, or fall inside their range less often, than forecasts
+on unbroken stretches? And would widening the range just after a gap help on days it wasn't
+fitted on? Not a repeat of §31, which measured gaps over 5 minutes in live readings and the app
+waking up, before #388's rule existed. The line, the insulin curve and sensitivity are out of
+scope.
+
+**Data.** 11,004 stored readings (10 Nov 22:45 to 19 Nov 03:19 Perth) and the accuracy log from
+12 Nov 15:08 (843 checks). Two ways to find gaps:
+
+- **#388's rule on every stored reading** (live plus LinkUp's 15-minute history): only **6 gaps**,
+  all 10–12 minutes, on 15–18 Nov. The relay polls around the clock, so the device going to sleep
+  never leaves a hole in the server's readings, and LinkUp's history fills most dropouts.
+- **The same rule on live readings only**: 9 gaps (15 Nov 13:51 and 18:37, 16 Nov 11:15 and 19:36,
+  17 Nov 13:19, 20:14, 21:21, 21:35, 18 Nov 00:04), 10–34 minutes. Here a stretch LinkUp filled
+  with 15-minute history counts too, since the forecast after it is read off sparse points.
+
+A point belongs to the latest gap end in the 2 hours before issue; "normal" means none. Clean shown
+points only. SQL: `scripts/post-gap-forecast.sql`; held-out test: `scripts/post-gap-forecast.py`.
+
+| Horizon | Window (live gaps) | Points (gaps) | MAE | No change | Bias | Inside | Score |
+|---|---|---|---|---|---|---|---|
+| 15 min | 0–30 min after | 24 (9) | 22.2 | 19.7 | +0.8 | 75% | 105.9 |
+| 15 min | 30–60 min after | 22 (8) | 17.9 | 23.2 | −7.4 | 86% | 79.4 |
+| 15 min | normal | 643 | 16.2 | 17.5 | +0.2 | 81% | 83.6 |
+| 30 min | 0–30 min after | 7 (4) | 39.3 | 23.6 | −9.7 | 71% | 207.4 |
+| 30 min | 30–60 min after | 7 (5) | 21.6 | 35.8 | −18.0 | 86% | 89.5 |
+| 30 min | normal | 338 | 27.1 | 31.1 | +1.4 | 77% | 142.4 |
+| 60 min | 0–30 min after | 5 (2) | 32.7 | 23.4 | −8.3 | 80% | 138.3 |
+| 60 min | 30–60 min after | 2 (1) | 53.4 | 26.1 | +53.4 | 50% | 237.4 |
+| 60 min | normal | 171 | 52.4 | 54.8 | +10.4 | 77% | 228.4 |
+
+With #388's rule on all readings the pattern is the same on fewer points (15 min, 0–30 after: 10
+points, MAE 21.5, 60% inside; 30–60 after: 11 points, 82% inside; normal 691 points, 82%).
+
+In the first 30 minutes after a gap the forecast misses more (22.2 against 16.2 at 15 minutes),
+loses to "no change" (19.7), and covers less (75% against 81%), as §31 found after a wake. By
+30–60 minutes it is back to normal or better. At 30 and 60 minutes there are 2–7 points, so
+nothing there can be told from noise. Much of the early miss is one moment: 15 Nov 14:10 Perth,
+right after the 13:51 gap, the iPhone line ran to 44 from 96 while glucose was 142 fifteen minutes later, the same
+unlogged-treatment afternoon that carried §31 and §85.
+
+**Held out.** One width factor per horizon for points issued 0–30 minutes after a gap (and, as a
+variant, 0–60), fitted leave-one-Perth-day-out as the 80th percentile of the other days' miss
+ratios, never narrower (1.0–2.5), only with 10+ training points; lower end kept at 39. Bar: better
+on every held-out day at each fittable horizon, and no reading under 70 dropped out of the range.
+
+| Gaps, window | Horizon | Held-out days better | Score per day, shipped → widened |
+|---|---|---|---|
+| live, 0–30 | 15 min | 2 of 4 | 15 Nov 175.9 → 175.9, 16 Nov 64.0 → 72.8, 17 Nov 92.4 → 91.8, 18 Nov 75.6 → 65.3 |
+| live, 0–60 | 15 min | 0 of 4 | 118.8 → 118.8, 55.8 → 63.3, 77.9 → 77.9, 188.4 → 188.4 |
+| #388, 0–60 | 15 min | 1 of 4 | 216.4 → 216.4, 58.9 → 71.2, 77.8 → 119.5, 158.9 → 138.9 |
+| live, 0–60 | 30 min | 0 of 1 | 17 Nov 100.4 → 100.4 (factor 1.0); 15 and 16 Nov unfittable (7 and 9 training points) |
+| other windows | 30, 60 min | — | unfittable (under 10 training points on every held-out day) |
+
+#388's rule with the 0–30 window can't be fitted at all (7–9 training points). Where a factor
+could be fitted it wins two days and loses one; the day the range most needed help (15 Nov)
+fits a factor of 1.0 because its misses were far outside anything the other days saw. No reading
+under 70 left the range in any variant. It fails the bar.
+
+**Decision.** Keep the range as it is after gaps. Retest on **16 Dec 2026**, only if
+`scripts/post-gap-forecast.sql` finds 30+ clean points at both 30 and 60 minutes in the 0–30
+window, on 4+ days (live-only gaps; 7 points at 30 minutes came in 4 days, so that is roughly
+three to four more weeks). Then fit the same factor and, per §31, also test drawing nothing at
+15 minutes until the second reading after a gap, against the same bar.
+
+**Dosing.** Not touched: the insulin curve, sensitivity and the bolus calculator's insulin on board
+are unchanged.
