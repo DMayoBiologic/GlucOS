@@ -947,6 +947,10 @@ private struct AdvancedSettingsTab: View {
             Section("Updates") {
                 LabeledContent("Version", value: updater.version)
                     .settingsAnchor(.updates)
+                LabeledContent("Highlights of recent updates") {
+                    WhatsNewSettingsRow()
+                }
+                .settingsAnchor(.whatsNew)
                 LabeledContent {
                     Button("Check for Updates…") { updater.checkForUpdates() }
                         .disabled(!updater.canCheck)

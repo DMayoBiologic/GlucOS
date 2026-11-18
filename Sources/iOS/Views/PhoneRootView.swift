@@ -17,6 +17,15 @@ struct PhoneRootView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var follows: FollowStore
     @AppStorage("phoneMode") private var mode: PhoneMode = .unset
+    @EnvironmentObject var router: PhoneLogRouter
+    @AppStorage(PhoneSetupView.pendingKey) private var setupPending = false
+    @Environment(\.scenePhase) private var scenePhase
+    /// What's New after an update (docs/WhatsNew.md): checked once per launch, in the foreground.
+    @State private var whatsNew: WhatsNewSheetItem?
+    @State private var whatsNewChecked = false
+
+    /// Signed in, following someone, or past the welcome screen: an update, not a fresh install.
+    private var hasUsedBefore: Bool { settings.hasCredentials || follows.isFollowing || mode != .unset }
 
     var body: some View {
         Group {
@@ -38,7 +47,50 @@ struct PhoneRootView: View {
                                                           set: { if !$0 { follows.notice = nil } })) {
             Button("OK") { follows.notice = nil }
         }
+        .task(id: scenePhase == .active) { await checkWhatsNew() }
+        .sheet(item: $whatsNew) { item in
+            WhatsNewView(releases: item.releases) { whatsNew = nil }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                // Remembered only once it's actually on screen, so a sheet that couldn't show
+                // comes back next launch.
+                .onAppear { WhatsNewLaunch().markSeen(item.version) }
+        }
+        // A log sheet asked for while What's New is up (a notification's Log treatment, a widget,
+        // Siri): What's New steps aside and the log sheet opens after it.
+        .onChange(of: router.request?.id) { _, id in
+            guard id != nil, whatsNew != nil, let request = router.request else { return }
+            router.request = nil
+            whatsNew = nil
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(600))
+                router.request = request
+            }
+        }
     }
+
+    /// Once per launch, in the foreground (a background launch before first unlock can't read the
+    /// sign-in, and would look like a fresh install). Waits a moment so the app's own screen is
+    /// up, and stays away from a low, the setup sheet, or a log sheet already opening: those
+    /// launches leave it for next time.
+    private func checkWhatsNew() async {
+        guard scenePhase == .active, !whatsNewChecked else { return }
+        whatsNewChecked = true
+        let version = WhatsNewVersion.current
+        let launch = WhatsNewLaunch()
+        guard let releases = launch.check(current: version, hasUsedBefore: hasUsedBefore) else { return }
+        try? await Task.sleep(for: .seconds(WhatsNew.launchDelay))
+        guard scenePhase == .active, router.request == nil, !setupPending,
+              !WhatsNew.holdsFor(store.snapshot.range) else { return }
+        whatsNew = WhatsNewSheetItem(version: version, releases: releases)
+    }
+}
+
+/// The automatic What's New sheet's contents.
+private struct WhatsNewSheetItem: Identifiable {
+    let version: String
+    let releases: [WhatsNewRelease]
+    var id: String { version }
 }
 
 /// The first screen of a new install: wearing a sensor, or following someone who does.
