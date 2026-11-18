@@ -273,9 +273,9 @@ struct PhoneLogRow: View {
                 .foregroundStyle(tint)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 0) {
-                Text(SearchHighlight.attributed(title, terms: highlight, tint: tint)).dsFont(.callout)
+                SearchHighlightText(title, terms: highlight, tint: tint).dsFont(.callout)
                 if let detail {
-                    Text(SearchHighlight.attributed(detail, terms: highlight, tint: tint))
+                    SearchHighlightText(detail, terms: highlight, tint: tint)
                         .dsFont(.caption).foregroundStyle(.secondary)
                 }
                 // The time goes under the entry at the accessibility sizes, so the title keeps the width.

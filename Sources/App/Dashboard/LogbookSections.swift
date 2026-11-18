@@ -61,6 +61,15 @@ struct LogbookSection: View {
     /// Where the tag chips' highlight slides (the kind chips' picker slides its own).
     @Namespace private var tagChipSpace
     @State private var search = ""
+    /// The search the table follows. It trails the field by a moment while typing leaves rows out,
+    /// so those rows can shrink out before the table closes up (`searchChanged`).
+    @State private var listedSearch = ""
+    /// Rows the latest typing left out, shrinking out until `listedSearch` catches up.
+    @State private var leaving: Set<UUID> = []
+    /// Whether `listedSearch` is about to catch up with the field.
+    @State private var settlingSearch = false
+    /// Says the count once per pause in typing (`LogbookSearchAnnouncer`).
+    @State private var announcer = LogbookSearchAnnouncer()
     /// The period the Logbook was opened with (the Lows card's days), until ✕ or Clear Filters.
     @State private var linked: LogbookQuery.Period?
     /// "Search All Dates" was pressed: look past the toolbar's period until the search is cleared.
@@ -100,8 +109,12 @@ struct LogbookSection: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        // The field as typed: highlights, the scope chip and the empty state follow it.
         let query = LogbookQuery.parse(search, now: Date()).linked(linked)
         let pastPeriod = LogbookSearch.looksPastToolbarPeriod(query, allDates: allDates)
+        // The table follows `listedSearch`, a moment behind, so rows that stop matching shrink out.
+        let listedQuery = LogbookQuery.parse(listedSearch, now: Date()).linked(linked)
+        let listedPast = LogbookSearch.looksPastToolbarPeriod(listedQuery, allDates: allDates)
         let allAlerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
         let inRange = logbook.entries.filter { data.domain.contains($0.timestamp) }
         let alertsInRange = allAlerts.filter { data.domain.contains($0.timestamp) }
@@ -109,7 +122,9 @@ struct LogbookSection: View {
         let kinds = LogbookFilter.available(entries: logbook.entries, alerts: allAlerts)
         let scope = pastPeriod ? LogbookTableRow.merge(logbook.entries, allAlerts)
                                : LogbookTableRow.merge(inRange, alertsInRange)
-        let rows = scope.filter { $0.matches(listed.kind, query, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: listed.tag) }
+        let listedScope = listedPast ? LogbookTableRow.merge(logbook.entries, allAlerts)
+                                     : LogbookTableRow.merge(inRange, alertsInRange)
+        let rows = listedScope.filter { $0.matches(listed.kind, listedQuery, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: listed.tag) }
         // A meal and its insulin logged within 15 minutes show as one line, opening out into the
         // entries (`LogbookGrouping`). Worked out on the rows the chips and search leave.
         let runs = LogbookGrouping.runs(rows, entry: \.entry)
@@ -177,7 +192,8 @@ struct LogbookSection: View {
                         .opacity(rowsFade)
                 } else {
                     ScrollViewReader { proxy in
-                        table(lines, terms: terms, counts: dayCounts)
+                        table(lines, terms: terms, counts: dayCounts,
+                              fading: leaving.isEmpty ? [] : Set(lines.filter { !$0.rowIDs.isEmpty && $0.rowIDs.allSatisfy(leaving.contains) }.map(\.id)))
                             // Tab reaches the table; ↑ ↓ then move through its rows and Return
                             // opens one, as a double-click does.
                             .keyStop("logbook.table", kind: .native, keeps: [.up, .down, .left, .right])
@@ -228,6 +244,10 @@ struct LogbookSection: View {
         }
         // A search starts with every day open; clearing it brings the kept folds back.
         .onChange(of: searchingFolds) { _, now in if !now { folds.endSearch() } }
+        // Typing: rows that stop matching shrink out, then the table closes up (`searchChanged`).
+        .onChange(of: search) { _, now in searchChanged(now) }
+        // VoiceOver hears the count once typing pauses, not on every letter.
+        .task(id: search) { await announceSearchCount() }
         .onChange(of: search) { _, now in
             // "Search All Dates" lasts as long as the search it was pressed for.
             if now.trimmingCharacters(in: .whitespaces).isEmpty, filter == nil, tagFilter == nil { allDates = false }
@@ -368,12 +388,14 @@ struct LogbookSection: View {
                 scopeChip("All dates", help: "Back to the toolbar's period") { allDates = false; search = "" }
                     .accessibilityLabel("All dates. Back to the toolbar's period")
             }
-            if searching && found > 0 {
-                Text(found == 1 ? "1 found" : "\(found) found")
+            // The count rolls to its new value as rows come and go: down as typing narrows the
+            // search, up as it widens. VoiceOver hears it once per pause (`announceSearchCount`).
+            if searching, let label = LogbookSearchMotion.countLabel(found) {
+                Text(label)
                     .dsFont(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
+                    .contentTransition(reduceMotion ? .identity : .numericText(value: Double(found)))
             }
             calendarButton(rows: shownDays)
             Spacer()
@@ -393,7 +415,7 @@ struct LogbookSection: View {
             }
         }
         .controlSize(.small)
-        .dsAnimation(.quick, value: found)
+        .dsAnimation(.standard, value: found)
     }
 
     /// Opens the month calendar (also ⌘J): days with nothing logged are dimmed; picking one
@@ -428,6 +450,8 @@ struct LogbookSection: View {
             clearFilters()
             // The table switches at once and quietly: the landing does the moving and the talking.
             listed = LogbookFilterPick(kind: nil, tag: nil)
+            listedSearch = ""
+            leaving = []
             let calendar = Calendar.autoupdatingCurrent
             let inPeriod = logbook.entries.contains {
                 data.domain.contains($0.timestamp) && calendar.isDate($0.timestamp, inSameDayAs: d)
@@ -603,6 +627,8 @@ struct LogbookSection: View {
         linked = l.period
         // Arriving from a card shows its rows straight away, as the iPhone does.
         listed = LogbookFilterPick(kind: l.kindChip, tag: l.tag)
+        listedSearch = ""
+        leaving = []
     }
 
     /// Opened on one entry (the popover's "last logged" line): nothing filtered out, so its row is
@@ -618,6 +644,8 @@ struct LogbookSection: View {
         linked = nil
         // Listed at once, so the selection isn't dropped as a hidden row.
         listed = LogbookFilterPick(kind: nil, tag: nil)
+        listedSearch = ""
+        leaving = []
         // Folded into a grouped line: open it, so the entry itself is the one selected and lit.
         let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
         let runs = LogbookGrouping.runs(LogbookTableRow.merge(logbook.entries, alerts), entry: \.entry)
@@ -720,8 +748,63 @@ struct LogbookSection: View {
         }
     }
 
-    /// `counts` is what each day holds as listed (entries and alerts), for its fold.
-    private func table(_ lines: [LogbookTableLine], terms: [String], counts: [Date: LogbookDayCount]) -> some View {
+    /// The rows a pick of chips and a search's text leave in the table, over the dates that search
+    /// looks across (the toolbar's period, or every date).
+    private func searchRows(_ pick: LogbookFilterPick, text: String) -> [LogbookTableRow] {
+        let q = LogbookQuery.parse(text, now: Date()).linked(linked)
+        let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
+        let lowIDs = LogbookSearch.lowTreatmentIDs(logbook.entries)
+        let scope = LogbookSearch.looksPastToolbarPeriod(q, allDates: allDates)
+            ? LogbookTableRow.merge(logbook.entries, alerts)
+            : LogbookTableRow.merge(logbook.entries.filter { data.domain.contains($0.timestamp) },
+                                    alerts.filter { data.domain.contains($0.timestamp) })
+        return scope.filter { $0.matches(pick.kind, q, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: pick.tag) }
+    }
+
+    /// The field changed. Rows the new text leaves out shrink out (`searchLeaving`); a moment later
+    /// the table catches up with the field, closing up behind them and bringing in rows the text
+    /// now finds. Rows that match again before then grow back. With nothing leaving, the table
+    /// follows at once. Under Reduce Motion it always follows at once.
+    private func searchChanged(_ now: String) {
+        guard !reduceMotion else {
+            leaving = []
+            listedSearch = now
+            return
+        }
+        let listedIDs = searchRows(listed, text: listedSearch).map(\.id)
+        let found = Set(searchRows(listed, text: now).map(\.id))
+        let out = Set(listedIDs.filter { !found.contains($0) })
+        withAnimation(.easeIn(duration: LogbookSearchMotion.shrinkOut)) { leaving = out }
+        guard !out.isEmpty else {
+            if !settlingSearch { listedSearch = now }
+            return
+        }
+        guard !settlingSearch else { return }
+        settlingSearch = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(LogbookSearchMotion.shrinkOut))
+            settlingSearch = false
+            // Quiet for the rows already shrunk: the table's own row animation closes the gap.
+            var quiet = Transaction()
+            quiet.disablesAnimations = true
+            withTransaction(quiet) { leaving = [] }
+            listedSearch = search
+        }
+    }
+
+    /// Once typing pauses, VoiceOver says how many rows the search found, once per pause.
+    private func announceSearchCount() async {
+        try? await Task.sleep(for: .seconds(LogbookSearchMotion.pause))
+        guard !Task.isCancelled else { return }
+        if let line = announcer.line(query: search, count: searchRows(listed, text: search).count) {
+            AccessibilityNotification.Announcement(line).post()
+        }
+    }
+
+    /// `counts` is what each day holds as listed (entries and alerts), for its fold. `fading`: lines
+    /// the latest typing left out, shrinking out.
+    private func table(_ lines: [LogbookTableLine], terms: [String], counts: [Date: LogbookDayCount],
+                       fading: Set<UUID>) -> some View {
         let now = Date()
         let firsts = LogbookDays.firstRows(lines.map { (id: $0.id, timestamp: $0.timestamp) })
         let ranges = dayRanges.figures(readings: data.readings, days: Array(Set(firsts.values)).sorted(),
@@ -747,62 +830,80 @@ struct LogbookSection: View {
             }
             .width(min: 190, ideal: 330)
             TableColumn("Time") { (l: LogbookTableLine) in
-                if l.fold != nil {
-                    Text("").accessibilityHidden(true)
-                } else if let g = l.group {
-                    Text(g.timeRange { ClockLabel.time($0) })
-                        .monospacedDigit()
-                        .accessibilityLabel(ClockLabel.dayTime(g.timestamp, now: now))
-                } else {
-                    Text(ClockLabel.time(l.timestamp))
-                        .monospacedDigit()
-                        .foregroundStyle(l.isAlert ? Color.secondary : Color.primary)
-                        .accessibilityLabel(ClockLabel.dayTime(l.timestamp, now: now))
+                Group {
+                    if l.fold != nil {
+                        Text("").accessibilityHidden(true)
+                    } else if let g = l.group {
+                        Text(g.timeRange { ClockLabel.time($0) })
+                            .monospacedDigit()
+                            .accessibilityLabel(ClockLabel.dayTime(g.timestamp, now: now))
+                    } else {
+                        Text(ClockLabel.time(l.timestamp))
+                            .monospacedDigit()
+                            .foregroundStyle(l.isAlert ? Color.secondary : Color.primary)
+                            .accessibilityLabel(ClockLabel.dayTime(l.timestamp, now: now))
+                    }
                 }
+                .searchLeaving(fading.contains(l.id))
             }
             .width(min: 60, ideal: 75)
             TableColumn("Entry") { (l: LogbookTableLine) in
-                if let f = l.fold {
-                    // A folded day: how many rows it holds, in place of them.
-                    Text(LogbookCollapseText.count(f.count))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .contentTransition(reduceMotion ? .identity : .numericText())
-                        .dsAnimation(.arrival, value: f.count)
-                        .accessibilityLabel(LogbookCollapseText.spokenCount(f.count))
-                } else if let g = l.group {
-                    groupEntryCell(g, expanded: l.expanded)
-                } else if let r = l.row {
-                    entryCell(r, terms: terms)
-                        .padding(.leading, l.isMember ? DS.Space.lg : 0)
+                Group {
+                    if let f = l.fold {
+                        // A folded day: how many rows it holds, in place of them.
+                        Text(LogbookCollapseText.count(f.count))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .contentTransition(reduceMotion ? .identity : .numericText())
+                            .dsAnimation(.arrival, value: f.count)
+                            .accessibilityLabel(LogbookCollapseText.spokenCount(f.count))
+                    } else if let g = l.group {
+                        groupEntryCell(g, expanded: l.expanded)
+                    } else if let r = l.row {
+                        entryCell(r, terms: terms)
+                            .padding(.leading, l.isMember ? DS.Space.lg : 0)
+                    }
                 }
+                .searchLeaving(fading.contains(l.id))
             }
                 .width(min: 110, ideal: 140)
             TableColumn("Amount") { (l: LogbookTableLine) in
-                Text(l.group?.totals ?? l.entry.map { amount($0) } ?? "").monospacedDigit().fontWeight(.semibold)
+                Group {
+                    Text(l.group?.totals ?? l.entry.map { amount($0) } ?? "").monospacedDigit().fontWeight(.semibold)
+                }
+                .searchLeaving(fading.contains(l.id))
             }
             .width(min: 60, ideal: 80)
             TableColumn("Details") { (l: LogbookTableLine) in
-                if let g = l.group {
-                    Text(SearchHighlight.attributed(g.parts, terms: terms, tint: ChartEvent.Kind.food.color))
-                        .foregroundStyle(.secondary).help(g.parts)
-                } else if let r = l.row {
-                    detailsCell(r, terms: terms)
+                Group {
+                    if let g = l.group {
+                        SearchHighlightText(g.parts, terms: terms, tint: ChartEvent.Kind.food.color)
+                            .foregroundStyle(.secondary).help(g.parts)
+                    } else if let r = l.row {
+                        detailsCell(r, terms: terms)
+                    }
                 }
+                .searchLeaving(fading.contains(l.id))
             }
             TableColumn("Site") { (l: LogbookTableLine) in
-                if let g = l.group {
-                    let sites = g.doses.compactMap { logbook.site(of: $0)?.title }
-                    Text(SearchHighlight.attributed(sites.isEmpty ? "–" : sites.joined(separator: ", "),
-                                                    terms: sites.isEmpty ? [] : terms, tint: ChartEvent.Kind.bolus.color))
-                        .foregroundStyle(sites.isEmpty ? Color.secondary : Color.primary)
-                } else if let r = l.row {
-                    siteCell(r, terms: terms)
+                Group {
+                    if let g = l.group {
+                        let sites = g.doses.compactMap { logbook.site(of: $0)?.title }
+                        SearchHighlightText(sites.isEmpty ? "–" : sites.joined(separator: ", "),
+                                            terms: sites.isEmpty ? [] : terms, tint: ChartEvent.Kind.bolus.color)
+                            .foregroundStyle(sites.isEmpty ? Color.secondary : Color.primary)
+                    } else if let r = l.row {
+                        siteCell(r, terms: terms)
+                    }
                 }
+                .searchLeaving(fading.contains(l.id))
             }
                 .width(min: 90, ideal: 130)
             TableColumn("Glucose") { (l: LogbookTableLine) in
-                if l.fold != nil { Text("").accessibilityHidden(true) } else { glucoseCell(l.timestamp) }
+                Group {
+                    if l.fold != nil { Text("").accessibilityHidden(true) } else { glucoseCell(l.timestamp) }
+                }
+                .searchLeaving(fading.contains(l.id))
             }
                 .width(min: 60, ideal: 70)
         }
@@ -1080,7 +1181,7 @@ struct LogbookSection: View {
         switch r {
         case .entry(let e):
             let k = kind(e)
-            Label { Text(SearchHighlight.attributed(title(e), terms: terms, tint: k.color)) } icon: {
+            Label { SearchHighlightText(title(e), terms: terms, tint: k.color) } icon: {
                 Image(systemName: k.systemImage)
             }
                 .foregroundStyle(k.color)
@@ -1091,7 +1192,7 @@ struct LogbookSection: View {
         case .alert(let a):
             // Quiet: only the bell carries the range's colour.
             Label {
-                Text(SearchHighlight.attributed(a.title, terms: terms, tint: a.tint)).foregroundStyle(.secondary)
+                SearchHighlightText(a.title, terms: terms, tint: a.tint).foregroundStyle(.secondary)
             } icon: {
                 Image(systemName: a.systemImage).foregroundStyle(a.tint)
             }
@@ -1109,12 +1210,12 @@ struct LogbookSection: View {
                     .transition(.opacity)
                     .accessibilityHidden(true)
             } else {
-                Text(SearchHighlight.attributed(details(e), terms: terms, tint: kind(e).color))
+                SearchHighlightText(details(e), terms: terms, tint: kind(e).color)
                     .foregroundStyle(.secondary).help(details(e))
                     .transition(.opacity)
             }
         case .alert(let a):
-            Text(SearchHighlight.attributed(a.detail, terms: terms, tint: a.tint))
+            SearchHighlightText(a.detail, terms: terms, tint: a.tint)
                 .foregroundStyle(.tertiary).help(a.detail)
         }
     }
@@ -1123,7 +1224,7 @@ struct LogbookSection: View {
     private func siteCell(_ r: LogbookTableRow, terms: [String]) -> some View {
         if let e = r.entry {
             let s = site(e)
-            Text(SearchHighlight.attributed(s ?? "–", terms: s == nil ? [] : terms, tint: kind(e).color)).foregroundStyle(s == nil ? Color.secondary : Color.primary)
+            SearchHighlightText(s ?? "–", terms: s == nil ? [] : terms, tint: kind(e).color).foregroundStyle(s == nil ? Color.secondary : Color.primary)
         } else {
             Text("")
         }
@@ -1973,6 +2074,16 @@ struct LogbookTableLine: Identifiable {
     }
 
     var entry: LogEntry? { row?.entry }
+
+    /// The rows this line stands for: a grouped line is every entry in it, a folded day none.
+    var rowIDs: [UUID] {
+        switch piece {
+        case .row(let r)?: return [r.id]
+        case .group(let g, _)?: return g.ids
+        case .member(let e, _)?: return [e.id]
+        case nil: return []
+        }
+    }
 
     var group: LogbookGroup? {
         if case .group(let g, _)? = piece { return g }

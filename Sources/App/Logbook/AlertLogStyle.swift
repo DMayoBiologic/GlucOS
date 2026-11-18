@@ -51,7 +51,7 @@ struct AlertLogRowView: View {
                 .frame(width: 20)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {
-                Text(SearchHighlight.attributed(row.title, terms: highlight, tint: row.tint))
+                SearchHighlightText(row.title, terms: highlight, tint: row.tint)
                     .dsFont(.caption).foregroundStyle(.secondary)
                 Text(row.detail).dsFont(.caption).foregroundStyle(.tertiary)
                 if typeSize.dsLargeText { time }
@@ -83,6 +83,96 @@ enum SearchHighlight {
             out[range][AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] = tint.opacity(0.2)
         }
         return out
+    }
+
+    /// A line part way from one search to the next (`LogbookSearchMotion.spans`): what's still found
+    /// stays lit, what's newly found fades in, and what's no longer found fades out, `progress` of
+    /// the way through.
+    static func attributed(_ text: String, from old: [String], to new: [String], tint: Color,
+                           progress: Double) -> AttributedString {
+        var out = AttributedString(text)
+        for span in LogbookSearchMotion.spans(in: text, from: old, to: new) {
+            guard let range = Range(span.range, in: out) else { continue }
+            let wash = LogbookSearchMotion.wash(span.phase, progress: progress)
+            if LogbookSearchMotion.isBold(span.phase) { out[range].inlinePresentationIntent = .stronglyEmphasized }
+            if wash > 0 {
+                out[range][AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] = tint.opacity(0.2 * wash)
+            }
+        }
+        return out
+    }
+}
+
+/// A Logbook line with the search's words picked out, which follows the typing (docs/LogbookSearch.md
+/// "While you type"): as the words change, newly found letters fade into their wash and letters no
+/// longer found fade out of it, while the rest of the highlight holds still. Bold switches at once,
+/// so the line never reflows mid-fade. Instant under Reduce Motion. Used by the iPhone and Mac
+/// Logbook rows; VoiceOver reads the plain text, as before.
+struct SearchHighlightText: View {
+    let text: String
+    let terms: [String]
+    let tint: Color
+    /// The words before the latest change, which the fade starts from.
+    @State private var from: [String]?
+    /// Bumped on every change of words; the fade runs from the last count to this one.
+    @State private var generation = 0
+    @State private var faded = 0.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(_ text: String, terms: [String], tint: Color) {
+        self.text = text
+        self.terms = terms
+        self.tint = tint
+    }
+
+    var body: some View {
+        SearchHighlightFrame(text: text, from: from ?? terms, to: terms, tint: tint,
+                             generation: generation, faded: faded)
+            .onChange(of: terms) { old, _ in
+                generation += 1
+                if reduceMotion {
+                    from = nil
+                    faded = Double(generation)
+                } else {
+                    from = old
+                    withAnimation(.easeOut(duration: LogbookSearchMotion.highlightFade)) { faded = Double(generation) }
+                }
+            }
+    }
+}
+
+/// Draws the line `progress` of the way through the fade. `faded` animates from the last
+/// generation to this one, so the fade needs no reset frame and a change mid-fade starts clean.
+private struct SearchHighlightFrame: View, Animatable {
+    let text: String
+    let from: [String]
+    let to: [String]
+    let tint: Color
+    let generation: Int
+    var faded: Double
+
+    var animatableData: Double {
+        get { faded }
+        set { faded = newValue }
+    }
+
+    var body: some View {
+        let progress = min(max(faded - Double(generation - 1), 0), 1)
+        if progress >= 1 || from == to {
+            Text(SearchHighlight.attributed(text, terms: to, tint: tint))
+        } else {
+            Text(SearchHighlight.attributed(text, from: from, to: to, tint: tint, progress: progress))
+        }
+    }
+}
+
+extension View {
+    /// A Logbook row the latest typing left out, shrinking out before the list closes up behind it
+    /// (docs/LogbookSearch.md "While you type"). The caller animates the change, and never sets it
+    /// under Reduce Motion, where the row simply goes.
+    func searchLeaving(_ leaving: Bool) -> some View {
+        scaleEffect(leaving ? LogbookSearchMotion.leavingScale : 1, anchor: .leading)
+            .opacity(leaving ? 0 : 1)
     }
 }
 

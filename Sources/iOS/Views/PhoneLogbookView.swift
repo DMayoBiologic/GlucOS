@@ -71,6 +71,15 @@ struct PhoneLogbookView: View {
     @EnvironmentObject var sync: LogbookSyncService
     @EnvironmentObject var store: GlucoseStore
     @State private var query = ""
+    /// The search the rows follow. It trails the field by a moment while typing leaves rows out, so
+    /// those rows can shrink out before the list closes up (`searchChanged`).
+    @State private var listedQuery = ""
+    /// Rows the latest typing left out, shrinking out until `listedQuery` catches up.
+    @State private var leaving: Set<UUID> = []
+    /// Whether `listedQuery` is about to catch up with the field.
+    @State private var settlingSearch = false
+    /// Says the count once per pause in typing (`LogbookSearchAnnouncer`).
+    @State private var announcer = LogbookSearchAnnouncer()
     /// The period the Logbook was opened with (the Lows card's days), until ✕ or Clear Filters.
     @State private var linked: LogbookQuery.Period?
     /// The clinic-visit export sheet (`PhoneExportView`).
@@ -150,10 +159,13 @@ struct PhoneLogbookView: View {
         let all = logbook.entries
         let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
         let kinds: [LogbookFilter] = LogbookFilter.available(entries: all, alerts: alerts)
+        // The field as typed: what's highlighted, the period chip and the empty state follow it.
         let search: LogbookQuery = LogbookQuery.parse(query, now: Date()).linked(linked)
+        // The rows follow `listedQuery`, a moment behind, so rows that stop matching shrink out.
+        let listedSearch: LogbookQuery = LogbookQuery.parse(listedQuery, now: Date()).linked(linked)
         let lowIDs: Set<UUID> = LogbookSearch.lowTreatmentIDs(all)
         let shown: [PhoneLogbookItem] = PhoneLogbookItem.merge(all, alerts)
-            .filter { $0.matches(listed.kind, search, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: listed.tag) }
+            .filter { $0.matches(listed.kind, listedSearch, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: listed.tag) }
         let shownIDs: [UUID] = shown.map(\.id)
         let allIDs: [UUID] = all.map(\.id)
         list(all: all, kinds: kinds, shown: shown, search: search)
@@ -202,6 +214,10 @@ struct PhoneLogbookView: View {
         // Instant under Reduce Motion. A chip switch doesn't slide rows: it fades them over.
         .dsAnimation(.standard, value: shownIDs)
         .task(id: LogbookFilterPick(kind: kind, tag: tagFilter)) { await settleFilter() }
+        // Typing: rows that stop matching shrink out, then the list closes up (`searchChanged`).
+        .onChange(of: query) { _, now in searchChanged(now) }
+        // VoiceOver hears the count once typing pauses, not on every letter.
+        .task(id: query) { await announceSearchCount() }
         .onChange(of: allIDs) { old, new in
             markFresh(Set(new).subtracting(old))
         }
@@ -324,6 +340,7 @@ struct PhoneLogbookView: View {
                         // The first screenful assembles top to bottom (docs/Redesign.md §7.2).
                         pieceRow(piece, order: starts[i] + j, terms: terms)
                             .opacity(rowsFade)
+                            .searchLeaving(!leaving.isEmpty && piece.itemIDs.allSatisfy(leaving.contains))
                     }
                 }
             } header: {
@@ -333,6 +350,8 @@ struct PhoneLogbookView: View {
                           shownDays: shownDays, folded: folded,
                           note: logbook.dayNote(on: day.start), terms: terms)
                     .opacity(rowsFade)
+                    // A day whose every row is shrinking out fades its header with them.
+                    .opacity(!leaving.isEmpty && day.items.allSatisfy { leaving.contains($0.id) } ? 0 : 1)
                     .padding(.horizontal, DS.Space.lg)
                     .padding(.vertical, DS.Space.xs + 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -508,13 +527,57 @@ struct PhoneLogbookView: View {
 
     /// How many rows the chips leave showing, with the search as it stands.
     private func shownCount(_ pick: LogbookFilterPick) -> Int {
+        searchRows(pick, text: query).count
+    }
+
+    /// The rows a pick of chips and a search's text leave showing.
+    private func searchRows(_ pick: LogbookFilterPick, text: String) -> [PhoneLogbookItem] {
         let all = logbook.entries
         let alerts: [AlertLogRow] = showsAlerts ? AlertLog.rows(logbook.alerts) : []
-        let search = LogbookQuery.parse(query, now: Date()).linked(linked)
+        let search = LogbookQuery.parse(text, now: Date()).linked(linked)
         let lowIDs = LogbookSearch.lowTreatmentIDs(all)
         return PhoneLogbookItem.merge(all, alerts)
             .filter { $0.matches(pick.kind, search, lowIDs: lowIDs, dayNotes: logbook.dayNotes) && $0.matches(tag: pick.tag) }
-            .count
+    }
+
+    /// The field changed. Rows the new text leaves out shrink out (`searchLeaving`); a moment later
+    /// the list catches up with the field, closing up behind them and sliding in rows the text now
+    /// finds. Rows that match again before then grow back. With nothing leaving, the list follows at
+    /// once. Under Reduce Motion it always follows at once.
+    private func searchChanged(_ now: String) {
+        guard !reduceMotion else {
+            leaving = []
+            listedQuery = now
+            return
+        }
+        let listedIDs = searchRows(listed, text: listedQuery).map(\.id)
+        let found = Set(searchRows(listed, text: now).map(\.id))
+        let out = Set(listedIDs.filter { !found.contains($0) })
+        withAnimation(.easeIn(duration: LogbookSearchMotion.shrinkOut)) { leaving = out }
+        guard !out.isEmpty else {
+            if !settlingSearch { listedQuery = now }
+            return
+        }
+        guard !settlingSearch else { return }
+        settlingSearch = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(LogbookSearchMotion.shrinkOut))
+            settlingSearch = false
+            // Quiet for the rows already shrunk: the list's own animation closes the gap.
+            var quiet = Transaction()
+            quiet.disablesAnimations = true
+            withTransaction(quiet) { leaving = [] }
+            listedQuery = query
+        }
+    }
+
+    /// Once typing pauses, VoiceOver says how many rows the search found, once per pause.
+    private func announceSearchCount() async {
+        try? await Task.sleep(for: .seconds(LogbookSearchMotion.pause))
+        guard !Task.isCancelled else { return }
+        if let line = announcer.line(query: query, count: shownCount(listed)) {
+            AccessibilityNotification.Announcement(line).post()
+        }
     }
 
     private func clearFilters() {
@@ -852,6 +915,8 @@ struct PhoneLogbookView: View {
             linked = nil
             // The list switches at once and quietly: the landing does the moving and the talking.
             listed = LogbookFilterPick(kind: nil, tag: nil)
+            listedQuery = ""
+            leaving = []
             jumping = LogbookJumpRequest(day: d)
         case .none:
             break
@@ -966,15 +1031,17 @@ struct PhoneLogbookView: View {
             }
             Spacer(minLength: DS.Space.sm)
             // Left to the empty state when nothing is found.
-            if found > 0 {
-                Text(found == 1 ? "1 found" : "\(found) found")
+            // The count rolls to its new value as rows come and go: down as typing narrows the
+            // search, up as it widens. VoiceOver hears it once per pause (`announceSearchCount`).
+            if let label = LogbookSearchMotion.countLabel(found) {
+                Text(label)
                     .dsFont(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
+                    .contentTransition(reduceMotion ? .identity : .numericText(value: Double(found)))
             }
         }
-        .animation(DSMotion.quick.animation, value: found)
+        .dsAnimation(.standard, value: found)
     }
 
     @ViewBuilder
@@ -1051,6 +1118,15 @@ enum PhoneLogbookItem: Identifiable {
 }
 
 extension LogbookListed where Row == PhoneLogbookItem {
+    /// The rows this piece stands for: a grouped row is every entry in it.
+    var itemIDs: [UUID] {
+        switch self {
+        case .row(let item): return [item.id]
+        case .group(let g, _): return g.ids
+        case .member(let e, _): return [e.id]
+        }
+    }
+
     /// The list row's identity. An entry keeps its own id whether it stands alone or sits under an
     /// opened group, so the list moves it rather than swapping it.
     var rowKey: String {
@@ -1083,7 +1159,7 @@ struct PhoneLogGroupRow: View {
             .frame(width: 20)
             VStack(alignment: .leading, spacing: 0) {
                 Text(group.title).dsFont(.callout)
-                Text(SearchHighlight.attributed(group.parts, terms: highlight, tint: Palette.food))
+                SearchHighlightText(group.parts, terms: highlight, tint: Palette.food)
                     .dsFont(.caption)
                     .foregroundStyle(.secondary)
                 if typeSize.dsLargeText { timeLabel }

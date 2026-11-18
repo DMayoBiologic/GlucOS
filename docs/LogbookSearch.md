@@ -48,6 +48,30 @@ The words found are bold, on a faint wash of the row's own colour, in the row's 
 second line. When nothing matches, the list says what was searched ("Nothing in Meals matches
 “pizza” since last week.") with **Clear Filters**, and **Search All Dates** when a day was part of it.
 
+## While you type
+
+Round 70. The list follows the typing instead of jumping on each letter, on iPhone and Mac. Display
+only: what the search finds is unchanged. Timings and wording live in `LogbookSearchMotion` (Engine,
+tested in LogbookSearchMotionTests).
+
+- **Highlights fade.** Letters a new keystroke finds fade into their wash (0.25 s), and letters no
+  longer found fade out of it, while the highlight that was already there holds still, so typing
+  "piz" → "pizz" only lights the new "z". Bold switches at once, so a line never reflows mid-fade
+  (`SearchHighlightText`, which Logbook rows use in place of a plain highlighted `Text`).
+- **The count rolls.** "3 found" rolls digit by digit to its new value, down as the search narrows
+  and up as it widens.
+- **Rows that stop matching shrink out.** They scale down a little and fade (0.14 s) before the list
+  closes up behind them on its usual row animation; a day whose rows all go fades its header with
+  them. The list follows a moment behind the field (`listedQuery` on iPhone, `listedSearch` on Mac)
+  only while something is leaving: rows a wider search finds slide in at once, and a row that
+  matches again before it has gone grows back. Opening from a card, the "last logged" line or a
+  calendar jump still shows the rows straight away. On the Mac the table's cells shrink and fade;
+  the table itself closes the gap.
+- **Reduce Motion.** Highlights, the count and the rows switch at once.
+- **VoiceOver.** Once typing pauses (0.8 s), VoiceOver says the count once: "3 found", "1 found" or
+  "No matches". The same search after a pause (typed on, then deleted back) says nothing new, and an
+  empty field says nothing.
+
 ## On the Mac
 
 Round 22 brought the same search to the dashboard's Logbook, with the same rules (nothing here is
