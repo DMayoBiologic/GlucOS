@@ -50,6 +50,7 @@ let package = Package(
                 "Shared/LoggedElsewhere.swift",
                 "Shared/ForecastMorph.swift",
                 "Shared/ForecastDetails.swift",
+                "Shared/ForecastCardEntrance.swift",
                 "Shared/PopoverStagger.swift",
                 "Shared/ContentResize.swift",
                 "Shared/DependentRows.swift",

@@ -78,6 +78,9 @@ struct ForecastDetails: Equatable, Sendable {
     let driver: Driver
     /// The reading the forecast starts from.
     let issuedAt: Date
+    /// Where the forecast starts (mg/dL), its first point: the card's figures roll from here
+    /// (`ForecastCardEntrance`).
+    let startMgdl: Double
 
     /// Nil when there's no forecast to describe, or it's only its starting reading.
     init?(outlook: OutlookSnapshot, held: [HitRate]) {
@@ -92,6 +95,7 @@ struct ForecastDetails: Equatable, Sendable {
             shown = [Horizon(minutes: m, mgdl: last.mgdl, lowerMgdl: last.lowerMgdl, upperMgdl: last.upperMgdl, held: rate(m))]
         }
         horizons = shown
+        startMgdl = outlook.forecast.first?.mgdl ?? shown.first?.mgdl ?? 0
         driver = .of(basis: outlook.basis, insulinActing: outlook.showsInsulin, carbsActing: outlook.showsCarbs)
         issuedAt = outlook.issuedAt
     }

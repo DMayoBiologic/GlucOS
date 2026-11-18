@@ -158,6 +158,9 @@ struct GlucoseChart: View {
     @State private var rippleBeat = 0
     /// Whether the forecast details card is open (`forecastDetails`).
     @State private var forecastOpen = false
+    /// The forecast card is playing its close (`ForecastCardEntrance`) before the popover goes.
+    @State private var forecastClosing = false
+    @State private var forecastCloseTask: Task<Void, Never>?
     /// Where on the forecast it was tapped, for the point the card grows out of. Nil: opened by
     /// VoiceOver or the keyboard, which use the 30-minute point.
     @State private var forecastTapped: Date?
@@ -605,7 +608,7 @@ struct GlucoseChart: View {
     /// the same marker, so a held peek turns into the card rather than blinking out first.
     private func openCallout(_ next: UUID, style: MarkerActions.Style) {
         let fromPeek = peeked != nil
-        forecastOpen = false
+        closeForecast(animated: false)
         withTransaction(Transaction(animation: nil)) {
             hoverDate = nil
             touching = false
@@ -1099,7 +1102,9 @@ struct GlucoseChart: View {
     /// A tap or click on the forecast (at `date`), VoiceOver's action or Return on the Mac (nil).
     /// Anything else showing makes way: an open callout, a peek, the scrub readout.
     private func openForecast(at date: Date?) {
-        guard forecastDetails != nil, !forecastOpen else { return }
+        guard forecastDetails != nil, !forecastOpen || forecastClosing else { return }
+        forecastCloseTask?.cancel()
+        forecastClosing = false
         if callout != nil { closeCallout() }
         withTransaction(Transaction(animation: nil)) {
             peeked = nil
@@ -1114,6 +1119,31 @@ struct GlucoseChart: View {
         forecastOpen = true
     }
 
+    /// Lets the card go the app's way: its band narrows back into the line and its figures roll
+    /// back (a fade under Reduce Motion), then the popover closes. `animated: false` for moments it
+    /// should just go: the app leaving the screen, a marker's card taking over. A tap outside the
+    /// popover still closes it the system's way.
+    ///
+    /// `forecastClosing` is only cleared when the card opens again, never as it goes, so the card
+    /// never sees it drop and replays its entrance while the popover fades out.
+    private func closeForecast(animated: Bool = true) {
+        guard forecastOpen else { return }
+        guard animated else {
+            forecastCloseTask?.cancel()
+            forecastOpen = false
+            return
+        }
+        guard !forecastClosing else { return }
+        forecastCloseTask?.cancel()
+        forecastClosing = true
+        let wait = ForecastCardEntrance.closeDuration(.init(reduceMotion: reduceMotion))
+        forecastCloseTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(wait))
+            guard !Task.isCancelled else { return }
+            forecastOpen = false
+        }
+    }
+
     /// The popover's anchor, on the forecast where it was tapped, and the moments that close it.
     /// A third overlay, after the chart's own VoiceOver element, so the card is an element of its own.
     private func withForecastDetails(_ chart: some View, projection: [ForecastSample]) -> some View {
@@ -1122,19 +1152,26 @@ struct GlucoseChart: View {
                 if interactive, forecastDetails != nil {
                     ForecastPopoverAnchor(proxy: proxy, unit: unit,
                                           anchor: ForecastDetails.anchor(tapped: forecastTapped, in: projection),
-                                          isPresented: $forecastOpen, details: forecastDetails)
+                                          isPresented: $forecastOpen, details: forecastDetails,
+                                          closing: forecastClosing, close: { closeForecast() })
                 }
             }
+            // Return on the Mac opens the card, and closes it again when it's open.
             .onChange(of: opensForecastDetails) { _, _ in
-                if opensForecast(projection) { openForecast(at: nil) }
+                if forecastOpen, !forecastClosing { closeForecast() }
+                else if opensForecast(projection) { openForecast(at: nil) }
             }
             // The forecast went (a stale reading, the setting turned off) or the span changed.
             .onChange(of: projection.count >= 2 && forecastDetails != nil) { _, shown in
-                if !shown { forecastOpen = false }
+                if !shown { closeForecast() }
             }
-            .onChange(of: hours) { _, _ in forecastOpen = false }
-            .onChange(of: scenePhase) { _, phase in if phase == .background { forecastOpen = false } }
-            .onDisappear { forecastOpen = false }
+            .onChange(of: hours) { _, _ in closeForecast() }
+            .onChange(of: scenePhase) { _, phase in if phase == .background { closeForecast(animated: false) } }
+            // Closed the system's way (a tap outside): nothing left to play.
+            .onChange(of: forecastOpen) { _, open in
+                if !open { forecastCloseTask?.cancel() }
+            }
+            .onDisappear { closeForecast(animated: false) }
     }
 
     /// The marker callout's overlay and the moments that close it, kept out of `body`'s chain so it
@@ -1151,7 +1188,7 @@ struct GlucoseChart: View {
             .onChange(of: peekable(window).map(\.id)) { _, ids in calloutMarkersChanged(ids) }
             .onChange(of: closesCallout) { _, _ in
                 closeCallout()
-                forecastOpen = false
+                closeForecast()
             }
             .onChange(of: hours) { _, _ in closeCallout() }
             .onChange(of: calloutKeyFocusChanged) { old, new in
@@ -2267,25 +2304,30 @@ private struct ForecastOutlineShape: Shape {
 /// Where the forecast details popover points from: the forecast's line at the tapped point (or
 /// the 30-minute point), opening below it when that's in the top half of the chart and above it
 /// otherwise. The card is a popover kept a popover on iPhone, like the reading's details card, so
-/// a tap anywhere else (or Esc on the Mac, or VoiceOver's escape gesture) closes it, and it comes
-/// and goes the system's way, which follows Reduce Motion.
+/// a tap anywhere else (or Esc on the Mac, or VoiceOver's escape gesture) closes it. Inside, the
+/// card grows out of the line from its edge nearest it (`ForecastCardEntrance`), and `closing`
+/// plays that backwards before the chart lets the popover go.
 private struct ForecastPopoverAnchor: View {
     let proxy: ChartProxy
     let unit: GlucoseUnit
     let anchor: ForecastSample?
     @Binding var isPresented: Bool
     let details: ForecastDetails?
+    let closing: Bool
+    let close: () -> Void
 
     var body: some View {
         GeometryReader { geo in
             let plot = proxy.plotFrame.map { geo[$0] } ?? CGRect(origin: .zero, size: geo.size)
             let point = self.point(in: plot)
+            let fromTop = ForecastCardEntrance.opensFromTop(pointY: point.y, plotMidY: plot.midY)
             Color.clear
                 .frame(width: 8, height: 8)
                 .allowsHitTesting(false)
-                .popover(isPresented: $isPresented, arrowEdge: point.y < plot.midY ? .bottom : .top) {
+                .popover(isPresented: $isPresented, arrowEdge: fromTop ? .bottom : .top) {
                     if let details {
-                        ForecastDetailsCard(details: details, unit: unit)
+                        ForecastDetailsCard(details: details, unit: unit, opensFromTop: fromTop,
+                                            closing: closing, close: close)
                             .presentationCompactAdaptation(.popover)
                     }
                 }

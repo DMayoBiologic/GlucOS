@@ -29,6 +29,7 @@ final class ForecastDetailsTests: XCTestCase {
 
     func testShows30And60WithTheirRangeAndHitRate() throws {
         let d = try XCTUnwrap(ForecastDetails(outlook: outlook(), held: held))
+        XCTAssertEqual(d.startMgdl, 120)
         XCTAssertEqual(d.horizons.map(\.minutes), [30, 60])
         let h30 = d.horizons[0]
         XCTAssertEqual(h30.mgdl, 150)
