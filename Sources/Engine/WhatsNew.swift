@@ -182,7 +182,7 @@ enum WhatsNewCatalog {
         WhatsNewRelease(version: "1.74.0", highlights: [
             .init(symbol: "square.on.square",
                   title: "Catch entries logged twice",
-                  detail: "Log the same meal or dose twice within a few minutes and GlucOS asks \"Logged twice?\" with an Undo."),
+                  detail: "Log the same meal or insulin twice within a few minutes and GlucOS asks \"Logged twice?\" with an Undo."),
         ]),
         WhatsNewRelease(version: "1.73.0", highlights: [
             .init(symbol: "note.text",
