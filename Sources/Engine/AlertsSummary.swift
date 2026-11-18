@@ -226,6 +226,10 @@ enum AlertsSummaryText {
 
     static let byKind = "By kind"
     static let howTheyEnded = "How they ended"
+    /// With Compare on: the key for the thin marks on the kind bars, and the label beside the
+    /// thinner outcome bar under the main one.
+    static let previousMarkKey = "Mark: the period before"
+    static let previousShort = "Before"
 
     /// "7 of 9 were snoozed, dismissed or had Log treatment tapped." Nil with none.
     static func answeredLine(_ s: AlertsSummary) -> String? {
@@ -246,7 +250,7 @@ enum AlertsSummaryText {
 
     /// The row at the foot of the card.
     static let historyLine = "Open Alert History"
-    static let historyHint = "Opens Settings, Alerts, Alert History, which lists each alert of the last 7 days"
+    static let historyHint = "Opens Alert History, which lists each alert of the last 7 days"
 
     /// The whole card for VoiceOver, in a few sentences.
     static func spoken(_ s: AlertsSummary) -> String {

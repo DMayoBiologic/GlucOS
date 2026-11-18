@@ -14,6 +14,8 @@ enum PhoneRoute: Hashable {
     /// Insights with the evening recap's Today card on top, from a tap on the recap notification
     /// (when it went out).
     case insightsToday(Date)
+    /// Settings › Alerts › Alert History, zoomed out of the Insights Alerts card.
+    case alertHistory
 
     /// The "last logged" line's zoom source, whichever entry it names.
     static let lastLoggedSource = "logbook-last-logged"
@@ -28,6 +30,8 @@ enum PhoneRoute: Hashable {
         case .chartMarkerEntry(let id): return AnyHashable(id)
         // Grows from the home screen's Insights row, like Insights itself.
         case .insightsToday: return AnyHashable(PhoneRoute.insights)
+        // The Alerts card, whichever period it shows.
+        case .alertHistory: return AnyHashable(AlertsCardMotion.sourceID)
         }
     }
 

@@ -451,17 +451,25 @@ struct PhoneHighsCard: View {
 }
 
 /// Low and high alerts over the last 7, 14 or 30 days, by kind and how each ended
-/// (`AlertsCardView`). Tapping it opens Settings on Alerts › Alert History.
+/// (`AlertsCardView`). Tapping it zooms the card into Alert History (`PhoneRoute.alertHistory`);
+/// Back shrinks it home. A plain push under Reduce Motion. Without the home stack (never expected)
+/// it opens Settings on Alerts › Alert History as before.
 struct PhoneAlertsCard: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var logbook: LogbookStore
+    @Environment(\.phoneNavigator) private var navigator
 
     var body: some View {
-        AlertsCardView(records: logbook.alerts, readings: store.archive) {
+        let card = AlertsCardView(records: logbook.alerts, readings: store.archive) {
             Haptics.play(.choice)
-            AlertHistoryOpenRequest.shared.open()
+            if let navigator { navigator.push(.alertHistory) } else { AlertHistoryOpenRequest.shared.open() }
         }
         .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card.matchedTransitionSource(id: AnyHashable(AlertsCardMotion.sourceID), in: navigator.zoom)
+        } else {
+            card
+        }
     }
 }
 

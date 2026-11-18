@@ -44,6 +44,11 @@ struct DashboardView: View {
     @State private var cameFromCard: LogbookFilter?
     /// Back from that Logbook: Insights scrolls to this card.
     @State private var returnToCard: LogbookFilter?
+    /// The Insights Alerts card was clicked: Alert History shows in place of Insights until
+    /// "‹ Insights", Esc or another section (docs/InsightsAlerts.md).
+    @State private var showsAlertHistory = false
+    /// Back from that Alert History: Insights scrolls to the Alerts card.
+    @State private var returnToAlerts = false
     /// The entry the Logbook should select and bring into view (the popover's "last logged" line).
     @State private var revealEntry: UUID?
     /// ⌘J in the Logbook: it takes this as "open the jump-to-a-date calendar" and clears it.
@@ -203,11 +208,24 @@ struct DashboardView: View {
         case .outlook:
             OutlookSection { logSheet = .new }
         case .insights:
-            InsightsSection(readings: store.archive, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl,
-                            returnTo: $returnToCard, openLogbook: { openLogbook($0) },
-                            onLog: { logSheet = .new }, recapFiredAt: recapFiredAt)
-                // Cards with a period show the one this many periods back; their figures roll to it.
-                .environment(\.insightsStep, insightsStep)
+            // The Alerts card's Alert History cross-fades in over the page and back out.
+            Group {
+                if showsAlertHistory {
+                    InsightsAlertHistoryPage(back: closeAlertHistory) { link in
+                        // The Logbook around that alert, as from Settings: no way back to a card.
+                        DashboardRequest.shared.logbookLink = link
+                    }
+                } else {
+                    InsightsSection(readings: store.archive, unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl,
+                                    returnTo: $returnToCard, openLogbook: { openLogbook($0) },
+                                    onLog: { logSheet = .new }, recapFiredAt: recapFiredAt,
+                                    openAlertHistory: openAlertHistory, returnToAlerts: $returnToAlerts)
+                        // Cards with a period show the one this many periods back; their figures roll to it.
+                        .environment(\.insightsStep, insightsStep)
+                }
+            }
+            .id(showsAlertHistory)
+            .transition(.opacity)
         default:
             if store.archive.isEmpty {
                 if store.isRefreshing && settings.hasCredentials {
@@ -572,6 +590,8 @@ struct DashboardView: View {
     private func select(_ s: DashboardSection) {
         // Anywhere else in the sidebar ends the trip from an Insights card.
         if s != .logbook { cameFromCard = nil }
+        // So does any section pick, Insights included: it shows the cards again.
+        showsAlertHistory = false
         // The sidebar's highlight springs to the new row; the section cross-fades in with it.
         DS.animate(.emphasized, reduceMotion: reduceMotion) { section = s }
     }
@@ -626,6 +646,18 @@ struct DashboardView: View {
         case .hourOfDay: return HourlyInRangeText.title
         default: return chip.title
         }
+    }
+
+    /// The Insights Alerts card was clicked: Insights cross-fades to Alert History in place
+    /// (instant under Reduce Motion's short fade).
+    private func openAlertHistory() {
+        DS.animate(.standard, reduceMotion: reduceMotion) { showsAlertHistory = true }
+    }
+
+    /// Back from that Alert History: cross-fade to Insights, scrolled to the Alerts card.
+    private func closeAlertHistory() {
+        returnToAlerts = true
+        DS.animate(.standard, reduceMotion: reduceMotion) { showsAlertHistory = false }
     }
 
     /// Back from that Logbook: cross-fade to Insights, scrolled to the card it came from.

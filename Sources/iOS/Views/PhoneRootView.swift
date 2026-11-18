@@ -300,6 +300,9 @@ struct PhoneHomeView: View {
                     case .logbookLink(let link): PhoneLogbookView(link: link)
                     case .logbookEntry(let id), .chartMarkerEntry(let id): PhoneLogbookView(opening: id)
                     case .insightsToday(let firedAt): PhoneInsightsView(recapFiredAt: firedAt)
+                    // A row opens the Logbook around its alert on top, so Back comes back here
+                    // and then to the card.
+                    case .alertHistory: PhoneAlertHistoryScreen { path.append(PhoneRoute.logbookLink($0)) }
                     }
                 }
                 if reduceMotion || !route.zooms {
