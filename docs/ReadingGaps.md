@@ -22,6 +22,40 @@ iPhone Today and the Mac popover explain where readings are missing.
   screen: "Gap in readings from 2:10 pm to 2:42 pm: Mac was asleep." or, with several, "3 gaps in
   readings; the latest from …". The bridges and card are hidden from VoiceOver.
 
+## On widgets
+
+The Home Screen widgets (iPhone and Mac), StandBy, the Lock Screen accessories, the Glucose
+control and the Live Activity say the same thing, calmly, while a gap is still going on.
+
+- **When.** From 10 minutes after the last reading, the same edge as a gap in the chart. Between 6
+  and 10 minutes a late reading is only stale, as before ("Stale · 8m").
+- **Words.** "No readings for 12 min" ("No readings for 12m" on the Lock Screen), in grey with a
+  clock, never the amber warning. The status pill names the reason in a word or two; StandBy puts
+  it after the length ("No readings for 12 min · No signal"); the rectangular accessory's middle
+  line carries it. Once the number is withdrawn (30 minutes), the widgets add the last value
+  where it fits ("No readings for 45 min · last 6.1").
+- **Why** (`WidgetGap.reason`), worked out from the snapshot alone at each timeline entry:
+  - *Sensor warming up* / *Sensor ended*: the chart's own sensor rules, checked first.
+  - *Can't connect to LibreLinkUp*: the app's last check failed.
+  - *No signal from LibreLinkUp*: the app's last good check came at least half way through the
+    stretch. A good check returns any readings in between, so up to then there were none.
+  - *Not checked since 2:40 pm*: it didn't (in the background iOS lets the app check about every
+    15 minutes at best, §80). Readings may be waiting; VoiceOver adds "Open GlucOS to check."
+  - Nothing, when the app has never checked: just "No readings for 12 min".
+- **Live Activity.** "No readings since 2:10 pm" in place of the range word, in grey. A card only
+  redraws when an update arrives (the relay sends none while nothing changes) or at its stale
+  date, so it names the time, not a count that would stop. The card carries neither the sensor
+  nor the app's checks, so it gives no reason; a warm-up keeps its own countdown card.
+- **Budget.** No new data, timeline entries, reloads or wakes: the widgets already had an entry a
+  minute for the reading's first hour, and the reason only reads `fetchedAt`, `lastError` and
+  `sensor`. Nothing moves, so Reduce Motion changes nothing.
+- **VoiceOver.** "No readings for 12 minutes: No signal from LibreLinkUp. The last reading was 6.1
+  millimoles per litre at 2:10 pm." Never the range or trend.
+
+Code: `WidgetGap` and its callers in `Sources/Shared/WidgetGlance.swift`, `StatusPill` /
+`DetailLine` (Sources/Widget/WidgetComponents.swift), the rectangular accessory,
+`GlucoseActivityState.noReadingsLine`. Tests: `Tests/EngineTests/WidgetGapTests.swift`.
+
 Code: `Sources/Shared/ReadingGaps.swift` (rules, words, `PollLog`, `ReadingGapDrawIn`),
 `GlucoseChart.gapContext` and `ReadingGapLayer` (drawing), `GlucoseStore.polls`/`gapContext`.
 Tests: `Tests/EngineTests/ReadingGapsTests.swift`.

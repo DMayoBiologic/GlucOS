@@ -134,7 +134,7 @@ struct AccessoryGlucoseView: View {
 
     // MARK: Inline
 
-    /// One line beside the date: "6.1 ↗ · 2m", "Stale 6.1 · 12m", "No reading for 45m". The age
+    /// One line beside the date: "6.1 ↗ · 2m", "Stale 6.1 · 8m", "No readings for 12m". The age
     /// steps with the timeline's per-minute entries (`FreshnessSchedule`).
     private var inline: some View {
         HStack(spacing: 4) {
@@ -170,6 +170,9 @@ struct AccessoryGlucoseView: View {
                 Text("\(OutlookFormat.approx(h.sample.mgdl, unit: s.unit)) in \(h.minutes) min").font(.caption)
             } else if fresh, let range = s.range {
                 Text(range.label).font(.caption)
+            } else if let caption = AccessoryGlance.gapCaption(s, at: entry.date) {
+                // Ten minutes without a reading: why, where GlucOS can tell (`WidgetGap`).
+                Text(caption).font(.caption).lineLimit(1).minimumScaleFactor(0.8)
             } else if stale {
                 // The Lock Screen has no colour to carry it, so stale says so in words.
                 Text("Stale · trend paused").font(.caption)

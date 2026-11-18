@@ -91,6 +91,10 @@ struct StatusPill: View {
 
     private var content: (label: String, icon: String) {
         let s = entry.snapshot
+        // Ten minutes without a reading: why, where GlucOS can tell (`WidgetGap`), calmly.
+        if entry.freshness != .fresh, let gap = WidgetGap.state(s, at: entry.date) {
+            return (gap.reason?.short ?? "No readings", gap.reason?.systemImage ?? "clock")
+        }
         switch entry.freshness {
         case .fresh:
             let r = s.range ?? .inRange
@@ -202,8 +206,9 @@ struct HeroValue: View {
 
 // MARK: - Detail line
 
-/// Trend, change and age, e.g. "Rising · +0.3 · 2m ago". For an expired reading, what the last
-/// value was and when, so it's clear the dashes aren't a sensor fault you can ignore.
+/// Trend, change and age, e.g. "Rising · +0.3 · 2m ago". Ten minutes after the last reading,
+/// "No readings for 12 min" instead (`WidgetGap`, the chart's gap words), with the last value once
+/// the number is withdrawn, so it's clear the dashes aren't a sensor fault you can ignore.
 struct DetailLine: View {
     let entry: GlucoseEntry
     var showsTrendWord = true
@@ -214,7 +219,22 @@ struct DetailLine: View {
     var body: some View {
         let s = entry.snapshot
         Group {
-            if let cur = s.current {
+            if let cur = s.current, let gap = WidgetGap.state(s, at: entry.date) {
+                // "No readings for 12 min", and once the number has gone, what it was. The words
+                // step with the timeline's per-minute entries; nothing ticks or moves.
+                HStack(spacing: 3) {
+                    Image(systemName: "clock")
+                    if entry.freshness == .expired {
+                        ViewThatFits(in: .horizontal) {
+                            Text("\(WidgetGap.headline(gap)) · last \(s.unit.format(mgdl: cur.mgdl))")
+                            Text(WidgetGap.headline(gap))
+                        }
+                    } else {
+                        Text(WidgetGap.headline(gap))
+                    }
+                }
+                .foregroundStyle(.secondary)
+            } else if let cur = s.current {
                 switch entry.freshness {
                 case .fresh, .stale:
                     HStack(spacing: 4) {

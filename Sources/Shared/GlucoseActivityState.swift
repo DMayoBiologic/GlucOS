@@ -73,6 +73,15 @@ struct GlucoseActivityState: Codable, Hashable {
     }
     func isStale(at now: Date = Date()) -> Bool { now > staleDate }
 
+    /// What a stale card says instead of the range: "No readings since 2:10 pm", the calm words of
+    /// the widgets and the chart's gaps (`WidgetGap`, `ReadingGaps`). A card only redraws when an
+    /// update arrives (the relay sends none while nothing changes) or at its stale date, so it
+    /// names the time rather than a count of minutes that would stop counting. The age beside it
+    /// is the system's own timer. No reason: the card doesn't carry the sensor or the checks.
+    func noReadingsLine(calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent) -> String {
+        "No readings since \(ClockLabel.time(readingDate, calendar: calendar, locale: locale))"
+    }
+
     var valueText: String { glucoseUnit.format(mgdl: mgdl) }
     var deltaText: String? { deltaMgdl.map { glucoseUnit.formatDelta(mgdl: $0) } }
 
