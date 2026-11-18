@@ -145,7 +145,7 @@ final class SensorCoverageTests: XCTestCase {
                                                          gap(referenceNow.addingTimeInterval(-9 * day), 20 * 60))),
                                       context: context))
         XCTAssertEqual(s.byReason.map(\.reason), [.warmUp, .unknown])
-        XCTAssertEqual(s.byReason.map(\.seconds), [80 * 60, 20 * 60])
+        XCTAssertEqual(s.byReason.map(\.seconds), [80.0 * 60, 20.0 * 60])
         XCTAssertEqual(SensorCoverageText.reasonLine(s), "Most of the missing time: Sensor warming up (1 hr 20 min).")
     }
 
