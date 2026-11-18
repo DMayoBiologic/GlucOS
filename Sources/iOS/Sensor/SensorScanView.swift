@@ -6,6 +6,7 @@ import SwiftUI
 struct SensorScanView: View {
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var logbook: LogbookStore
     @State private var scanner = SensorScanner()
     @State private var result: SensorScanResult?
     @State private var error: String?
@@ -162,6 +163,10 @@ struct SensorScanView: View {
         do {
             let scanned = try await scanner.scan(.read)
             DS.animate(.emphasized, reduceMotion: reduceMotion) { result = scanned }
+            // A scan of a new sensor logs "Sensor started" too, as LibreLinkUp's report of it would.
+            if let sensor = scanned.startedSensor(lifetimeDays: settings.sensorLifetimeDays) {
+                logbook.logSensorStart(sensor, enabled: settings.logSensorStarts, follower: false)
+            }
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription

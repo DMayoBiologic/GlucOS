@@ -10,7 +10,7 @@ import Foundation
 enum MarkerPop {
     /// What a marker is, for what VoiceOver says about it.
     enum Kind: String, CaseIterable, Equatable, Sendable {
-        case meal, treatment, insulin, wake, note
+        case meal, treatment, insulin, wake, note, sensor
 
         /// "Meal", as said at the start of a sentence.
         var title: String {
@@ -20,6 +20,7 @@ enum MarkerPop {
             case .insulin: return "Insulin"
             case .wake: return "Wake-up"
             case .note: return "Note"
+            case .sensor: return "Sensor start"
             }
         }
     }

@@ -534,8 +534,14 @@ struct LogbookAddUndo: Equatable {
         return remote.contains { $0.id == entry.id && $0.modified > addedAt + LogbookUndo.echoTolerance }
     }
 
-    /// "Added note".
-    var title: String { "Added \(entry.kindNoun)" }
+    /// "Added note", or "Logged sensor start" for the event GlucOS logs by itself (`SensorStartLog`).
+    var title: String { isSensorStart ? "Logged \(entry.kindNoun)" : "Added \(entry.kindNoun)" }
+
+    /// The "Sensor started" event GlucOS logged on its own, rather than a note the user added.
+    var isSensorStart: Bool {
+        if case .context(let c) = entry { return c.isSensorStart }
+        return false
+    }
 }
 
 /// New meals or doses that look like a second copy of ones logged a few minutes before
@@ -725,7 +731,7 @@ enum LogbookUndoOffer: Equatable {
         case .deleted: return "trash"
         case .edited: return "pencil"
         case .batch: return "tag"
-        case .added: return "square.and.pencil"
+        case .added(let a): return a.isSensorStart ? ContextTag.sensorStarted.systemImage : "square.and.pencil"
         case .repeated: return "square.on.square"
         }
     }
@@ -736,7 +742,7 @@ enum LogbookUndoOffer: Equatable {
         case .deleted: return "Puts back what you deleted, on all your devices"
         case .edited: return "Puts back the entry as it was before your edit, on all your devices"
         case .batch: return "Puts back the entries as they were before, on all your devices"
-        case .added: return "Takes the note off again, on all your devices"
+        case .added(let a): return "Takes the \(a.entry.kindNoun) off again, on all your devices"
         case .repeated(let r): return r.hint
         }
     }
@@ -746,6 +752,13 @@ enum LogbookUndoOffer: Equatable {
     var isRepeat: Bool {
         if case .repeated = self { return true }
         return false
+    }
+
+    /// Shown wherever the Mac shows "Logged twice?" (over the popover and the dashboard's other
+    /// pages): that offer, and the sensor start GlucOS logged by itself, which no screen asked for.
+    var showsOutsideLogbook: Bool {
+        if case .added(let a) = self, a.isSensorStart { return true }
+        return isRepeat
     }
 
     /// Changes as the deletes pile up, for the title's number roll.
@@ -776,7 +789,7 @@ extension LogEntry {
         case .dose: return "dose"
         case .meal: return "meal"
         case .siteChange: return "site change"
-        case .context(let c): return AlertNote.isNote(c) ? "note" : "event"
+        case .context(let c): return AlertNote.isNote(c) ? "note" : c.isSensorStart ? "sensor start" : "event"
         }
     }
 }

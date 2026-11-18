@@ -31,7 +31,8 @@ struct LastLogged: Equatable, Sendable {
         let latest = now.addingTimeInterval(futureSlack)
         // Ties (a meal and its dose logged together) go to the one listed first, as the Logbook does.
         var best: LogEntry?
-        for e in entries where e.timestamp >= earliest && e.timestamp <= latest {
+        // A sensor start GlucOS logged by itself isn't something the user logged.
+        for e in entries where e.timestamp >= earliest && e.timestamp <= latest && !e.isSensorStart {
             if best == nil || e.timestamp > best!.timestamp { best = e }
         }
         return best.map { LastLogged($0) }

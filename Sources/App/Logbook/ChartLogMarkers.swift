@@ -25,6 +25,13 @@ extension ChartLogMarker {
                                       label: "Woke up at \(ClockLabel.time(c.timestamp))", kind: .wake,
                                       callout: .init(title: "Woke up", note: c.note)))
         }
+        // "Sensor started" (docs/SensorStartLog.md), which GlucOS logs by itself.
+        for c in contexts where c.isSensorStart && c.timestamp >= cutoff {
+            out.append(ChartLogMarker(id: c.id, date: c.timestamp, systemImage: ContextTag.sensorStarted.systemImage,
+                                      tint: Palette.context, lane: 2,
+                                      label: "Sensor started at \(ClockLabel.time(c.timestamp))", kind: .sensor,
+                                      callout: .init(title: "Sensor started", note: c.note)))
+        }
         if notes {
             let wakes = contexts.filter(\.isWake).map(\.timestamp)
             for c in contexts where c.timestamp >= cutoff && AlertNote.isNote(c) {

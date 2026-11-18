@@ -813,6 +813,16 @@ private struct LoggingSettingsTab: View {
                     .dependentRow()
             }
 
+            Section {
+                Toggle("Log new sensors", isOn: $settings.logSensorStarts)
+                    .settingsAnchor(.sensorStartLog)
+            } header: {
+                Text("Sensor")
+            } footer: {
+                Text("When GlucOS first sees a new sensor, it adds \"Sensor started\" to your Logbook at the time it started. Logged once, on all your devices.")
+                    .foregroundStyle(.secondary)
+            }
+
             KeyboardLoggingSection()
 
             if settings.therapy.logsInsulin {

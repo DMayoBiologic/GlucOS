@@ -368,13 +368,24 @@ struct PhoneSettingsView: View {
                 }
                 .dependentRow()
             }
+            Toggle("Log new sensors", isOn: $settings.logSensorStarts)
+                .settingsAnchor(.sensorStartLog)
         } header: {
             Text("Logging")
         } footer: {
-            Text(settings.therapy == .notSet
-                 ? "Tap Log on the main screen to record insulin, food and events. GlucOS asks how you take insulin the first time."
-                 : "\(settings.therapy.detail) GlucOS records what you enter; only the bolus calculator suggests a dose, from settings you confirm. Say \"Log in GlucOS\" to Siri, or add the Log widget to your Lock Screen, to log in one step.")
+            Text(loggingFooter)
         }
+    }
+
+    private var loggingFooter: String {
+        let intro: String
+        if settings.therapy == .notSet {
+            intro = "Tap Log on the main screen to record insulin, food and events. GlucOS asks how you take insulin the first time."
+        } else {
+            intro = "\(settings.therapy.detail) GlucOS records what you enter; only the bolus calculator suggests a dose, from settings you confirm. Say \"Log in GlucOS\" to Siri, or add the Log widget to your Lock Screen, to log in one step."
+        }
+        let sensors = "With Log new sensors on, a new sensor adds \"Sensor started\" to your Logbook at the time it started."
+        return intro + " " + sensors
     }
 
     private var presetsSection: some View {

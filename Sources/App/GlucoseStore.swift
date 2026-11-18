@@ -431,9 +431,20 @@ final class GlucoseStore: ObservableObject {
         EveningRecapScheduler.shared.update(readings: archive, settings: settings)
         // The evening-before reminder follows the sensor (only does anything when it moved).
         SensorEndReminderScheduler.shared.update(sensor: snapshot.sensor, settings: settings)
+        // A new sensor gets one "Sensor started" in the Logbook (only does anything once per sensor).
+        logbook?.logSensorStart(snapshot.sensor, enabled: settings.logSensorStarts, follower: Self.isFollowerOnly)
         SharedStore.save(snapshot)
         reloadChangedWidgets()
         onPublish?(snapshot)
+    }
+
+    /// A follower-only iPhone (no sensor of its own) never logs anything for a sensor.
+    private static var isFollowerOnly: Bool {
+        #if os(iOS)
+        return UserDefaults.standard.string(forKey: "phoneMode") == "follower"
+        #else
+        return false
+        #endif
     }
 
     /// What the widgets last drew from, so a publish that changes nothing they show reloads nothing.

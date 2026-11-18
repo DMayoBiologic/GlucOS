@@ -442,6 +442,53 @@ final class LogbookStore: ObservableObject {
         persist()
     }
 
+    // MARK: Sensor started
+
+    /// Sensors this device has dealt with (`SensorStartLog`): logged, found already logged, or
+    /// whose event was deleted, so a deleted "Sensor started" never comes back on its own.
+    private var handledSensorStarts: [UUID] = {
+        (UserDefaults.standard.stringArray(forKey: LogbookStore.handledSensorStartsKey) ?? []).compactMap(UUID.init(uuidString:))
+    }()
+    private static let handledSensorStartsKey = "sensorStartLog.handled"
+
+    private func rememberSensorStart(_ id: UUID) {
+        let list = SensorStartLog.remembering(id, in: handledSensorStarts)
+        guard list != handledSensorStarts else { return }
+        handledSensorStarts = list
+        UserDefaults.standard.set(list.map(\.uuidString), forKey: Self.handledSensorStartsKey)
+    }
+
+    /// Logs "Sensor started" at the sensor's start the first time this device sees a new sensor
+    /// (docs/SensorStartLog.md). Called on every publish; does nothing once the sensor is handled.
+    /// The event has the same id on every device and the sensor's start as its edit time, so the
+    /// Mac and iPhone keep one, and a delete made anywhere wins. A recent start offers the undo
+    /// toast ("Logged sensor start · Undo"). Never for a follower or with the setting off.
+    func logSensorStart(_ sensor: SensorInfo?, enabled: Bool, follower: Bool, now: Date = Date()) {
+        switch SensorStartLog.decide(sensor: sensor, enabled: enabled, follower: follower,
+                                     handled: Set(handledSensorStarts), exists: { self.entry(id: $0) != nil },
+                                     loggedStarts: contexts.filter(\.isSensorStart).map(\.timestamp), now: now) {
+        case .none:
+            return
+        case .remember(let id):
+            rememberSensorStart(id)
+        case .log(let event, let offersUndo):
+            guard let sensor else { return }
+            rememberSensorStart(event.id)
+            upsert(.context(event))
+            let modified = SensorStartLog.modified(for: sensor)
+            syncState.pending[event.id] = LogbookPendingChange(kind: LogbookRecordKind.context.rawValue,
+                                                               modified: modified, deleted: false)
+            persist()
+            guard offersUndo else { return }
+            lastDeleted = []
+            deletedAt = [:]
+            lastEdit = nil
+            lastBatch = nil
+            lastRepeat = nil
+            lastAdd = LogbookAddUndo(entry: .context(event), addedAt: modified)
+        }
+    }
+
     // MARK: Alert notes
 
     /// Saves `text` as the note on the alert that went off at `firedAt` (docs/AlertNotes.md): a new
@@ -784,6 +831,9 @@ final class LogbookStore: ObservableObject {
     /// Takes in changes pulled from the server.
     func applyRemote(_ records: [LogbookRecord]) {
         guard !records.isEmpty else { return }
+        // A sensor start another device logged, or deleted, is handled here too: this device won't
+        // log it again, even if it only sees the sensor later.
+        for r in records where SensorStartLog.isSensorStartID(r.id) { rememberSensorStart(r.id) }
         var c = syncContents
         let changed = LogbookMerge.apply(records, to: &c, state: &syncState)
         if changed {

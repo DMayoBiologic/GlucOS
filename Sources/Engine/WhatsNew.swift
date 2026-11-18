@@ -179,6 +179,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.77.0", highlights: [
+            .init(symbol: "sensor.tag.radiowaves.forward",
+                  title: "New sensors in your Logbook",
+                  detail: "When you start a new sensor, GlucOS adds Sensor started to your Logbook and chart at the time it began."),
+        ]),
         WhatsNewRelease(version: "1.76.0", highlights: [
             .init(symbol: "chart.line.downtrend.xyaxis",
                   title: "Forecasts after correction insulin",
