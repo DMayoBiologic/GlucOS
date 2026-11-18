@@ -673,6 +673,7 @@ private struct MacAlertHistorySheet: View {
                 AlertHistoryContent(records: records, readings: readings, unit: unit, alertsOn: alertsOn, open: open)
             }
             .listStyle(.inset)
+            .alertHistoryAnnouncements(records: records, readings: readings, unit: unit)
             // Each row's Add note, and "Added note · Undo" (⌘Z) after one (docs/AlertNotes.md).
             .alertNoteEditor()
             .overlay(alignment: .bottom) { LogbookUndoToast() }

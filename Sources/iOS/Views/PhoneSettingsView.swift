@@ -42,6 +42,7 @@ private struct PhoneAlertHistoryScreen: View {
             }
             Section {} footer: { Text(AlertHistoryText.footer) }
         }
+        .alertHistoryAnnouncements(records: logbook.alerts, readings: store.archive, unit: settings.unit)
         // Each row's Add note, and "Added note · Undo" after one (docs/AlertNotes.md).
         .alertNoteEditor()
         .overlay(alignment: .bottom) { PhoneUndoToast() }
