@@ -188,6 +188,8 @@ struct DayCompareView: View {
             }
         }
         .frame(height: chartHeight)
+        // Under Reduce Motion the lines switch at once; only the figures cross-fade.
+        .transaction { if reduceMotion { $0.animation = nil } }
     }
 
     @ChartContentBuilder
