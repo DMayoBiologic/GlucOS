@@ -12,6 +12,7 @@ struct GlucOSPhoneApp: App {
     @StateObject private var follows: FollowStore
     @StateObject private var sharing = OwnerSharing()
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("phoneMode") private var phoneMode: PhoneMode = .unset
 
     init() {
         let store = GlucoseStore()
@@ -58,6 +59,10 @@ struct GlucOSPhoneApp: App {
                 .environmentObject(sharing)
                 .environmentObject(PhoneLogRouter.shared)
                 .modifier(PhoneTextScale())
+                // The Home Screen quick actions' usual meal follows the Your usual entries (a meal
+                // logged, a new part of the day), and the list follows the phone's mode.
+                .onChange(of: store.snapshot.usuals) { _, usuals in PhoneQuickActions.install(usuals: usuals ?? []) }
+                .onChange(of: phoneMode) { _, _ in PhoneQuickActions.install() }
                 .onOpenURL { url in
                     if let token = FollowLink.token(from: url) {
                         Task { await follows.open(token: token) }
@@ -79,7 +84,8 @@ struct GlucOSPhoneApp: App {
             if phase == .active, let id = UsualActions.takePending() { PhoneLogRouter.shared.openUsual(id) }
             // Likewise a Control Center control tap.
             if phase == .active, let target = ControlActions.takePending() { PhoneLogRouter.shared.openControl(target) }
-            // The Home Screen quick actions follow the phone's mode (a follower-only phone gets none).
+            // The Home Screen quick actions follow the phone's mode (a follower-only phone gets
+            // only the reading).
             if phase == .active { PhoneQuickActions.install() }
         }
     }
@@ -163,32 +169,47 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     }
 }
 
-/// The Home Screen quick actions (long-press the app icon): Log treatment, Log meal, Latest reading
-/// (`HomeQuickAction`, docs/iOS.md "Home Screen quick actions").
+/// The Home Screen quick actions (long-press the app icon): Log treatment, Log meal (or the usual
+/// meal), Log insulin, What's my glucose (`HomeQuickAction`, docs/iOS.md "Home Screen quick actions").
 @MainActor
 enum PhoneQuickActions {
-    /// This phone logs its own readings: it picked "I wear a sensor" on the welcome screen.
-    static var logsOwnReadings: Bool {
-        UserDefaults.standard.string(forKey: "phoneMode") == PhoneMode.sensor.rawValue
+    /// How this phone uses GlucOS, from the welcome screen's choice.
+    static var mode: HomeQuickAction.Mode {
+        switch PhoneMode(rawValue: UserDefaults.standard.string(forKey: "phoneMode") ?? "") ?? .unset {
+        case .sensor: return .sensor
+        case .follower: return .follower
+        case .unset: return .unset
+        }
     }
 
-    /// Sets the icon's items for the phone's mode. Cheap; called at launch and on each return.
-    static func install() {
-        let items = HomeQuickAction.offered(logsOwnReadings: logsOwnReadings).map { action in
-            UIApplicationShortcutItem(type: action.type, localizedTitle: action.title,
-                                      localizedSubtitle: action.subtitle,
-                                      icon: UIApplicationShortcutIcon(systemImageName: action.symbol))
+    /// What was last handed to iOS, so an unchanged list isn't set again on every publish.
+    private static var installed: [HomeQuickItem]?
+
+    /// Sets the icon's items for the phone's mode and its "Your usual" entries (the snapshot's,
+    /// worked out on every publish). Cheap; called at launch, on each return and when the usual
+    /// entries or the mode change.
+    static func install(usuals: [UsualGlance]? = nil) {
+        let usuals = usuals ?? PhoneServices.shared?.store.snapshot.usuals ?? []
+        let items = HomeQuickAction.items(mode: mode, usuals: usuals)
+        guard items != installed else { return }
+        installed = items
+        UIApplication.shared.shortcutItems = items.map { item in
+            UIApplicationShortcutItem(type: item.type, localizedTitle: item.title,
+                                      localizedSubtitle: item.subtitle,
+                                      icon: UIApplicationShortcutIcon(systemImageName: item.symbol))
         }
-        UIApplication.shared.shortcutItems = items
     }
 
     /// True when the item was one of ours and this phone acted on it.
     @discardableResult
     static func handle(_ item: UIApplicationShortcutItem) -> Bool {
-        guard let action = HomeQuickAction.resolve(type: item.type, logsOwnReadings: logsOwnReadings) else { return false }
-        PhoneLogRouter.shared.openQuickAction(action)
-        // Latest reading should be the latest: fetch now rather than at the next timer.
-        if action.destination == .today { Task { await PhoneServices.shared?.store.refresh() } }
+        let mode = mode
+        guard let destination = HomeQuickAction.resolve(type: item.type, mode: mode) else { return false }
+        // A follower-only phone opens on the people it follows, which fetch as the app comes back.
+        guard mode == .sensor else { return true }
+        PhoneLogRouter.shared.openQuickAction(destination)
+        // What's my glucose should be the latest: fetch now rather than at the next timer.
+        if destination == .today { Task { await PhoneServices.shared?.store.refresh() } }
         return true
     }
 }

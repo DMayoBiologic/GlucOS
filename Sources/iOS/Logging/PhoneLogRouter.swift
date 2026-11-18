@@ -82,19 +82,22 @@ final class PhoneLogRouter: ObservableObject {
     }
 
     /// A Home Screen quick action (long-press the app icon, `HomeQuickAction`). None logs anything:
-    /// Log treatment and Log meal open the log sheet, Latest reading goes back to Today.
-    func openQuickAction(_ action: HomeQuickAction) {
-        switch action.destination {
+    /// Log treatment, Log meal, Log insulin and the usual meal open the log sheet, What's my glucose
+    /// goes back to Today.
+    func openQuickAction(_ destination: HomeQuickAction.Destination) {
+        switch destination {
         case .treating(let treatment): treat(treatment, from: HomeQuickAction.origin)
         case .log(let part): open(part, from: HomeQuickAction.origin)
+        case .usual(let id): openUsual(id, from: HomeQuickAction.origin)
         case .today: showToday()
         }
     }
 
-    /// The log sheet filled in from a usual entry: the Your usual widget's buttons.
-    func openUsual(_ id: String) {
+    /// The log sheet filled in from a usual entry: the Your usual widget's buttons and the Home
+    /// Screen's usual meal.
+    func openUsual(_ id: String, from origin: LogOrigin = .widget) {
         savedSinceOpen = false
-        request = PhoneLogRequest(target: .usual(id: id), origin: .widget)
+        request = PhoneLogRequest(target: .usual(id: id), origin: origin)
     }
 
     /// The log sheet editing `entry`. `source`: the Logbook row (or open card) it was tapped on,
