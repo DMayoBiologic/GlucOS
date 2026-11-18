@@ -95,6 +95,12 @@ struct DashboardView: View {
                 if width > 0 && padding != detailPadding { detailPadding = padding }
             }
             .overlay(alignment: .bottom) { toastView }
+            // "Logged twice?" with Undo on the pages without an undo toast of their own (`DoubleLog`).
+            .overlay(alignment: .bottom) {
+                if section != .logbook && !(section == .insights && showsAlertHistory) {
+                    LogbookUndoToast(shows: \.isRepeat)
+                }
+            }
             .sheet(isPresented: $showLogbookExport) { logbookExportSheet }
             .sheet(isPresented: $showShortcuts) {
                 ShortcutListView(groups: ShortcutCatalog.dashboard(globalKey: settings.activeGlobalLogShortcut)) {

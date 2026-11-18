@@ -179,6 +179,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.74.0", highlights: [
+            .init(symbol: "square.on.square",
+                  title: "Catch entries logged twice",
+                  detail: "Log the same meal or dose twice within a few minutes and GlucOS asks \"Logged twice?\" with an Undo."),
+        ]),
         WhatsNewRelease(version: "1.73.0", highlights: [
             .init(symbol: "note.text",
                   title: "Notes on the chart",

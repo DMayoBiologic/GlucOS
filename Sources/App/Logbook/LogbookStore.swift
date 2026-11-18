@@ -48,12 +48,16 @@ final class LogbookStore: ObservableObject {
     /// The last note added from Alert History, kept so it can be taken back (`LogbookAddUndo`).
     /// Also one Undo at a time.
     @Published private(set) var lastAdd: LogbookAddUndo?
+    /// New meals or doses that look logged twice ("Logged twice?", `DoubleLog`), kept so the new
+    /// copies can be taken back. Also one Undo at a time.
+    @Published private(set) var lastRepeat: LogbookRepeatUndo?
 
     /// What the undo toast offers, if anything.
     var undoOffer: LogbookUndoOffer? {
         if let lastEdit { return .edited(lastEdit) }
         if let lastBatch { return .batch(lastBatch) }
         if let lastAdd { return .added(lastAdd) }
+        if let lastRepeat { return .repeated(lastRepeat) }
         return lastDeleted.isEmpty ? nil : .deleted(lastDeleted)
     }
 
@@ -158,6 +162,7 @@ final class LogbookStore: ObservableObject {
         if lastEdit?.before.id == entry.id { lastEdit = nil }
         if let batch = lastBatch, batch.ids.contains(entry.id) { lastBatch = batch.dropping([entry.id]) }
         if lastAdd?.entry.id == entry.id { lastAdd = nil }
+        if let r = lastRepeat, r.pairs.contains(where: { $0.entry.id == entry.id || $0.earlier.id == entry.id }) { lastRepeat = nil }
         if case .dose(let d) = entry {
             // Only a new name is added to the list: editing an old dose's note mustn't bring back
             // an insulin the user deleted.
@@ -265,6 +270,7 @@ final class LogbookStore: ObservableObject {
         lastEdit = nil
         lastBatch = nil
         lastAdd = nil
+        lastRepeat = nil
         // Accumulate while the undo banner is up, so Undo restores every delete since.
         lastDeleted += removed
         doses.removeAll { ids.contains($0.id) }
@@ -300,6 +306,7 @@ final class LogbookStore: ObservableObject {
         lastEdit = nil
         lastBatch = nil
         lastAdd = nil
+        lastRepeat = nil
     }
 
     /// After a log sheet saves an edit: offers Undo for it, if the entry changed. `before` is the
@@ -313,6 +320,7 @@ final class LogbookStore: ObservableObject {
         deletedAt = [:]
         lastBatch = nil
         lastAdd = nil
+        lastRepeat = nil
         lastEdit = offer
     }
 
@@ -352,6 +360,7 @@ final class LogbookStore: ObservableObject {
             deletedAt = [:]
             lastEdit = nil
             lastAdd = nil
+            lastRepeat = nil
             lastBatch = offer
         }
         return changed.count
@@ -372,10 +381,11 @@ final class LogbookStore: ObservableObject {
         persist()
     }
 
-    /// Undo on the toast: the last edit, the last batch change, the last added note, or the last
-    /// delete.
+    /// Undo on the toast: the last edit, the last batch change, the last added note, the entries
+    /// that looked logged twice, or the last delete.
     func undo() {
-        if lastEdit != nil { undoEdit() } else if lastBatch != nil { undoBatch() } else if lastAdd != nil { undoAdd() } else { undoDelete() }
+        if lastEdit != nil { undoEdit() } else if lastBatch != nil { undoBatch() } else if lastAdd != nil { undoAdd() }
+        else if lastRepeat != nil { undoRepeat() } else { undoDelete() }
     }
 
     /// Takes the last added note off again, on every device (a delete with no Undo of its own).
@@ -389,6 +399,40 @@ final class LogbookStore: ObservableObject {
         siteChanges.removeAll { $0.id == id }
         contexts.removeAll { $0.id == id }
         touch(id, kind: add.entry.recordKind, deleted: true)
+        persist()
+    }
+
+    // MARK: Logged twice
+
+    /// After new entries are saved (a log sheet's Log, Log Again Now): when a meal or dose among
+    /// them looks like one logged within a few minutes of it (`DoubleLog`), the undo toast says
+    /// "Logged twice?" and offers Undo. Replaces any other pending Undo, as every new offer does.
+    /// Never blocks, deletes or changes anything by itself. `ids` are the entries just saved,
+    /// never each other's twins.
+    func offerRepeatUndo(for ids: [UUID]) {
+        let saved = ids.compactMap { entry(id: $0) }
+        let times = Dictionary(saved.compactMap { e in syncState.pending[e.id].map { (e.id, $0.modified) } },
+                               uniquingKeysWith: { a, _ in a })
+        guard let offer = LogbookRepeatUndo.offer(saved: saved, in: entries, addedAt: times) else { return }
+        lastDeleted = []
+        deletedAt = [:]
+        lastEdit = nil
+        lastBatch = nil
+        lastAdd = nil
+        lastRepeat = offer
+    }
+
+    /// Takes the new copies off again, on every device (a delete with no Undo of its own). Only
+    /// the new ones, and only while their earlier twins are still there.
+    func undoRepeat() {
+        guard let r = lastRepeat else { return }
+        lastRepeat = nil
+        let ids = Set(r.removals(current: { self.entry(id: $0) }))
+        guard !ids.isEmpty else { return }
+        let removed = ids.compactMap { entry(id: $0) }
+        doses.removeAll { ids.contains($0.id) }
+        meals.removeAll { ids.contains($0.id) }
+        for e in removed { touch(e.id, kind: e.recordKind, deleted: true) }
         persist()
     }
 
@@ -419,6 +463,7 @@ final class LogbookStore: ObservableObject {
                 deletedAt = [:]
                 lastEdit = nil
                 lastBatch = nil
+                lastRepeat = nil
                 lastAdd = LogbookAddUndo(entry: .context(note), addedAt: syncState.pending[note.id]?.modified)
             }
             return note.id
@@ -431,6 +476,7 @@ final class LogbookStore: ObservableObject {
     func duplicate(_ entry: LogEntry, at time: Date = Date()) -> UUID {
         let copy = entry.copied(at: time)
         save(copy)
+        offerRepeatUndo(for: [copy.id])
         return copy.id
     }
 
@@ -759,6 +805,7 @@ final class LogbookStore: ObservableObject {
         if let edit = lastEdit, edit.superseded(by: records) { lastEdit = nil }
         if let batch = lastBatch { lastBatch = batch.dropping(batch.superseded(by: records)) }
         if let add = lastAdd, add.superseded(by: records) { lastAdd = nil }
+        if let r = lastRepeat, r.superseded(by: records) { lastRepeat = nil }
         let gone = LogbookUndo.superseded(by: records, deletedAt: deletedAt)
         if !gone.isEmpty {
             lastDeleted.removeAll { gone.contains($0.id) }

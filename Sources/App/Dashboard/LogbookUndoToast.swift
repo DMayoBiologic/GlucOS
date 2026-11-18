@@ -23,9 +23,16 @@ struct LogbookUndoToast: View {
     /// Where a dragged-away toast flies off to.
     @State private var exit: CGSize = .zero
     @State private var width: CGFloat = 480
+    /// Which offers this toast shows: every one in the Logbook and Settings, only "Logged twice?"
+    /// over the popover and the dashboard's other pages.
+    private let shows: (LogbookUndoOffer) -> Bool
+
+    init(shows: @escaping (LogbookUndoOffer) -> Bool = { _ in true }) {
+        self.shows = shows
+    }
 
     var body: some View {
-        let offer = logbook.undoOffer
+        let offer = logbook.undoOffer.flatMap { shows($0) ? $0 : nil }
         ZStack {
             if let offer {
                 toast(offer)

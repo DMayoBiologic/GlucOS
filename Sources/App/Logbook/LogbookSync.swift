@@ -538,6 +538,70 @@ struct LogbookAddUndo: Equatable {
     var title: String { "Added \(entry.kindNoun)" }
 }
 
+/// New meals or doses that look like a second copy of ones logged a few minutes before
+/// (`DoubleLog`), offered on the undo toast as "Logged twice? 4 u NovoRapid · Undo". Nothing is
+/// taken off unless the user taps Undo, which deletes only the new entries, on every device, and
+/// only while the earlier twin is still there, so Undo can never leave the user with neither.
+struct LogbookRepeatUndo: Equatable {
+    /// Fresh for every offer, so a second one restarts the toast's countdown.
+    let token: UUID
+    /// Each new entry with the earlier one it looks like.
+    let pairs: [Pair]
+    /// Each new entry's add time, as pushed (`LogbookPendingChange.modified`).
+    var addedAt: [UUID: Double]
+
+    struct Pair: Equatable {
+        let entry: LogEntry
+        let earlier: LogEntry
+    }
+
+    init(pairs: [Pair], addedAt: [UUID: Double], token: UUID = UUID()) {
+        self.token = token
+        self.pairs = pairs
+        self.addedAt = addedAt
+    }
+
+    /// The offer for the entries just saved (`saved`), checked against everything else in
+    /// `entries`, or nil when none looks logged twice. Entries saved together are never each
+    /// other's twins.
+    static func offer(saved: [LogEntry], in entries: [LogEntry], addedAt: [UUID: Double],
+                      token: UUID = UUID()) -> LogbookRepeatUndo? {
+        let ids = Set(saved.map(\.id))
+        let pairs = saved.compactMap { e in
+            DoubleLog.earlier(for: e, in: entries, excluding: ids).map { Pair(entry: e, earlier: $0) }
+        }
+        guard !pairs.isEmpty else { return nil }
+        return LogbookRepeatUndo(pairs: pairs, addedAt: addedAt.filter { id, _ in pairs.contains { $0.entry.id == id } },
+                                 token: token)
+    }
+
+    var ids: [UUID] { pairs.map(\.entry.id) }
+    var entries: [LogEntry] { pairs.map(\.entry) }
+
+    /// The ids Undo deletes: each new entry still there under the same id and kind, whose earlier
+    /// twin is also still there. Never the earlier one.
+    func removals(current: (UUID) -> LogEntry?) -> [UUID] {
+        pairs.compactMap { p in
+            guard let now = current(p.entry.id), now.sameKind(as: p.entry),
+                  current(p.earlier.id) != nil else { return nil }
+            return p.entry.id
+        }
+    }
+
+    /// True when `remote` holds a later change to a new entry, or any change to an earlier twin
+    /// (an edit or delete on another device). This device's own adds echoing back don't count.
+    func superseded(by remote: [LogbookRecord]) -> Bool {
+        remote.contains { r in
+            if pairs.contains(where: { $0.earlier.id == r.id }) { return true }
+            guard let t = addedAt[r.id] else { return false }
+            return r.modified > t + LogbookUndo.echoTolerance
+        }
+    }
+
+    var title: String { DoubleLog.title(entries) }
+    var hint: String { DoubleLog.hint(earlier: pairs.map(\.earlier)) }
+}
+
 /// One change made to several entries at once (tagging the Logbook's selection) that can still be
 /// taken back with the undo toast ("Added Exercise to 3 entries · Undo"). It holds each entry
 /// exactly as it was before, and Undo saves those back under the same ids, so they sync like any
@@ -606,6 +670,8 @@ enum LogbookUndoOffer: Equatable {
     case batch(LogbookBatchEditUndo)
     /// A new entry added outside a log sheet (a note from Alert History).
     case added(LogbookAddUndo)
+    /// A meal or dose that looks logged twice (`DoubleLog`).
+    case repeated(LogbookRepeatUndo)
 
     /// The toast's text.
     var title: String {
@@ -614,6 +680,7 @@ enum LogbookUndoOffer: Equatable {
         case .edited(let edit): return edit.title
         case .batch(let b): return b.title
         case .added(let a): return a.title
+        case .repeated(let r): return r.title
         }
     }
 
@@ -624,6 +691,7 @@ enum LogbookUndoOffer: Equatable {
         case .edited(let edit): return [edit.token]
         case .batch(let b): return [b.token]
         case .added(let a): return [a.token]
+        case .repeated(let r): return [r.token]
         }
     }
 
@@ -634,6 +702,7 @@ enum LogbookUndoOffer: Equatable {
         case .edited: return "pencil"
         case .batch: return "tag"
         case .added: return "square.and.pencil"
+        case .repeated: return "square.on.square"
         }
     }
 
@@ -644,7 +713,15 @@ enum LogbookUndoOffer: Equatable {
         case .edited: return "Puts back the entry as it was before your edit, on all your devices"
         case .batch: return "Puts back the entries as they were before, on all your devices"
         case .added: return "Takes the note off again, on all your devices"
+        case .repeated(let r): return r.hint
         }
+    }
+
+    /// "Logged twice?", which the Mac also shows over the menu bar popover and the dashboard's
+    /// other pages, where a quick log or Log Again Now lands.
+    var isRepeat: Bool {
+        if case .repeated = self { return true }
+        return false
     }
 
     /// Changes as the deletes pile up, for the title's number roll.
@@ -654,6 +731,7 @@ enum LogbookUndoOffer: Equatable {
         case .edited: return 1
         case .batch(let b): return b.count
         case .added: return 1
+        case .repeated(let r): return r.pairs.count
         }
     }
 }
