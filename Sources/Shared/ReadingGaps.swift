@@ -8,6 +8,7 @@ import Foundation
 /// - the sensor was warming up (the stretch reaches into a new sensor's first hour),
 /// - the sensor had ended,
 /// - GlucOS kept checking but LibreLinkUp had nothing new ("No signal from LibreLinkUp"),
+/// - GlucOS kept checking but most checks failed ("Can't connect to LibreLinkUp"),
 /// - the Mac or iPhone was asleep, so GlucOS wasn't checking,
 ///
 /// and otherwise just "No readings". VoiceOver hears one line in the chart's summary. Plain
@@ -38,6 +39,8 @@ enum ReadingGaps {
         case warmUp
         case sensorEnded
         case noSignal
+        /// GlucOS kept checking, but at least half of that time its checks were failing.
+        case cantConnect
         case asleep(Device)
         case unknown
 
@@ -47,6 +50,7 @@ enum ReadingGaps {
             case .warmUp: return "Sensor warming up"
             case .sensorEnded: return "Sensor ended"
             case .noSignal: return "No signal from LibreLinkUp"
+            case .cantConnect: return "Can't connect to LibreLinkUp"
             case .asleep(let d): return "\(d.name) was asleep"
             case .unknown: return "No readings"
             }
@@ -61,6 +65,8 @@ enum ReadingGaps {
                 return "The sensor stopped giving readings when it ended."
             case .noSignal:
                 return "GlucOS kept checking, but LibreLinkUp had no new readings from the sensor."
+            case .cantConnect:
+                return "GlucOS kept checking, but couldn't reach LibreLinkUp for most of this stretch."
             case .asleep(let d):
                 return "GlucOS wasn't checking while the \(d.name) slept, and LibreLinkUp had no readings to fill in."
             case .unknown:
@@ -73,6 +79,7 @@ enum ReadingGaps {
             case .warmUp: return "hourglass"
             case .sensorEnded: return "sensor.tag.radiowaves.forward"
             case .noSignal: return "antenna.radiowaves.left.and.right.slash"
+            case .cantConnect: return "wifi.exclamationmark"
             case .asleep: return "moon.zzz"
             case .unknown: return "questionmark.circle"
             }
@@ -129,7 +136,11 @@ enum ReadingGaps {
         // Only where the record of checks reaches back that far: before it, nobody knows.
         guard let began = context.polls.began, began <= start else { return .unknown }
         let checked = context.polls.covered(from: start, to: end)
-        return checked / end.timeIntervalSince(start) >= checkedShare ? .noSignal : .asleep(context.device)
+        guard checked / end.timeIntervalSince(start) >= checkedShare else { return .asleep(context.device) }
+        // Checking, but failing for at least half of the time it was checking: the connection,
+        // not the sensor.
+        let failing = context.polls.failing(from: start, to: end)
+        return failing / checked >= checkedShare ? .cantConnect : .noSignal
     }
 
     /// "2:10 pm – 2:42 pm · 32 min" for the card.
@@ -173,6 +184,9 @@ struct PollLog: Codable, Hashable, Sendable {
     private(set) var spans: [Span] = []
     /// The first fetch ever recorded: gaps before it get no reason.
     private(set) var began: Date?
+    /// The stretches whose fetches failed, joined the same way (oldest first). Logs saved before
+    /// these were kept read as having none.
+    private(set) var failed: [Span] = []
 
     static let keeps: TimeInterval = 48 * 3600
     /// A fetch this soon after the last one carries the stretch on (or three poll intervals, if
@@ -180,33 +194,66 @@ struct PollLog: Codable, Hashable, Sendable {
     static let joins: TimeInterval = 5 * 60
     static let defaultsKey = "readingGapPollLog"
 
-    init(spans: [Span] = [], began: Date? = nil) {
+    init(spans: [Span] = [], began: Date? = nil, failed: [Span] = []) {
         self.spans = spans
         self.began = began ?? spans.first?.start
+        self.failed = failed
+    }
+
+    private enum CodingKeys: String, CodingKey { case spans, began, failed }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        spans = try c.decodeIfPresent([Span].self, forKey: .spans) ?? []
+        began = try c.decodeIfPresent(Date.self, forKey: .began)
+        failed = try c.decodeIfPresent([Span].self, forKey: .failed) ?? []
     }
 
     /// A fetch at `date`, with the app polling every `interval` seconds.
     mutating func record(_ date: Date, interval: TimeInterval = 60) {
         if began == nil { began = date }
-        let join = max(Self.joins, 3 * interval)
-        if var last = spans.last, date >= last.start {
-            if date.timeIntervalSince(last.end) <= join {
-                last.end = max(last.end, date)
-                spans[spans.count - 1] = last
-            } else {
-                spans.append(Span(start: date, end: date))
-            }
-        } else if spans.isEmpty {
-            spans.append(Span(start: date, end: date))
-        }
-        let cutoff = date.addingTimeInterval(-Self.keeps)
-        spans.removeAll { $0.end < cutoff }
+        Self.join(date, into: &spans, within: max(Self.joins, 3 * interval))
+        prune(before: date.addingTimeInterval(-Self.keeps))
+    }
+
+    /// The fetch at `date` (already `record`ed) failed.
+    mutating func recordFailure(_ date: Date, interval: TimeInterval = 60) {
+        Self.join(date, into: &failed, within: max(Self.joins, 3 * interval))
+        prune(before: date.addingTimeInterval(-Self.keeps))
     }
 
     /// Seconds between `start` and `end` that GlucOS was checking.
     func covered(from start: Date, to end: Date) -> TimeInterval {
+        Self.overlap(spans, from: start, to: end)
+    }
+
+    /// Seconds between `start` and `end` that GlucOS's checks were failing.
+    func failing(from start: Date, to end: Date) -> TimeInterval {
+        Self.overlap(failed, from: start, to: end)
+    }
+
+    private mutating func prune(before cutoff: Date) {
+        spans.removeAll { $0.end < cutoff }
+        failed.removeAll { $0.end < cutoff }
+    }
+
+    /// Carries the last stretch on to `date` if it's within `join` of its end, else starts one.
+    private static func join(_ date: Date, into list: inout [Span], within join: TimeInterval) {
+        if var last = list.last, date >= last.start {
+            if date.timeIntervalSince(last.end) <= join {
+                last.end = max(last.end, date)
+                list[list.count - 1] = last
+            } else {
+                list.append(Span(start: date, end: date))
+            }
+        } else if list.isEmpty {
+            list.append(Span(start: date, end: date))
+        }
+    }
+
+    private static func overlap(_ list: [Span], from start: Date, to end: Date) -> TimeInterval {
         guard end > start else { return 0 }
-        return spans.reduce(0) { sum, s in
+        return list.reduce(0) { sum, s in
             let lo = max(s.start, start), hi = min(s.end, end)
             return hi > lo ? sum + hi.timeIntervalSince(lo) : sum
         }

@@ -13,11 +13,26 @@ iPhone Today and the Mac popover explain where readings are missing.
   - *Sensor warming up*: the gap reaches into the current sensor's first hour (plus 20 minutes'
     grace), which covers the old sensor ending before it.
   - *Sensor ended*: the gap starts at (or up to 5 minutes before) the sensor's end.
-  - *No signal from LibreLinkUp*: GlucOS was checking for at least half the gap.
+  - *Can't connect to LibreLinkUp*: GlucOS was checking for at least half the gap, and its
+    checks were failing for at least half of that time.
+  - *No signal from LibreLinkUp*: GlucOS was checking for at least half the gap (and mostly
+    getting through).
   - *Mac was asleep* / *iPhone was asleep*: it wasn't.
   - *No readings*: the gap is older than the record of checks, so there's no telling.
 - **Record of checks.** `PollLog` (UserDefaults `readingGapPollLog`) notes every fetch, failed or
   not, joining fetches less than 5 minutes (or 3 poll intervals) apart into stretches, kept for 48 h.
+  Failed fetches are also joined into their own stretches (`failed`, missing from logs saved
+  before round 82, which read as none).
+- **Check now** (round 82, `ReadingGapCheck`). When the newest gap on the chart says *No signal*
+  or *Can't connect*, its card ends with a Check Now button (the card then takes the pointer and
+  touches; on the Mac it stays up while the pointer moves from the bridge onto it). A tap runs one
+  fetch through `GlucoseStore.refresh()` (or waits for one already under way), and the spinner
+  becomes a check mark (an alert mark if it failed; a plain swap under Reduce Motion). The card
+  then says "Connected, new reading 6.1", "Connected, no new reading yet", or the connection
+  problem's title in plain words. One tap per 30 seconds: until then the button reads "Check
+  again in 12 s", ticking once a second only for those 30 seconds. It never schedules anything or
+  changes polling. Followers (no LibreLinkUp login) never get it. VoiceOver gets a "Check now"
+  action on the chart, and hears the result once.
 - **VoiceOver.** The chart stays one element; its summary gains one line for the gaps ending on
   screen: "Gap in readings from 2:10 pm to 2:42 pm: Mac was asleep." or, with several, "3 gaps in
   readings; the latest from …". The bridges and card are hidden from VoiceOver.
