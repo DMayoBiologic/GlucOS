@@ -180,37 +180,7 @@ struct PhoneLogbookView: View {
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic),
                     prompt: "Food, insulin, notes, or a day")
         .autocorrectionDisabled()
-        .navigationTitle(selecting ? LogbookSelectionText.title(pickedEntries(shown).count) : "Logbook")
-        .navigationBarTitleDisplayMode(.large)
-        .navigationBarBackButtonHidden(selecting)
-        .toolbar { if selecting { selectionToolbar(shown) } }
-        .toolbar {
-            if !selecting {
-            ToolbarItem(placement: .topBarTrailing) {
-                // Toolbar icons bounce once when tapped (round 48); still under Reduce Motion.
-                Button { exportTaps += 1; showsExport = true } label: {
-                    Image(systemName: "square.and.arrow.up").symbolBounce(on: exportTaps)
-                }
-                .accessibilityLabel("Export for a clinic visit")
-            }
-            ToolbarItem(placement: .topBarTrailing) { alertsMenu }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { logTaps += 1; router.open(nil) } label: {
-                    Image(systemName: "plus").symbolBounce(on: logTaps)
-                }
-                .accessibilityLabel("Log something")
-            }
-            }
-        }
-        // "New Tag…" for the picked entries.
-        .alert("New Tag", isPresented: $askingTag) {
-            TextField("Tag", text: $tagDraft)
-                .textInputAutocapitalization(.words)
-            Button("Add") { if let t = LogbookTags.cleaned(tagDraft) { tagPicked(t, adding: true, shown: shown) } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Added to every selected entry. Tags help you find entries; they don't change Insights or the forecast.")
-        }
+        .phoneLogbookChrome { v in chrome(v, shown: shown) }
         .sheet(isPresented: $showsExport) { exportSheet }
         // A day's note: one line, saved for the whole day and synced (`DayNotes`).
         .alert(noteTitle, isPresented: Binding(get: { noteDay != nil }, set: { if !$0 { noteDay = nil } })) {
@@ -242,12 +212,7 @@ struct PhoneLogbookView: View {
         }
         // The open entry went (deleted on the Mac, undone) or the search or a chip left its row
         // out: nothing to shrink back into, so the card just goes.
-        .onChange(of: shownIDs) { _, now in
-            if opener.isOpen, LogbookRowExpand.stillOpen(opener.openID, among: now) == nil { opener.dismiss() }
-            // Rows the search, a chip, a fold or a sync took away leave the selection, so Delete
-            // never reaches an entry that isn't on screen.
-            if selecting { selection.keep(only: Set(pickable(shown))) }
-        }
+        .onChange(of: shownIDs) { _, now in rowsChanged(now, shown: shown) }
         .onChange(of: kinds) { _, now in
             if let k = kind, k.isListed, !now.contains(k) { kind = nil }
         }
@@ -263,6 +228,52 @@ struct PhoneLogbookView: View {
         }
         // A search starts with every day open; clearing it brings the kept folds back.
         .onChange(of: searchingFolds) { _, now in if !now { folds.endSearch() } }
+    }
+
+    /// The title, the toolbars (the usual icons, or Select mode's) and Select mode's "New Tag…"
+    /// alert. Its own builder: in `body` the chain is too long for the iOS build to type-check.
+    private func chrome<V: View>(_ v: V, shown: [PhoneLogbookItem]) -> some View {
+        v
+            .navigationTitle(selecting ? LogbookSelectionText.title(pickedEntries(shown).count) : "Logbook")
+            .navigationBarTitleDisplayMode(.large)
+            .navigationBarBackButtonHidden(selecting)
+            .toolbar { if selecting { selectionToolbar(shown) } }
+            .toolbar { if !selecting { standardToolbar } }
+            // "New Tag…" for the picked entries.
+            .alert("New Tag", isPresented: $askingTag) {
+                TextField("Tag", text: $tagDraft)
+                    .textInputAutocapitalization(.words)
+                Button("Add") { if let t = LogbookTags.cleaned(tagDraft) { tagPicked(t, adding: true, shown: shown) } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Added to every selected entry. Tags help you find entries; they don't change Insights or the forecast.")
+            }
+    }
+
+    /// The Logbook's usual icons: export, options and +.
+    @ToolbarContentBuilder
+    private var standardToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            // Toolbar icons bounce once when tapped (round 48); still under Reduce Motion.
+            Button { exportTaps += 1; showsExport = true } label: {
+                Image(systemName: "square.and.arrow.up").symbolBounce(on: exportTaps)
+            }
+            .accessibilityLabel("Export for a clinic visit")
+        }
+        ToolbarItem(placement: .topBarTrailing) { alertsMenu }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { logTaps += 1; router.open(nil) } label: {
+                Image(systemName: "plus").symbolBounce(on: logTaps)
+            }
+            .accessibilityLabel("Log something")
+        }
+    }
+
+    private func rowsChanged(_ now: [UUID], shown: [PhoneLogbookItem]) {
+        if opener.isOpen, LogbookRowExpand.stillOpen(opener.openID, among: now) == nil { opener.dismiss() }
+        // Rows the search, a chip, a fold or a sync took away leave the selection, so Delete
+        // never reaches an entry that isn't on screen.
+        if selecting { selection.keep(only: Set(pickable(shown))) }
     }
 
     /// Whether a search is running, so folds are the search's own (`LogbookFolds`).
@@ -1542,4 +1553,9 @@ struct PhoneSelectableRow<Content: View>: View {
         .accessibilityAddTraits(picked ? [.isButton, .isSelected] : [.isButton])
         .accessibilityHint(LogbookSelectionText.rowHint(picked: picked))
     }
+}
+
+extension View {
+    /// Applies `transform` to the view: lets a long modifier chain hand part of itself to a helper.
+    fileprivate func phoneLogbookChrome<Out: View>(_ transform: (Self) -> Out) -> Out { transform(self) }
 }
