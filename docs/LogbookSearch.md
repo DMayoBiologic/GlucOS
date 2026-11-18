@@ -354,6 +354,36 @@ LogbookGroupingTests.
 - **Export and sync** are untouched: the PDF, the CSV and the sync records stay one per entry.
   Grouping never changes an entry; the totals are the logged amounts added up, as the day headers do.
 
+## Selecting several entries (round 71)
+
+Delete or tag several entries at once (`LogbookSelection`, `LogbookBulkTag` in
+Sources/Engine/LogbookSelection.swift).
+
+- **iPhone.** Use Select Entries in the Logbook's options menu, or Select in a row's long-press
+  menu, which also picks that row. Each row gets a checkmark circle, and a tap picks it or lets it
+  go. The title shows "3 Selected", Select All / Deselect All sits top left, and Done leaves. The
+  bottom bar holds Tag, the count and Delete. Swipes, opening a row and alert rows are off while
+  selecting (alerts dim, because they're records). Delete ends Select mode, as in Mail. Tag keeps
+  the selection so another tag can follow.
+- **Mac.** The table's own Shift-click, ⌘-click and Shift-arrows pick several rows. The bar above
+  the table shows "3 entries selected", a Tag menu and Delete 3. The right-click menu has the same
+  Tag menu and Delete N Entries, and ⌫ still deletes.
+- **Groups.** A meal and its insulin shown as one row are picked as a unit. On iPhone groups stay
+  closed while selecting, so there's one checkmark for both. Counts are always entries, not rows.
+- **Hidden rows never count.** A search, a chip, a folded day or a delete synced from the other
+  device takes rows out of the selection, so Delete only reaches what's on screen.
+- **Tag menu.** It offers the usual tags, with a checkmark when every picked entry has it, plus
+  New Tag… and Remove Tag (the tags the picked entries hold). Only the tags change. Entries that
+  already show under the tag (including a moment's matching "What else is going on?" choice) or
+  already hold 8 tags are skipped. If nothing changes, VoiceOver says "Already tagged Exercise".
+- **Undo.** One toast: "3 entries deleted" or "Added Exercise to 3 entries". Undo brings every
+  entry back exactly as it was, under the same id, synced like any edit (docs/LogbookSync.md).
+- **VoiceOver.** Each row reads as one item, Selected when picked, with "Adds it to the selection"
+  as the hint. Every pick announces "3 entries selected". On the Mac the count is announced once
+  the selection settles (0.45 s), from 2 entries up.
+- **Reduce Motion.** Checkmarks slide in from the leading edge and fill with a symbol swap, and the
+  count rolls. Under Reduce Motion they fade and swap instantly.
+
 ## Editing an entry
 
 Opening an entry's edit sheet from the Logbook comes out of the row it was opened from and goes

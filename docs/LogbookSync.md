@@ -46,6 +46,13 @@ LibreLinkUp account they already use.
   a meal?"), its delete, or a newer change to it pulled from another device ends the Undo; this
   device's own edit coming back from the server doesn't. Saving with nothing changed offers none.
   Under Reduce Motion the restore and the toast fade in place.
+- **Undo for several (round 71).** Deleting or tagging the Logbook's selection offers one Undo for
+  all of it. A delete already restores every entry under its own id. Tagging several
+  (`LogbookStore.setTag`) changes only `labels`, re-saves only entries that really changed, and
+  keeps each one exactly as it was (`LogbookBatchEditUndo`). Undo saves them back under the same ids
+  with fresh edit times, so they sync like any edit. An entry deleted since stays deleted. A newer
+  change to one entry pulled from another device, or a later save of it here, drops only that entry
+  from the Undo; this device's own echo doesn't. It's still one Undo at a time.
 - **First sync.** A device's existing entries are uploaded as older than anything already on the
   server: entries the server lacks are added, and a delete made elsewhere still wins.
 - **Sign-in.** The `account` edge function checks the LibreLinkUp login with Abbott once, finds or
