@@ -87,6 +87,14 @@ struct GlucoseChart: View {
     var forecastDetails: ForecastDetails? = nil
     /// Mac: bump to open the forecast details card from the keyboard (Return on the chart).
     var opensForecastDetails: Int = 0
+    /// Explains gaps in readings (`ReadingGaps`). Given, the trace breaks wherever readings stop for
+    /// 10 minutes or more, a dashed grey bridge joins the ends (drawn in once), and a tap on iPhone
+    /// or the pointer resting on it on the Mac says why. VoiceOver hears one line in the summary.
+    /// iPhone Today and the Mac popover; interactive charts only.
+    var gapContext: ReadingGaps.Context? = nil
+
+    /// The gap whose card is showing, after a tap (iPhone) or while the pointer is on it (Mac).
+    @State private var openGap: Date?
 
     @State private var hoverDate: Date?
     /// What Charts' two-finger range selection last reported, armed or not.
@@ -255,6 +263,9 @@ struct GlucoseChart: View {
                     return
                 }
                 guard peeked == nil, span == nil, spanTouch == nil else { return }
+                #if os(iOS)
+                if openGap != nil { withAnimation(ReadingGapCard.animation(reduceMotion)) { openGap = nil } }
+                #endif
                 if !touching { touching = true; scrubbedFrom = nil; resetSnap(); snapStart = new }
                 touchGeneration += 1
                 moveScrub(to: new, snaps: snaps, secondsPerPoint: secondsPerPoint)
@@ -803,6 +814,53 @@ struct GlucoseChart: View {
         return " " + line
     }
 
+    /// `plotted` cut at each gap: one unbroken stretch per array (just one with no gaps).
+    static func segments(_ plotted: [GlucoseReading], gaps: [ReadingGaps.Gap]) -> [[GlucoseReading]] {
+        guard !gaps.isEmpty else { return [plotted] }
+        let breaks = Set(gaps.map(\.end))
+        var out: [[GlucoseReading]] = [[]]
+        for r in plotted {
+            if breaks.contains(r.timestamp), !(out.last?.isEmpty ?? true) { out.append([]) }
+            out[out.count - 1].append(r)
+        }
+        return out
+    }
+
+    private func chartSummary(window: [GlucoseReading], stale: Bool, forecastEnd: ForecastSample?) -> String {
+        let from = window.first?.timestamp ?? .distantFuture
+        return ChartSummary.sentence(.init(
+            readings: window, lowMgdl: lowMgdl, highMgdl: highMgdl, unit: unit, hours: hours, stale: stale,
+            forecastEnd: forecastEnd, loggedCount: events.filter { $0.date >= from }.count))
+    }
+
+    /// The gaps among what's plotted, when this chart explains them.
+    private func readingGaps(in plotted: [GlucoseReading]) -> [ReadingGaps.Gap] {
+        guard interactive, let context = gapContext else { return [] }
+        return ReadingGaps.find(in: plotted, context: context)
+    }
+
+    private func gapCardShowing(_ gaps: [ReadingGaps.Gap]) -> Bool {
+        guard let id = openGap else { return false }
+        return gaps.contains { $0.id == id }
+    }
+
+    private func gapsSpoken(_ gaps: [ReadingGaps.Gap], visibleFrom: Date?) -> String {
+        let from = visibleFrom ?? .distantFuture
+        guard let line = ReadingGaps.spoken(gaps.filter { $0.end >= from }) else { return "" }
+        return " " + line
+    }
+
+    /// Each stretch's gradient, stretched over that stretch, so its stops follow what's drawn.
+    private func traceStyles(_ segments: [[GlucoseReading]]) -> [LinearGradient] {
+        var out: [LinearGradient] = []
+        for seg in segments {
+            let values = seg.map(\.mgdl)
+            out.append(ThresholdGradient.style(minMgdl: values.min() ?? lowMgdl, maxMgdl: values.max() ?? highMgdl,
+                                               low: lowMgdl, high: highMgdl))
+        }
+        return out
+    }
+
     private func color(for mgdl: Double) -> Color {
         GlucoseRange.classify(mgdl: mgdl, low: lowMgdl, high: highMgdl).color
     }
@@ -824,12 +882,19 @@ struct GlucoseChart: View {
             to: domain.upperBound)
         let yd = yDomain(onScreen, extra: ghost.map(\.mgdl))
         let floor = yd.lowerBound
-        let hovered = interactive && peeked == nil && callout == nil && span == nil && !forecastOpen
-            ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
+        // Where readings stopped and started again, with why (`ReadingGaps`). The trace breaks at
+        // each, so the dashed bridge over it is the only line there.
+        let gaps: [ReadingGaps.Gap] = readingGaps(in: plotted)
+        let segments: [[GlucoseReading]] = Self.segments(plotted, gaps: gaps)
+        // A gap's card stands in for the readout while it shows.
+        let gapCardOpen: Bool = gapCardShowing(gaps)
+        // One line in VoiceOver's summary for the gaps that end on screen.
+        let gapSpoken: String = gapsSpoken(gaps, visibleFrom: window.first?.timestamp)
+        let readoutFree: Bool = interactive && peeked == nil && callout == nil && span == nil && !forecastOpen
+        let hovered: GlucoseReading? = readoutFree && !gapCardOpen ? nearest(to: hoverDate ?? pinnedDate, in: window) : nil
         // The gradient is stretched over the drawn line, so its stops follow what's plotted.
-        let lineStyle = ThresholdGradient.style(minMgdl: plotted.map(\.mgdl).min() ?? lowMgdl,
-                                                maxMgdl: plotted.map(\.mgdl).max() ?? highMgdl,
-                                                low: lowMgdl, high: highMgdl)
+        // With gaps, each unbroken stretch is its own line, with its own stops.
+        let lineStyles: [LinearGradient] = traceStyles(segments)
         let stale = latestIsStale
             ?? (window.last.map { Date().timeIntervalSince($0.timestamp) > GlucoseSnapshot.staleAfter } ?? true)
         let currentTint = stale ? Palette.stale : (window.last.map { color(for: $0.mgdl) } ?? Palette.stale)
@@ -837,6 +902,9 @@ struct GlucoseChart: View {
         // What's drawn of it so far. Indexed rather than keyed by time, so the marks keep their
         // identity while a new forecast slides and bends into place (`ForecastMotion`).
         let drawn = Array(ForecastMorph.revealed(projection, progress: forecastReveal).enumerated())
+        // What VoiceOver reads for the chart: a picked span, or the summary with yesterday and gaps.
+        let spokenValue: String = voiceOverSpanSentence(window: window)
+            ?? chartSummary(window: window, stale: stale, forecastEnd: projection.last) + yesterdaySpoken(newest: window.last) + gapSpoken
         let chart = Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
@@ -865,34 +933,8 @@ struct GlucoseChart: View {
                 .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
             }
 
-            // Soft glow under the trace, tinted with the current range.
-            ForEach(plotted) { r in
-                AreaMark(
-                    x: .value("Time", r.timestamp),
-                    yStart: .value("Floor", floor),
-                    yEnd: .value("Glucose", unit.value(fromMgdl: r.mgdl))
-                )
-                .interpolationMethod(.monotone)
-                .foregroundStyle(
-                    LinearGradient(colors: [currentTint.opacity(0.28), currentTint.opacity(0.0)],
-                                   startPoint: .top, endPoint: .bottom)
-                )
-            }
-
-            // Time spent out of range, filled between the trace and the line it crossed, so a
-            // high or a low reads as a shape before anyone looks at the numbers.
-            outOfRangeMarks(plotted)
-
-            // The trace changes colour as it crosses the thresholds.
-            ForEach(plotted) { r in
-                LineMark(
-                    x: .value("Time", r.timestamp),
-                    y: .value("Glucose", unit.value(fromMgdl: r.mgdl))
-                )
-                .interpolationMethod(.monotone)
-                .foregroundStyle(lineStyle)
-                .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-            }
+            // The trace, its glow and its out-of-range fills, one stretch per unbroken run of readings.
+            traceMarks(segments, styles: lineStyles, floor: floor, tint: currentTint)
 
             // The forecast: a neutral band and dashed line, so it can't be mistaken for readings.
             ForEach(drawn, id: \.offset) { _, p in
@@ -1035,6 +1077,9 @@ struct GlucoseChart: View {
                     TracePulse(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl), tint: currentTint)
                 }
             }
+            if !gaps.isEmpty {
+                ReadingGapLayer(proxy: proxy, gaps: gaps, unit: unit, open: $openGap)
+            }
             markerOverlays(proxy: proxy, yd: yd)
             // Under the markers' layer, so a marker near "Now" still takes its own taps.
             if opensForecast(projection), forecastReveal >= 1 {
@@ -1079,11 +1124,7 @@ struct GlucoseChart: View {
         // the forecast as a second series) as an audio graph under "Chart Details" in the rotor.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(projection.isEmpty ? "Glucose chart" : "Glucose chart, with an estimated forecast")
-        .accessibilityValue(voiceOverSpanSentence(window: window) ?? (ChartSummary.sentence(.init(
-            readings: window, lowMgdl: lowMgdl, highMgdl: highMgdl, unit: unit, hours: hours, stale: stale,
-            forecastEnd: projection.last,
-            loggedCount: events.filter { $0.date >= (window.first?.timestamp ?? .distantFuture) }.count))
-            + yesterdaySpoken(newest: window.last)))
+        .accessibilityValue(spokenValue)
         .spanAdjustable(interactive && selectsSpans, adjustVoiceOverSpan)
         .forecastDetailsAction(opensForecast(projection)) { openForecast(at: nil) }
         .accessibilityChartDescriptor(GlucoseAudioGraph(readings: window, forecast: projection, unit: unit,
@@ -1354,9 +1395,44 @@ extension GlucoseChart {
         return prev
     }
 
+    /// One unbroken stretch of the trace per segment (just one with no gaps): the soft glow under
+    /// it, tinted with the current range, the out-of-range fills, and the line itself, which
+    /// changes colour as it crosses the thresholds.
+    @ChartContentBuilder
+    func traceMarks(_ segments: [[GlucoseReading]], styles: [LinearGradient], floor: Double, tint: Color) -> some ChartContent {
+        ForEach(Array(segments.enumerated()), id: \.offset) { index, seg in
+            ForEach(seg) { r in
+                AreaMark(
+                    x: .value("Time", r.timestamp),
+                    yStart: .value("Floor", floor),
+                    yEnd: .value("Glucose", unit.value(fromMgdl: r.mgdl)),
+                    series: .value("Series", "Glow \(index)")
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(
+                    LinearGradient(colors: [tint.opacity(0.28), tint.opacity(0.0)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+            }
+            // Time spent out of range, filled between the trace and the line it crossed, so a
+            // high or a low reads as a shape before anyone looks at the numbers.
+            outOfRangeMarks(seg, segment: index)
+            ForEach(seg) { r in
+                LineMark(
+                    x: .value("Time", r.timestamp),
+                    y: .value("Glucose", unit.value(fromMgdl: r.mgdl)),
+                    series: .value("Series", "Trace \(index)")
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(styles[index])
+                .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+            }
+        }
+    }
+
     /// Fills above the high line and below the low line wherever the trace goes past them.
     @ChartContentBuilder
-    func outOfRangeMarks(_ window: [GlucoseReading]) -> some ChartContent {
+    func outOfRangeMarks(_ window: [GlucoseReading], segment: Int = 0) -> some ChartContent {
         let high = unit.value(fromMgdl: highMgdl)
         let low = unit.value(fromMgdl: lowMgdl)
         let goesHigh = window.contains { $0.mgdl > highMgdl }
@@ -1367,7 +1443,7 @@ extension GlucoseChart {
                     x: .value("Time", r.timestamp),
                     yStart: .value("High", high),
                     yEnd: .value("Above", max(unit.value(fromMgdl: r.mgdl), high)),
-                    series: .value("Series", "Above range")
+                    series: .value("Series", "Above range \(segment)")
                 )
                 .interpolationMethod(.monotone)
                 .foregroundStyle(
@@ -1382,7 +1458,7 @@ extension GlucoseChart {
                     x: .value("Time", r.timestamp),
                     yStart: .value("Below", min(unit.value(fromMgdl: r.mgdl), low)),
                     yEnd: .value("Low", low),
-                    series: .value("Series", "Below range")
+                    series: .value("Series", "Below range \(segment)")
                 )
                 .interpolationMethod(.monotone)
                 .foregroundStyle(
@@ -2340,5 +2416,179 @@ private struct ForecastPopoverAnchor: View {
               let y = proxy.position(forY: unit.value(fromMgdl: anchor.mgdl))
         else { return CGPoint(x: plot.midX, y: plot.midY) }
         return CGPoint(x: plot.minX + x, y: plot.minY + y)
+    }
+}
+
+// MARK: Reading gaps
+
+/// Which gaps' bridges have drawn in this launch, across every chart, so each draws in once.
+@MainActor
+private enum ReadingGapDrawInLog {
+    static var shared = ReadingGapDrawIn()
+}
+
+/// The dashed bridges over gaps in readings (`ReadingGaps`), and the card for the one that's open.
+/// The bridges are cut to the plot, as the trace is; the card may overhang it.
+private struct ReadingGapLayer: View {
+    let proxy: ChartProxy
+    let gaps: [ReadingGaps.Gap]
+    let unit: GlucoseUnit
+    @Binding var open: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { geo in
+            let plot = proxy.plotFrame.map { geo[$0] } ?? CGRect(origin: .zero, size: geo.size)
+            ZStack(alignment: .topLeading) {
+                ZStack(alignment: .topLeading) {
+                    ForEach(gaps) { gap in
+                        if let a = point(gap.start, gap.startMgdl, plot: plot), let b = point(gap.end, gap.endMgdl, plot: plot) {
+                            GapBridge(from: a, to: b, id: gap.id, highlighted: open == gap.id, reduceMotion: reduceMotion,
+                                      tap: { toggle(gap.id) }, hover: { hovering(gap.id, $0) })
+                        }
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .mask {
+                    Rectangle()
+                        .frame(width: plot.width, height: plot.height + 24)
+                        .position(x: plot.midX, y: plot.midY)
+                }
+                if let id = open, let gap = gaps.first(where: { $0.id == id }),
+                   let a = point(gap.start, gap.startMgdl, plot: plot), let b = point(gap.end, gap.endMgdl, plot: plot) {
+                    card(gap, mid: CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2), plot: plot, height: geo.size.height)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func point(_ date: Date, _ mgdl: Double, plot: CGRect) -> CGPoint? {
+        guard let x = proxy.position(forX: date), let y = proxy.position(forY: unit.value(fromMgdl: mgdl)) else { return nil }
+        return CGPoint(x: plot.minX + x, y: plot.minY + y)
+    }
+
+    /// iPhone: a tap opens the card, a second tap closes it. Mac: a click does the same.
+    private func toggle(_ id: Date) {
+        withAnimation(ReadingGapCard.animation(reduceMotion)) { open = open == id ? nil : id }
+    }
+
+    /// Mac: the pointer resting on a bridge shows its card, and leaving it hides it.
+    private func hovering(_ id: Date, _ inside: Bool) {
+        withAnimation(ReadingGapCard.animation(reduceMotion)) {
+            if inside { open = id } else if open == id { open = nil }
+        }
+    }
+
+    /// The card above the bridge's middle (below it when that's near the top), kept inside the plot
+    /// sideways. It never takes the pointer or a touch, so it can't steal the bridge's hover.
+    @ViewBuilder
+    private func card(_ gap: ReadingGaps.Gap, mid: CGPoint, plot: CGRect, height: CGFloat) -> some View {
+        let width = min(ReadingGapCard.width, plot.width)
+        let cx = min(max(mid.x, plot.minX + width / 2), plot.maxX - width / 2)
+        let above = mid.y > plot.minY + plot.height * 0.45
+        let room = above ? max(mid.y - 10, 0) : max(height - mid.y - 10, 0)
+        ReadingGapCard(gap: gap)
+            .frame(width: width)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: width, height: room, alignment: above ? .bottom : .top)
+            .position(x: cx, y: above ? room / 2 : mid.y + 10 + room / 2)
+            .allowsHitTesting(false)
+            .transition(reduceMotion ? .opacity
+                        : .opacity.combined(with: .scale(scale: 0.92, anchor: above ? .bottom : .top)))
+            .id(gap.id)
+    }
+}
+
+/// A straight line from the last reading before a gap to the first after it.
+private struct GapLine: Shape {
+    let from: CGPoint
+    let to: CGPoint
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: from)
+        p.addLine(to: to)
+        return p
+    }
+}
+
+/// One gap's dashed bridge. It draws in from left to right the first time it's shown this launch
+/// (`ReadingGapDrawIn`), then holds; under Reduce Motion it's simply there.
+private struct GapBridge: View {
+    let from: CGPoint
+    let to: CGPoint
+    let highlighted: Bool
+    let tap: () -> Void
+    let hover: (Bool) -> Void
+    @State private var progress: CGFloat
+
+    init(from: CGPoint, to: CGPoint, id: Date, highlighted: Bool, reduceMotion: Bool,
+         tap: @escaping () -> Void, hover: @escaping (Bool) -> Void) {
+        self.from = from
+        self.to = to
+        self.highlighted = highlighted
+        self.tap = tap
+        self.hover = hover
+        // Only the first view made for a gap draws in; any later one starts whole.
+        _progress = State(initialValue: ReadingGapDrawInLog.shared.shouldDraw(id, reduceMotion: reduceMotion) ? 0 : 1)
+    }
+
+    var body: some View {
+        ZStack {
+            GapLine(from: from, to: to)
+                .trim(from: 0, to: progress)
+                .stroke(Palette.stale.opacity(highlighted ? 0.95 : 0.7),
+                        style: StrokeStyle(lineWidth: highlighted ? 2 : 1.5, lineCap: .round, dash: [3, 4]))
+                .allowsHitTesting(false)
+            Color.clear
+                .contentShape(GapLine(from: from, to: to).stroke(style: StrokeStyle(lineWidth: 24, lineCap: .round)))
+                #if os(iOS)
+                .simultaneousGesture(TapGesture().onEnded { tap() })
+                #else
+                .onTapGesture { tap() }
+                .onHover { hover($0) }
+                #endif
+        }
+        .onAppear {
+            guard progress < 1 else { return }
+            withAnimation(.easeOut(duration: ReadingGaps.drawInDuration)) { progress = 1 }
+        }
+    }
+}
+
+/// What a gap's card says: why, when and how long, and one sentence more.
+private struct ReadingGapCard: View {
+    let gap: ReadingGaps.Gap
+
+    static let width: CGFloat = 230
+
+    static func animation(_ reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : DSMotion.quick.animation
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label {
+                Text(gap.reason.title).fontWeight(.semibold)
+            } icon: {
+                Image(systemName: gap.reason.systemImage).foregroundStyle(.secondary)
+            }
+            .dsFont(.callout)
+            Text(ReadingGaps.span(gap))
+                .dsFont(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+            Text(gap.reason.detail)
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, DS.Space.sm)
+        .padding(.vertical, DS.Space.xs)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background { DSSurface(style: .standard, radius: DS.Radius.control) }
+        .dsShadow(.medium)
     }
 }

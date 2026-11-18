@@ -267,6 +267,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Add a note to an alert.** Low and high alert notifications have an "Add note" field, and every Alert History row has an Add note button. The note lands in your Logbook at the alert's time. Alert History also updates live while it's open.
 - **Filter your alerts, and see them in Insights.** Alert History has chips for lows, highs and predicted alerts and for how each one ended. Insights has an Alerts card that counts them over the period, and tapping it opens Alert History.
 - **Take your alerts to the clinic.** Alert History has an Export menu under the filter chips. It makes a PDF or CSV of the alerts shown, with each one's time, kind, reading, outcome and note. Tapping the Insights Alerts card zooms into Alert History.
+- **See your notes on the chart, and what changed.** Logbook and alert notes show as small markers on the Today chart; hold one to read it. After an update, a short What's New appears once, and Settings › About › What's New reopens it.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.

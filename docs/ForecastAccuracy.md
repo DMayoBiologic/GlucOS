@@ -6219,3 +6219,64 @@ days. Then test the same untreated-only widening against the same bar, and split
 last 3 h 10 min so a post-meal run can't stand in for an ignored alert.
 
 **Dosing.** Not touched: the range only changes the chart and the forecast card.
+
+## 85. Are forecasts worse after stacked insulin (a second dose within an hour of the first)? (18 Nov 2026)
+
+**Question.** When a second rapid dose is logged within 60 minutes of the first, does the
+forecast miss more, or does its range cover the readings less often, than after a single dose?
+And would widening the range there help? The line, the insulin curve and sensitivity are out of
+scope (dosing maths), and so are the post-meal peak and sensor-day range.
+
+**Data.** Rapid doses 7–18 Nov 2026 (24 logged). Only two pairs are 60 minutes apart or less:
+8 Nov 08:15/08:49 (12 u + 5 u) and 12 Nov 14:09/14:43 (7 u + 4 u, the §43 sushi pair). Readings
+start 10 Nov 22:45 Perth and the accuracy log 12 Nov 15:02, so only the 12 Nov pair can be
+scored. To have something to hold out, pairs 61–90 minutes apart are kept as "near-stacked": 11
+Nov 09:29/10:46 (before the log) and 15 Nov 11:30/12:51 (4.5 u + 10 u). A point belongs to the
+latest rapid dose in the 4 hours before issue. SQL: `scripts/stacked-insulin.sql`; held-out test:
+`scripts/stacked-insulin.py`.
+
+Clean shown points (nothing logged between issue and horizon). Bias is actual − line, so negative
+means the line ran high.
+
+| Horizon | Group | Points (doses) | Bias | MAE | Inside | Below range | Score |
+|---|---|---|---|---|---|---|---|
+| 30 min | stacked ≤60 min | 13 (1) | −3.2 | 19.3 | 62% | 23% | 82.7 |
+| 30 min | near-stacked 61–90 | 19 (1) | +2.8 | 57.1 | 47% | 21% | 312.3 |
+| 30 min | single dose | 214 (11) | +4.4 | 24.5 | 82% | 8% | 130.8 |
+| 30 min | no dose in 4 h | 125 | −2.4 | 28.5 | 74% | 15% | 153.3 |
+| 60 min | stacked ≤60 min | 10 (1) | −7.7 | 38.0 | 60% | 30% | 160.4 |
+| 60 min | near-stacked 61–90 | 16 (1) | +6.0 | 94.1 | 38% | 25% | 506.1 |
+| 60 min | single dose | 132 (9) | +11.5 | 52.7 | 80% | 10% | 223.1 |
+| 60 min | no dose in 4 h | 27 | +28.9 | 44.4 | 78% | 4% | 214.8 |
+
+After the one stacked pair the line was no worse than after single doses (MAE 19.3 vs 24.5 at
+30), but the range was too narrow: 23–30% of readings fell below it, against 8–10% after single
+doses, as glucose kept falling past the drawn range (12 Nov, 154 at 17:43 Perth to 62 by 19:00).
+The near-stacked 15 Nov pair is a different story: the line ran to 44 from 96 at 14:10 while
+glucose held, then an unlogged rise to 236 by 16:20 and a fall to 57 by 17:25, so it misses on
+both sides (21% below, 32% above at 30). One pair each
+means no bias here can be told from that day.
+
+**Held out.** One width factor per horizon for points after a stacked or near-stacked pair,
+fitted on one pair (80th percentile of miss ratios, clamped 0.6–2.5, as §77) and scored on the
+other. The line doesn't move.
+
+| Horizon | Held-out pair | Factor | Score, shipped → tweak | Inside | Lows dropped |
+|---|---|---|---|---|---|
+| 30 min | 12 Nov (stacked) | 2.25 | 82.8 → 107.7 | 8 → 13 of 13 | 0 |
+| 30 min | 15 Nov (near) | 1.32 | 312.4 → 279.2 | 9 → 10 of 19 | 0 |
+| 60 min | 12 Nov (stacked) | 1.92 | 160.4 → 161.2 | 6 → 10 of 10 | 0 |
+| 60 min | 15 Nov (near) | 1.51 | 506.2 → 370.0 | 6 → 9 of 16 | 0 |
+
+The factor fitted on the messy 15 Nov day doubles the 12 Nov range: coverage goes to 100% but the
+score gets worse at 30 minutes and no better at 60. It fails the bar (better at both horizons on
+every held-out pair). No reading under 70 left the range either way, and no low warning moves,
+since possible lows read the lower side from before any widening.
+
+**Decision.** Keep the range as it is after stacked doses. Retest on **9 Dec 2026**, only if
+`scripts/stacked-insulin.sql` finds 4+ pairs 60 minutes apart or less, on 3+ days, with 30+ clean
+points at both 30 and 60 minutes. Then fit the same width factor leave-one-pair-out, and try a
+lower-side-only widening (the misses here were below the range), against the same bar.
+
+**Dosing.** Not touched: the insulin curve, sensitivity and the bolus calculator's insulin on board
+are unchanged; the range only changes the chart and the forecast card.
