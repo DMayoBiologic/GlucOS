@@ -57,6 +57,20 @@ struct LogbookSelection: Equatable {
         return out
     }
 
+    /// The picked rows top to bottom, each as the entry ids it stands for (a group's row is all of
+    /// its entries), so a delete can cascade row by row (`LogbookCascade`).
+    func rows<Row>(in runs: [LogbookRun<Row>], entry: (Row) -> LogEntry?) -> [[UUID]] {
+        runs.compactMap { run in
+            switch run {
+            case .single(let row):
+                guard let e = entry(row), picked.contains(e.id) else { return nil }
+                return [e.id]
+            case .group(let g):
+                return picked.contains(g.id) ? g.newestFirst.map(\.id) : nil
+            }
+        }
+    }
+
     /// Whether every pickable row is picked, so the button offers "Deselect All" instead.
     static func allPicked(_ selection: LogbookSelection, of pickable: [UUID]) -> Bool {
         !pickable.isEmpty && pickable.allSatisfy(selection.contains)

@@ -105,6 +105,12 @@ struct LogbookSection: View {
     /// The day whose note is being written (`DayNotes`), by its local midnight, and the words so far.
     @State private var noteDay: Date?
     @State private var noteDraft = ""
+    /// Several selected lines shrinking out one after another, or coming back the other way after
+    /// Undo (`LogbookCascade`). Nil the rest of the time.
+    @State private var cascade: LogbookCascade?
+    /// The lines the last cascade took away, top to bottom, so an Undo (⌘Z or the toast) can
+    /// bring them back bottom first.
+    @State private var cascadeDeleted: [[UUID]] = []
     /// "New Tag…" for the selected entries: the alert's text (`LogbookBulkTag`).
     @State private var askingTag = false
     @State private var tagDraft = ""
@@ -233,6 +239,7 @@ struct LogbookSection: View {
         // Entries that arrive (logged, undone, synced from the iPhone) light up once.
         .onChange(of: logbook.entries.map(\.id)) { old, new in
             let added = Set(new).subtracting(old)
+            cascadeBack(added)
             markFresh(added)
             takeLoggedElsewhere(new.filter(added.contains))
         }
@@ -696,10 +703,68 @@ struct LogbookSection: View {
     }
 
     private func deleteSelection() {
-        let ids = selectedEntries
-        guard !ids.isEmpty else { return }
-        DS.animate(.standard, reduceMotion: reduceMotion) { logbook.delete(ids: ids) }
+        deleteLines(selection)
         selection = []
+    }
+
+    /// Deletes the entries these lines stand for, and one Undo (⌘Z or the toast) brings them all
+    /// back. Two or more lines shrink out one after another from the top (`LogbookCascade`), and
+    /// only once the last has gone does the store delete them, so the table closes up, the Day
+    /// cell's totals roll and the toast (said once by VoiceOver) rises after the lines. Under
+    /// Reduce Motion, or for one line, they go at once.
+    private func deleteLines(_ picked: Set<UUID>) {
+        // Top to bottom as the table lists them: newest first.
+        var lines: [[LogEntry]] = []
+        for id in picked {
+            let members: [LogEntry] = entries(in: [id]).compactMap { logbook.entry(id: $0) }
+            if !members.isEmpty { lines.append(members.sorted { $0.timestamp > $1.timestamp }) }
+        }
+        lines.sort { $0[0].timestamp > $1[0].timestamp }
+        let rows: [[UUID]] = lines.map { $0.map(\.id) }
+        let ids = Set(rows.flatMap { $0 })
+        guard !ids.isEmpty, cascade == nil else { return }
+        guard LogbookCascade.applies(rows: rows.count, reduceMotion: reduceMotion) else {
+            // Remembered anyway, so an Undo still says "Put back 3 entries" once.
+            cascadeDeleted = rows.count >= 2 ? rows : []
+            DS.animate(.standard, reduceMotion: reduceMotion) { logbook.delete(ids: ids) }
+            return
+        }
+        let leaving = LogbookCascade(rows: rows, direction: .leaving)
+        cascade = leaving
+        cascadeDeleted = rows
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(leaving.total))
+            DS.animate(.standard, reduceMotion: reduceMotion) {
+                logbook.delete(ids: ids)
+                if cascade == leaving { cascade = nil }
+            }
+        }
+    }
+
+    /// After an Undo: when the entries that came back are the ones a cascade took away, their lines
+    /// come back bottom first, each on its own delay, and the Day cell's totals roll once the last
+    /// is back. VoiceOver hears "Put back 3 entries" once. Anything else arrives as usual.
+    private func cascadeBack(_ added: Set<UUID>) {
+        guard !added.isEmpty, !cascadeDeleted.isEmpty else { return }
+        let deleted = cascadeDeleted
+        cascadeDeleted = []
+        guard let rows = LogbookCascade.restoring(added: added, deleted: deleted) else { return }
+        let count = rows.reduce(0) { $0 + $1.count }
+        _ = dayTotalsShown.mayAnnounce(at: Date())
+        LoggedElsewhere.announce(LogbookCascadeText.restored(count))
+        guard LogbookCascade.applies(rows: rows.count, reduceMotion: reduceMotion) else { return }
+        let arriving = LogbookCascade(rows: rows, direction: .arriving)
+        var quiet = Transaction()
+        quiet.disablesAnimations = true
+        withTransaction(quiet) { cascade = arriving }
+        Task { @MainActor in
+            await Task.yield()
+            guard cascade == arriving else { return }
+            cascade = arriving.revealed()
+            try? await Task.sleep(for: .seconds(arriving.total))
+            guard cascade == arriving.revealed() else { return }
+            DS.animate(.standard, reduceMotion: reduceMotion) { cascade = nil }
+        }
     }
 
     /// Adds a tag to every selected entry, or takes it off (`LogbookStore.setTag`). Only the tags
@@ -867,7 +932,9 @@ struct LogbookSection: View {
                                                 uniquingKeysWith: { a, _ in a })
         // Each day's insulin, carbs and count, over the whole day like the iPhone's headers, not
         // just what the chips and search leave showing.
-        let sums = LogbookDayTotals.byDay(logbook.entries)
+        // Lines an Undo is still bringing back don't count yet, so the totals roll once the last is back.
+        let counted = cascade.map { c in c.direction == .arriving ? logbook.entries.filter { !c.holds([$0.id]) } : logbook.entries }
+        let sums = LogbookDayTotals.byDay(counted ?? logbook.entries)
         return Table(lines, selection: $selection) {
             // The day's name and time in range on its first (newest) row, like the iPhone's day
             // headers; the rows under it leave the column empty.
@@ -897,6 +964,7 @@ struct LogbookSection: View {
                     }
                 }
                 .searchLeaving(fading.contains(l.id))
+                .logbookCascade(cascade, entries: l.rowIDs)
             }
             .width(min: 60, ideal: 75)
             TableColumn("Entry") { (l: LogbookTableLine) in
@@ -917,6 +985,7 @@ struct LogbookSection: View {
                     }
                 }
                 .searchLeaving(fading.contains(l.id))
+                .logbookCascade(cascade, entries: l.rowIDs)
             }
                 .width(min: 110, ideal: 140)
             TableColumn("Amount") { (l: LogbookTableLine) in
@@ -924,6 +993,7 @@ struct LogbookSection: View {
                     Text(l.group?.totals ?? l.entry.map { amount($0) } ?? "").monospacedDigit().fontWeight(.semibold)
                 }
                 .searchLeaving(fading.contains(l.id))
+                .logbookCascade(cascade, entries: l.rowIDs)
             }
             .width(min: 60, ideal: 80)
             TableColumn("Details") { (l: LogbookTableLine) in
@@ -936,6 +1006,7 @@ struct LogbookSection: View {
                     }
                 }
                 .searchLeaving(fading.contains(l.id))
+                .logbookCascade(cascade, entries: l.rowIDs)
             }
             TableColumn("Site") { (l: LogbookTableLine) in
                 Group {
@@ -949,6 +1020,7 @@ struct LogbookSection: View {
                     }
                 }
                 .searchLeaving(fading.contains(l.id))
+                .logbookCascade(cascade, entries: l.rowIDs)
             }
                 .width(min: 90, ideal: 130)
             TableColumn("Glucose") { (l: LogbookTableLine) in
@@ -956,6 +1028,7 @@ struct LogbookSection: View {
                     if l.fold != nil { Text("").accessibilityHidden(true) } else { glucoseCell(l.timestamp) }
                 }
                 .searchLeaving(fading.contains(l.id))
+                .logbookCascade(cascade, entries: l.rowIDs)
             }
                 .width(min: 60, ideal: 70)
         }
@@ -989,7 +1062,7 @@ struct LogbookSection: View {
             if !ids.isEmpty {
                 tagMenu(ids)
                 Button(ids.count == 1 ? "Delete" : "Delete \(ids.count) Entries", role: .destructive) {
-                    DS.animate(.standard, reduceMotion: reduceMotion) { logbook.delete(ids: ids) }
+                    deleteLines(picked)
                     selection.subtract(picked)
                 }
             }

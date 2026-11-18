@@ -174,6 +174,25 @@ extension View {
         scaleEffect(leaving ? LogbookSearchMotion.leavingScale : 1, anchor: .leading)
             .opacity(leaving ? 0 : 1)
     }
+
+    /// A Logbook row in a cascade of several leaving or coming back (`LogbookCascade`, docs/
+    /// LogbookSearch.md "Deleting several entries"): it shrinks out on its own delay, or grows back
+    /// in on its own delay after an Undo. Rows outside the cascade, and every row when there is
+    /// none, are untouched. Callers never start a cascade under Reduce Motion, so there is nothing
+    /// to tone down here.
+    func logbookCascade(_ cascade: LogbookCascade?, entries: [UUID]) -> some View {
+        let hidden = cascade?.hides(entries) ?? false
+        let delay = cascade?.delay(entries) ?? 0
+        let leaving = cascade?.direction == .leaving
+        let curve: Animation = leaving ? .easeIn(duration: LogbookCascade.rowDuration)
+                                       : .easeOut(duration: LogbookCascade.rowDuration)
+        // Only the move the cascade is about animates: shrinking out while leaving, growing back
+        // while arriving. Rows hidden ahead of arriving vanish at once, before they're seen.
+        let moves = cascade != nil && hidden == leaving
+        return scaleEffect(hidden ? LogbookCascade.scale : 1, anchor: .leading)
+            .opacity(hidden ? 0 : 1)
+            .animation(moves ? curve.delay(delay) : nil, value: hidden)
+    }
 }
 
 /// How the Logbook's quick filter chips look, on the iPhone and the Mac.
