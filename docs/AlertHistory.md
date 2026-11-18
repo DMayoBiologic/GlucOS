@@ -56,8 +56,28 @@ minutes before the start of the Logbook row it folds into to 2 hours after it, u
   Snoozed 30 min at 2:16 pm", hint "Opens the Logbook around this alert." Day headers are headers
   and read their count.
 - At the largest text sizes the time and reading move under the title.
-- A new alert arriving while the list is open slides in; it just appears under Reduce Motion.
+- Live while open: see below. Under Reduce Motion every change is instant.
 - Settings search finds it ("history", "past", "dismissed", "went off").
+
+## Live while open
+
+The list keeps up while it's open on either device, from the alert records as they arrive or
+sync in from the other device.
+
+- **A new alert** slides in at the top of today (`DS.Transition.banner`, the `.standard` curve);
+  the day's count rolls.
+- **An outcome moving on** (snoozed, "Log treatment" tapped, dismissed, on this device or the
+  other) morphs the row's status chip in place: the symbol replaces itself, the words blend and
+  the tint glides on the `.emphasized` spring (`AlertOutcomeChip`). Tints: Tapped Log treatment
+  green, Snoozed blue, Dismissed and No response plain.
+- **VoiceOver** hears each change once, at low priority, after a 0.6 s pause that gathers a burst
+  (`alertHistoryAnnouncements` on the screen's list): "New low alert, 2:14 pm, reading 3.4
+  mmol/L", "Low alert at 2:14 pm: Snoozed 30 min", or for several at once "Alert history: 1 new
+  alert, 2 updated". The row's own label already reads the new outcome.
+- Nothing is announced for what was listed when it opened, for an alert more than 15 minutes old
+  that syncs in late (it's listed quietly), or for the other device's copy of an alert already
+  listed unless it brings a new outcome (`AlertHistory.changes` matches it as the same alert).
+- **Reduce Motion**: rows appear, chips and counts change instantly. Announcements are the same.
 
 ## Where it lives
 
@@ -66,5 +86,5 @@ minutes before the start of the Logbook row it folds into to 2 hours after it, u
 - Dismissals: `AlertLog.dismissed`, `LogbookStore.alertDismissed`, `AlertLogRecorder.dismissed`,
   `AlertNotifications.isDismissal`, `AlertBannerCenter.close`.
 - Views: `Sources/App/Views/AlertHistoryViews.swift` (`AlertHistoryContent`, `AlertHistoryRow`,
-  `AlertHistoryRoute`). iPhone `PhoneAlertHistoryScreen` in PhoneSettingsView; Mac
+  `AlertOutcomeChip`, `alertHistoryAnnouncements`, `AlertHistoryRoute`). iPhone `PhoneAlertHistoryScreen` in PhoneSettingsView; Mac
   `MacAlertHistorySheet` in SettingsView.

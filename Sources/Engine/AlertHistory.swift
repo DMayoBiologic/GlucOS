@@ -135,6 +135,40 @@ enum AlertHistory {
             .sorted { $0.firedAt > $1.firedAt }
     }
 
+    // MARK: Live changes
+
+    /// An alert new enough to be announced as it arrives while the list is open. Anything older
+    /// that turns up (records syncing in from the other device after a while) is listed quietly.
+    static let freshArrival: TimeInterval = 15 * 60
+
+    /// Something that changed in the list while it was open, for its one VoiceOver announcement.
+    enum Change: Hashable {
+        /// A new alert went off.
+        case arrived(Item)
+        /// An alert's outcome moved on: snoozed, "Log treatment" tapped, dismissed.
+        case outcome(Item)
+
+        var item: Item {
+            switch self {
+            case .arrived(let i), .outcome(let i): return i
+            }
+        }
+    }
+
+    /// What changed between two lists, newest first. An item is matched by id, or failing that as
+    /// the same alert (the other device's copy turned up first and moved the row's id), so a copy
+    /// syncing in never reads as a new alert. Items that left (aged out of the 7 days) are ignored.
+    static func changes(from old: [Item], to new: [Item], now: Date) -> [Change] {
+        new.compactMap { item in
+            let before = old.first { $0.id == item.id }
+                ?? old.first { $0.kind == item.kind && abs($0.firedAt.timeIntervalSince(item.firedAt)) <= sameAlert }
+            guard let before else {
+                return now.timeIntervalSince(item.firedAt) <= freshArrival ? .arrived(item) : nil
+            }
+            return before.outcome != item.outcome ? .outcome(item) : nil
+        }
+    }
+
     /// The items by local day, newest day first. Days with no alerts are left out.
     static func days(_ items: [Item], calendar: Calendar = .autoupdatingCurrent) -> [Day] {
         let byDay = Dictionary(grouping: items) { calendar.startOfDay(for: $0.firedAt) }
@@ -203,6 +237,36 @@ enum AlertHistoryText {
 
     static let hint = "Opens the Logbook around this alert."
 
+    /// The one VoiceOver announcement for what changed while the list was open, or nil when nothing
+    /// did. One change says what it was: "New low alert, 2:14 pm, reading 3.4 mmol/L", "Low alert
+    /// at 2:14 pm: Snoozed 30 min". Several are counted: "Alert history: 1 new alert, 2 updated".
+    static func announcement(_ changes: [AlertHistory.Change], unit: GlucoseUnit,
+                             calendar: Calendar = .autoupdatingCurrent) -> String? {
+        guard let first = changes.first else { return nil }
+        if changes.count == 1 {
+            let item = first.item
+            let time = ClockLabel.time(item.firedAt, calendar: calendar)
+            switch first {
+            case .arrived:
+                let reading = item.readingMgdl.map { "reading \(unit.format(mgdl: $0, withUnit: true))" } ?? "no reading stored"
+                return "New \(item.title.lowercasedFirst), \(time), \(reading)"
+            case .outcome:
+                return "\(item.title) at \(time): \(item.outcome.text)"
+            }
+        }
+        let arrived = changes.filter { if case .arrived = $0 { return true } else { return false } }.count
+        let updated = changes.count - arrived
+        var parts: [String] = []
+        if arrived > 0 { parts.append(arrived == 1 ? "1 new alert" : "\(arrived) new alerts") }
+        if updated > 0 { parts.append("\(updated) updated") }
+        return "Alert history: " + parts.joined(separator: ", ")
+    }
+
     /// "3 alerts" for a day's header.
     static func count(_ n: Int) -> String { n == 1 ? "1 alert" : "\(n) alerts" }
+}
+
+private extension String {
+    /// "Low alert" → "low alert", for the middle of a sentence.
+    var lowercasedFirst: String { prefix(1).lowercased() + dropFirst() }
 }

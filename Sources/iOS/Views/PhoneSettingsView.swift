@@ -42,6 +42,7 @@ private struct PhoneAlertHistoryScreen: View {
             }
             Section {} footer: { Text(AlertHistoryText.footer) }
         }
+        .alertHistoryAnnouncements(records: logbook.alerts, readings: store.archive, unit: settings.unit)
         .navigationTitle(AlertHistoryText.rowTitle)
         .navigationBarTitleDisplayMode(.inline)
     }

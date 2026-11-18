@@ -189,4 +189,76 @@ final class AlertHistoryTests: XCTestCase {
         XCTAssertEqual(AlertHistoryText.count(4), "4 alerts")
         XCTAssertNotEqual(AlertHistoryText.emptyMessage(alertsOn: true), AlertHistoryText.emptyMessage(alertsOn: false))
     }
+
+    // MARK: Live while open
+
+    func testANewAlertArrivingIsOneChange() {
+        let high = AlertRecord(kind: .high, firedAt: at(-120))
+        let fresh = AlertRecord(kind: .low, firedAt: at(-1))
+        let old = items([high], readings: [reading(-2, 65)])
+        let new = items([high, fresh], readings: [reading(-2, 65)])
+        let changes = AlertHistory.changes(from: old, to: new, now: now)
+        XCTAssertEqual(changes.count, 1)
+        guard case .arrived(let item) = changes.first else { return XCTFail("\(changes)") }
+        XCTAssertEqual(item.id, fresh.id)
+        let text = AlertHistoryText.announcement(changes, unit: .mgdl, calendar: calendar)!
+        XCTAssertTrue(text.hasPrefix("New low alert, "), text)
+        XCTAssertTrue(text.hasSuffix("reading 65 mg/dL"), text)
+    }
+
+    func testAnOutcomeMovingOnIsOneChange() {
+        let fired = AlertRecord(kind: .low, firedAt: at(-10))
+        var snoozed = fired
+        snoozed.response = .snoozed
+        snoozed.snoozeMinutes = 30
+        snoozed.respondedAt = at(-8)
+        let changes = AlertHistory.changes(from: items([fired]), to: items([snoozed]), now: now)
+        XCTAssertEqual(changes.map(\.item.id), [fired.id])
+        guard case .outcome(let item) = changes.first else { return XCTFail("\(changes)") }
+        XCTAssertEqual(item.outcome, .snoozed(minutes: 30))
+        let text = AlertHistoryText.announcement(changes, unit: .mgdl, calendar: calendar)!
+        XCTAssertTrue(text.hasPrefix("Low alert at "), text)
+        XCTAssertTrue(text.hasSuffix(": Snoozed 30 min"), text)
+        // Nothing changed: nothing to say.
+        XCTAssertTrue(AlertHistory.changes(from: items([snoozed]), to: items([snoozed]), now: now).isEmpty)
+        XCTAssertNil(AlertHistoryText.announcement([], unit: .mgdl))
+    }
+
+    func testTheOtherDevicesCopyIsNotANewAlert() {
+        // The Mac's copy, fired a minute earlier, syncs in after the iPhone's and takes over the
+        // row's id. It's the same alert, and its dismissal is the only change.
+        let phone = AlertRecord(kind: .low, firedAt: at(-5))
+        let mac = AlertRecord(kind: .low, firedAt: at(-6), response: .dismissed, respondedAt: at(-4))
+        let old = items([phone])
+        let new = items([phone, mac])
+        XCTAssertEqual(new.map(\.id), [mac.id])
+        let changes = AlertHistory.changes(from: old, to: new, now: now)
+        XCTAssertEqual(changes.count, 1)
+        guard case .outcome = changes.first else { return XCTFail("\(changes)") }
+        // A copy with nothing new says nothing.
+        let quiet = AlertRecord(kind: .low, firedAt: at(-6))
+        XCTAssertTrue(AlertHistory.changes(from: old, to: items([phone, quiet]), now: now).isEmpty)
+    }
+
+    func testOldAlertsSyncingInAreListedQuietly() {
+        let late = AlertRecord(kind: .high, firedAt: at(-AlertHistory.freshArrival / 60 - 1))
+        XCTAssertTrue(AlertHistory.changes(from: [], to: items([late]), now: now).isEmpty)
+        // And one ageing out of the 7 days isn't a change either.
+        XCTAssertTrue(AlertHistory.changes(from: items([late]), to: [], now: now).isEmpty)
+    }
+
+    func testSeveralChangesAreCountedInOneAnnouncement() {
+        let a = AlertRecord(kind: .low, firedAt: at(-40))
+        var aTreated = a
+        aTreated.response = .treating
+        aTreated.respondedAt = at(-39)
+        let b = AlertRecord(kind: .high, firedAt: at(-3))
+        let c = AlertRecord(kind: .urgentLow, firedAt: at(-1))
+        let changes = AlertHistory.changes(from: items([a]), to: items([aTreated, b, c]), now: now)
+        XCTAssertEqual(changes.count, 3)
+        XCTAssertEqual(AlertHistoryText.announcement(changes, unit: .mgdl, calendar: calendar),
+                       "Alert history: 2 new alerts, 1 updated")
+        XCTAssertEqual(AlertHistoryText.announcement(Array(changes.prefix(2)), unit: .mgdl, calendar: calendar),
+                       "Alert history: 2 new alerts")
+    }
 }

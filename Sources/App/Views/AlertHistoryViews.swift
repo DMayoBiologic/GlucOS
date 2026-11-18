@@ -16,9 +16,25 @@ extension AlertHistory.Item {
     }
 }
 
+extension AlertHistory.Outcome {
+    /// The status chip's colour: a tap on "Log treatment" reads as done, a snooze as noted, the
+    /// rest as plain.
+    var tone: Tone {
+        switch self {
+        case .treating: return .success
+        case .snoozed: return .info
+        case .dismissed, .noResponse: return .neutral
+        }
+    }
+}
+
 /// The days and their alerts, worked out from the logbook's alert records and the stored readings.
 /// Recomputed as records arrive (a new alert, a tap synced from the other device), so the list
-/// keeps up while it's open.
+/// keeps up while it's open: a new alert slides in at the top and a row's status chip morphs to
+/// its new outcome (docs/AlertHistory.md, "Live while open"). Instant under Reduce Motion.
+///
+/// VoiceOver hears each change once through `alertHistoryAnnouncements`, which the screen around
+/// the list applies (a `List`'s sections come and go, so they can't watch for it themselves).
 struct AlertHistoryContent: View {
     let records: [AlertRecord]
     let readings: [GlucoseReading]
@@ -50,6 +66,7 @@ struct AlertHistoryContent: View {
                             AlertHistoryRow(item: item, unit: unit) {
                                 open(AlertHistory.link(for: item, records: records, now: Date()))
                             }
+                            .transition(DS.Transition.banner(reduceMotion: reduceMotion))
                         }
                     } header: {
                         HStack {
@@ -57,6 +74,7 @@ struct AlertHistoryContent: View {
                             Spacer()
                             Text(AlertHistoryText.count(day.items.count))
                                 .monospacedDigit()
+                                .contentTransition(reduceMotion ? .identity : .numericText())
                         }
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.isHeader)
@@ -66,6 +84,59 @@ struct AlertHistoryContent: View {
         }
         // A new alert slides in at the top; instant under Reduce Motion.
         .dsAnimation(.standard, value: items.map(\.id))
+    }
+}
+
+/// Speaks what changes in the alert history while it's open, once per change: a new alert, or an
+/// alert's outcome moving on (`AlertHistory.changes`, `AlertHistoryText.announcement`). A short
+/// pause gathers a burst, so the Mac's and the iPhone's copies of one alert syncing in a moment
+/// apart are spoken once. Nothing is said for what was already listed when it opened.
+private struct AlertHistoryAnnouncements: ViewModifier {
+    let records: [AlertRecord]
+    let readings: [GlucoseReading]
+    let unit: GlucoseUnit
+
+    /// How long a burst of changes is gathered before its one announcement.
+    static let delay: Duration = .milliseconds(600)
+
+    /// What VoiceOver was last told about: the list as it opened, then after each announcement.
+    @State private var announced: [AlertHistory.Item]?
+    @State private var pending: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        let items = AlertHistory.items(records: records, readings: readings, now: Date())
+        content
+            .onAppear { if announced == nil { announced = items } }
+            .onChange(of: items) { _, latest in announceSoon(latest) }
+            .onDisappear {
+                pending?.cancel()
+                pending = nil
+            }
+    }
+
+    private func announceSoon(_ latest: [AlertHistory.Item]) {
+        guard announced != nil else {
+            announced = latest
+            return
+        }
+        pending?.cancel()
+        pending = Task { @MainActor in
+            try? await Task.sleep(for: Self.delay)
+            guard !Task.isCancelled, let base = announced else { return }
+            announced = latest
+            let changes = AlertHistory.changes(from: base, to: latest, now: Date())
+            if let text = AlertHistoryText.announcement(changes, unit: unit) {
+                LoggedElsewhere.announce(text)
+            }
+        }
+    }
+}
+
+extension View {
+    /// One VoiceOver announcement per change to the alert history shown inside (a `List` of
+    /// `AlertHistoryContent`), while it's open.
+    func alertHistoryAnnouncements(records: [AlertRecord], readings: [GlucoseReading], unit: GlucoseUnit) -> some View {
+        modifier(AlertHistoryAnnouncements(records: records, readings: readings, unit: unit))
     }
 }
 
@@ -89,10 +160,7 @@ struct AlertHistoryRow: View {
                     Text(item.title)
                         .dsFont(.body)
                         .foregroundStyle(.primary)
-                    Label(AlertHistoryText.outcome(item), systemImage: item.outcome.symbol)
-                        .labelStyle(.titleAndIcon)
-                        .dsFont(.caption)
-                        .foregroundStyle(.secondary)
+                    AlertOutcomeChip(item: item)
                     if typeSize.dsLargeText { trailing(alignment: .leading) }
                 }
                 Spacer(minLength: DS.Space.sm)
@@ -118,6 +186,39 @@ struct AlertHistoryRow: View {
                 .monospacedDigit()
                 .foregroundStyle(item.readingMgdl == nil ? HierarchicalShapeStyle.tertiary : HierarchicalShapeStyle.secondary)
         }
+    }
+}
+
+/// What happened to an alert, as a small status chip. When the outcome moves on while the list is
+/// open (snoozed, "Log treatment" tapped, dismissed, on either device) the chip morphs: the symbol
+/// replaces itself, the words blend, the tint glides, on the `.emphasized` spring. Instant under
+/// Reduce Motion. The row speaks for it, so the chip is hidden from VoiceOver.
+struct AlertOutcomeChip: View {
+    let item: AlertHistory.Item
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        let tone = item.outcome.tone
+        HStack(spacing: DS.Space.xs) {
+            Image(systemName: item.outcome.symbol)
+                .imageScale(.small)
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+            Text(AlertHistoryText.outcome(item))
+                .contentTransition(reduceMotion ? .identity : .interpolate)
+        }
+        .dsFont(.caption)
+        .fontWeight(.medium)
+        .lineLimit(1)
+        .foregroundStyle(tone.textColor)
+        .padding(.horizontal, DS.Space.sm)
+        .padding(.vertical, 2)
+        .background(tone.color.opacity(0.14), in: Capsule())
+        .overlay(Capsule().strokeBorder(tone.color.opacity(contrast == .increased ? 0.9 : 0.28),
+                                        lineWidth: contrast == .increased ? DS.Stroke.increased : 0.5))
+        .dsAnimation(.emphasized, value: item.outcome)
+        .accessibilityHidden(true)
     }
 }
 

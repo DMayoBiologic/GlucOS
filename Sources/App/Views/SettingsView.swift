@@ -671,6 +671,7 @@ private struct MacAlertHistorySheet: View {
                 AlertHistoryContent(records: records, readings: readings, unit: unit, alertsOn: alertsOn, open: open)
             }
             .listStyle(.inset)
+            .alertHistoryAnnouncements(records: records, readings: readings, unit: unit)
             Divider()
             Text(AlertHistoryText.macFooter)
                 .dsFont(.caption)
