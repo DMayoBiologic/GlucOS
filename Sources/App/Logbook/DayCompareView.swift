@@ -195,9 +195,10 @@ struct DayCompareView: View {
             withTransaction(t) {
                 first = newFirst
                 second = newSecond
+                // Only the dates change here: neither animatable value is touched, so a running
+                // draw-in carries on undisturbed with the new day's line. With no outgoing
+                // lines the slide progress isn't read, so it needn't move.
                 if !drawingIn { reveal = 1 }
-                slideTarget += 1
-                slidePhase = slideTarget
             }
         }
         LoggedElsewhere.announce(DayCompareText.announcement(first: spokenDay(newFirst, now: now),
