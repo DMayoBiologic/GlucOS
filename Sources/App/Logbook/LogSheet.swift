@@ -1169,7 +1169,8 @@ struct LogSheet: View {
         let all = settings.therapy.logsInsulin || tags.contains(.siteProblem)
             ? ContextTag.allCases
             : ContextTag.allCases.filter { $0 != .siteProblem }
-        return isNew ? all.filter { !$0.isMoment } : all
+        // A sensor start is GlucOS's to log: it shows on one being edited, never for a new entry.
+        return isNew ? all.filter { !$0.isMoment && !$0.isAutomatic } : all
     }
 
     private var tagsPanel: some View {

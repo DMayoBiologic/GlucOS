@@ -79,6 +79,10 @@ final class AppSettings: ObservableObject {
     /// A reminder at 7 pm the evening before the sensor ends (docs/SensorEnd.md). Off until turned on.
     @Published var sensorEndReminderEnabled: Bool { didSet { d.set(sensorEndReminderEnabled, forKey: "sensorEndReminderEnabled") } }
 
+    /// Logs "Sensor started" in the Logbook when GlucOS first sees a new sensor
+    /// (docs/SensorStartLog.md). On until turned off.
+    @Published var logSensorStarts: Bool { didSet { d.set(logSensorStarts, forKey: "logSensorStarts") } }
+
     /// First-run setup finished (or skipped). Existing installs with an account count as done.
     @Published var onboardingCompleted: Bool { didSet { d.set(onboardingCompleted, forKey: "onboardingCompleted") } }
 
@@ -129,6 +133,7 @@ final class AppSettings: ObservableObject {
         eveningRecapEnabled = d.bool(forKey: "eveningRecapEnabled")
         eveningRecapMinute = EveningRecap.sanitized(d.object(forKey: "eveningRecapMinute") as? Int)
         sensorEndReminderEnabled = d.bool(forKey: "sensorEndReminderEnabled")
+        logSensorStarts = d.object(forKey: "logSensorStarts") as? Bool ?? true
         let savedEmail = d.string(forKey: "email") ?? ""
         onboardingCompleted = d.object(forKey: "onboardingCompleted") as? Bool ?? !savedEmail.isEmpty
     }

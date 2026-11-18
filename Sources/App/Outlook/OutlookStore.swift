@@ -45,10 +45,11 @@ final class OutlookStore: ObservableObject {
     }
 
     /// When anything that changes glucose was logged. A wake-up isn't one: the forecast models it.
+    /// Nor is a sensor start, which GlucOS logs by itself.
     private static func logTimes(_ logbook: LogbookStore?) -> [Date] {
         guard let logbook else { return [] }
         return logbook.doses.map(\.timestamp) + logbook.meals.map(\.timestamp)
-            + logbook.contexts.filter { !$0.isWake }.map(\.timestamp)
+            + logbook.contexts.filter { !$0.isWake && !$0.isSensorStart }.map(\.timestamp)
     }
 
     /// Readings were filled in from elsewhere: relearn at the next chance rather than waiting out
