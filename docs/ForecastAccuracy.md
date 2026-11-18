@@ -5161,3 +5161,103 @@ live = 1 when `trend > 0`).
 
 **Dosing.** Not touched: the trend feeds only the drawn forecast and predicted alerts, never insulin
 on board, the effect learner or the bolus figure.
+
+## 73. How good are forecasts near the sensor's limits, and should the line be clamped there? (18 Nov 2026)
+
+The question: the Libre 2 Plus shows 40 to 400 mg/dL, and LibreLinkUp sends LO and HI past that.
+How far off are forecasts that start or end near those limits (under 55, over 300, LO/HI), does the
+line or its range run past what the sensor can show, and would a held-out clamp help? The bar:
+better on held-out days at both 30 and 60 minutes, no higher line where glucose ends under 80 and
+no low warning lost. **One clamp passes the numbers, a hard ceiling at 300, but it gets there by
+drawing the line up to 40 mg/dL below the current reading and it hides real rises, so nothing
+ships; no app or relay code changed.**
+
+Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
+
+**What the engine already does.** It won't forecast from a reading outside 40...400
+(`GlucoseForecaster.sensorRange`, relay `sensorLow`/`sensorHigh`, "No forecast while the reading is
+outside the sensor's range") and holds the drawn line and both edges of its range to 39...401. The
+ledger's `rangeMisses` already skips a range edge that sits on that hold, so a range cut at 39 is
+never scored as a narrow range.
+
+**No LO or HI exists yet.** The 9,859 stored readings (10–18 Nov) run from 43 to 353 mg/dL: none at
+or under 40, none at or over 400. So LO/HI can't be measured; what can is the nearest thing, 85
+readings under 55 (7 hours) and 407 over 300 (20 hours). When one does arrive, both apps and the
+relay show it but draw no forecast, which is the right behaviour: nothing past the limit is known.
+
+**Error by start band.** `scripts/sensor-limits.py` replays the engine's trend forecast as in §72
+(20-minute slope clamped at ±4, 30-minute fade) every 5 minutes, 11–18 Nov, 1,867 points over 8
+Perth days, scored against the nearest live reading. Gain 0.6, mean miss in mg/dL, no change / as
+shipped, bias (actual − forecast) in brackets (gains 0.45 and 0.7 read the same):
+
+| Start | n (hours) | 15 min | 30 min | 60 min |
+|---|---|---|---|---|
+| Under 55 | 16 (5) | 25.2 / 28.1 (+27.5) | 59.5 / 65.7 (+65.7) | 74.2 / 80.4 (+80.4) |
+| 55–70 | 29 (12) | 24.6 / 28.5 (+28.0) | 59.3 / 66.3 (+66.1) | 99.2 / 110.6 (+110.6) |
+| 70–250 | 1,554 (149) | 16.6 / 15.6 (+0.3) | 25.5 / 24.0 (+0.3) | 39.0 / 38.6 (+2.1) |
+| 250–300 | 193 (38) | 16.3 / 16.5 (−0.6) | 25.0 / 25.7 (−6.3) | 39.7 / 40.0 (−22.1) |
+| Over 300 | 75 (18) | 21.8 / 24.5 (−20.0) | 28.5 / 33.9 (−31.5) | 54.9 / 61.2 (−59.8) |
+
+At both ends the line does worse than no change and leans away from the middle: from a low,
+glucose came back up (treatments and rebounds, as in §36 and §40); from over 300, it came down. By
+where glucose *ended*, the line does better than no change: ending under 55 the miss is 6.8 / 18.0
+/ 74.4 at 15 / 30 / 60 (no change 9.6 / 27.9 / 87.1), so the falls into a low were drawn, if late
+at an hour; ending over 300 it is 19.7 / 26.2 / 32.9 and runs low (+12 / +19 / +28), against 19.3
+/ 24.7 / 34.3 for no change.
+
+The live shown forecasts agree (`glucos.forecast_checks`, all devices, clean points): starts under
+55 run +26 at 15 minutes with every miss above the range, starts over 300 run −15 at 15 and −48 at
+30 (13 points).
+
+**Does the line or range run past the sensor?** Without the 39...401 hold, the trend line would go
+under 40 within an hour on 2 / 8 / 11 of the 1,867 forecasts at gain 0.45 / 0.6 / 0.7 (lowest 28)
+and never over 400. Glucose 60 minutes later was 76–240 on every one of them, so the hold only ever
+cut a line that was already wrong, and it changes at most 9 scored points (gain 0.7, 30 and 60
+minutes). The range reaches the hold far more often: in the live checks the bottom sits on 39 in
+92 of 647 forecasts and the top on 401 in 28. At starts under 70 the bottom is on 39 in 27 of 30
+scored points and no reading ever landed under it; all the misses there were above. So neither the line nor its range
+shows something the sensor couldn't, and the hold isn't hiding real values.
+
+**Held out.** Each candidate is picked on seven Perth days by miss at 30 + 60 minutes and scored on
+the eighth (training leaves out points whose 60-minute target lands on that day). Gain 0.6, miss at
+15 / 30 / 60 on all points:
+
+| Candidate | Picked | All points | Starts over 250 | Lows |
+|---|---|---|---|---|
+| Hard ceiling at C (401, 375 … 250) | C = 300 in every fold | 16.37 / 25.62 / 41.15 → 16.00 / 25.01 / 40.44 | 18.8 / 28.0 / 46.0 → 16.2 / 23.8 / 41.0 | untouched |
+| No rise above max(start, C) | C = 250, the grid's end, every fold | → 16.19 / 25.28 / 40.72 (16 Nov worse) | → 17.7 / 25.9 / 43.4 | untouched |
+| Rising trend × w above 250 | w = 0 every fold | → 16.22 / 25.32 / 40.78 | → 17.7 / 25.9 / 43.4 | untouched |
+| Floor at F (39 … 55) | F = 55 every fold | → 16.28 / 25.46 / 40.96 | untouched | 37 low lines raised, bias −26.6 → −28.1 |
+
+The floor fails at once: it raises every line that would go under 55, which is the point of a low
+warning. The two softer ceilings are §50's cap on rises in another form and pick the end of the
+grid; the change from 250 that wins is "never draw a rise from a high", and it loses on 16 Nov.
+
+The hard ceiling at 300 passes the numbers: better on every one of the 5 days it changes, at both
+30 and 60, at every gain, with no low touched (the very-high alert is at 250, so it never moves an
+alert either). But looking at what it does:
+
+- 75 of the 97 changed forecasts start above 300, and the ceiling drags them to 300 straight away:
+  the line would begin on average 13 and up to 40 mg/dL below the reading it starts from. That is
+  where most of the win is (starts over 300: 24.5 / 33.9 / 61.2 → 15.9 / 19.6 / 44.5). It is §36's
+  learnt pull-down for highs (rejected there and in PR #53), drawn as a jump on the chart.
+- It hides real rises: of the 90 lines held at 300 for the 30-minute point, 31 ended above 300.
+  Forecasts ending over 300 hardly change (26.2 → 25.8 at 30) because the line already runs low there.
+- It is fitted on 12 spells over 300 in 5 days, all after meals the replay can't see (the apps'
+  meal-aware forecast is a different line there), and any high limit set above 300 would never get
+  a predicted-high alert.
+
+Only the 22 forecasts that start under 300 and rise past it are a clean ceiling case (20.9 / 20.9
+→ 17.7 / 17.9 at 30 / 60), far too few on their own.
+
+**Decision.** Keep the engine's 40...400 refusal and its 39...401 hold as they are. Retest on
+**9 Dec 2026** (three weeks of data), and then: score the hard ceiling only from starts at or under
+it (never pulling a line below its own start), with the meal-aware apps line, and measure LO/HI
+directly if any have been stored. To rerun:
+
+    python3 scripts/sensor-limits.py DIR
+
+`DIR` holds readings.json (`[[unix, mgdl, live], ...]`, export SQL in the script's docstring).
+
+**Dosing.** Not touched: the forecast line feeds the chart and predicted alerts, never insulin on
+board, the effect learner or the bolus figure.
