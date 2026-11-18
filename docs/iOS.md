@@ -265,6 +265,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Compare two days side by side.** From the Logbook's jump-to-a-date calendar or a day's menu, pick a second day to see both days' readings on one chart, with time in range, average, lows and highs side by side. The forecast details card now grows out of the forecast line and folds back when closed.
 - **Look back at your alerts.** Settings › Alerts › Alert History lists the last 7 days of low and high alerts by day, with the reading and whether each was snoozed, treated, dismissed or left; tap one to open the Logbook around it. Comparing two days now draws the second day in, and Swap days trades them.
 - **Add a note to an alert.** Low and high alert notifications have an "Add note" field, and every Alert History row has an Add note button. The note lands in your Logbook at the alert's time. Alert History also updates live while it's open.
+- **Filter your alerts, and see them in Insights.** Alert History has chips for lows, highs and predicted alerts and for how each one ended. Insights has an Alerts card that counts them over the period, and tapping it opens Alert History.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
