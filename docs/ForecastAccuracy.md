@@ -5989,3 +5989,85 @@ stretches are the meal stretches, so compare within a time-of-day band first.
 
 **Dosing.** Not touched: the range only changes the chart and predicted alerts, never insulin on
 board, the effect learner or the bolus figure.
+
+## 82. Are forecasts worse while glucose falls back from above range with no insulin logged? (18 Nov 2026)
+
+The question: when glucose comes down from above range without a rapid dose logged in the 3 hours
+before (an "unassisted" descent: the body, exercise or unlogged insulin bringing it down), does the
+forecast miss more, or lean one way, than on other falls? And would damping the trend there help,
+on the theory that an unassisted fall slows on its own? The bar: better held out at 30 AND 60
+minutes on most days at every tuner gain, no low warning later, and lows not forecast higher.
+**Unassisted falls run low, not high: they keep falling past where the forecast levels off.
+Damping makes every horizon worse. The opposite (a steeper trend) can't be fitted held out: it
+loses at gains 0.6 and 0.7 and is flat at 0.45. Nothing ships; no app or relay code changed.**
+
+Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
+
+**Groups**, judged only from what the app has when the forecast is issued: a **fall** is an engine
+trend of −1 mg/dL a minute or steeper. A fall is **from high** when a reading above 180 landed in
+the last 60 minutes and the latest reading is still 120 or more. **Unassisted** = from high with no
+rapid dose logged in the 3 hours before; **dosed** = from high with one; **other falls** = every fall
+that isn't from high. Post-meal peaks and sensor-day range are left out of this one on purpose.
+
+**Replay** (`scripts/unassisted-falls.py`, the engine's trend forecast every 5 minutes on the live
+readings in `glucos.readings`, 11–18 Nov, 9,705 readings, 1,871 points; same input files as §71).
+Miss as no change / ships, and bias = actual − ships (negative = the reading ended lower):
+
+| Gain | Group | Points | 30 min | 60 min |
+|---|---|---|---|---|
+| 0.45 | unassisted | 154 (8 days) | 34.6 / 30.7 (**−6.7**) | 52.8 / 49.9 (**−17.0**) |
+| 0.45 | dosed | 64 (7 days) | 29.5 / 24.5 (−8.1) | 47.3 / 42.4 (−21.7) |
+| 0.45 | other falls | 171 (8 days) | 28.6 / 29.8 (+16.8) | 46.3 / 51.3 (+43.5) |
+| 0.7 | unassisted | 154 | 34.6 / 29.6 (+0.5) | 52.8 / 48.8 (−9.8) |
+| 0.7 | dosed | 64 | 29.5 / 22.8 (−1.3) | 47.3 / 40.5 (−14.9) |
+| 0.7 | other falls | 171 | 28.6 / 32.1 (+23.3) | 46.3 / 55.3 (+50.1) |
+
+Unassisted falls start at 196 on average and are down 35 mg/dL an hour later. The forecast misses
+them by 6–8 mg/dL more than dosed falls at both horizons, and it leans the same way as dosed
+falls: the reading ends **lower** than the line, because the trend fades out by 30 minutes while the
+fall carries on. Other falls (starting near 99) are the opposite: they bottom out and turn, so the
+line runs low (+17 to +50). By day, 5 of 8 days ran low at 60 minutes (−21 to −61) and 11 Nov
+was near zero (+3); 15 and 18 Nov ran high (+15, +19), with glucose back level or higher an hour
+later, which fits unlogged food (§81 saw the same on 15 Nov). Only 1 of the 154 unassisted points had a meal in the 3 hours before.
+
+**Accuracy log** (`scripts/unassisted-falls.sql`, runs as is in the Supabase SQL editor: clean shown
+points, nothing logged before the reading, §40/§41 applied as drawn today, as in §81):
+
+| Horizon | Group | Points | MAE | Bias | Inside / below / above | Score |
+|---|---|---|---|---|---|---|
+| 30 min | unassisted | 24 (5 days) | 35.3 | **−25.8** | 63% / **33%** / 4% | 131.6 |
+| 30 min | dosed | 21 (6) | 23.1 | −11.9 | 76% / 14% / 10% | 119.5 |
+| 30 min | other falls | 30 (6) | 35.6 | +21.2 | 67% / 3% / 30% | 190.2 |
+| 60 min | unassisted | 6 (2) | 44.3 | −29.6 | 100% / 0% / 0% | 113.9 |
+| 60 min | dosed | 13 (5) | 43.8 | −20.7 | 77% / 8% / 15% | 168.1 |
+| 60 min | other falls | 13 (3) | 95.4 | +95.4 | 38% / 0% / 62% | 446.0 |
+
+The live log says the same with fewer points: at 30 minutes unassisted falls are the worst-covered
+group, and every miss is below the range (a third of readings). 16 Nov alone (6 points from 290)
+is −71.7. At 60 minutes there are only 6 points, all inside.
+
+**Held out.** One tweak: scale the trend of unassisted falls from high by w (1 = as ships), w from
+0.25 to 2.0, fitted on seven Perth days and scored on the eighth (objective: miss at 30 + 60
+minutes), every other forecast untouched.
+
+| Gain | Picks | 30 min all points | 60 min all points | Unassisted days better / worse (30, 60) |
+|---|---|---|---|---|
+| 0.45 | 1.3–2.0 | 25.63 → 25.65 (+0.1%) | 41.31 → 41.31 (0.0%) | 5/3, 5/3 |
+| 0.6 | 1.0–1.75 | 25.73 → 25.86 (+0.5%) | 41.62 → 41.74 (+0.3%) | 4/3, 4/3 |
+| 0.7 | 0.85–1.5 | 25.91 → 26.07 (+0.6%) | 41.91 → 42.07 (+0.4%) | 4/4, 4/4 |
+
+No fold ever picked damping except one day at gain 0.7 (0.85). With all days fitted at gain 0.45,
+every w below 1 is worse at 15, 30 and 60 minutes (w 0.55: 30.7 → 32.2 at 30, 49.9 → 51.1 at 60),
+and damping forecasts lows higher (bias where the 30-min reading was under 80: −15.2 → −15.7 at
+w 0.55). Steeper trends help those points in hindsight (w 1.75: 29.4 / 48.5) but the held-out picks
+swing from 1.0 to 2.0 by day and lose overall at 0.6 and 0.7, with 15 minutes worse at every gain.
+No low warning moved either way (11 lows under 70).
+
+**Decision.** Keep the trend as is. Don't damp falls from high: they run low already, and damping
+would lift lows. Retest on **9 Dec 2026**, only with 40+ live 30-minute unassisted points on 8+ days.
+The lever to try then is a longer fade for unassisted falls from high (the miss grows after the
+30-minute fade, not before), and the 30-minute range bottom on those falls (33% below) beside §41's
+high-start range bottoms, with the same bar as above plus the §79 low-warning check.
+
+**Dosing.** Not touched: the trend only changes the chart and predicted alerts, never insulin on
+board, the effect learner or the bolus figure.
