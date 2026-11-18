@@ -6071,3 +6071,79 @@ high-start range bottoms, with the same bar as above plus the §79 low-warning c
 
 **Dosing.** Not touched: the trend only changes the chart and predicted alerts, never insulin on
 board, the effect learner or the bolus figure.
+
+## 83. Does the forecast overreact after small meals (10 g of carbs or less)? (18 Nov 2026)
+
+The question: after a logged meal with 10 g of carbs or less (a coffee, a low-carb snack, food
+logged with 0 g), does the line draw a rise that never comes? Compare the 30- and 60-minute bias
+with other meals and with times nothing was eaten, and test one held-out tweak (a floor under
+which small carbs are skipped, or a slower small-carb curve). The bar: better held out at 30 AND
+60 minutes without lifting lows. **There are no meals of 10 g or less in the logbook yet, so
+there's nothing to fit or hold out. The engine also can't move the line much for them: at most
+3.5 mg/dL at 30 minutes and 10.4 at 60 for a 10 g meal, a tenth of the usual miss. Nothing
+ships; no app or relay code changed.**
+
+Nothing here touches dosing, carb ratios, the bolus figure, the effect learner, the alerts, the
+relay or `web/`. Post-meal peaks and sensor-day range are left out on purpose.
+
+**What's logged.** 23 meals since 7 Nov; the smallest is 12.2 g, and none is 0 g. Only three are
+20 g or less, and none of them is a clean small meal:
+
+| Perth | Carbs | Food | At the meal | +1 h | +2 h | Why it isn't clean |
+|---|---|---|---|---|---|---|
+| 12 Nov 15:23 | 16.6 g | green juice | 104 | 94 | 151 | 74 min after a 53.9 g sushi meal (§43's stacked pair) |
+| 17 Nov 15:40 | 12.2 g | beer | 120 | 187 | 244 | rose 124 mg/dL in 2 h: far more than 12 g, so unlogged food or drinks |
+| 18 Nov 10:23 | 17.1 g | Smarties, Snickers | 69 | 60 | 86 | a low treatment: on the fast §37 curve, not the meal curve |
+
+**How far a small meal can move the line** (`scripts/small-meals.py`, the engine's carb curve,
+5 g tail and 30-minute fade, K = 2.8 mg/dL per g). Carb part of the line at 30 / 60 minutes, by
+minutes since the meal:
+
+| Carbs | 0 min | 30 min | 60 min | 90 min | 120 min+ |
+|---|---|---|---|---|---|
+| 5 g | 0.7 / 4.0 | 0 | 0 | 0 | 0 |
+| 8 g | 1.1 / 6.4 | 2.8 / 8.3 | 2.8 / 7.9 | 0 | 0 |
+| 10 g | 1.3 / 8.0 | 3.4 / 10.4 | 3.5 / 9.9 | 0 | 0 |
+| 15 g | 2.0 / 12.0 | 5.2 / 15.5 | 5.2 / 14.8 | 4.6 / 10.9 | 0 |
+| 20 g | 2.7 / 16.1 | 6.9 / 20.7 | 6.9 / 19.7 | 6.1 / 14.6 | 0 |
+
+Three things already keep small meals from pushing the line up. Once fewer than 5 g are left to
+absorb (`CarbActivity.tailGrams`) the carbs aren't counted at all, so a 10 g meal stops counting
+about 80 minutes in. In the first hour after a log the line is trend only (`freshLog`) unless this
+device's fresh-model checks allow it, so the 0 and 30 minute columns mostly never draw. And food
+logged with 0 g forces the line to trend only for 3 h 10 min (`uncountedFood`), so it can't
+draw a carb rise at all. Even a "skip under 10 g" rule could change a 30-minute line by at most
+3.5 mg/dL, against a usual 30-minute miss of 25–31.
+
+**Accuracy log** (`scripts/small-meals.sql`, runs as is in the Supabase SQL editor: clean shown
+points, grouped by the latest meal in the 3 h 10 min before issue, range as drawn, 11–18 Nov):
+
+| Horizon | Group | Points (days) | MAE / no change | Bias | Inside / below / above |
+|---|---|---|---|---|---|
+| 30 min | 10 g or less | 0 | – | – | – |
+| 30 min | 10–20 g | 19 (2) | 16.4 / 20.6 | −1.8 | 74% / 16% / 11% |
+| 30 min | over 20 g | 127 (5) | 28.3 / 32.9 | +7.7 | 76% / 11% / 13% |
+| 30 min | no meal | 172 (7) | 31.1 / 34.7 | −1.1 | 73% / 13% / 13% |
+| 60 min | 10 g or less | 0 | – | – | – |
+| 60 min | 10–20 g | 10 (1) | 38.0 / 45.1 | −7.7 | 60% / 30% / 10% |
+| 60 min | over 20 g | 89 (5) | 56.4 / 61.3 | +11.3 | 76% / 15% / 9% |
+| 60 min | no meal | 67 (6) | 55.4 / 51.0 | +17.1 | 69% / 7% / 24% |
+
+The nearest group, 10–20 g, is the best-forecast one at 30 minutes and leans slightly low (the
+reading ends a little under the line) where bigger meals and no-meal times lean high. At 60
+minutes it's 10 points from one day (the Smarties low treatment, 1 of 10 under 70). That lean is
+about the size of the carb part in the table above, so it's what an overreaction would look like,
+but three unclean meals can't separate it from the low treatment and the stacked juice.
+
+**Held out.** Not run: with no meals of 10 g or less there's no fold to fit on and none to score.
+Fitting a floor on the 10–20 g group instead would be fitting to a low treatment (already on its
+own curve), a stacked meal and a beer with unlogged food.
+
+**Decision.** Keep the carb curve and the 5 g tail as they are. Retest on **9 Dec 2026**, only if
+`scripts/small-meals.sql` finds 8+ meals of 10 g or less on 4+ days (0 g included). The tweak to
+try first is a floor that skips meals of N g or less (N 5–15, fitted leaving one meal out), with
+the same bar as above plus the §79 low-warning check; second, whether 0 g food really needs to
+force the line to trend only for 3 h 10 min.
+
+**Dosing.** Not touched: the carb term only changes the chart and predicted alerts. Carb ratios,
+bolus suggestions and carbs on board are separate and unchanged.
