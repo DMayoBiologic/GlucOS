@@ -19,6 +19,14 @@ struct SensorScanResult {
     /// Set when the scan switched the sensor's Bluetooth stream to this phone.
     let bluetoothAddress: String?
 
+    /// The sensor as LibreLinkUp would describe it, when the scan read its serial and its memory
+    /// (which holds the minutes since it started), for "Sensor started" (docs/SensorStartLog.md).
+    func startedSensor(lifetimeDays: Int) -> SensorInfo? {
+        guard let serial, !serial.isEmpty, let fram else { return nil }
+        return SensorInfo(serial: serial, activated: scannedAt.addingTimeInterval(-Double(fram.age) * 60),
+                          lifetimeDays: lifetimeDays)
+    }
+
     /// Current reading plus the last 8 hours, oldest first.
     var readings: [GlucoseReading] {
         fram.map { LibreReadings.readings(fram: $0, readAt: scannedAt) } ?? []

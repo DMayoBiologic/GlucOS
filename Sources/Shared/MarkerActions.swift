@@ -50,7 +50,7 @@ enum MarkerActions {
     /// What the card offers for a marker. Waking up isn't something to log twice in a row, and a
     /// note belongs to its moment, so a wake-up or a note only offers Edit.
     static func actions(for kind: MarkerPop.Kind?) -> [Action] {
-        kind == .wake || kind == .note ? [.edit] : [.edit, .logAgainNow]
+        kind == .wake || kind == .note || kind == .sensor ? [.edit] : [.edit, .logAgainNow]
     }
 
     /// Whether a finger that went down on a marker `heldFor` seconds ago, and moved `dx`, `dy`,
@@ -81,6 +81,7 @@ enum MarkerActions {
         case .insulin: return "dose"
         case .wake: return "wake-up"
         case .note: return "note"
+        case .sensor: return "sensor start"
         case nil: return "entry"
         }
     }

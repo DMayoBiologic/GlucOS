@@ -15,7 +15,7 @@ enum SettingsAnchor: String, CaseIterable, Hashable, Sendable {
     case menuBarDelta, menuBarColour, menuBarSparkline, menuBarHover, popoverChart, textSize
     case launchAtLogin, desktopWidget, setupAssistant
     // Logging
-    case therapy, insulins, bolus, presets, syncLogbook, keyboardShortcut, shortcutList
+    case therapy, insulins, bolus, presets, syncLogbook, keyboardShortcut, shortcutList, sensorStartLog
     // Alerts
     case alerts, notifications, lowAlerts, highAlert, rapidAlert, staleAlert, sensorEndingAlert
     case predictedLows, predictedHighs, warnAhead, alertRepeat, alertSound, testAlert, alertHistory
@@ -182,6 +182,7 @@ enum SettingsCatalog {
         static let version = ["version", "about", "build", "medical"]
         static let whatsNew = ["what's new", "whats new", "new", "changes", "changelog", "release notes",
                                "features", "update", "latest"]
+        static let sensorStart = ["sensor", "new sensor", "started", "start", "logbook", "automatic", "auto", "event"]
         static let readSensor = ["nfc", "scan", "sensor", "libre 2", "bluetooth", "read", "start sensor"]
     }
 
@@ -196,6 +197,7 @@ enum SettingsCatalog {
         .init(anchor: .therapy, title: "How you take insulin", place: "Logging", keywords: K.therapy + ["insulin"]),
         .init(anchor: .insulins, title: "Your insulins", place: "Logging", keywords: K.insulins, parent: .therapy),
         .init(anchor: .bolus, title: "Bolus calculator", place: "Logging", keywords: K.bolus, parent: .therapy),
+        .init(anchor: .sensorStartLog, title: "Log new sensors", place: "Logging", keywords: K.sensorStart),
         .init(anchor: .presets, title: "Presets", place: "Presets", keywords: K.presets, parent: .therapy),
         .init(anchor: .syncLogbook, title: "Sync logbook", place: "Logbook", keywords: K.sync),
         .init(anchor: .alerts, title: "Glucose alerts", place: "Alerts", keywords: K.alerts),
@@ -268,6 +270,7 @@ enum SettingsCatalog {
         .init(anchor: .syncLogbook, title: "Sync logbook with your other devices", place: "Logging › Sync", tab: "logging", keywords: K.sync),
         .init(anchor: .therapy, title: "How you take insulin", place: "Logging", tab: "logging", keywords: K.therapy + ["insulin"]),
         .init(anchor: .insulins, title: "Your insulins", place: "Logging › Insulins", tab: "logging", keywords: K.insulins, parent: .therapy),
+        .init(anchor: .sensorStartLog, title: "Log new sensors", place: "Logging › Sensor", tab: "logging", keywords: K.sensorStart),
         .init(anchor: .keyboardShortcut, title: "Open the log window from any app", place: "Logging › Keyboard", tab: "logging",
               keywords: ["keyboard", "shortcut", "hotkey", "hot key", "global", "command"]),
         .init(anchor: .shortcutList, title: "Keyboard shortcuts", place: "Logging › Keyboard", tab: "logging",

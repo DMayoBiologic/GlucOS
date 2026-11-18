@@ -223,6 +223,7 @@ enum LogbookExport {
             let type: String
             if c.tags == [.wokeUp] { type = "Woke up" }
             else if c.tags == [.bedtime] { type = "Went to sleep" }
+            else if c.tags == [.sensorStarted] { type = "Sensor started" }
             else if c.tags.contains(.hypoTreatment) { type = "Hypo treatment" }
             else if AlertNote.isNote(c) { type = "Note" }
             else { type = "Event" }

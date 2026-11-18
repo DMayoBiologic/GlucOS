@@ -95,7 +95,7 @@ struct MenuBarView: View {
         }
         .overlay(alignment: .bottom) { toastView }
         // "Logged twice?" with Undo after a quick log or Log Again Now (`DoubleLog`).
-        .overlay(alignment: .bottom) { LogbookUndoToast(shows: \.isRepeat) }
+        .overlay(alignment: .bottom) { LogbookUndoToast(shows: \.showsOutsideLogbook) }
         .overlay { shortcutList }
         .overlay { whatsNewCard }
         .background { shortcuts }

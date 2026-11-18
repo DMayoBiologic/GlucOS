@@ -98,7 +98,7 @@ struct DashboardView: View {
             // "Logged twice?" with Undo on the pages without an undo toast of their own (`DoubleLog`).
             .overlay(alignment: .bottom) {
                 if section != .logbook && !(section == .insights && showsAlertHistory) {
-                    LogbookUndoToast(shows: \.isRepeat)
+                    LogbookUndoToast(shows: \.showsOutsideLogbook)
                 }
             }
             .sheet(isPresented: $showLogbookExport) { logbookExportSheet }

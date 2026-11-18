@@ -222,6 +222,9 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
     case wokeUp
     /// When the user went to bed. Like a wake-up, it only marks a time.
     case bedtime
+    /// When a new sensor started (docs/SensorStartLog.md). GlucOS logs it by itself the first time
+    /// it sees the sensor; nobody picks it in the log sheet. It only marks a time.
+    case sensorStarted
 
     var id: String { rawValue }
 
@@ -236,6 +239,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .siteProblem: return "Site or delivery problem"
         case .wokeUp: return "Woke up"
         case .bedtime: return "Went to sleep"
+        case .sensorStarted: return "Sensor started"
         }
     }
 
@@ -250,6 +254,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .siteProblem: return "bandage"
         case .wokeUp: return "sunrise"
         case .bedtime: return "bed.double"
+        case .sensorStarted: return "sensor.tag.radiowaves.forward"
         }
     }
 
@@ -264,6 +269,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .siteProblem: return "A bent cannula, leak or bad site means insulin may not have gone in properly."
         case .wokeUp: return "When you got up. Glucose often rises after waking; GlucOS learns how yours moves."
         case .bedtime: return "When you went to bed, so the night that follows can be told apart from the evening."
+        case .sensorStarted: return "When a new sensor started. GlucOS logs this by itself the first time it sees the sensor."
         }
     }
 
@@ -273,7 +279,7 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
         case .exercise: return 6 * 3600
         case .alcohol: return 12 * 3600
         case .illness, .stress, .period: return 24 * 3600
-        case .hypoTreatment, .siteProblem, .wokeUp, .bedtime: return 0
+        case .hypoTreatment, .siteProblem, .wokeUp, .bedtime, .sensorStarted: return 0
         }
     }
 
@@ -281,17 +287,20 @@ enum ContextTag: String, CaseIterable, Identifiable, Codable {
     var isComparable: Bool {
         switch self {
         case .exercise, .illness, .alcohol, .stress, .period: return true
-        case .hypoTreatment, .siteProblem, .wokeUp, .bedtime: return false
+        case .hypoTreatment, .siteProblem, .wokeUp, .bedtime, .sensorStarted: return false
         }
     }
 
     /// Tags that change how glucose responds, so examples near them are set aside or segmented.
-    /// Waking up and going to sleep only mark a time.
-    var affectsResponses: Bool { !isMoment }
+    /// Waking up, going to sleep and a sensor start only mark a time.
+    var affectsResponses: Bool { !isMoment && !isAutomatic }
 
     /// Logged as a moment of its own from the log sheet ("Woke up", "Going to sleep"), rather than
     /// picked from the list of things going on.
     var isMoment: Bool { self == .wokeUp || self == .bedtime }
+
+    /// Logged by GlucOS itself, never offered in the log sheet's list for a new entry.
+    var isAutomatic: Bool { self == .sensorStarted }
 }
 
 /// Context logged at a time, on its own or alongside a dose or meal.
@@ -309,6 +318,9 @@ struct ContextEvent: Codable, Identifiable, Hashable {
 
     /// Marks when the user woke up.
     var isWake: Bool { tags.contains(.wokeUp) }
+
+    /// Marks when a new sensor started (`SensorStartLog`).
+    var isSensorStart: Bool { tags.contains(.sensorStarted) }
 
     init(id: UUID = UUID(), timestamp: Date, tags: Set<ContextTag>, note: String = "", labels: [String]? = nil) {
         self.id = id
@@ -385,6 +397,14 @@ enum LogEntry: Identifiable, Hashable {
         case .siteChange(var s): s.id = id; s.timestamp = time; return .siteChange(s)
         case .context(var c): c.id = id; c.timestamp = time; return .context(c)
         }
+    }
+}
+
+extension LogEntry {
+    /// The "Sensor started" event GlucOS logs by itself (`SensorStartLog`).
+    var isSensorStart: Bool {
+        if case .context(let c) = self { return c.isSensorStart }
+        return false
     }
 }
 
