@@ -131,6 +131,10 @@ struct PhoneLogbookView: View {
 
     /// The day whose header has the jump-to-a-date calendar open over it.
     @State private var calendarFrom: String?
+    /// The calendar opened straight into picking a day to compare with (`DayCompare`).
+    @State private var calendarCompares = false
+    /// Two days compared, in a sheet (`DayCompareView`).
+    @State private var comparing: DayComparePair?
     /// A picked day the list is on its way to.
     @State private var jumping: LogbookJumpRequest?
     /// The day just landed on: its header lights once, then fades.
@@ -188,6 +192,7 @@ struct PhoneLogbookView: View {
         .autocorrectionDisabled()
         .phoneLogbookChrome { v in chrome(v, shown: shown) }
         .sheet(isPresented: $showsExport) { exportSheet }
+        .sheet(item: $comparing) { pair in compareSheet(pair) }
         // A day's note: one line, saved for the whole day and synced (`DayNotes`).
         .alert(noteTitle, isPresented: Binding(get: { noteDay != nil }, set: { if !$0 { noteDay = nil } })) {
             TextField(DayNoteText.placeholder, text: $noteDraft)
@@ -805,7 +810,13 @@ struct PhoneLogbookView: View {
             .popover(isPresented: Binding(get: { calendarFrom == day.id },
                                           set: { if !$0, calendarFrom == day.id { calendarFrom = nil } }),
                      arrowEdge: .top) {
-                LogbookCalendarView(counts: LogbookCalendar.counts(all.map(\.timestamp)), current: day.start) { picked in
+                LogbookCalendarView(
+                    counts: LogbookCalendar.counts(all.map(\.timestamp)), current: day.start,
+                    compare: LogbookCalendarCompare(from: day.start, spokenDay: DayInRangeText.spokenDay(spokenDay),
+                                                    days: { DayCompare.readingDays(store.archive) },
+                                                    pick: { openCompare(day.start, with: $0) },
+                                                    startsComparing: calendarCompares)
+                ) { picked in
                     jump(to: picked, all: all, shownDays: shownDays)
                 }
                 .presentationCompactAdaptation(.popover)
@@ -867,6 +878,9 @@ struct PhoneLogbookView: View {
                 Label(LogbookCollapseText.actionName(folded: folded), systemImage: folded ? "chevron.down" : "chevron.up")
             }
             Button { openCalendar(day.id) } label: { Label("Jump to a Date", systemImage: "calendar") }
+            Button { openCalendar(day.id, comparing: true) } label: {
+                Label(DayCompareText.menuName + "…", systemImage: "chart.xyaxis.line")
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(open
@@ -879,6 +893,7 @@ struct PhoneLogbookView: View {
         .accessibilityAction { if range != nil { toggleDay(day.id) } else { openCalendar(day.id) } }
         .accessibilityAction(named: LogbookCollapseText.actionName(folded: folded)) { toggleFold(day, now: now) }
         .accessibilityAction(named: "Jump to a Date") { openCalendar(day.id) }
+        .accessibilityAction(named: DayCompareText.menuName) { openCalendar(day.id, comparing: true) }
         .accessibilityAction(named: DayNoteText.actionName(hasNote: note != nil)) { editNote(day.start) }
     }
 
@@ -959,9 +974,44 @@ struct PhoneLogbookView: View {
         LoggedElsewhere.announce(LogbookCollapseText.announcement(day: spokenDay, folded: willFold, count: day.foldCount))
     }
 
-    private func openCalendar(_ id: String) {
+    private func openCalendar(_ id: String, comparing: Bool = false) {
         Haptics.play(.choice)
+        calendarCompares = comparing
         calendarFrom = id
+    }
+
+    /// A second day picked in the calendar: it closes, then the two days open compared in a sheet.
+    private func openCompare(_ first: Date, with second: Date) {
+        Haptics.play(.choice)
+        calendarFrom = nil
+        let pair = DayComparePair(first: first, second: second, days: Set(DayCompare.readingDays(store.archive).keys))
+        Task { @MainActor in
+            // Lets the popover finish going before the sheet comes up.
+            try? await Task.sleep(for: .milliseconds(350))
+            comparing = pair
+        }
+    }
+
+    /// Both days over one chart with their figures side by side. Swipes down or Done to close.
+    private func compareSheet(_ pair: DayComparePair) -> some View {
+        let snapshot = store.snapshot
+        return NavigationStack {
+            ScrollView {
+                DayCompareView(first: pair.first, second: pair.second, readings: store.archive, days: pair.days,
+                               unit: snapshot.unit, lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl,
+                               chartHeight: 200)
+                    .padding(DS.Space.lg)
+            }
+            .navigationTitle(DayCompareText.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { comparing = nil }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     /// A day picked in the calendar: closes it, and moves the list there. If a search or chip is

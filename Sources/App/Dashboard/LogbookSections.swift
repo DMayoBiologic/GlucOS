@@ -43,6 +43,7 @@ struct LogbookSection: View {
 
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var store: GlucoseStore
     @State private var selection = Set<UUID>()
     /// Grouped rows (a meal and its insulin, `LogbookGrouping`) opened out into their entries.
     @State private var expandedGroups: Set<UUID> = []
@@ -94,6 +95,10 @@ struct LogbookSection: View {
     @State private var openDay: Date?
     /// The jump-to-a-date calendar (⌘J, or the calendar button by the search).
     @State private var showsCalendar = false
+    /// The day a line's Compare with Another Day… was picked on: the calendar opens comparing it.
+    @State private var compareFrom: Date?
+    /// Two days compared, in a sheet (`DayCompareView`).
+    @State private var comparing: DayComparePair?
     /// A picked day the table is on its way to: it scrolls once that day's rows are listed.
     @State private var pendingJump: LogbookJumpRequest?
     /// The table's opacity, dipped for the Reduce Motion cross-fade while it moves to a day.
@@ -447,12 +452,59 @@ struct LogbookSection: View {
         }
         .keyStop("logbook.calendar", row: Self.searchRow, kind: .control, radius: 6) { showsCalendar = true }
         .help("Jump to a date (⌘J)")
-        .popover(isPresented: $showsCalendar, arrowEdge: .bottom) {
-            LogbookCalendarView(counts: LogbookCalendar.counts(logbook.entries.map(\.timestamp)),
-                                current: shownDays.max()) { picked in
+        .popover(isPresented: Binding(get: { showsCalendar },
+                                      set: { showsCalendar = $0; if !$0 { compareFrom = nil } }),
+                 arrowEdge: .bottom) {
+            let from = compareFrom ?? shownDays.max() ?? Calendar.autoupdatingCurrent.startOfDay(for: Date())
+            LogbookCalendarView(
+                counts: LogbookCalendar.counts(logbook.entries.map(\.timestamp)), current: shownDays.max(),
+                compare: LogbookCalendarCompare(from: from,
+                                                spokenDay: DayInRangeText.spokenDay(ClockLabel.day(of: from, now: Date())),
+                                                days: { DayCompare.readingDays(store.archive) },
+                                                pick: { openCompare(from, with: $0) },
+                                                startsComparing: compareFrom != nil)
+            ) { picked in
                 jump(to: picked, shownDays: shownDays)
             }
         }
+        .sheet(item: $comparing) { pair in compareSheet(pair) }
+    }
+
+    /// A line's Compare with Another Day…: the calendar opens picking the second day.
+    private func startCompare(_ start: Date) {
+        compareFrom = start
+        showsCalendar = true
+    }
+
+    /// A second day picked: the calendar closes, then the two days open compared in a sheet.
+    private func openCompare(_ first: Date, with second: Date) {
+        showsCalendar = false
+        compareFrom = nil
+        let pair = DayComparePair(first: first, second: second, days: Set(DayCompare.readingDays(store.archive).keys))
+        Task { @MainActor in
+            // Lets the popover finish going before the sheet comes down.
+            try? await Task.sleep(for: .milliseconds(250))
+            comparing = pair
+        }
+    }
+
+    /// Both days over one chart with their figures side by side. Done, Return or Esc closes it.
+    private func compareSheet(_ pair: DayComparePair) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            HStack {
+                Text(DayCompareText.title)
+                    .dsFont(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: DS.Space.md)
+                Button("Done") { comparing = nil }
+                    .keyboardShortcut(.defaultAction)
+            }
+            DayCompareView(first: pair.first, second: pair.second, readings: store.archive, days: pair.days,
+                           unit: data.unit, lowMgdl: data.lowMgdl, highMgdl: data.highMgdl, chartHeight: 200)
+        }
+        .padding(DS.Space.lg)
+        .frame(width: 500)
+        .onExitCommand { comparing = nil }
     }
 
     /// A day picked in the calendar. Listed already: the table moves to it. Hidden by the search or
@@ -1079,6 +1131,7 @@ struct LogbookSection: View {
                 if hasNote {
                     Button(DayNoteText.removeName, role: .destructive) { removeNote(start) }
                 }
+                Button(DayCompareText.menuName + "…") { startCompare(start) }
             }
         } primaryAction: { ids in
             guard ids.count == 1, let id = ids.first else { return }
@@ -1182,6 +1235,7 @@ struct LogbookSection: View {
                 ? "\(LogbookCollapseText.spokenState(folded: true)), \(LogbookCollapseText.spokenCount(count))"
                 : LogbookCollapseText.spokenState(folded: false))
             .accessibilityAction(named: LogbookCollapseText.actionName(folded: isFolded)) { toggleFold(start, count: count) }
+            .accessibilityAction(named: DayCompareText.menuName) { startCompare(start) }
             dayName(start, range: range, day: day, totals: totals)
             if let note {
                 Button { editNote(start) } label: {

@@ -243,6 +243,38 @@ the day rather than with any one entry. Rules and words in `Sources/Engine/DayNo
   Add Note or Edit Note as an action, says "Note added to Today" (changed, removed) once after a
   save, and reads it after the day on the Best and toughest days tiles.
 
+## Comparing two days
+
+Round 74. Two days' readings over one chart, with each day's figures side by side. Rules and
+words in `Sources/Engine/DayCompare.swift` (`DayCompare`, `DayCompareText`, `DayComparePair`),
+tested in `DayCompareTests`; the view is `Sources/App/Logbook/DayCompareView.swift`.
+
+- **Opening it.** From the jump-to-a-date calendar, **Compare** in its footer switches the grid to
+  picking a second day: days with at least 12 readings are lit (`DayCompare.readingDays`; an hour of 5-minute readings),
+  the day it was opened from is filled and can't be picked, and **Back** returns to jumping. A
+  day's own menu offers **Compare with Another Day…**, which opens the calendar already comparing:
+  hold a day header on iPhone (next to Add Note and Jump to a Date), or right-click any line of a
+  day on the Mac. On the Mac the toolbar calendar compares the newest listed day.
+- **The chart.** Midnight to midnight by the wall clock, on the target band. The first day is a
+  solid blue line, the second a dashed magenta one, so they tell apart without colour. Points are
+  the day bars' 5-minute means; a gap of over 20 minutes breaks a line.
+- **Clock changes.** Readings sit at their wall-clock time, so 6 pm is over 6 pm on a 23- or
+  25-hour day. The skipped hour is a gap; the repeated hour draws over itself as its own run, so
+  no line doubles back. Today stops at now.
+- **Figures.** Time in range (the day bar's figure and coverage rule, "–" when a day has too few
+  readings), the average of the 5-minute means, and the number of lows and highs (runs of 15
+  minutes or more outside the lines, the Insights rule). Nothing says which day was better.
+- **Stepping.** The chevrons beside the second day move it a day at a time, skipping the first
+  day and days without readings, never past today.
+- **Motion and VoiceOver.** The second line fades in when the comparison opens; stepping fades it
+  out and back while the figures roll. Under Reduce Motion the line switches at once and the
+  figures cross-fade. VoiceOver reads the chart as one element naming both days and the target,
+  then one summary per day ("Today: 78% in range, average 7.2 mmol/L, 1 low, 2 highs."), hears
+  "Comparing Today with Monday 11 November." when it opens or steps, and has Compare with Another
+  Day as a header action on iPhone and a Day cell action on the Mac. The calendar's Compare says
+  what to pick.
+- iPhone: a sheet with Done (medium and large detents). Mac: a sheet with Done (Return or Esc).
+
 ## From the Insights cards
 
 Round 34 joined the Insights Lows card to the Logbook, on iPhone and Mac (`LogbookLink`, Engine,
