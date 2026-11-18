@@ -190,7 +190,9 @@ struct SensorCoverageCardView: View {
             Text("Longest gaps")
                 .dsFont(.label)
                 .foregroundStyle(.secondary)
-            ForEach(Array(s.longest.enumerated()), id: \.element.id) { i, gap in
+            // Keyed by rank, so a new period's longest gaps glide their bars from the old lengths
+            // rather than swapping whole rows; each row's words and tap follow its current gap.
+            ForEach(Array(s.longest.enumerated()), id: \.offset) { i, gap in
                 Button { open(gap) } label: {
                     HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
                         Image(systemName: gap.reason.systemImage)
@@ -219,7 +221,7 @@ struct SensorCoverageCardView: View {
                 .disabled(openLogbook == nil)
                 .opacity(shown ? 1 : 0)
                 .offset(y: shown ? 0 : 6)
-                .animation(reduceMotion ? nil : DSMotion.standard.animation.delay(SensorCoverageCardMotion.growDelay(order: i) - SensorCoverageCardMotion.growStart),
+                .animation(reduceMotion ? nil : DSMotion.standard.animation.delay(SensorCoverageCardMotion.growDelay(order: i)),
                            value: grown)
                 .transition(.opacity)
             }
