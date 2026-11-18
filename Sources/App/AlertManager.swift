@@ -214,6 +214,13 @@ final class AlertLogRecorder {
         logbook?.alertAnswered(tap.kind, response, snoozeMinutes: tap.snoozeMinutes, firedAt: firedAt)
     }
 
+    /// Text typed into "Add note" on one of the user's own alerts that arrived at `firedAt`: a
+    /// Logbook note at that time (docs/AlertNotes.md). No Undo toast is offered, since nothing is on
+    /// screen; the note is edited or removed from the Logbook or Alert History instead.
+    func noted(_ text: String, firedAt: Date) {
+        logbook?.saveAlertNote(text, firedAt: firedAt, offersUndo: false)
+    }
+
     /// One of the user's own alerts that arrived at `firedAt` was swiped away in Notification Center
     /// (or the lock screen) with no button, or its in-app banner was closed. Never a test alert's or
     /// a follower's copy. A button already tapped on it stands.
@@ -369,13 +376,20 @@ enum AlertNotifications {
         let treat = UNNotificationAction(identifier: AlertSnoozes.treatAction, title: AlertSnoozes.treatTitle,
                                          options: [.foreground],
                                          icon: UNNotificationActionIcon(systemImageName: "cross.case.fill"))
+        // "Add note" types a Logbook note at the alert's time without opening anything
+        // (docs/AlertNotes.md). It never snoozes and never logs a treatment.
+        let note = UNTextInputNotificationAction(identifier: AlertSnoozes.noteAction, title: AlertNoteText.addTitle,
+                                                 options: [],
+                                                 icon: UNNotificationActionIcon(systemImageName: "square.and.pencil"),
+                                                 textInputButtonTitle: AlertNoteText.saveButton,
+                                                 textInputPlaceholder: AlertNoteText.placeholder)
         return [
             // `.customDismissAction`: swiping one away reaches the app, so Settings › Alerts › History
             // can say it was dismissed (docs/AlertHistory.md). It snoozes and logs nothing.
-            UNNotificationCategory(identifier: AlertSnoozes.snoozeAndTreatCategory, actions: [treat, snooze],
+            UNNotificationCategory(identifier: AlertSnoozes.snoozeAndTreatCategory, actions: [treat, snooze, note],
                                    intentIdentifiers: [], options: [.customDismissAction]),
             // Urgent lows are never snoozable.
-            UNNotificationCategory(identifier: AlertSnoozes.treatOnlyCategory, actions: [treat], intentIdentifiers: [],
+            UNNotificationCategory(identifier: AlertSnoozes.treatOnlyCategory, actions: [treat, note], intentIdentifiers: [],
                                    options: [.customDismissAction]),
         ]
     }
@@ -384,6 +398,15 @@ enum AlertNotifications {
     /// (`.customDismissAction`). A test alert's dismissal is nothing.
     static func isDismissal(action: String, userInfo: [AnyHashable: Any]) -> Bool {
         action == UNNotificationDismissActionIdentifier && TestAlert.ownKind(userInfo) != nil
+    }
+
+    /// The text typed into "Add note" on one of the user's own low or high alerts, if this response
+    /// is that. Nil for a test alert (its buttons do nothing), a follower's copy, any other action,
+    /// or nothing typed.
+    static func note(action: String, userInfo: [AnyHashable: Any], text: String?) -> String? {
+        guard action == AlertSnoozes.noteAction, let kind = TestAlert.ownKind(userInfo), AlertLog.isLogged(kind),
+              let text else { return nil }
+        return AlertNote.cleaned(text)
     }
 
     /// The alert button behind a notification response, if it was one.

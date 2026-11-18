@@ -364,7 +364,9 @@ enum LogEntry: Identifiable, Hashable {
             if m.carbs > 0 { return m.food.isEmpty ? "\(LogFormat.grams(m.carbs)) carbs" : "\(LogFormat.grams(m.carbs)) · \(m.food)" }
             return m.food.isEmpty ? "Food" : m.food
         case .siteChange(let s): return "New site: \(s.site.title)"
-        case .context(let c): return c.sortedTags.map(\.title).joined(separator: ", ")
+        case .context(let c):
+            // A plain note (an alert note, docs/AlertNotes.md) has no tags to name.
+            return c.tags.isEmpty ? "Note" : c.sortedTags.map(\.title).joined(separator: ", ")
         }
     }
 

@@ -1452,7 +1452,7 @@ struct LogbookSection: View {
         case .dose(let d): return d.viaPump ? "Bolus" : (d.kind.isBolus ? "Insulin" : "Long-acting")
         case .meal: return "Food"
         case .siteChange: return "Site change"
-        case .context: return "Context"
+        case .context(let c): return c.tags.isEmpty ? AlertNoteText.entryTitle : "Context"
         }
     }
 
