@@ -603,12 +603,13 @@ struct PhoneChartCard: View {
                              timeLabelCount: hours <= 3 ? 4 : 6, marksNow: true, popsMarkers: true, ripplesNewReading: true,
                              yesterday: yesterday, peeksMarkers: true, selectsSpans: true,
                              openInLogbook: navigator.map { nav in { (id: UUID) in nav.push(.chartMarkerEntry(id)) } },
-                             snapsScrub: true)
+                             snapsScrub: true,
+                             markerActions: navigator.map { _ in { (action: MarkerActions.Action, id: UUID) in markerAction(action, id) } })
             }
                 .frame(height: 260)
                 .chartHoursPinch($settings.chartHours)
                 // Touch and hold for yesterday's faint line (also in Settings → Display); a hold on a
-                // logged marker peeks it instead.
+                // logged marker peeks it instead, and held on it opens its Edit / Log Again Now card.
                 .yesterdayLineMenu($settings.showYesterdayLine)
                 .accessibilityAction(named: "Show fewer hours") {
                     settings.chartHours = ChartHours.shorter(than: settings.chartHours)
@@ -622,6 +623,20 @@ struct PhoneChartCard: View {
             if let outlook, !outlook.forecast.isEmpty { forecastLine(outlook, unit: store.shownUnit) }
         }
         .dsCard(.standard, padding: DS.Space.lg)
+    }
+
+    /// Edit or Log Again Now on a marker's peek card (`MarkerActions`). Edit opens the log sheet on
+    /// the entry; Log Again Now logs the same entry at the current time (`LogEntry.copied`), as the
+    /// Logbook's swipe does, and its marker pops in. Gone meanwhile (deleted on the Mac): nothing.
+    private func markerAction(_ action: MarkerActions.Action, _ id: UUID) {
+        guard let entry = logbook.entry(id: id) else { return }
+        switch action {
+        case .edit:
+            PhoneLogRouter.shared.edit(entry)
+        case .logAgainNow:
+            logbook.duplicate(entry)
+            Haptics.play(.done)
+        }
     }
 
     /// Readings back to a day before the longest span, for yesterday's line, while it's on.
