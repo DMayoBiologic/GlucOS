@@ -384,6 +384,27 @@ Sources/Engine/LogbookSelection.swift).
 - **Reduce Motion.** Checkmarks slide in from the leading edge and fill with a symbol swap, and the
   count rolls. Under Reduce Motion they fade and swap instantly.
 
+### Deleting several entries (round 73)
+
+When Delete takes two or more rows, they go one after another instead of all at once
+(`LogbookCascade` in Sources/Engine/LogbookCascade.swift).
+
+- **Out.** Rows shrink out from the top, 45 ms apart, each in 0.2 s. A long selection tightens
+  the step so the last row starts by 0.3 s, so nothing takes longer than about half a second. A
+  meal and its insulin shown as one row move as one.
+- **Then it settles.** The store deletes the entries only once the last row has gone. The list
+  closes up, the day totals roll and the Undo toast rises together, after the rows. The day's
+  time in range bar comes from readings, so it doesn't move for an entry.
+- **Undo.** The same rows come back the other way round, bottom row first, growing in on the same
+  steps. The day totals hold until the last row is back, then roll once. If something else
+  arrives at the same moment (a sync), or only one row comes back, rows arrive as usual.
+- **Both apps.** iPhone Select mode's Delete, and the Mac's ⌫ and Delete N Entries on a selection.
+  Undo is the toast or ⌘Z.
+- **VoiceOver.** The toast says "3 entries deleted" once. Undo says "Put back 3 entries" once, and
+  holds back the day totals line that would otherwise follow it. Nothing is said per row.
+- **Reduce Motion.** No cascade: the rows go, and come back, at once, as for a single delete.
+  VoiceOver still hears each line once.
+
 ## Editing an entry
 
 Opening an entry's edit sheet from the Logbook comes out of the row it was opened from and goes

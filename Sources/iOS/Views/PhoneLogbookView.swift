@@ -149,6 +149,12 @@ struct PhoneLogbookView: View {
     /// insulin shown as one row are picked together.
     @State private var selecting = false
     @State private var selection = LogbookSelection()
+    /// Several picked rows shrinking out one after another, or coming back the other way after
+    /// Undo (`LogbookCascade`). Nil the rest of the time.
+    @State private var cascade: LogbookCascade?
+    /// The rows the last cascade took away, top to bottom, so an Undo can bring them back
+    /// bottom first. Forgotten once the Undo has run or a later delete replaces them.
+    @State private var cascadeDeleted: [[UUID]] = []
     /// "New Tag…" for the picked entries: the alert's text.
     @State private var askingTag = false
     @State private var tagDraft = ""
@@ -208,7 +214,9 @@ struct PhoneLogbookView: View {
         // VoiceOver hears the count once typing pauses, not on every letter.
         .task(id: query) { await announceSearchCount() }
         .onChange(of: allIDs) { old, new in
-            markFresh(Set(new).subtracting(old))
+            let added = Set(new).subtracting(old)
+            cascadeBack(added)
+            markFresh(added)
         }
         // The open entry went (deleted on the Mac, undone) or the search or a chip left its row
         // out: nothing to shrink back into, so the card just goes.
@@ -350,8 +358,10 @@ struct PhoneLogbookView: View {
 
     @ViewBuilder
     private func daySections(all: [LogEntry], shown: [PhoneLogbookItem], now: Date, terms: [String]) -> some View {
-        // Headers total the whole day, not just what the filter or search left showing.
-        let wholeDays = PhoneLogbookDay.group(all.map(PhoneLogbookItem.entry), now: now)
+        // Headers total the whole day, not just what the filter or search left showing. Rows an
+        // Undo is still bringing back don't count yet, so the totals roll once the last is back.
+        let counted = cascade.map { c in c.direction == .arriving ? all.filter { !c.holds([$0.id]) } : all } ?? all
+        let wholeDays = PhoneLogbookDay.group(counted.map(PhoneLogbookItem.entry), now: now)
         let totals: [String: String] = Dictionary(wholeDays.map { ($0.id, $0.totals) }, uniquingKeysWith: { a, _ in a })
         let sums: [String: LogbookDayTotals] = Dictionary(wholeDays.map { ($0.id, LogbookDayTotals($0.entries)) },
                                                           uniquingKeysWith: { a, _ in a })
@@ -377,6 +387,8 @@ struct PhoneLogbookView: View {
                         pieceRow(piece, order: starts[i] + j, terms: terms)
                             .opacity(rowsFade)
                             .searchLeaving(!leaving.isEmpty && piece.itemIDs.allSatisfy(leaving.contains))
+                            // Several deleted together go one after another (`deletePicked`).
+                            .logbookCascade(cascade, entries: piece.itemIDs)
                     }
                 }
             } header: {
@@ -1130,14 +1142,64 @@ struct PhoneLogbookView: View {
         AccessibilityNotification.Announcement(LogbookSelectionText.spoken(pickedEntries(shown).count)).post()
     }
 
-    /// Deletes every picked entry. The rows fold away together and one Undo brings all of them back
-    /// under the same ids (`LogbookStore.delete`). Select mode ends, as in Mail.
+    /// Deletes every picked entry, and one Undo brings all of them back under the same ids
+    /// (`LogbookStore.delete`). Select mode ends, as in Mail.
+    ///
+    /// Two or more rows shrink out one after another from the top, a short step apart
+    /// (`LogbookCascade`), and only once the last has gone does the store delete them: the list
+    /// closes up, the day totals roll and the Undo toast (which VoiceOver hears once, "3 entries
+    /// deleted") rises together, after the rows. Under Reduce Motion, or for one row, they go at
+    /// once, as before.
     private func deletePicked(_ shown: [PhoneLogbookItem]) {
-        let ids = Set(pickedEntries(shown).map(\.id))
-        guard !ids.isEmpty else { return }
-        logbook.delete(ids: ids)
+        let rows = selection.rows(in: selectionRuns(shown), entry: \.entry)
+        let ids = Set(rows.flatMap { $0 })
+        guard !ids.isEmpty, cascade == nil else { return }
         Haptics.play(.deleted)
         endSelecting()
+        guard LogbookCascade.applies(rows: rows.count, reduceMotion: reduceMotion) else {
+            // Remembered anyway, so an Undo still says "Put back 3 entries" once.
+            cascadeDeleted = rows.count >= 2 ? rows : []
+            logbook.delete(ids: ids)
+            return
+        }
+        let leaving = LogbookCascade(rows: rows, direction: .leaving)
+        cascade = leaving
+        cascadeDeleted = rows
+        // Not tied to the view: the delete still happens if the Logbook closes mid-cascade.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(leaving.total))
+            DS.animate(.standard, reduceMotion: reduceMotion) {
+                logbook.delete(ids: ids)
+                if cascade == leaving { cascade = nil }
+            }
+        }
+    }
+
+    /// After an Undo: when the entries that came back are the ones a cascade took away, they come
+    /// back the other way round, bottom row first, each growing in on its own delay, and the day
+    /// totals roll once the last is back. VoiceOver hears "Put back 3 entries" once (and not the
+    /// totals on top of it). Anything else that arrives (a sync, one swipe's Undo) arrives as usual.
+    private func cascadeBack(_ added: Set<UUID>) {
+        guard !added.isEmpty, !cascadeDeleted.isEmpty else { return }
+        let deleted = cascadeDeleted
+        cascadeDeleted = []
+        guard let rows = LogbookCascade.restoring(added: added, deleted: deleted) else { return }
+        let count = rows.reduce(0) { $0 + $1.count }
+        _ = dayTotalsShown.mayAnnounce(at: Date())
+        LoggedElsewhere.announce(LogbookCascadeText.restored(count))
+        guard LogbookCascade.applies(rows: rows.count, reduceMotion: reduceMotion) else { return }
+        let arriving = LogbookCascade(rows: rows, direction: .arriving)
+        var quiet = Transaction()
+        quiet.disablesAnimations = true
+        withTransaction(quiet) { cascade = arriving }
+        Task { @MainActor in
+            await Task.yield()
+            guard cascade == arriving else { return }
+            cascade = arriving.revealed()
+            try? await Task.sleep(for: .seconds(arriving.total))
+            guard cascade == arriving.revealed() else { return }
+            DS.animate(.standard, reduceMotion: reduceMotion) { cascade = nil }
+        }
     }
 
     /// Adds a tag to every picked entry, or takes it off. Only the tags change, and one Undo puts
