@@ -183,6 +183,9 @@ enum WhatsNewCatalog {
             .init(symbol: "chart.line.downtrend.xyaxis",
                   title: "Forecasts after correction insulin",
                   detail: "We checked forecasts after rapid insulin taken while high with no meal nearby and kept the range as it is for now."),
+            .init(symbol: "arrow.clockwise",
+                  title: "Check now when readings stop",
+                  detail: "When a gap in readings says no signal or can't connect, Check Now asks LibreLinkUp again and shows what came back."),
         ]),
         WhatsNewRelease(version: "1.75.0", highlights: [
             .init(symbol: "dot.radiowaves.left.and.right",

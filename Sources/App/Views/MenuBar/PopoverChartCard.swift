@@ -76,7 +76,7 @@ struct PopoverChartCard: View {
                              openInLogbook: openInLogbook, closesCallout: closeCallout, snapsScrub: true,
                              markerActions: markerAction, pinsHoveredMarker: pinHovered,
                              forecastDetails: details(outlook), opensForecastDetails: forecastKey,
-                             gapContext: store.gapContext)
+                             gapContext: store.gapContext, gapCheck: store.gapCheckControl)
             }
                 .onPreferenceChange(MarkerCalloutOpenKey.self) { calloutOpen = $0 }
                 .onPreferenceChange(MarkerHoveredKey.self) { rightClicks.armed = $0 }

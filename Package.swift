@@ -48,6 +48,7 @@ let package = Package(
                 "Shared/MarkerActions.swift",
                 "Shared/ChartNotes.swift",
                 "Shared/ReadingGaps.swift",
+                "Shared/ReadingGapCheck.swift",
                 "Shared/CardReveals.swift",
                 "Shared/LoggedElsewhere.swift",
                 "Shared/ForecastMorph.swift",
