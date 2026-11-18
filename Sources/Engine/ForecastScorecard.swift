@@ -189,3 +189,11 @@ enum ForecastScorecardText {
     }
 
 }
+
+extension ForecastDetails {
+    /// The forecast details card's range figures, from the scorecard: the same checks as the
+    /// Insights card, so the two never disagree. None while the scorecard is still hidden.
+    static func held(_ card: ForecastScorecard?) -> [HitRate] {
+        (card?.rows ?? []).map { HitRate(minutes: $0.minutes, share: $0.insideRange, checks: $0.checks) }
+    }
+}
