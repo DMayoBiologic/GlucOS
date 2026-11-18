@@ -120,7 +120,9 @@ struct DayCompareView: View {
 
     private func step(to target: Date?, now: Date) {
         guard let target else { return }
+        #if os(iOS)
         Haptics.play(.choice)
+        #endif
         let announce = { LoggedElsewhere.announce(DayCompareText.announcement(first: spokenDay(first, now: now),
                                                                               second: spokenDay(target, now: now))) }
         if reduceMotion {
