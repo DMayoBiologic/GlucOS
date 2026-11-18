@@ -180,6 +180,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.76.0", highlights: [
+            .init(symbol: "chart.line.downtrend.xyaxis",
+                  title: "Forecasts after correction insulin",
+                  detail: "We checked forecasts after rapid insulin taken while high with no meal nearby and kept the range as it is for now."),
             .init(symbol: "dot.radiowaves.left.and.right",
                   title: "Sensor coverage comes alive",
                   detail: "The coverage meter fills and each gap's bar grows in, with the period before marked when you compare."),
