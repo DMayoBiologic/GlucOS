@@ -13,7 +13,8 @@ release's highlights once.
   Done, Return or Esc closes it; closing the popover does too.
 - **Settings › About › What's New** (iPhone, follower Settings too) and **Settings › Advanced ›
   Updates › What's New…** (Mac) open every release's highlights up to this version, any time.
-  Settings search finds it ("what's new", "changelog", "release notes").
+  Settings search (Mac, and iPhone Settings for sensor wearers) finds it ("what's new", "changelog",
+  "release notes"). Follower Settings has the row but no search.
 
 The rows rise in one after another (0.06 s apart, 0.35 s each, capped at 8 steps). Under Reduce
 Motion they are simply there. Each row reads as one VoiceOver element; the Mac announces the title.
@@ -38,11 +39,13 @@ Rules in `Sources/Engine/WhatsNew.swift` (`WhatsNew.decide`), tests in `WhatsNew
 - iPhone checks only in the foreground: a background launch before first unlock can't read the
   sign-in and would look like a fresh install.
 - A log sheet asked for while What's New is up (a notification's Log treatment, a widget, Siri):
-  What's New closes and the log sheet opens straight after.
+  What's New closes and the log sheet opens straight after, unless a newer log request arrived in
+  that moment, which then wins.
 
 ## Adding a release
 
 Each release PR adds an entry at the top of `WhatsNewCatalog.releases`: the version it ships
 (`"1.74.0"`), and two or three highlights with an SF Symbol, a short title (40 characters or
 fewer) and a one-sentence detail. Plain words, no dosing advice (the tests check for both). A
-version without an entry is stored quietly and shows nothing.
+version without an entry adds nothing of its own: someone who
+skipped a listed release still catches up on it, otherwise the version is stored quietly.

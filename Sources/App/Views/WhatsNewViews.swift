@@ -55,7 +55,7 @@ struct WhatsNewView: View {
             Text(WhatsNew.title(for: releases))
                 .dsFont(.title)
                 .accessibilityAddTraits(.isHeader)
-            Text("GlucOS updated itself. Here's what changed.")
+            Text("Highlights from recent updates.")
                 .dsFont(.callout)
                 .foregroundStyle(.secondary)
         }

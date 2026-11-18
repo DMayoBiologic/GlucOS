@@ -64,7 +64,8 @@ struct PhoneRootView: View {
             whatsNew = nil
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(600))
-                router.request = request
+                // A newer request that came in meanwhile wins; this one isn't put back over it.
+                if router.request == nil { router.request = request }
             }
         }
     }
