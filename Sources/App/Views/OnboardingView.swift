@@ -391,7 +391,7 @@ struct OnboardingView: View {
                         Label("Notifications are allowed", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(Tone.success.textColor)
                         Spacer()
-                        Button("Send Test Alert") { store.alerts.sendTest() }
+                        TestAlertButton()
                     case .some(false):
                         StatusBanner(severity: .critical, systemImage: "bell.slash.fill",
                                      title: "Notifications are off for GlucOS",

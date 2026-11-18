@@ -43,7 +43,9 @@ final class AlertBannerCenter: ObservableObject {
     /// banner, so the caller leaves the system banner off (keeping the sound and the list); false
     /// for anything that isn't the user's own low or high alert, or when no banner can be seen.
     func present(title: String, body: String, userInfo: [AnyHashable: Any], at date: Date) -> Bool {
-        guard let banner = AlertBanner(kind: userInfo["kind"] as? String,
+        // A test alert keeps the system banner: that's what it's testing (docs/TestAlert.md).
+        guard !TestAlert.isTest(userInfo),
+              let banner = AlertBanner(kind: userInfo["kind"] as? String,
                                        isFollowerCopy: userInfo["followID"] != nil,
                                        title: title, body: body, firedAt: date),
               canShow else { return false }

@@ -486,7 +486,7 @@ private struct AlertSettingsTab: View {
                         .dependentRow()
                 }
                 LabeledContent("Check it works") {
-                    Button("Send Test Alert") { store.alerts.sendTest() }
+                    TestAlertButton()
                         .disabled(notificationsAllowed != true)
                 }
                 .settingsAnchor(.testAlert)

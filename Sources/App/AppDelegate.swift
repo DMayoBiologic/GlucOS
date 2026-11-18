@@ -94,6 +94,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 NotificationCenter.default.post(name: .glucosOpenDashboard, object: nil)
                 return
             }
+            // A test alert's buttons do nothing: no snooze, no log sheet (docs/TestAlert.md).
+            if TestAlert.isTest(userInfo) {
+                if action == UNNotificationDefaultActionIdentifier { StatusItemPopover.show() }
+                return
+            }
             // Meal, Correction or dismissing "Was that dose for a meal?" is answered on the spot.
             if DoseQuestion.shared.handle(action: action, userInfo: userInfo),
                action != UNNotificationDefaultActionIdentifier { return }
