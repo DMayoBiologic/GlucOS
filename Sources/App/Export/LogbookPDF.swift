@@ -50,16 +50,23 @@ enum LogbookPDF {
 
     /// The finished PDF.
     static func data(_ report: LogbookExport.Report, calendar: Calendar = .autoupdatingCurrent) -> Data {
-        let blocks = self.blocks(report, calendar: calendar)
+        render(blocks(report, calendar: calendar),
+               title: LogbookExport.fileName(report.period, format: .pdf, calendar: calendar)
+                   .replacingOccurrences(of: ".pdf", with: ""),
+               footnote: LogbookExport.footnote(report.device))
+    }
+
+    /// Lays `blocks` out on A4 pages, each with the footer, and returns the PDF. Shared by the
+    /// Logbook export and the Alert History export (`AlertHistoryPDF`).
+    static func render(_ blocks: [Block], title: String, footnote: String) -> Data {
         let pages = paginate(blocks)
         let info: [String: Any] = [
-            kCGPDFContextTitle as String: LogbookExport.fileName(report.period, format: .pdf, calendar: calendar)
-                .replacingOccurrences(of: ".pdf", with: ""),
+            kCGPDFContextTitle as String: title,
             kCGPDFContextCreator as String: "GlucOS",
         ]
         func drawPage(_ i: Int) {
             for p in pages[i] { p.block.draw(CGRect(x: content.minX, y: p.y, width: content.width, height: p.block.height)) }
-            drawFooter(page: i + 1, of: pages.count, device: report.device)
+            drawFooter(page: i + 1, of: pages.count, footnote: footnote)
         }
         #if os(macOS)
         let out = NSMutableData()
@@ -191,12 +198,12 @@ enum LogbookPDF {
         }
     }
 
-    static func drawFooter(page: Int, of count: Int, device: LogbookExport.Device) {
+    static func drawFooter(page: Int, of count: Int, footnote: String) {
         let y = content.maxY - footerHeight + 10
         line(from: CGPoint(x: content.minX, y: y - 4), to: CGPoint(x: content.maxX, y: y - 4), Ink.rule, width: 0.5)
         let pageLabel = attributed("Page \(page) of \(count)", font(7.5), Ink.secondary, align: .right)
         pageLabel.draw(in: CGRect(x: content.maxX - 70, y: y, width: 70, height: 20))
-        attributed(LogbookExport.footnote(device), font(7.5), Ink.secondary)
+        attributed(footnote, font(7.5), Ink.secondary)
             .draw(with: CGRect(x: content.minX, y: y, width: content.width - 80, height: 24),
                   options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
     }
@@ -464,7 +471,7 @@ enum LogbookPDF {
         if !row.insulinType.isEmpty, row.insulinType != row.details { lines.append(row.insulinType) }
         if !row.site.isEmpty { lines.append("Site: \(row.site)") }
         let main = attributed(lines.joined(separator: " · "), font(9))
-        let note = row.note.isEmpty ? nil : attributed("Note: \(row.note)", font(8.5).italic, Ink.secondary)
+        let note = row.note.isEmpty ? nil : attributed("Note: \(row.note)", font(8.5).pdfItalic, Ink.secondary)
         let type = attributed(row.type, font(9, .semibold))
         let typeH = height(type, width: columns[1].w - 4)
         let mainH = lines.isEmpty ? 0 : height(main, width: detailsW)
@@ -494,8 +501,9 @@ enum LogbookPDF {
     }
 }
 
-private extension LogbookPDF.PDFFont {
-    var italic: LogbookPDF.PDFFont {
+extension LogbookPDF.PDFFont {
+    /// The same font in italic, for notes.
+    var pdfItalic: LogbookPDF.PDFFont {
         #if os(macOS)
         NSFont(descriptor: fontDescriptor.withSymbolicTraits(.italic), size: pointSize) ?? self
         #else

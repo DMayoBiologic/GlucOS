@@ -381,6 +381,12 @@ enum AlertHistoryText {
     /// Why a filtered list is empty, by what the chips ask for: "No snoozed low alerts in the
     /// last 7 days.", "No unanswered predicted alerts in the last 7 days."
     static func filteredEmptyMessage(_ pick: AlertHistory.FilterPick) -> String {
+        "No " + pickPhrase(pick) + " in the last 7 days."
+    }
+
+    /// What a pick of chips lets through, mid-sentence: "alerts", "snoozed low alerts",
+    /// "unanswered predicted alerts". Also the export's filter line (`AlertHistoryExport`).
+    static func pickPhrase(_ pick: AlertHistory.FilterPick) -> String {
         let noun: String
         switch pick.kind {
         case .lows: noun = "low alerts"
@@ -396,7 +402,7 @@ enum AlertHistoryText {
         case .noResponse: adjective = "unanswered"
         case nil: adjective = nil
         }
-        return "No " + [adjective, noun].compactMap { $0 }.joined(separator: " ") + " in the last 7 days."
+        return [adjective, noun].compactMap { $0 }.joined(separator: " ")
     }
     static let showAllButton = "Show All Alerts"
     static let kindChipsLabel = "Alert type"

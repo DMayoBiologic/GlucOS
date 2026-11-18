@@ -206,6 +206,7 @@ targets:
       # Keyboard focus stops on the shared Insights cards (no-ops on iPhone).
       - path: Sources/App/Views/KeyFocus.swift
       - path: Sources/App/Export/LogbookPDF.swift
+      - path: Sources/App/Export/AlertHistoryPDF.swift
     dependencies:
       - target: GlucOSiOSWidget
         embed: true

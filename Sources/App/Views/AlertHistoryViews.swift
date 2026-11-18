@@ -1,4 +1,8 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+import UniformTypeIdentifiers
+#endif
 
 // Settings › Alerts › History on the iPhone and the Mac (docs/AlertHistory.md): the last 7 days of
 // low and high alerts, grouped by day, each one a button into the Logbook around it. The rules and
@@ -69,6 +73,10 @@ struct AlertHistoryContent: View {
                     // On the bar, not the Group: a Group hands its modifiers to every section.
                     AlertHistoryFilterBar(pick: $pick)
                         .task(id: pick) { await settleFilter() }
+                    // Export what the chips show (docs/AlertHistory.md, "Export").
+                    AlertHistoryExportRow(records: records, readings: readings, notes: logbook.contexts,
+                                          unit: unit, pick: pick,
+                                          shown: pick.apply(items).count, total: items.count)
                 }
             }
             if items.isEmpty {
@@ -483,4 +491,136 @@ final class AlertHistoryRoute: ObservableObject {
         request = nil
         return link
     }
+}
+
+/// The history's export row, under the chips: how many alerts are shown, and an Export menu that
+/// makes a PDF or CSV of exactly those (the chips as picked, with each alert's note). The iPhone
+/// opens the share sheet, the Mac asks where to save. Made on the device from the owner's own alert
+/// records, readings and notes, never anything from people they follow (`AlertHistoryExport`).
+struct AlertHistoryExportRow: View {
+    let records: [AlertRecord]
+    let readings: [GlucoseReading]
+    let notes: [ContextEvent]
+    let unit: GlucoseUnit
+    let pick: AlertHistory.FilterPick
+    let shown: Int
+    let total: Int
+
+    @State private var working = false
+    /// After a save on the Mac, or a failure on either: one line under the count.
+    @State private var status: String?
+    #if os(iOS)
+    @State private var file: ExportFile?
+    private let device = LogbookExport.Device.iPhone
+    #else
+    private let device = LogbookExport.Device.mac
+    #endif
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(AlertHistoryExportText.shown(shown, of: total))
+                    .dsFont(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                if let status {
+                    Text(status)
+                        .dsFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: DS.Space.sm)
+            if working { ProgressView().controlSize(.small) }
+            Menu {
+                ForEach(LogbookExport.Format.allCases) { format in
+                    Button {
+                        export(format)
+                    } label: {
+                        Label(AlertHistoryExportText.item(format, device: device),
+                              systemImage: format == .pdf ? "doc.richtext" : "tablecells")
+                    }
+                }
+            } label: {
+                Label(AlertHistoryExportText.button, systemImage: "square.and.arrow.up")
+            }
+            #if os(macOS)
+            .menuStyle(.button)
+            .buttonStyle(.borderless)
+            .fixedSize()
+            #endif
+            .disabled(shown == 0 || working)
+            .accessibilityHint(AlertHistoryExportText.hint)
+        }
+        .padding(.horizontal, DS.Space.lg)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: DS.Space.xs, trailing: 0))
+        #if os(iOS)
+        .sheet(item: $file) { f in
+            ActivitySheet(url: f.url)
+                .presentationDetents([.medium, .large])
+                .ignoresSafeArea()
+        }
+        #endif
+    }
+
+    private func makeReport() -> AlertHistoryExport.Report {
+        AlertHistoryExport.report(records: records, readings: readings, notes: notes, pick: pick,
+                                  unit: unit, device: device)
+    }
+
+    private static func data(_ report: AlertHistoryExport.Report, format: LogbookExport.Format) -> Data {
+        switch format {
+        case .pdf: return AlertHistoryPDF.data(report)
+        case .csv: return Data(AlertHistoryExport.csv(report).utf8)
+        }
+    }
+
+    private func fail() {
+        let text = AlertHistoryExportText.problem(device)
+        status = text
+        AccessibilityNotification.Announcement(text).post()
+    }
+
+    #if os(iOS)
+    /// Makes the file off the main thread (as the Logbook export does), then opens the share sheet.
+    private func export(_ format: LogbookExport.Format) {
+        guard !working else { return }
+        working = true
+        status = nil
+        let report = makeReport()
+        Task {
+            let url: URL? = await Task.detached(priority: .userInitiated) {
+                try? ExportFile.write(Self.data(report, format: format),
+                                      name: AlertHistoryExport.fileName(report, format: format))
+            }.value
+            working = false
+            if let url {
+                Haptics.play(.done)
+                file = ExportFile(url: url)
+            } else {
+                fail()
+            }
+        }
+    }
+    #else
+    /// Asks where to save, then makes the file there. Drawn on the main thread, as the Logbook's
+    /// Mac export: AppKit text drawing is safest there, and a week of alerts is quick.
+    private func export(_ format: LogbookExport.Format) {
+        let report = makeReport()
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [format == .pdf ? .pdf : .commaSeparatedText]
+        panel.nameFieldStringValue = AlertHistoryExport.fileName(report, format: format)
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try Self.data(report, format: format).write(to: url, options: .atomic)
+            let text = AlertHistoryExportText.saved(url.lastPathComponent)
+            status = text
+            AccessibilityNotification.Announcement(text).post()
+        } catch {
+            fail()
+        }
+    }
+    #endif
 }
