@@ -261,4 +261,73 @@ final class AlertHistoryTests: XCTestCase {
         XCTAssertEqual(AlertHistoryText.announcement(Array(changes.prefix(2)), unit: .mgdl, calendar: calendar),
                        "Alert history: 2 new alerts")
     }
+
+    // MARK: Filters
+
+    private func filtered(_ pick: AlertHistory.FilterPick, _ records: [AlertRecord]) -> [UUID] {
+        pick.apply(items(records)).map(\.id)
+    }
+
+    func testKindChipsSplitTheAlertsWithNoOverlap() {
+        let urgent = AlertRecord(kind: .urgentLow, firedAt: at(-200))
+        let low = AlertRecord(kind: .low, firedAt: at(-180))
+        let high = AlertRecord(kind: .high, firedAt: at(-160))
+        let veryHigh = AlertRecord(kind: .veryHigh, firedAt: at(-140))
+        let pLow = AlertRecord(kind: .predictedLow, firedAt: at(-120))
+        let pUrgent = AlertRecord(kind: .predictedUrgentLow, firedAt: at(-100))
+        let pHigh = AlertRecord(kind: .predictedHigh, firedAt: at(-80))
+        let all = [urgent, low, high, veryHigh, pLow, pUrgent, pHigh]
+        XCTAssertEqual(Set(filtered(.init(kind: .lows), all)), [urgent.id, low.id])
+        XCTAssertEqual(Set(filtered(.init(kind: .highs), all)), [high.id, veryHigh.id])
+        XCTAssertEqual(Set(filtered(.init(kind: .predicted), all)), [pLow.id, pUrgent.id, pHigh.id])
+        XCTAssertEqual(filtered(.all, all).count, all.count)
+        let split = AlertHistory.KindFilter.allCases.map { filtered(.init(kind: $0), all).count }.reduce(0, +)
+        XCTAssertEqual(split, all.count)
+    }
+
+    func testOutcomeChipsMatchTheMergedOutcome() {
+        let treated = AlertRecord(kind: .low, firedAt: at(-200), response: .treating, respondedAt: at(-199))
+        let snoozed = AlertRecord(kind: .high, firedAt: at(-150), response: .snoozed, respondedAt: at(-149), snoozeMinutes: 60)
+        let dismissed = AlertRecord(kind: .low, firedAt: at(-100), response: .dismissed, respondedAt: at(-99))
+        let none = AlertRecord(kind: .high, firedAt: at(-50))
+        // The other device's copy was snoozed: the row is snoozed, so it isn't "no response".
+        let macCopy = AlertRecord(kind: .low, firedAt: at(-20))
+        let phoneCopy = AlertRecord(kind: .low, firedAt: at(-19), response: .snoozed, respondedAt: at(-18), snoozeMinutes: 30)
+        let all = [treated, snoozed, dismissed, none, macCopy, phoneCopy]
+        XCTAssertEqual(filtered(.init(outcome: .treated), all), [treated.id])
+        XCTAssertEqual(filtered(.init(outcome: .snoozed), all), [macCopy.id, snoozed.id])
+        XCTAssertEqual(filtered(.init(outcome: .dismissed), all), [dismissed.id])
+        XCTAssertEqual(filtered(.init(outcome: .noResponse), all), [none.id])
+    }
+
+    func testKindAndOutcomeChipsAndTogether() {
+        let lowSnoozed = AlertRecord(kind: .low, firedAt: at(-100), response: .snoozed, respondedAt: at(-99), snoozeMinutes: 30)
+        let highSnoozed = AlertRecord(kind: .high, firedAt: at(-60), response: .snoozed, respondedAt: at(-59), snoozeMinutes: 30)
+        let lowNone = AlertRecord(kind: .low, firedAt: at(-30))
+        let all = [lowSnoozed, highSnoozed, lowNone]
+        XCTAssertEqual(filtered(.init(kind: .lows, outcome: .snoozed), all), [lowSnoozed.id])
+        XCTAssertEqual(filtered(.init(kind: .predicted, outcome: .snoozed), all), [])
+        XCTAssertTrue(AlertHistory.FilterPick(outcome: .snoozed).isFiltered)
+        XCTAssertFalse(AlertHistory.FilterPick.all.isFiltered)
+    }
+
+    func testFilterWords() {
+        XCTAssertEqual(AlertHistoryText.filterAnnouncement(count: 0), "No matching alerts")
+        XCTAssertEqual(AlertHistoryText.filterAnnouncement(count: 1), "1 alert")
+        XCTAssertEqual(AlertHistoryText.filterAnnouncement(count: 4), "4 alerts")
+        XCTAssertEqual(AlertHistoryText.filteredEmptyMessage(.init(kind: .lows, outcome: .snoozed)),
+                       "No snoozed low alerts in the last 7 days.")
+        XCTAssertEqual(AlertHistoryText.filteredEmptyMessage(.init(kind: .predicted, outcome: .noResponse)),
+                       "No unanswered predicted alerts in the last 7 days.")
+        XCTAssertEqual(AlertHistoryText.filteredEmptyMessage(.init(outcome: .treated)),
+                       "No treated alerts in the last 7 days.")
+        XCTAssertEqual(AlertHistoryText.filteredEmptyMessage(.init(kind: .highs)),
+                       "No high alerts in the last 7 days.")
+        XCTAssertEqual(AlertHistory.OutcomeFilter.treated.spoken, "Tapped Log treatment")
+    }
+
+    func testFilterFadeMatchesTheLogbook() {
+        XCTAssertEqual(AlertHistory.FilterPick.fadeOut, LogbookFilterPick.fadeOut)
+        XCTAssertEqual(AlertHistory.FilterPick.fadeIn, LogbookFilterPick.fadeIn)
+    }
 }

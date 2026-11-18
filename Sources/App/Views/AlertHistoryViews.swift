@@ -50,12 +50,28 @@ struct AlertHistoryContent: View {
     @Environment(AlertNoteEditor.self) private var editor: AlertNoteEditor?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The chips picked (docs/AlertHistory.md, "Filters"). Kept while the screen is open only.
+    @State private var pick = AlertHistory.FilterPick.all
+    /// The chips the rows are showing. It follows `pick` a moment behind, so the old rows fade out
+    /// while the highlight slides to the new chip (`settleFilter`), as in the Logbook.
+    @State private var listed = AlertHistory.FilterPick.all
+    /// The rows' opacity, dipped while the list switches to a new pick's rows.
+    @State private var rowsFade = 1.0
+
     var body: some View {
         let now = Date()
         let items = AlertHistory.items(records: records, readings: readings, now: now)
-        let days = AlertHistory.days(items)
+        let shown = listed.apply(items)
+        let days = AlertHistory.days(shown)
         Group {
-            if days.isEmpty {
+            if !items.isEmpty {
+                Section {
+                    // On the bar, not the Group: a Group hands its modifiers to every section.
+                    AlertHistoryFilterBar(pick: $pick)
+                        .task(id: pick) { await settleFilter() }
+                }
+            }
+            if items.isEmpty {
                 Section {
                     EmptyStateView(systemImage: alertsOn ? "bell" : "bell.slash",
                                    title: AlertHistoryText.emptyTitle,
@@ -63,6 +79,18 @@ struct AlertHistoryContent: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, DS.Space.lg)
                         .accessibilityElement(children: .combine)
+                }
+            } else if days.isEmpty {
+                // Alerts there are, just none the chips let through: say which, and clear them.
+                Section {
+                    EmptyStateView(systemImage: "line.3.horizontal.decrease.circle",
+                                   title: AlertHistoryText.filteredEmptyTitle,
+                                   message: AlertHistoryText.filteredEmptyMessage(listed),
+                                   actionTitle: AlertHistoryText.showAllButton,
+                                   action: { pick = .all })
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DS.Space.lg)
+                        .opacity(rowsFade)
                 }
             } else {
                 ForEach(days) { day in
@@ -73,6 +101,7 @@ struct AlertHistoryContent: View {
                                             open: { open(AlertHistory.link(for: item, records: records, now: Date())) },
                                             editNote: editor.map { e -> () -> Void in { e.start(item, in: logbook.contexts) } })
                             .transition(DS.Transition.banner(reduceMotion: reduceMotion))
+                            .opacity(rowsFade)
                         }
                     } header: {
                         HStack {
@@ -84,18 +113,132 @@ struct AlertHistoryContent: View {
                         }
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.isHeader)
+                        .opacity(rowsFade)
                     }
                 }
             }
         }
-        // A new alert slides in at the top; instant under Reduce Motion.
+        // A new alert slides in at the top; instant under Reduce Motion. A chip switch doesn't
+        // slide rows: it fades them over (`settleFilter`).
         .dsAnimation(.standard, value: items.map(\.id))
         // A note appearing under its row, or going, fades in place; instant under Reduce Motion.
         .dsAnimation(.standard, value: noteTexts(items))
     }
 
+    /// The chips changed (a tap, Show All Alerts): the old rows fade out, the list switches to the
+    /// new pick's rows without sliding them, and those fade in. VoiceOver then says how many alerts
+    /// are showing, once; a quick run of taps only speaks for the last. Under Reduce Motion the
+    /// list just switches.
+    private func settleFilter() async {
+        let target = pick
+        guard target != listed else {
+            if rowsFade < 1 { withAnimation(.easeOut(duration: AlertHistory.FilterPick.fadeIn)) { rowsFade = 1 } }
+            return
+        }
+        if !reduceMotion {
+            withAnimation(.easeIn(duration: AlertHistory.FilterPick.fadeOut)) { rowsFade = 0 }
+            try? await Task.sleep(for: .seconds(AlertHistory.FilterPick.fadeOut))
+            guard !Task.isCancelled else { return }
+        }
+        var quiet = Transaction()
+        quiet.disablesAnimations = true
+        withTransaction(quiet) { listed = target }
+        if !reduceMotion {
+            withAnimation(.easeOut(duration: AlertHistory.FilterPick.fadeIn)) { rowsFade = 1 }
+        } else {
+            rowsFade = 1
+        }
+        let count = target.apply(AlertHistory.items(records: records, readings: readings, now: Date())).count
+        AccessibilityNotification.Announcement(AlertHistoryText.filterAnnouncement(count: count)).post()
+    }
+
     private func noteTexts(_ items: [AlertHistory.Item]) -> [String] {
         items.map { AlertNote.existing(near: $0.firedAt, in: logbook.contexts)?.note ?? "" }
+    }
+}
+
+/// The history's chips: what kind of alert (All, Lows, Highs, Predicted) and, on a second row,
+/// what was done about it (Treated, Snoozed, Dismissed, No response; none picked shows every
+/// outcome). In each row the picked chip's highlight is one view that slides to the new pick
+/// (`ChipButtonStyle`'s matched geometry, as the Logbook's chips) on the `.emphasized` spring.
+/// Instant under Reduce Motion.
+struct AlertHistoryFilterBar: View {
+    @Binding var pick: AlertHistory.FilterPick
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var kindSpace
+    @Namespace private var outcomeSpace
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            chipRow(label: AlertHistoryText.kindChipsLabel) {
+                chip(AlertHistoryText.allChip, systemImage: nil, tint: Palette.brand,
+                     selected: pick.kind == nil, space: kindSpace) { pick.kind = nil }
+                ForEach(AlertHistory.KindFilter.allCases) { k in
+                    chip(k.title, systemImage: k.symbol, tint: k.tint,
+                         selected: pick.kind == k, space: kindSpace) { pick.kind = k }
+                }
+            }
+            chipRow(label: AlertHistoryText.outcomeChipsLabel) {
+                ForEach(AlertHistory.OutcomeFilter.allCases) { o in
+                    chip(o.title, systemImage: o.symbol, tint: o.tint,
+                         selected: pick.outcome == o, space: outcomeSpace) {
+                        pick.outcome = pick.outcome == o ? nil : o
+                    }
+                    .accessibilityLabel(o.spoken)
+                }
+            }
+        }
+        .padding(.vertical, DS.Space.xs)
+        .animation(reduceMotion ? nil : DSMotion.emphasized.animation, value: pick)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: DS.Space.xs, leading: 0, bottom: DS.Space.xs, trailing: 0))
+    }
+
+    private func chipRow<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.sm) { content() }
+                .padding(.horizontal, DS.Space.lg)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+    }
+
+    private func chip(_ title: String, systemImage: String?, tint: Color, selected: Bool,
+                      space: Namespace.ID, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            #if os(iOS)
+            Haptics.play(.choice)
+            #endif
+        } label: {
+            HStack(spacing: DS.Space.xs) {
+                if let systemImage { Image(systemName: systemImage).imageScale(.small) }
+                Text(title)
+            }
+        }
+        .buttonStyle(ChipButtonStyle(selected: selected, tint: tint, highlight: space))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+extension AlertHistory.KindFilter {
+    var tint: Color {
+        switch self {
+        case .lows: return GlucoseRange.low.color
+        case .highs: return GlucoseRange.high.color
+        case .predicted: return Palette.brand
+        }
+    }
+}
+
+extension AlertHistory.OutcomeFilter {
+    var tint: Color {
+        switch self {
+        case .treated: return AlertHistory.Outcome.treating.tone.color
+        case .snoozed: return AlertHistory.Outcome.snoozed(minutes: nil).tone.color
+        case .dismissed, .noResponse: return Palette.brand
+        }
     }
 }
 
