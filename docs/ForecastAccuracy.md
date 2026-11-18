@@ -6147,3 +6147,75 @@ force the line to trend only for 3 h 10 min.
 
 **Dosing.** Not touched: the carb term only changes the chart and predicted alerts. Carb ratios,
 bolus suggestions and carbs on board are separate and unchanged.
+
+## 84. Are forecasts worse in the 2 hours after an alert nobody treated? (18 Nov 2026)
+
+The question: after an alert is snoozed, dismissed or left alone with no treatment logged, is the
+line or the range off in the next 2 hours, compared with alerts that were treated and with times
+after no alert? Test one held-out tweak; the bar is better at 30 AND 60 minutes without lifting
+lows. **Almost nothing here is "snoozed or dismissed": 4 snoozes in 3 episodes (all 17 Nov
+afternoon) with no scored 30- or 60-minute point after them, and no dismissal recorded yet
+(that response only exists since #367 today). Taking every untreated alert instead, the line is
+unbiased at 30 minutes but the range holds only 69% of actuals, against 95% after treated
+alerts. An untreated-only widening fitted held out didn't win on any day at 30 minutes and
+couldn't be fitted at 60 (one day of points). Nothing ships; no app or relay code changed.**
+
+Nothing here touches dosing, carb ratios, the bolus figure, the effect learner, the alerts, the
+relay or `web/`. Post-meal peaks and sensor-day range are left out on purpose.
+
+**Method** (`scripts/after-alert-forecast.py`). Alerts are the Alert History store: 188
+`AlertRecord` rows from 15 Nov 01:27 to 18 Nov 18:42 Perth (only 4 snoozed, 1 Log treatment, the
+rest no response). Copies of one kind within 3 minutes count once and same-side alerts within
+45 minutes fold into an episode, as the Logbook rows do: 29 episodes, 7 low-side and 22
+high-side. An episode is treated when a copy got Log treatment or a treatment was logged from
+15 minutes before its first alert to 30 minutes after its last (a meal for a low, a rapid dose
+for a high): 7 treated. Points are §42's clean shown points drawn as today (nothing logged
+between issue and due), 842 of them since the first alert, labelled by any alert in the 2 hours
+before issue.
+
+**As drawn** (bias = actual − line; positive means the reading ended above the line):
+
+| Horizon | Group | Points (days) | Bias | MAE | Inside the range |
+|---|---|---|---|---|---|
+| 15 min | no alert | 76 | +5.8 | 24.2 | 68% |
+| 15 min | treated | 153 (2) | +1.1 | 13.1 | 93% |
+| 15 min | untreated | 243 (3) | −2.5 | 18.1 | 84% |
+| 15 min | of which snoozed | 10 (1) | −0.5 | 15.6 | 80% |
+| 30 min | no alert | 15 | +28.2 | 47.9 | 87% |
+| 30 min | treated | 76 (2) | +1.1 | 21.7 | 95% |
+| 30 min | untreated | 75 (3) | −2.7 | 39.2 | 69% |
+| 60 min | no alert | 7 | +23.8 | 50.0 | 100% |
+| 60 min | treated | 41 (1) | +14.4 | 51.7 | 100% |
+| 60 min | untreated | 33 (1) | +41.6 | 78.4 | 82% |
+
+The untreated 30- and 60-minute points are nearly all high-side (74 of 75, 33 of 33) and come
+from one stretch: 69 of the 75 at 30 minutes and all 33 at 60 are 16 Nov afternoon, a run of
+high and very high alerts starting 15 minutes after a logged lunch (32.6 g, 6 u at 13:30). Split
+by a meal in the 3 h 10 min before issue, untreated points after a meal lean high (+15.0 at 30,
++45.7 at 60) and those without lean low (−19.1 at 30), so the near-zero untreated bias is two
+opposite leans cancelling. The after-meal half is the post-meal peak question this round skips.
+Treated points are better mostly because a logged treatment hands the engine the meal or dose;
+"no alert" is small here because alerts fired so often in these days that few points fall
+outside every 2-hour window. A 1- or 3-hour window gives the same picture (30 min untreated
+68–72% inside, treated 93–95%).
+
+**Held out.** One range factor per horizon for untreated-after points only: the 80th
+percentile of the other days' untreated miss ratios (as §42/§75), clamped to at least 1 so it
+only widens, left at 1 under 20 points. The line doesn't move, so it can't hide a low.
+
+| Horizon | Inside, shipped → tweak | Interval score | Days better | Factors fitted |
+|---|---|---|---|---|
+| 15 min | 84% → 84% | 80.9 → 80.9 | 0 of 3 | 1.0 |
+| 30 min | 69% → 71% | 169.9 → 170.4 | 0 of 3 | 1.0, 1.17, 1.19 |
+| 60 min | 82% → 82% | 342.3 → 342.3 | 0 of 1 | 1.0 (one day, nothing to fit) |
+
+At 30 minutes the only day with enough points (16 Nov) gets no factor when it's held out, and the
+two factors fitted from 16 Nov widen 17 and 18 Nov, which were already mostly inside. It fails
+the bar at both horizons.
+
+**Decision.** Keep the range as it is after alerts. Retest on **9 Dec 2026**, only if 30+ clean
+points at both 30 and 60 minutes fall in the 2 hours after snoozed or dismissed alerts, on 4+
+days. Then test the same untreated-only widening against the same bar, and split by meal in the
+last 3 h 10 min so a post-meal run can't stand in for an ignored alert.
+
+**Dosing.** Not touched: the range only changes the chart and the forecast card.
