@@ -9,7 +9,8 @@
 -- on the other days (under 30 means c = 1 because it couldn't fit, not because it was clamped).
 -- Ratios follow ratio() in scripts/adaptive-range.py: a clipped side borrows the other side, and a
 -- point with either side 0.5 mg/dL or narrower gets no ratio. An app_version that isn't dotted
--- integers can't be compared with the §40/§41 cutoffs, so that record is left out.
+-- integers of up to 9 digits each can't be compared with the §40/§41 cutoffs (or would overflow
+-- int), so that record is left out.
 -- The level is retrospective: it counts Logbook entries as they stand now by their event time, so an
 -- entry logged late (timestamped before the forecast) still counts. The logbook has no creation time
 -- (modified_at moves on every edit), so "as known at issue" can't be rebuilt.
@@ -27,7 +28,7 @@ raw as (select c.issued_at t, to_char(c.issued_at at time zone 'Australia/Perth'
           and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (30,60)
           and (c.issued_at at time zone 'Australia/Perth')::date between (select d_from from params) and (select d_to from params)),
 v as (select *, string_to_array(ver,'.')::int[] vv from raw
-      where ver ~ '^[0-9]+(\.[0-9]+)*$' and not (ver='0' and extract(epoch from t) >= 1794821580)),
+      where ver ~ '^[0-9]{1,9}(\.[0-9]{1,9})*$' and not (ver='0' and extract(epoch from t) >= 1794821580)),
 dr as (select *,
   least(401, f + (hi0-f) * case when s<80 and lim not like '%lowTreatment%'
         and vv < case dev when 'r' then array[2,17,0] else array[1,30,0] end
