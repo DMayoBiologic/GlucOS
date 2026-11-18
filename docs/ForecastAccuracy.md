@@ -5343,3 +5343,65 @@ LibreLinkUp's live feed has none. To rerun:
 
 **Dosing.** Not touched: the forecast line feeds the chart and predicted alerts, never insulin on
 board, the effect learner or the bolus figure.
+
+## 75. Does the drawn range hold its 80% in daytime stretches with nothing logged, and should it widen there? (18 Nov 2026)
+
+The question: in the daytime (07:00–22:00 Perth) once nothing has been logged for 5+ hours, does
+the drawn range still hold about 8 in 10 readings at 30 and 60 minutes, and would a held-out
+widening for those stretches alone help? The bar: more readings inside at 30 AND 60 on most
+held-out days, a better interval score, no range wider anywhere else, and no lows lost from inside
+the range. **It doesn't pass: there are too few idle points to fit at 30 minutes and none at 60,
+and at the looser 3–4 hour cuts the widening is mixed at 30 and not needed at 60. Nothing ships;
+no app or relay code changed.**
+
+Nothing here touches dosing, the insulin or carb effects, the alerts, the relay or `web/`.
+
+**Data.** `scripts/idle-range.py` takes the §42 export (clean shown points, nothing logged after,
+§40/§41 applied as drawn today) plus every non-deleted Logbook entry of any kind. 1,195 clean points
+12–18 Nov, 58 Logbook entries. A point is idle when it was issued in the daytime and no entry of any
+kind came in the 5 hours before it (or none ever). Inside / above / below as drawn:
+
+| Horizon | Idle (5 h+) | Daytime, logged in last 5 h | Night |
+|---|---|---|---|
+| 15 min | 79% / 10 / 11 (73 pts, 6 days) | 80% / 12 / 9 (321) | 70% / 19 / 11 (175) |
+| 30 min | 61% / 17 / 22 (23 pts, 5 days) | 75% / 12 / 13 (191) | 65% / 19 / 16 (57) |
+| 45 min | 1 point | 75% / 15 / 10 (143) | 61% / 31 / 8 (36) |
+| 60 min | **0 points** | 79% / 12 / 9 (114) | 70% / 27 / 3 (30) |
+
+Long horizons almost never survive in idle stretches because a check point only counts when
+nothing is logged before its reading comes in, and idle daytime runs end with a meal. The 30-minute
+dip (61%) is 23 points, under the 30 the fit needs.
+
+**Held out.** One factor per horizon for idle points only, the 80th percentile of their miss ratios,
+fitted leave-one-day-out and walk-forward, clamped to ≥ 1 so it can only widen. Every other point
+keeps its drawn range, so nothing widens elsewhere by construction. Score is the interval score at
+80% (width + 10 × distance outside), lower is better.
+
+| Cut | Horizon | Idle pts | Inside drawn → LODO | Score drawn → LODO / WF | Idle days won |
+|---|---|---|---|---|---|
+| 5 h | 15 | 73 | 79 → 79% | 73.8 → 77.2 / 73.8 | 2 of 6 |
+| 5 h | 30 | 23 | too few to fit | | |
+| 4 h | 15 | 117 | 80 → 81% | 74.1 → 75.6 / 75.8 | 0 of 6 |
+| 4 h | 30 | 54 | 67 → 78% | 148.2 → 145.3 / 144.6 | 3 of 5 |
+| 4 h | 60 | 11 | 100% already | | |
+| 3 h | 30 | 87 | 77 → 78% | 142.2 → 143.6 / 142.2 | 1 of 6 |
+| 3 h | 60 | 35 | 94% already, c = 1 | 222.0 → 222.0 | 0 of 3 |
+
+The only hint is 30 minutes at a 4-hour cut (factor ~1.1–1.2, misses lean **below**: 26% under the
+range vs 7% over), and it vanishes at 3 hours, so it reads as a few falls in one short window rather
+than a steady idle effect. At 60 minutes the idle points that exist are already inside 94–100% of the
+time. No lows dropped out of the range under any fit (3 of 4 at 4 h, 4 of 5 at 3 h, unchanged).
+Widening the bottom after falls would also move the predicted-low check (§41 `warningLowers`), so
+a 54-point hint isn't enough to touch it.
+
+**Decision.** Keep the range as drawn. Retest on **3 Dec 2026** with §53/§60/§62, and only then if
+there are at least 60 idle points at 30 minutes and 30 at 60 on four or more days (count with the
+script's first table). Same bar as above. As in §54, idle stretches so far are mostly time of day
+(at 4 h, 26 of 54 idle 30-minute points were issued in the 2 pm and 6 pm hours), so a time-of-day split may explain any effect first. To rerun:
+
+    python3 scripts/idle-range.py points.txt log.txt [idle_hours=5]
+
+Export SQL for both files is in the script's docstring.
+
+**Dosing.** Not touched: the range only changes the chart and predicted alerts, never insulin on
+board, the effect learner or the bolus figure.
