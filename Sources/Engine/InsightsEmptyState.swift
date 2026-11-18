@@ -17,6 +17,8 @@ struct InsightsEmptyState: Equatable, Sendable {
         case gathering(daysSoFar: Int, needed: Int)
         /// The Tags card: nothing tagged in this period, and no longer period has a tag either.
         case nothingTagged(days: Int)
+        /// The Alerts card: no low or high alert went off in this period, nor in a longer one.
+        case noAlerts(days: Int)
     }
 
     enum Action: Equatable, Sendable {
@@ -47,6 +49,7 @@ struct InsightsEmptyState: Equatable, Sendable {
         case .tryLonger: return "calendar.badge.clock"
         case .gathering: return "hourglass"
         case .nothingTagged: return "tag"
+        case .noAlerts: return "bell.slash"
         }
     }
 

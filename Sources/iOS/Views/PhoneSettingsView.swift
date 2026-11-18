@@ -175,7 +175,9 @@ struct PhoneSettingsView: View {
     /// Opens scrolled to this section (a banner's Set Up button lands on the relay, not the top).
     var scrollTo: Jump?
 
-    enum Jump: Hashable { case alerts, relay }
+    /// `alertHistory` scrolls to Alerts and then opens Alert History (the Insights Alerts card).
+    enum Jump: Hashable { case alerts, relay, alertHistory }
+    @State private var opensAlertHistory = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -184,8 +186,11 @@ struct PhoneSettingsView: View {
                     guard let scrollTo else { return }
                     // After the sheet has finished arriving, or the scroll is lost.
                     try? await Task.sleep(nanoseconds: 350_000_000)
-                    DS.animate(.standard, reduceMotion: reduceMotion) { proxy.scrollTo(scrollTo, anchor: .top) }
+                    let section = scrollTo == .alertHistory ? Jump.alerts : scrollTo
+                    DS.animate(.standard, reduceMotion: reduceMotion) { proxy.scrollTo(section, anchor: .top) }
+                    if scrollTo == .alertHistory { opensAlertHistory = true }
                 }
+                .navigationDestination(isPresented: $opensAlertHistory) { PhoneAlertHistoryScreen() }
         }
         .confirmationDialog("Sign out of LibreLinkUp?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) { store.signOut() }

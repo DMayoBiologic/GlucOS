@@ -48,7 +48,7 @@ struct PhoneInsightsRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressScaleStyle())
-        .accessibilityHint("Opens time in range by day, week in review, lows, highs, overnight, weekdays and weekends, your usual day, time in range by hour, mornings and forecast accuracy")
+        .accessibilityHint("Opens time in range by day, week in review, lows, highs, alerts, overnight, weekdays and weekends, your usual day, time in range by hour, mornings and forecast accuracy")
     }
 }
 
@@ -217,9 +217,13 @@ struct PhoneInsightsView: View {
     }
 
     /// Whether a showing card is on screen now. The Tags card stays out until something carries a
-    /// tag; its place in the order is kept.
+    /// tag, and Alerts until an alert has been recorded; their places in the order are kept.
     private func onScreen(_ card: InsightsCard) -> Bool {
-        card != .tags || TagInsightsCardView.shows(logbook.entries)
+        switch card {
+        case .tags: return TagInsightsCardView.shows(logbook.entries)
+        case .alerts: return AlertsSummary.shows(logbook.alerts)
+        default: return true
+        }
     }
 
     @ViewBuilder
@@ -230,6 +234,7 @@ struct PhoneInsightsView: View {
         case .weekInReview: PhoneWeekInReviewCard()
         case .lows: PhoneLowsCard()
         case .highs: PhoneHighsCard()
+        case .alerts: PhoneAlertsCard()
         case .overnight: PhoneOvernightCard()
         case .weekdayWeekend: PhoneWeekdayWeekendCard()
         case .streaks: PhoneInRangeStreaksCard()
@@ -442,6 +447,21 @@ struct PhoneHighsCard: View {
         } else {
             card
         }
+    }
+}
+
+/// Low and high alerts over the last 7, 14 or 30 days, by kind and how each ended
+/// (`AlertsCardView`). Tapping it opens Settings on Alerts › Alert History.
+struct PhoneAlertsCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @EnvironmentObject var logbook: LogbookStore
+
+    var body: some View {
+        AlertsCardView(records: logbook.alerts, readings: store.archive) {
+            Haptics.play(.choice)
+            AlertHistoryOpenRequest.shared.open()
+        }
+        .dsCard(.standard, padding: DS.Space.lg)
     }
 }
 

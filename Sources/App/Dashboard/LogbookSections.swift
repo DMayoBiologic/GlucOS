@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import AppKit
 
 // MARK: - Logbook
 
@@ -1527,6 +1528,7 @@ struct InsightsSection: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Set by the toolbar's Earlier and Later (docs/InsightsPeriodStep.md).
     @Environment(\.insightsStep) private var step
+    @Environment(\.openSettings) private var openSettings
 
     private static let defaults = InsightsCard.macDefault
 
@@ -1630,9 +1632,13 @@ struct InsightsSection: View {
     }
 
     /// Whether a showing card is on screen now. The Tags card stays out until something carries a
-    /// tag; its place in the order is kept.
+    /// tag, and Alerts until an alert has been recorded; their places in the order are kept.
     private func onScreen(_ card: InsightsCard) -> Bool {
-        card != .tags || TagInsightsCardView.shows(logbook.entries)
+        switch card {
+        case .tags: return TagInsightsCardView.shows(logbook.entries)
+        case .alerts: return AlertsSummary.shows(logbook.alerts)
+        default: return true
+        }
     }
 
     @ViewBuilder
@@ -1653,6 +1659,15 @@ struct InsightsSection: View {
             HighsCardView(readings: readings, unit: unit, highMgdl: highMgdl, openLogbook: openLogbook)
                 .dashboardCard()
                 .id(Self.cardID(.highs))
+        case .alerts:
+            // A click opens Settings on the Alerts tab with its Alert History sheet up.
+            AlertsCardView(records: logbook.alerts, readings: readings) {
+                UserDefaults.standard.set(SettingsView.Tab.alerts.rawValue, forKey: SettingsView.tabKey)
+                AlertHistoryOpenRequest.shared.open()
+                openSettings()
+                NSApp.activate()
+            }
+            .dashboardCard()
         case .overnight:
             OvernightCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
                               openLogbook: openLogbook)

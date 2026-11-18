@@ -172,6 +172,7 @@ targets:
       - path: Sources/App/Views/WeekInReviewView.swift
       - path: Sources/App/Views/LowsCardView.swift
       - path: Sources/App/Views/HighsCardView.swift
+      - path: Sources/App/Views/AlertsCardView.swift
       - path: Sources/App/Views/InsightsSparklineView.swift
       - path: Sources/App/Views/InsightsDeltaBadge.swift
       - path: Sources/App/Views/OvernightCardView.swift

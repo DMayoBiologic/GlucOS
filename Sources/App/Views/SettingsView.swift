@@ -12,7 +12,9 @@ struct SettingsView: View {
     @EnvironmentObject var updater: Updater
     @EnvironmentObject var logbook: LogbookStore
 
-    @AppStorage("settingsTab") private var tab: Tab = .general
+    /// Where the open tab is kept; the Insights Alerts card sets it to open on Alerts.
+    static let tabKey = "settingsTab"
+    @AppStorage(SettingsView.tabKey) private var tab: Tab = .general
     @StateObject private var search = SettingsSearchModel()
 
     var body: some View {
@@ -629,6 +631,11 @@ private struct AlertSettingsTab: View {
             }
             // The rows' notes are saved to the logbook.
             .environmentObject(logbook)
+        }
+        // A click on the Insights Alerts card: this tab opens with Alert History up
+        // (docs/InsightsAlerts.md).
+        .onReceive(AlertHistoryOpenRequest.shared.$requestedAt) { _ in
+            if AlertHistoryOpenRequest.shared.take() { showsHistory = true }
         }
         .task { await refreshNotificationStatus() }
         // Pick up a change made in System Settings when the user comes back.

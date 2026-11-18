@@ -15,6 +15,9 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
     case weekInReview
     case lows
     case highs
+    /// Low and high alerts over the period: by kind and how each ended. Shows only once an alert
+    /// has been recorded.
+    case alerts
     case overnight
     case weekdayWeekend
     /// Days in a row at 70% or more in range: the current run and the longest.
@@ -42,6 +45,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         case .weekInReview: return "Week in review"
         case .lows: return "Lows"
         case .highs: return "Highs"
+        case .alerts: return "Alerts"
         case .overnight: return "Overnight"
         case .weekdayWeekend: return "Weekdays and weekends"
         case .streaks: return "In-range streaks"
@@ -62,6 +66,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         case .weekInReview: return "arrow.left.arrow.right"
         case .lows: return "arrow.down.to.line"
         case .highs: return "arrow.up.to.line"
+        case .alerts: return "bell.badge"
         case .overnight: return "moon.stars"
         case .weekdayWeekend: return "calendar.day.timeline.left"
         case .streaks: return "flame"
@@ -76,7 +81,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
 
     /// The iPhone Insights screen's cards, in the order they ship.
     static let phoneDefault: [InsightsCard] = [
-        .glance, .days, .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks,
+        .glance, .days, .weekInReview, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .streaks,
         .bestDays, .tags, .dayPattern, .hourlyInRange, .mornings, .forecastAccuracy,
     ]
 
@@ -84,7 +89,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
     /// (insulin action, meals, sites) stay fixed above them: they depend on the therapy setting and
     /// read as one block.
     static let macDefault: [InsightsCard] = [
-        .weekInReview, .lows, .highs, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags,
+        .weekInReview, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags,
         .dayPattern, .hourlyInRange, .forecastAccuracy,
     ]
 }

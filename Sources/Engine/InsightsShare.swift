@@ -53,6 +53,7 @@ enum InsightsShare {
         static let glanceHours = "insights.glanceHours"
         static let lows = "insights.lowsDays"
         static let highs = "insights.highsDays"
+        static let alerts = "insights.alertsDays"
         static let overnight = "insights.overnightDays"
         static let weekPart = "insights.weekPartDays"
         static let bestDays = "insights.bestDaysDays"
@@ -78,6 +79,7 @@ enum InsightsShare {
         case .weekInReview: return .twoWeeks
         case .lows: return days(Key.lows)
         case .highs: return days(Key.highs)
+        case .alerts: return days(Key.alerts)
         case .overnight: return days(Key.overnight)
         case .weekdayWeekend: return days(Key.weekPart)
         case .streaks: return .days(14)

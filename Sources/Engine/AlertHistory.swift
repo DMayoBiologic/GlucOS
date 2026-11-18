@@ -102,10 +102,11 @@ enum AlertHistory {
         return calendar.date(byAdding: .day, value: -(days - 1), to: today) ?? today.addingTimeInterval(-Double(days - 1) * 86_400)
     }
 
-    /// The last 7 days' low and high alerts, newest first. `readings` in any order.
-    static func items(records: [AlertRecord], readings: [GlucoseReading], now: Date,
+    /// The last 7 days' low and high alerts, newest first. `readings` in any order. `since`
+    /// starts the list somewhere else (the Insights Alerts card's period, docs/InsightsAlerts.md).
+    static func items(records: [AlertRecord], readings: [GlucoseReading], now: Date, since: Date? = nil,
                       calendar: Calendar = .autoupdatingCurrent) -> [Item] {
-        let from = start(now: now, calendar: calendar)
+        let from = since ?? start(now: now, calendar: calendar)
         let known = records
             .compactMap { r -> (AlertRecord, AlertNotice.Kind)? in
                 guard let k = r.alertKind, AlertLog.isLogged(k), r.firedAt >= from, r.firedAt <= now else { return nil }
