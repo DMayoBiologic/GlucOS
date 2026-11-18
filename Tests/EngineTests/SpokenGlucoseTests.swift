@@ -35,19 +35,26 @@ final class SpokenGlucoseTests: XCTestCase {
     }
 
     func testStaleIsNeverSpokenAsCurrent() {
-        let text = SpokenGlucose.answer(snapshot(minutesOld: 12, mgdl: 60, trend: .falling,
-                                                 caveat: "Less certain: glucose is changing quickly."),
-                                        at: referenceNow)
-        XCTAssertTrue(text.hasPrefix("Stale."), text)
-        XCTAssertTrue(text.contains("12 minutes ago"), text)
-        XCTAssertFalse(text.hasPrefix("Glucose"), text)
-        XCTAssertFalse(text.lowercased().contains("falling"), text)
-        XCTAssertFalse(text.lowercased().contains("low"), text)
-        XCTAssertFalse(text.contains("forecast"), text)
+        for minutes in [8.0, 12.0] {
+            let text = SpokenGlucose.answer(snapshot(minutesOld: minutes, mgdl: 60, trend: .falling,
+                                                     caveat: "Less certain: glucose is changing quickly."),
+                                            at: referenceNow)
+            if minutes < 10 {
+                XCTAssertTrue(text.hasPrefix("Stale."), text)
+                XCTAssertTrue(text.contains("8 minutes ago"), text)
+            } else {
+                // From 10 minutes, the widgets' no-readings words (WidgetGap).
+                XCTAssertTrue(text.hasPrefix("No readings for 12 minutes"), text)
+            }
+            XCTAssertFalse(text.hasPrefix("Glucose"), text)
+            XCTAssertFalse(text.lowercased().contains("falling"), text)
+            XCTAssertFalse(text.lowercased().contains("low"), text)
+            XCTAssertFalse(text.contains("forecast"), text)
+        }
     }
 
     func testExpiredAndMissing() {
-        XCTAssertTrue(SpokenGlucose.answer(snapshot(minutesOld: 45), at: referenceNow).hasPrefix("No recent reading."))
+        XCTAssertTrue(SpokenGlucose.answer(snapshot(minutesOld: 45), at: referenceNow).hasPrefix("No readings for 45 minutes"))
         XCTAssertEqual(SpokenGlucose.answer(nil, at: referenceNow), "GlucOS has no reading yet. Open GlucOS to connect.")
         XCTAssertEqual(SpokenGlucose.answer(.empty, at: referenceNow), "No glucose reading yet. Waiting for GlucOS.")
     }
