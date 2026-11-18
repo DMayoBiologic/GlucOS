@@ -5731,3 +5731,84 @@ and the replay (readings export SQL in its docstring; for new lows, add them to 
 `OTHER_CARBS`, `DOSES` and `NEW` in the script first, as its docstring lists):
 
     python3 -I scripts/low-treatment-recheck.py windows.txt
+
+## 79. Are predicted-low alerts less precise overnight, and would a night-only margin help? (18 Nov 2026)
+
+The question: from midnight to 6 am Perth, do predicted-low alerts give more false alarms or less
+warning than in the day, and would a night-only margin (at night the forecast must cross a few
+mg/dL *under* 70 or 54 before a predicted low fires) cut night false alarms on held-out days without
+any real low being warned later than today? **No. Night and day look the same, every night margin
+that drops a false alarm also warns both night lows later, and held out it is never chosen. Nothing
+ships; no app or relay code changed, so the relay stays 2.20.0. Retest on 9 Dec 2026, or once
+predicted lows have fired on 5 different nights, whichever is later.**
+
+Nothing here touches dosing, insulin on board, the carb or insulin effects, the forecast line, the
+high alerts or `web/`.
+
+**Method.** `scripts/night-low-alerts.ts` replays the relay tick by tick exactly as
+`scripts/low-alert-heldout.ts` (§30) does, over all of `glucos.readings` (10,195 readings,
+10 Nov 22:45 to 18 Nov 14:12 Perth, 10,112 ticks on 8 Perth days). Lows, warnings and false alarms
+are scored as in §30: a low is a run under 70; it's warned by a predicted-low or predicted-urgent-low
+alert in the 45 minutes before it starts; an alert is a false alarm if nothing goes under 70 in the
+45 minutes after it (alerts whose 45 minutes run past the export aren't scored). Night means the
+alert or the low's start falls between 00:00 and 06:00 Perth (`NIGHT_END` moves the end).
+
+**Night against day, shipped rules** (lead 30, trend falling at least 0.3 a minute, margin 0):
+
+| | Hours ticked | Alerts | Per 24 h | False alarms | False share | False per 24 h | Lows | Warned | Lead median / mean |
+|---|---|---|---|---|---|---|---|---|---|
+| Night (00–06) | 42 | 8 | 4.6 | 2 | 25% | 1.2 | 2 | 2 | 5 / 6.5 min |
+| Day | 127 | 32 | 6.1 | 7 | 22% | 1.3 | 8 | 8 | 6 / 9.6 min |
+
+Every low was warned, night or day. False alarms per hour are the same; the night share is one
+alert higher on a quarter of the count. The night lead looks shorter, but it is two lows (5 and 8
+minutes), against day leads of 4–14 with one of 27, so it's the same spread. All 8 night alerts and
+both night lows are on one night, 16 Nov: the 00:52 low (nadir 51, alerts from 00:47) and the
+04:50 low (nadir 53, alerts from 04:42), plus false alarms at 03:52 (reading 78, bottomed 78) and
+05:39 (86 → 78, straight after an unlogged spike, §30). The other seven nights had no predicted-low
+alert at all. Two more false alarms came just before midnight on 17 Nov (23:34 and 23:37, bottomed
+at 76), so they count as day here.
+
+**The iPhone's own alert log** (logbook kind `alert`, `payload.firedAt`, from 16 Nov) agrees: one
+night predicted alert (16 Nov 04:57 urgent heads-up at 57, the replay has it at 04:56), and the
+false ones it holds are all daytime (16 Nov 07:45, 17 Nov 13:05, 15:49, 15:52, 23:36, 23:38),
+matching the replay to the minute.
+
+**The night margin, in sample.** Each margin lifts the forecast at night only, so it can only drop
+or delay night alerts:
+
+| Night margin | Night alerts | Night false | Lows warned later | Lead lost |
+|---|---|---|---|---|
+| **0 (shipped)** | 8 | 2 | 0 | 0 |
+| 2 | 7 | 1 | 2 | 4 min |
+| 4, 6, 8 | 7 or 6 | 1 | 2 | 5 min |
+| 10 | 3 | 1 | 2 (1 missed) | 9 min |
+| 12 | 1 | 0 | 2 (1 missed) | 10 min |
+
+Even 2 mg/dL drops the 03:52 false alarm and delays both 16 Nov lows (the first alerts for them
+were the ones nearest the line), and dropping the 05:39 one too needs 12, which misses the 04:50 low
+entirely. The false alarms and the real lows look alike at the first alert, which is §17's and §30's
+finding again.
+
+**Held out**, leave one Perth day out: on the other days, take the margin that drops the most night
+false alarms while warning no low later than shipped (ties keep 0), and score the day left out.
+Every day chose 0, so held out night false alarms are 2 against 2 and no low is warned later. With
+one night that alerts, there is nothing to learn a night margin from.
+
+**Decision.** Keep predicted lows as they are, night and day. Retest on **9 Dec 2026**, or once
+predicted lows have fired on 5 different nights, whichever is later, with the same script. Ship a
+night margin only if held out it drops night false alarms and no real low anywhere is first warned
+later than shipped. If false alarms keep clustering in the hour either side of midnight (17 Nov
+23:34, 23:37), rerun with the night starting at 22:00 as well, but judge it on that same rule.
+
+    GLUCOS_REPLAY_DIR=dir deno run --allow-read --allow-env scripts/night-low-alerts.ts
+    # LIST=1 lists every alert and low, NIGHT_END=hour moves the end of the night (default 6)
+
+`dir` holds readings.json, with the trend column, and log.json, exported as in §30. The iPhone
+alert log:
+
+```sql
+select (payload->>'firedAt')::float::bigint fired, payload->>'kind' kind
+from glucos.logbook where kind = 'alert' and not deleted and payload->>'kind' like 'predicted%Low'
+order by 1;
+```
