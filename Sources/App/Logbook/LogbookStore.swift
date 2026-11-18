@@ -191,6 +191,16 @@ final class LogbookStore: ObservableObject {
         persist()
     }
 
+    /// Notes an alert that went off at `firedAt` being swiped away or closed with no button tapped.
+    /// Nothing changes when a button was already tapped on it (`AlertLog.dismissed`).
+    func alertDismissed(_ kind: AlertNotice.Kind, firedAt: Date, now: Date = Date()) {
+        guard let r = AlertLog.dismissed(kind, firedAt: firedAt, at: now, in: alerts) else { return }
+        if let i = alerts.firstIndex(where: { $0.id == r.id }) { alerts[i] = r } else { alerts.append(r) }
+        touch(r.id, kind: .alert)
+        pruneAlerts(now: now)
+        persist()
+    }
+
     /// Lets go of alert records older than 90 days, on every device they synced to.
     func pruneExpiredAlerts(now: Date = Date()) {
         guard !AlertLog.expired(alerts, now: now).isEmpty else { return }

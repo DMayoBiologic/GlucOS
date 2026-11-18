@@ -99,6 +99,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if action == UNNotificationDefaultActionIdentifier { StatusItemPopover.show() }
                 return
             }
+            // A low or high alert swiped away: noted for Settings › Alerts › History, and nothing
+            // opens (docs/AlertHistory.md).
+            if AlertNotifications.isDismissal(action: action, userInfo: userInfo) {
+                AlertLogRecorder.shared.dismissed(userInfo: userInfo, firedAt: date)
+                return
+            }
             // Meal, Correction or dismissing "Was that dose for a meal?" is answered on the spot.
             if DoseQuestion.shared.handle(action: action, userInfo: userInfo),
                action != UNNotificationDefaultActionIdentifier { return }

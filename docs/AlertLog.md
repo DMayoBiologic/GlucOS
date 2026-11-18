@@ -8,6 +8,7 @@ entries: a small bell in the range's colour, when the alert went off, and what w
 | Low alert | Snoozed 30 min at 10:06 |
 | Urgent low alert | Tapped Log treatment at 02:14 · Went off 3 times, last at 02:24 |
 | Predicted high alert | No response |
+| High alert | Dismissed at 09:03 |
 
 ## What gets a row
 
@@ -19,7 +20,8 @@ entries: a small bell in the range's colour, when the alert went off, and what w
   both showing it (counted once). The row is named after the most serious alert in it, a real
   reading over a forecast and urgent over plain.
 - What was tapped: Log treatment if it was tapped on any alert in the spell, otherwise a snooze,
-  otherwise "No response".
+  otherwise "Dismissed" if one was swiped away or its in-app banner closed, otherwise "No response"
+  (docs/AlertHistory.md).
 
 ## Where the records come from
 

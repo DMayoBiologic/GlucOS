@@ -77,8 +77,18 @@ final class AlertBannerCenter: ObservableObject {
         if !stack.isExpanded, stack.canExpand, stack.front?.id == id {
             setExpanded(true)
         } else {
-            dismiss(id)
+            close(id)
         }
+    }
+
+    /// The user closed a banner (swiped it away, its ✕, or a tap on it) with no button: noted as
+    /// dismissed for Settings › Alerts › History (docs/AlertHistory.md), then hidden. Still never
+    /// snoozes or logs anything. A button already tapped on the alert stands.
+    func close(_ id: String) {
+        if let banner = stack.banners.first(where: { $0.id == id }) {
+            AlertLogRecorder.shared.dismissed(userInfo: ["kind": banner.kind.rawValue], firedAt: banner.firedAt)
+        }
+        dismiss(id)
     }
 
     /// A banner button: records it in the Logbook like a notification button, hides that banner,
@@ -213,7 +223,7 @@ private struct AlertBannerStackView: View {
                                 moreLine: isFront ? stack.moreLine : nil,
                                 onTap: { center.tap($0, on: banner) },
                                 onBannerTap: { center.tapBanner(banner.id) },
-                                onDismiss: { center.dismiss(banner.id) },
+                                onDismiss: { center.close(banner.id) },
                                 onShowAll: isFront && stack.moreLine != nil ? { center.setExpanded(true) } : nil)
                     .background {
                         GeometryReader { proxy in

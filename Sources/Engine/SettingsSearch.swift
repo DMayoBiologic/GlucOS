@@ -18,7 +18,7 @@ enum SettingsAnchor: String, CaseIterable, Hashable, Sendable {
     case therapy, insulins, bolus, presets, syncLogbook, keyboardShortcut, shortcutList
     // Alerts
     case alerts, notifications, lowAlerts, highAlert, rapidAlert, staleAlert, sensorEndingAlert
-    case predictedLows, predictedHighs, warnAhead, alertRepeat, alertSound, testAlert
+    case predictedLows, predictedHighs, warnAhead, alertRepeat, alertSound, testAlert, alertHistory
     case eveningRecap, sensorEndReminder
     // Lock Screen, sharing, relay
     case liveActivity, shareLive, following, relay
@@ -169,6 +169,7 @@ enum SettingsCatalog {
         static let repeatAlerts = ["repeat", "quiet", "quiet hours", "cooldown", "snooze", "nag", "how often",
                                    "frequency", "interval", "mute", "silence", "again"]
         static let testAlert = ["test", "try", "check", "sample"]
+        static let alertHistory = ["history", "past", "earlier", "went off", "recent", "missed", "dismissed", "list"]
         static let alertSound = ["sound", "tone", "ringtone", "chime", "beep", "noise", "audio", "loud", "preview", "listen"]
         static let sensorReminder = ["sensor", "reminder", "remind", "change sensor", "new sensor", "replace",
                                      "evening before", "ending", "expiry"]
@@ -206,6 +207,7 @@ enum SettingsCatalog {
         .init(anchor: .alertRepeat, title: "Repeat alerts no more than every", place: "Alerts", keywords: K.repeatAlerts, parent: .alerts),
         .init(anchor: .alertSound, title: "Alert sound", place: "Alerts", keywords: K.alertSound, parent: .alerts),
         .init(anchor: .testAlert, title: "Send a test alert", place: "Alerts", keywords: K.testAlert, parent: .alerts),
+        .init(anchor: .alertHistory, title: "Alert history", place: "Alerts", keywords: K.alertHistory),
         .init(anchor: .eveningRecap, title: "Evening recap", place: "Daily recap", keywords: K.recap),
         .init(anchor: .sensorEndReminder, title: "Sensor change reminder", place: "Sensor", keywords: K.sensorReminder),
         .init(anchor: .liveActivity, title: "Live Activity", place: "Lock Screen", keywords: K.liveActivity),
@@ -247,6 +249,7 @@ enum SettingsCatalog {
         .init(anchor: .notifications, title: "macOS notifications", place: "Alerts", tab: "alerts", keywords: K.notifications),
         .init(anchor: .alertSound, title: "Alert sound", place: "Alerts", tab: "alerts", keywords: K.alertSound),
         .init(anchor: .testAlert, title: "Send a test alert", place: "Alerts", tab: "alerts", keywords: K.testAlert),
+        .init(anchor: .alertHistory, title: "Alert history", place: "Alerts", tab: "alerts", keywords: K.alertHistory),
         .init(anchor: .lowAlerts, title: "Low and urgent low", place: "Alerts › Glucose", tab: "alerts", keywords: K.lows),
         .init(anchor: .highAlert, title: "High alerts", place: "Alerts › Glucose", tab: "alerts", keywords: K.high),
         .init(anchor: .predictedLows, title: "Low predicted", place: "Alerts › Forecast", tab: "alerts", keywords: K.predictedLow),
