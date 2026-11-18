@@ -268,6 +268,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Filter your alerts, and see them in Insights.** Alert History has chips for lows, highs and predicted alerts and for how each one ended. Insights has an Alerts card that counts them over the period, and tapping it opens Alert History.
 - **Take your alerts to the clinic.** Alert History has an Export menu under the filter chips. It makes a PDF or CSV of the alerts shown, with each one's time, kind, reading, outcome and note. Tapping the Insights Alerts card zooms into Alert History.
 - **See your notes on the chart, and what changed.** Logbook and alert notes show as small markers on the Today chart; hold one to read it. After an update, a short What's New appears once, and Settings › About › What's New reopens it.
+- **See why readings are missing, and catch a double log.** Where readings stop for 10 minutes or more, Today shows a dashed bridge across the gap; tap it to see why (sensor warming up or ended, no signal, or the phone asleep). Save a meal or insulin entry that nearly matches one from the last 5 minutes and the undo toast asks "Logged twice?". Undo removes only the new copy, and nothing is ever blocked or deleted on its own.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
