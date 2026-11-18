@@ -111,4 +111,36 @@ final class WidgetGapTests: XCTestCase {
         XCTAssertEqual(state.noReadingsLine(calendar: utc),
                        "No readings since \(ClockLabel.time(s.current!.timestamp, calendar: utc))")
     }
+
+    // MARK: Motion
+
+    func testMotionKeyIsTheReadingUntilTheGapStarts() {
+        let before = WidgetGapMotion.key(snapshot(minutesOld: 9.9), at: referenceNow)
+        XCTAssertEqual(before, .init(phase: .reading, minutes: 0))
+        XCTAssertEqual(WidgetGapMotion.key(snapshot(minutesOld: 2), at: referenceNow), before,
+                       "fresh and stale share one phase: nothing fades before 10 minutes")
+        XCTAssertEqual(WidgetGapMotion.key(.empty, at: referenceNow).phase, .reading)
+        XCTAssertEqual(WidgetGapMotion.key(snapshot(minutesOld: 10), at: referenceNow),
+                       .init(phase: .gap, minutes: 10))
+    }
+
+    func testMotionMinutesMatchTheWordsAndStepOncePerMinute() {
+        for old in [12.0, 13, 47, 65] {
+            let s = snapshot(minutesOld: old)
+            let key = WidgetGapMotion.key(s, at: referenceNow)
+            XCTAssertEqual(key.minutes, Int(old))
+            let words = WidgetGap.headline(WidgetGap.state(s, at: referenceNow)!)
+            if old < 60 { XCTAssertTrue(words.contains("\(Int(old)) min"), words) }
+        }
+        XCTAssertNotEqual(WidgetGapMotion.key(snapshot(minutesOld: 12), at: referenceNow),
+                          WidgetGapMotion.key(snapshot(minutesOld: 13), at: referenceNow),
+                          "each per-minute entry rolls the digits")
+    }
+
+    func testReadingsResumingReturnToTheReadingPhase() {
+        var s = snapshot(minutesOld: 25)
+        XCTAssertEqual(WidgetGapMotion.key(s, at: referenceNow).phase, .gap)
+        s.current = reading(referenceNow.addingTimeInterval(-60), 120, .flat)
+        XCTAssertEqual(WidgetGapMotion.key(s, at: referenceNow), .init(phase: .reading, minutes: 0))
+    }
 }

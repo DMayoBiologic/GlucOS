@@ -299,6 +299,40 @@ enum WidgetGap {
     }
 }
 
+// MARK: - No-readings motion
+
+/// What the widgets and StandBy animate on as the no-readings state begins, counts and ends
+/// (docs/ReadingGaps.md "On widgets", "Motion"). Each line that changes at the edge keys its
+/// cross-fade on `phase` and rolls its digits on `minutes`, so the reading's words fade into
+/// "No readings for 12 min", the 12 rolls to 13 with the next per-minute timeline entry, and the
+/// words fade back out when readings resume. Nothing here asks for a reload or a wake: the system
+/// plays it between two timeline entries it already has. Instant under Reduce Motion.
+enum WidgetGapMotion {
+    enum Phase: Hashable {
+        /// A reading is showing its own words (fresh or stale), or there has never been one.
+        case reading
+        /// Ten minutes or more without a reading (`WidgetGap`).
+        case gap
+    }
+
+    struct Key: Hashable {
+        var phase: Phase
+        /// The whole minutes the words show ("12" in "No readings for 12 min"), 0 outside a gap.
+        var minutes: Int
+    }
+
+    static func key(_ s: GlucoseSnapshot, at now: Date) -> Key {
+        guard let gap = WidgetGap.state(s, at: now) else { return Key(phase: .reading, minutes: 0) }
+        return Key(phase: .gap, minutes: minutes(gap.length))
+    }
+
+    /// The minute count the words round to (`ReadingGaps.length`), so the roll lands on the figure
+    /// that's drawn.
+    static func minutes(_ length: TimeInterval) -> Int {
+        max(0, Int((length / 60).rounded()))
+    }
+}
+
 // MARK: - Lock Screen accessories
 
 /// The words the Lock Screen accessories draw, worked out here so they can be tested. The

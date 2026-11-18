@@ -63,13 +63,22 @@ control and the Live Activity say the same thing, calmly, while a gap is still g
   nor the app's checks, so it gives no reason; a warm-up keeps its own countdown card.
 - **Budget.** No new data, timeline entries, reloads or wakes: the widgets already had an entry a
   minute for the reading's first hour, and the reason only reads `fetchedAt`, `lastError` and
-  `sensor`. Nothing moves, so Reduce Motion changes nothing.
+  `sensor`.
+- **Motion** (`WidgetGapMotion`, `gapSwap`). As the state begins, the reading's line (StandBy's
+  caption, the detail line, the inline and rectangular accessories) cross-fades into "No readings
+  for 12 min", and the status pill fades rather than pushing. The minutes roll to the next one
+  with each per-minute entry (`numericText`), the withdrawn number fades to dashes at 30 minutes,
+  and everything fades back when readings resume. On the Live Activity, "No readings since
+  2:10 pm" fades in over the range word and the card's colour fades to grey on `.sweep`, and back
+  with the next reading. All of it plays between entries or card states the system already has:
+  no reloads, entries or wakes. Instant under Reduce Motion.
 - **VoiceOver.** "No readings for 12 minutes: No signal from LibreLinkUp. The last reading was 6.1
   millimoles per litre at 2:10 pm." Never the range or trend.
 
 Code: `WidgetGap` and its callers in `Sources/Shared/WidgetGlance.swift`, `StatusPill` /
 `DetailLine` (Sources/Widget/WidgetComponents.swift), the rectangular accessory,
-`GlucoseActivityState.noReadingsLine`. Tests: `Tests/EngineTests/WidgetGapTests.swift`.
+`GlucoseActivityState.noReadingsLine`, `WidgetGapMotion` and the `gapSwap` modifiers
+(Sources/Shared/DesignSystem/Motion.swift). Tests: `Tests/EngineTests/WidgetGapTests.swift`.
 
 Code: `Sources/Shared/ReadingGaps.swift` (rules, words, `PollLog`, `ReadingGapDrawIn`),
 `GlucoseChart.gapContext` and `ReadingGapLayer` (drawing), `GlucoseStore.polls`/`gapContext`.
