@@ -28,8 +28,13 @@ private struct PhoneBolusSettingsScreen: View {
 // MARK: - Alert history
 
 /// Settings › Alerts › History: the last 7 days of low and high alerts by day. A row closes
-/// Settings and opens the Logbook around it (`AlertHistoryRoute`); its pencil adds a note.
-private struct PhoneAlertHistoryScreen: View {
+/// Settings and opens the Logbook around it (`AlertHistoryRoute`); its pencil adds a note. Also
+/// pushed on the home stack from the Insights Alerts card (`PhoneRoute.alertHistory`), where a row
+/// pushes the Logbook on top instead (`open`).
+struct PhoneAlertHistoryScreen: View {
+    /// Where a row's Logbook goes; nil inside Settings, which closes first.
+    var open: ((LogbookLink) -> Void)? = nil
+
     @EnvironmentObject var store: GlucoseStore
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var logbook: LogbookStore
@@ -38,7 +43,7 @@ private struct PhoneAlertHistoryScreen: View {
         List {
             AlertHistoryContent(records: logbook.alerts, readings: store.archive, unit: settings.unit,
                                 alertsOn: settings.alertsEnabled) { link in
-                AlertHistoryRoute.shared.open(link)
+                if let open { open(link) } else { AlertHistoryRoute.shared.open(link) }
             }
             Section {} footer: { Text(AlertHistoryText.footer) }
         }

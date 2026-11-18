@@ -35,13 +35,19 @@ Without the second rule, the weeks before alert logging existed would read as "n
 
 ## Opening Alert History
 
-- **iPhone**: the tap sets `AlertHistoryOpenRequest`. The home stack opens Settings with `Jump.alertHistory`, which scrolls to Alerts and pushes Alert History. Done comes back to Insights. A row in the history still closes Settings and opens the Logbook around that alert.
-- **Mac**: the click sets the Settings tab to Alerts, sets the request and calls `openSettings()`. The Alerts tab opens its Alert History sheet when it sees the request.
-- A request that nobody picks up within 10 seconds is dropped, so it can never open the sheet by surprise later.
+- **iPhone**: the card zooms into Alert History on the home stack (`PhoneRoute.alertHistory`, zoom source `AlertsCardMotion.sourceID`), like the Lows card into the Logbook. Back shrinks it into the card again, whichever period it shows. Under Reduce Motion it's a plain push. A row pushes the Logbook around its alert on top, so Back comes back to Alert History, then Insights.
+- **Mac**: the dashboard cross-fades Insights to Alert History in place (`InsightsAlertHistoryPage`). "‹ Insights", Esc or any sidebar pick cross-fades back, and Insights scrolls to the Alerts card. A row opens the Logbook around its alert, as from Settings.
+- Where the card has no way in (the Mac card outside the dashboard, the iPhone card without the home stack), the old route stays: `AlertHistoryOpenRequest` opens Settings › Alerts › Alert History. A request nobody picks up within 10 seconds is dropped, so it can never open the sheet by surprise later.
 
 ## Motion
 
-The figures count up as the card rises in (docs/InsightsLayout.md, `onEntrance`) and roll to new values when the period changes. The bars grow in from the leading edge once, then glide to new counts. Nothing loops. Under Reduce Motion the bars and figures show their values at once. VoiceOver hears the card as one element: its sentences, then any compare lines.
+Numbers live in `AlertsCardMotion` (tests: `AlertsCardMotionTests`).
+
+- **Reveal**: as the card rises in (docs/InsightsLayout.md, `onEntrance`), the Alerts, Low and High totals count up once, and the four kind bars grow from the leading edge one after another (0.15 s, then 0.045 s apart), then the outcome bar. Once per visit, never a loop.
+- **Period changes and stepping**: figures roll to the new counts and the bars glide to their new lengths. Outcome parts keep their order and width 0 when empty, so a new outcome widens into place instead of the colours shifting.
+- **Compare to previous period**: the period before shares the kind bars' scale, so turning the switch on or off glides the bars to the new scale while a thin mark on each track (where the period before's bar would end) fades in or out. A thinner "Before" outcome bar grows in under the main one. A one-line key names the mark.
+- **Reduce Motion**: the bars fade in rather than grow, and cross-fade to new counts and marks rather than gliding (0.2 s). Figures show their values at once.
+- **VoiceOver**: the card is one element, a button that opens Alert History. It reads its sentences, then any compare lines, and says nothing on its own while the bars move.
 
 ## Files
 

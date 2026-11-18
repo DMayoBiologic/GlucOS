@@ -1504,6 +1504,11 @@ struct InsightsSection: View {
     let onLog: () -> Void
     /// Opened from the evening recap notification: its Today card goes on top (docs/EveningRecap.md).
     var recapFiredAt: Date? = nil
+    /// The Alerts card was clicked: the dashboard cross-fades to Alert History. Without it the
+    /// click opens Settings › Alerts › Alert History.
+    var openAlertHistory: (() -> Void)? = nil
+    /// Set when coming back from that Alert History: scroll to the Alerts card, then cleared.
+    var returnToAlerts: Binding<Bool> = .constant(false)
 
     @EnvironmentObject var logbook: LogbookStore
     @EnvironmentObject var settings: AppSettings
@@ -1600,6 +1605,10 @@ struct InsightsSection: View {
                 .id(reduceMotion ? visible.map(\.rawValue).joined(separator: ",") : "")
                 .transition(.opacity)
                 .onAppear {
+                    if returnToAlerts.wrappedValue {
+                        returnToAlerts.wrappedValue = false
+                        DispatchQueue.main.async { proxy.scrollTo(AlertsCardMotion.sourceID, anchor: .center) }
+                    }
                     guard let card = returnTo else { return }
                     returnTo = nil
                     // Once the page is laid out, so the card is where it'll be.
@@ -1660,14 +1669,17 @@ struct InsightsSection: View {
                 .dashboardCard()
                 .id(Self.cardID(.highs))
         case .alerts:
-            // A click opens Settings on the Alerts tab with its Alert History sheet up.
+            // A click cross-fades the dashboard to Alert History; elsewhere it opens Settings on the
+            // Alerts tab with its Alert History sheet up.
             AlertsCardView(records: logbook.alerts, readings: readings) {
+                if let openAlertHistory { openAlertHistory(); return }
                 UserDefaults.standard.set(SettingsView.Tab.alerts.rawValue, forKey: SettingsView.tabKey)
                 AlertHistoryOpenRequest.shared.open()
                 openSettings()
                 NSApp.activate()
             }
             .dashboardCard()
+            .id(AlertsCardMotion.sourceID)
         case .overnight:
             OvernightCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
                               openLogbook: openLogbook)

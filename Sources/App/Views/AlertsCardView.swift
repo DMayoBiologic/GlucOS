@@ -4,10 +4,12 @@ import SwiftUI
 /// alerts went off over the last 7, 14 or 30 days, by kind, and how each one ended (`AlertsSummary`).
 /// Built from the same records as Settings › Alerts › Alert History.
 ///
-/// Motion is the Lows and Highs cards': the figures count up where `figuresCountUp` is on and roll
-/// to new values when the period changes, the bars grow in once as the card rises in
-/// (`onEntrance`, docs/InsightsLayout.md) and glide to new counts. Nothing loops, and Reduce Motion
-/// shows the new values at once. Callers give it their own card surface.
+/// Motion (`AlertsCardMotion`, docs/InsightsAlerts.md): the figures count up once as the card
+/// rises in (`onEntrance`, docs/InsightsLayout.md) and roll to new values when the period changes.
+/// The kind bars grow in from the leading edge one after another, then the outcome bar, and all of
+/// them glide to new counts between periods and when Compare to previous period adds or removes
+/// the period before's marks. Nothing loops. Under Reduce Motion the bars fade in and cross-fade
+/// to new values instead of moving. Callers give it their own card surface.
 ///
 /// The screen leaves the card out until an alert has been recorded (`AlertsSummary.shows`); a
 /// period with none shows the empty note instead (docs/EmptyStates.md). With `openHistory`,
@@ -113,9 +115,11 @@ struct AlertsCardView: View {
             }
             .monospacedDigit()
 
-            AlertsKindBars(counts: AlertsSummary.Group.allCases.map { s.count($0) })
+            AlertsKindBars(counts: AlertsSummary.Group.allCases.map { s.count($0) },
+                           previous: AlertsCardMotion.previousKinds(before(s)))
 
-            AlertsEndingBar(counts: AlertsSummary.Ending.allCases.map { s.count($0) })
+            AlertsEndingBar(counts: AlertsSummary.Ending.allCases.map { s.count($0) },
+                            previous: AlertsCardMotion.previousEndings(before(s)))
 
             if let line = AlertsSummaryText.answeredLine(s) {
                 Text(line)
@@ -138,6 +142,11 @@ struct AlertsCardView: View {
                                                      ("High alerts", InsightsCompare.highAlerts(s, before(s)))],
                                                     previous: phrase)]
             .compactMap { $0 }.joined(separator: " "))
+        // Opens Alert History for VoiceOver too, from the same one stop; the summary stays one
+        // element and never speaks again on its own as the bars move.
+        .accessibilityAddTraits(openHistory != nil && !shareSnapshot ? .isButton : [])
+        .accessibilityHint(openHistory != nil && !shareSnapshot ? AlertsSummaryText.historyHint : "")
+        .accessibilityAction { openHistory?() }
         // The figures open Alert History too, not just the row under them. The period picker stays
         // its own control.
         .contentShape(Rectangle())
@@ -184,66 +193,140 @@ private extension Date {
     }
 }
 
-/// The alerts by kind, as four bars (low, predicted low, high, predicted high), each with its
-/// count. The bars grow in from the leading edge once, then glide to new counts. Hidden from
-/// VoiceOver: the card's summary says the same in words.
-private struct AlertsKindBars: View {
-    let counts: [Int]
-
-    @State private var grown = false
+/// A bar's first appearance: it grows from the leading edge after `delay`, as the card rises in
+/// (`onEntrance`). Under Reduce Motion it fades in where it is instead. Once per appearance.
+private struct BarEntrance: ViewModifier {
+    let grown: Bool
+    let delay: Double
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+                .opacity(grown ? 1 : 0)
+                .animation(.easeInOut(duration: AlertsCardMotion.reducedFade), value: grown)
+        } else {
+            content
+                .scaleEffect(x: grown ? 1 : 0.001, anchor: .leading)
+                .animation(.spring(response: 0.6, dampingFraction: 0.82).delay(delay), value: grown)
+        }
+    }
+}
+
+/// New counts: the bars glide to their new lengths, or cross-fade to them under Reduce Motion
+/// (the old picture fades out as the new one fades in, nothing slides).
+private struct BarChange<Key: Hashable>: ViewModifier {
+    let key: Key
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            ZStack(alignment: .leading) {
+                content.id(key).transition(.opacity)
+            }
+            .animation(.easeInOut(duration: AlertsCardMotion.reducedFade), value: key)
+        } else {
+            content.dsAnimation(.emphasized, value: key)
+        }
+    }
+}
+
+/// Sets `grown` on the card's entrance, a frame later so the bars are laid out empty first.
+private struct GrowOnEntrance: ViewModifier {
+    @Binding var grown: Bool
+
+    func body(content: Content) -> some View {
+        content.onEntrance {
+            guard !grown else { return }
+            DispatchQueue.main.async { grown = true }
+        }
+    }
+}
+
+/// The alerts by kind, as four bars (low, predicted low, high, predicted high), each with its
+/// count. The bars grow in from the leading edge one after another as the card rises in, then
+/// glide to new counts when the period changes. With Compare on, a thin mark on each track shows
+/// the period before, sharing the bars' scale, so turning Compare on or off glides the bars to the
+/// new scale and the marks slide in or out with them. Hidden from VoiceOver: the card's summary
+/// says the same in words.
+private struct AlertsKindBars: View {
+    let counts: [Int]
+    /// The period before's counts, while Compare shows them.
+    var previous: [Int]? = nil
+
+    @State private var grown = false
+
+    private struct Key: Hashable { var counts: [Int]; var previous: [Int]? }
+
     var body: some View {
-        let top = max(1, counts.max() ?? 1)
+        let scale = AlertsCardMotion.scale(counts: counts, previous: previous)
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             Text(AlertsSummaryText.byKind)
                 .dsFont(.label)
                 .foregroundStyle(.secondary)
             ForEach(AlertsSummary.Group.allCases) { group in
-                let n = group.rawValue < counts.count ? counts[group.rawValue] : 0
+                let i = group.rawValue
+                let n = i < counts.count ? counts[i] : 0
+                let before = previous.flatMap { i < $0.count ? $0[i] : nil }
                 VStack(alignment: .leading, spacing: DS.Space.xxs) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(AlertsSummaryText.group(group))
                             .foregroundStyle(n > 0 ? AnyShapeStyle(Color.primary) : AnyShapeStyle(Color.secondary))
                         Spacer(minLength: DS.Space.sm)
-                        RollingFigure(Double(n), order: group.rawValue) { "\(Int($0.rounded()))" }
+                        RollingFigure(Double(n), order: i) { "\(Int($0.rounded()))" }
                             .monospacedDigit()
                     }
                     .dsFont(.caption)
                     GeometryReader { geo in
+                        let minimum = 6 / max(1, geo.size.width)
                         ZStack(alignment: .leading) {
                             Capsule().fill(Color.primary.opacity(0.06))
                             // The range's hue at full strength, as a graphic needs; the count beside
                             // it is the text.
                             Capsule()
                                 .fill(group.isLow ? GlucoseRange.low.tint : GlucoseRange.high.tint)
-                                .frame(width: n == 0 ? 0 : max(6, geo.size.width * Double(n) / Double(top)))
-                                .dsAnimation(.emphasized, value: counts)
-                                .scaleEffect(x: grown ? 1 : 0.001, anchor: .leading)
-                                .animation(reduceMotion ? nil : .spring(response: 0.6, dampingFraction: 0.82)
-                                    .delay(0.15 + Double(group.rawValue) * 0.045), value: grown)
+                                .frame(width: geo.size.width * AlertsCardMotion.fraction(n, scale: scale, minimum: minimum))
+                                .modifier(BarEntrance(grown: grown, delay: AlertsCardMotion.growDelay(order: i)))
+                            // The period before: a thin upright mark where its bar would end.
+                            if let before, before > 0 {
+                                Capsule()
+                                    .fill(Color.primary.opacity(0.55))
+                                    .frame(width: 2, height: 10)
+                                    .offset(x: max(0, geo.size.width * AlertsCardMotion.fraction(before, scale: scale,
+                                                                                               minimum: minimum) - 2))
+                                    .transition(.opacity)
+                            }
                         }
+                        .modifier(BarChange(key: Key(counts: counts, previous: previous)))
                     }
                     .frame(height: 6)
                 }
             }
-        }
-        .accessibilityHidden(true)
-        .onEntrance {
-            guard !grown else { return }
-            if reduceMotion { grown = true } else {
-                // Next frame, so the bars are laid out empty first.
-                DispatchQueue.main.async { grown = true }
+            if previous != nil {
+                HStack(spacing: DS.Space.xs) {
+                    Capsule().fill(Color.primary.opacity(0.55)).frame(width: 2, height: 10)
+                    Text(AlertsSummaryText.previousMarkKey)
+                }
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+                .transition(.opacity)
             }
         }
+        .dsAnimation(.standard, value: previous != nil)
+        .accessibilityHidden(true)
+        .modifier(GrowOnEntrance(grown: $grown))
     }
 }
 
 /// How the alerts ended, as one bar split by outcome with a key under it: each part's symbol,
-/// name and count, so the colour is never the only cue. The bar grows in once and its parts glide
-/// to new shares. Hidden from VoiceOver: the card's summary says the same in words.
+/// name and count, so the colour is never the only cue. The bar grows in once, after the kind
+/// bars, and its parts glide to new shares. With Compare on, a thinner bar under it shows how the
+/// period before ended and grows in beside it. Cross-fades under Reduce Motion. Hidden from
+/// VoiceOver: the card's summary says the same in words.
 private struct AlertsEndingBar: View {
     let counts: [Int]
+    /// The period before's counts, while Compare shows them.
+    var previous: [Int]? = nil
 
     @State private var grown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -258,30 +341,47 @@ private struct AlertsEndingBar: View {
         }
     }
 
+    /// One split bar. Every outcome keeps its place, a missing one just has no width, so a new
+    /// outcome widens into place instead of the colours shifting along.
+    private func split(_ counts: [Int], height: CGFloat, faded: Bool) -> some View {
+        let shares = AlertsCardMotion.shares(counts)
+        return GeometryReader { geo in
+            let parts = shares.filter { $0 > 0 }.count
+            let room = max(0, geo.size.width - 2 * CGFloat(max(0, parts - 1)))
+            HStack(spacing: 0) {
+                ForEach(AlertsSummary.Ending.allCases) { e in
+                    let share = e.rawValue < shares.count ? shares[e.rawValue] : 0
+                    Capsule()
+                        .fill(color(e).opacity(faded ? 0.55 : 1))
+                        .frame(width: share > 0 ? max(4, room * share) : 0)
+                        .padding(.trailing, share > 0 && e.rawValue < shares.count - 1 ? 2 : 0)
+                }
+                Spacer(minLength: 0)
+            }
+            .modifier(BarChange(key: counts))
+        }
+        .frame(height: height)
+        .clipShape(Capsule())
+    }
+
     var body: some View {
-        let total = max(1, counts.reduce(0, +))
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             Text(AlertsSummaryText.howTheyEnded)
                 .dsFont(.label)
                 .foregroundStyle(.secondary)
-            GeometryReader { geo in
-                HStack(spacing: 2) {
-                    ForEach(AlertsSummary.Ending.allCases) { e in
-                        let n = e.rawValue < counts.count ? counts[e.rawValue] : 0
-                        if n > 0 {
-                            Capsule()
-                                .fill(color(e))
-                                .frame(width: max(4, (geo.size.width - 6) * Double(n) / Double(total)))
-                        }
-                    }
-                    Spacer(minLength: 0)
+            split(counts, height: 8, faded: false)
+                .modifier(BarEntrance(grown: grown, delay: AlertsCardMotion.endingStart))
+            if let previous {
+                HStack(spacing: DS.Space.xs) {
+                    Text(AlertsSummaryText.previousShort)
+                        .dsFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                    split(previous, height: 4, faded: true)
                 }
-                .dsAnimation(.emphasized, value: counts)
-                .scaleEffect(x: grown ? 1 : 0.001, anchor: .leading)
-                .animation(reduceMotion ? nil : .spring(response: 0.6, dampingFraction: 0.82).delay(0.3), value: grown)
+                .transition(reduceMotion ? AnyTransition.opacity
+                            : AnyTransition.scale(scale: 0.001, anchor: .leading).combined(with: .opacity))
             }
-            .frame(height: 8)
-            .clipShape(Capsule())
             // The key: every outcome with any alerts, two to a row so they fit a phone.
             LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
                       alignment: .leading, spacing: DS.Space.xs) {
@@ -304,13 +404,9 @@ private struct AlertsEndingBar: View {
                 }
             }
         }
+        .dsAnimation(.emphasized, value: previous != nil)
         .accessibilityHidden(true)
-        .onEntrance {
-            guard !grown else { return }
-            if reduceMotion { grown = true } else {
-                DispatchQueue.main.async { grown = true }
-            }
-        }
+        .modifier(GrowOnEntrance(grown: $grown))
     }
 
     /// The key's symbol: the part's own colour, or secondary for the faint "no response" part.
