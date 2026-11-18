@@ -183,6 +183,9 @@ enum WhatsNewCatalog {
             .init(symbol: "syringe",
                   title: "Forecasts after stacked insulin",
                   detail: "We checked forecasts when rapid insulin is logged twice within an hour and kept the range as it is for now."),
+            .init(symbol: "line.diagonal",
+                  title: "Gaps in readings explained",
+                  detail: "Where readings are missing, a dashed line bridges the gap. Tap or hover it to see why."),
         ]),
         WhatsNewRelease(version: "1.73.0", highlights: [
             .init(symbol: "note.text",
