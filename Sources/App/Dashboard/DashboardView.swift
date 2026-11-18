@@ -650,6 +650,7 @@ struct DashboardView: View {
         case .bestDay: return BestToughestDaysText.title
         case .tagged: return TagInsightsText.title
         case .hourOfDay: return HourlyInRangeText.title
+        case .aroundGap: return SensorCoverageText.title
         default: return chip.title
         }
     }

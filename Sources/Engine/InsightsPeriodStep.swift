@@ -143,7 +143,7 @@ extension InsightsCard {
     /// Whether the card moves with the screen's period step (docs/InsightsPeriodStep.md).
     var stepsWithPeriod: Bool {
         switch self {
-        case .glance, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .bestDays, .tags, .dayPattern, .hourlyInRange:
+        case .glance, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .bestDays, .tags, .dayPattern, .hourlyInRange, .sensorCoverage:
             return true
         case .days, .weekInReview, .streaks, .mornings, .forecastAccuracy:
             return false

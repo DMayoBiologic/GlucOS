@@ -214,6 +214,7 @@ extension LogbookFilter {
         case .hourOfDay: return "clock"
         case .whileAway: return "clock.arrow.circlepath"
         case .aroundAlert: return "bell.badge"
+        case .aroundGap: return "line.diagonal"
         case .notes: return "text.alignleft"
         case .sites: return "bandage"
         case .moments: return "tag"
@@ -228,7 +229,7 @@ extension LogbookFilter {
         case .lows: return Tone.critical.color
         // The text shade: the chip label is amber on a faint wash until picked.
         case .highs: return GlucoseRange.high.textTint
-        case .overnight, .weekdays, .weekends, .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .tagged, .hourOfDay, .whileAway, .aroundAlert:
+        case .overnight, .weekdays, .weekends, .thisWeek, .lastWeek, .bestStreak, .bestDay, .toughestDay, .tagged, .hourOfDay, .whileAway, .aroundAlert, .aroundGap:
             return Palette.brand
         case .notes: return Palette.brand
         case .sites: return Palette.site

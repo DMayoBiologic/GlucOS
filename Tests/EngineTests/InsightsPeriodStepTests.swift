@@ -179,7 +179,7 @@ final class InsightsPeriodStepTests: XCTestCase {
 
     func testWhichCardsStep() {
         XCTAssertEqual(InsightsCard.allCases.filter(\.stepsWithPeriod),
-                       [.glance, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .bestDays, .tags, .dayPattern, .hourlyInRange])
+                       [.glance, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .bestDays, .tags, .dayPattern, .hourlyInRange, .sensorCoverage])
         XCTAssertEqual(InsightsPeriodStep.days(for: .days(30)), 30)
         XCTAssertEqual(InsightsPeriodStep.days(for: .hours(24)), 1)
         XCTAssertNil(InsightsPeriodStep.days(for: .hours(6)))
