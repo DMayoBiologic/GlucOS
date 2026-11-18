@@ -76,7 +76,8 @@ struct LogbookCascade: Equatable, Sendable {
         self.delays = out
         self.ids = kept.flatMap { $0 }
         self.rowCount = kept.count
-        self.hidden = direction == .leaving
+        // Leaving rows shrink out as soon as this is set; arriving rows wait hidden for `revealed()`.
+        self.hidden = true
     }
 
     /// How many rows move.
