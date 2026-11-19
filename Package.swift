@@ -41,6 +41,7 @@ let package = Package(
                 "Shared/ChartScrub.swift",
                 "Shared/ScrubSnap.swift",
                 "Shared/ChartSpanStats.swift",
+                "Shared/ChartPan.swift",
                 "Shared/YesterdayLine.swift",
                 "Shared/MarkerPop.swift",
                 "Shared/MarkerPeek.swift",

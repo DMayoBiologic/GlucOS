@@ -95,6 +95,16 @@ struct GlucoseChart: View {
     /// "Check now" on the newest gap's card when it says no signal or can't connect
     /// (`ReadingGapCheck`): the store's state and what a tap runs. Nil (followers): no button.
     var gapCheck: ReadingGapCheck.Control? = nil
+    /// Whether the chart can be panned back to earlier hours (`ChartPan`): drag along the time
+    /// axis under the chart, or (Mac) swipe sideways with two fingers on the trackpad, which the
+    /// screen around it passes in as `panScroll`. While panned the forecast is hidden, a Now button
+    /// springs back to the newest reading (a cross-fade under Reduce Motion), and the screen
+    /// around it hears where the right edge is (`ChartPanKey`). VoiceOver swipes the time axis up
+    /// and down instead. Hand it `ChartPan.hoursHanded` of readings. iPhone Today and the Mac
+    /// popover; interactive charts only.
+    var pansBack: Bool = false
+    /// Mac: sideways trackpad scrolling over the chart, from the popover's own monitor.
+    var panScroll: ChartPanScroll? = nil
 
     /// The gap whose card is showing, after a tap (iPhone) or while the pointer is on it (Mac).
     @State private var openGap: Date?
@@ -175,6 +185,14 @@ struct GlucoseChart: View {
     /// Where on the forecast it was tapped, for the point the card grows out of. Nil: opened by
     /// VoiceOver or the keyboard, which use the 30-minute point.
     @State private var forecastTapped: Date?
+    /// The right edge while panned back (`ChartPan`); nil follows the newest reading.
+    @State private var panEnd: Date?
+    /// Where the right edge was when the current drag or scroll began. Nil between them.
+    @State private var panFrom: Date??
+    /// While the axis glides between two pans (or home to now), what was on screen before, kept
+    /// plotted until the glide ends so the readings slide through.
+    @State private var panTrail: ClosedRange<Date>?
+    @State private var panGeneration = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
@@ -195,7 +213,14 @@ struct GlucoseChart: View {
     private var chartWindow: ChartSpan? {
         let r = range ?? ChartSpanTransition(hours: hours)
         return ChartSpan(readings: readings, domainHours: r.domainHours, dataHours: r.dataHours,
-                           forecastEnd: forecast.last?.date, lead: lead)
+                           forecastEnd: forecast.last?.date, lead: lead, pannedTo: shownPan, keepPlotted: panTrail)
+    }
+
+    /// The pan in force, kept within bounds for the readings and span there are now.
+    private var shownPan: Date? {
+        guard pansBack, interactive, let newest = readings.last?.timestamp, let oldest = readings.first?.timestamp
+        else { return nil }
+        return ChartPan.clamped(panEnd, newest: newest, oldest: oldest, hours: (range ?? .init(hours: hours)).domainHours)
     }
 
     /// The glucose axis fits what's on screen at the span being shown (and the few readings just
@@ -203,7 +228,7 @@ struct GlucoseChart: View {
     /// plotted only while the range changes doesn't count, so the axis rescales in the same
     /// movement as the time axis.
     private func yDomainMgdl(_ onScreen: ArraySlice<GlucoseReading>, extra: [Double]) -> ClosedRange<Double> {
-        let values = onScreen.map(\.mgdl) + [lowMgdl, highMgdl] + forecast.map(\.mgdl) + extra
+        let values = onScreen.map(\.mgdl) + [lowMgdl, highMgdl] + (shownPan == nil ? forecast.map(\.mgdl) : []) + extra
         let lo = min(values.min() ?? 60, 60) - 10
         let hi = max(values.max() ?? 200, 200) + 10
         return lo...hi
@@ -803,6 +828,10 @@ struct GlucoseChart: View {
         pressingMarker = false
         callout = nil
         hoveredMarker = nil
+        // Opening again starts at now.
+        panEnd = nil
+        panFrom = nil
+        panTrail = nil
     }
 
     private func landed(_ flight: MarkerFlight) {
@@ -885,8 +914,9 @@ struct GlucoseChart: View {
         let plotted = Array(cw?.plotted ?? [])
         // On screen at the span being shown, plus the lead past the left edge: not the extra
         // data plotted only while the span changes.
+        let pan = shownPan
         let onScreen = ChartSpan(readings: readings, domainHours: (range ?? .init(hours: hours)).domainHours,
-                                   dataHours: 0, forecastEnd: forecast.last?.date, lead: lead)?.plotted ?? []
+                                   dataHours: 0, forecastEnd: forecast.last?.date, lead: lead, pannedTo: pan)?.plotted ?? []
         // Yesterday's faint line, over what's plotted (and on under the forecast), so it moves with
         // the trace when the span changes. Its highs and lows count towards the glucose axis, so
         // it's never cut off at the top or bottom.
@@ -909,16 +939,18 @@ struct GlucoseChart: View {
         // The gradient is stretched over the drawn line, so its stops follow what's plotted.
         // With gaps, each unbroken stretch is its own line, with its own stops.
         let lineStyles: [LinearGradient] = traceStyles(segments)
+        // The newest reading, not the newest on screen: panned back, the right edge isn't now.
         let stale = latestIsStale
-            ?? (window.last.map { Date().timeIntervalSince($0.timestamp) > GlucoseSnapshot.staleAfter } ?? true)
+            ?? (readings.last.map { Date().timeIntervalSince($0.timestamp) > GlucoseSnapshot.staleAfter } ?? true)
         let currentTint = stale ? Palette.stale : (window.last.map { color(for: $0.mgdl) } ?? Palette.stale)
-        let projection = stale ? [] : forecast
+        // The forecast belongs to now, so it's hidden while the chart is panned back.
+        let projection = stale || pan != nil ? [] : forecast
         // What's drawn of it so far. Indexed rather than keyed by time, so the marks keep their
         // identity while a new forecast slides and bends into place (`ForecastMotion`).
         let drawn = Array(ForecastMorph.revealed(projection, progress: forecastReveal).enumerated())
         // What VoiceOver reads for the chart: a picked span, or the summary with yesterday and gaps.
-        let spokenValue: String = voiceOverSpanSentence(window: window)
-            ?? chartSummary(window: window, stale: stale, forecastEnd: projection.last) + yesterdaySpoken(newest: window.last) + gapSpoken
+        let spokenValue: String = panSpoken(pan) + (voiceOverSpanSentence(window: window)
+            ?? chartSummary(window: window, stale: stale, forecastEnd: projection.last) + yesterdaySpoken(newest: window.last) + gapSpoken)
         let chart = Chart {
             // Target band, with hairline edges so it still reads in Increase Contrast.
             RectangleMark(
@@ -980,8 +1012,9 @@ struct GlucoseChart: View {
             midnightMarks(plotted)
             eventMarks(plotted, yd: yd)
 
-            // Current reading: solid dot with a soft halo.
-            if let last = window.last {
+            // Current reading: solid dot with a soft halo. Not while panned back, where the last
+            // reading on screen isn't the current one.
+            if pan == nil, let last = window.last {
                 PointMark(
                     x: .value("Time", last.timestamp),
                     y: .value("Glucose", unit.value(fromMgdl: last.mgdl))
@@ -1036,7 +1069,8 @@ struct GlucoseChart: View {
                 Rectangle()
                     .padding(.top, -48)
                     .padding(.bottom, -12)
-                    .padding(.trailing, -48)
+                    // Panned back (or gliding home), readings past the right edge are hidden too.
+                    .padding(.trailing, pan != nil || panTrail != nil ? 0 : -48)
                     .padding(.leading, interactive ? 0 : -48)
             }
         }
@@ -1071,8 +1105,9 @@ struct GlucoseChart: View {
             }
         }
         .chartOverlay { proxy in
-            // The plot's width, so a snap's few points can be turned into time (`ScrubSnap`).
-            if snapsScrub, interactive {
+            // The plot's width, so a snap's few points (or a pan's) can be turned into time
+            // (`ScrubSnap`, `ChartPan`).
+            if snapsScrub || pansBack, interactive {
                 Color.clear
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -1082,7 +1117,7 @@ struct GlucoseChart: View {
             // A slow ring breathing out of the newest reading while readings are arriving. App
             // screens only: widgets and the Live Activity don't animate, and it holds still (it
             // isn't drawn) under Reduce Motion or once the reading is stale.
-            if interactive, !stale, !reduceMotion, let last = window.last {
+            if interactive, !stale, !reduceMotion, pan == nil, let last = window.last {
                 if ripplesNewReading {
                     // Once per new reading, then nothing until the next (see `newestChanged`).
                     ReadingDotRipple(proxy: proxy, date: last.timestamp, value: unit.value(fromMgdl: last.mgdl),
@@ -1146,7 +1181,8 @@ struct GlucoseChart: View {
         .accessibilityChartDescriptor(GlucoseAudioGraph(readings: window, forecast: projection, unit: unit,
                                                         lowMgdl: lowMgdl, highMgdl: highMgdl, yDomain: yd,
                                                         yesterday: ghost.filter { $0.date >= domain.lowerBound }))
-        withForecastDetails(withCallouts(chart, window: window, yd: yd), projection: projection)
+        withPan(withForecastDetails(withCallouts(chart, window: window, yd: yd), projection: projection),
+                domain: domain, pan: pan)
     }
 
     // MARK: Forecast details
@@ -2722,5 +2758,240 @@ private struct ReadingGapCheckRow: View {
             }
         }
         .frame(width: 14, height: 14)
+    }
+}
+
+// MARK: - Panning back (`ChartPan`)
+
+extension GlucoseChart {
+    /// The newest and oldest readings and the span on screen, which bound a pan.
+    private var panBounds: (newest: Date, oldest: Date, hours: Double)? {
+        guard let newest = readings.last?.timestamp, let oldest = readings.first?.timestamp else { return nil }
+        return (newest, oldest, (range ?? .init(hours: hours)).domainHours)
+    }
+
+    /// What VoiceOver hears first while panned back; nothing at now.
+    private func panSpoken(_ pan: Date?) -> String {
+        guard let pan, let b = panBounds else { return "" }
+        return "Earlier, " + ChartPan.spoken(end: pan, newest: b.newest, hours: b.hours, clock: { ClockLabel.time($0) }) + ". "
+    }
+
+    /// A drag along the time axis, or a sideways trackpad swipe, has moved `points` since it began.
+    /// The trace follows the fingers directly, with no animation.
+    private func panMoved(points: Double, secondsPerPoint: Double) {
+        guard pansBack, interactive, span == nil, let b = panBounds else { return }
+        if panFrom == nil {
+            // Panning takes over from anything else on the chart.
+            panFrom = .some(shownPan)
+            panGeneration += 1
+            if callout != nil { closeCallout() }
+            closeForecast(animated: false)
+            withTransaction(Transaction(animation: nil)) {
+                hoverDate = nil
+                touching = false
+                scrubbedFrom = nil
+                peeked = nil
+                openGap = nil
+                panTrail = nil
+            }
+        }
+        let next = ChartPan.moved(from: panFrom ?? nil, points: points, secondsPerPoint: secondsPerPoint,
+                                  newest: b.newest, oldest: b.oldest, hours: b.hours)
+        withTransaction(Transaction(animation: nil)) { panEnd = next }
+    }
+
+    /// The fingers lifted: left close to now, it springs the rest of the way back.
+    private func panEnded() {
+        guard panFrom != nil else { return }
+        panFrom = nil
+        guard let b = panBounds else { return }
+        let settled = ChartPan.released(shownPan, newest: b.newest)
+        if settled != shownPan { glidePan(to: settled) }
+    }
+
+    /// One VoiceOver swipe on the time axis: down for earlier, up for later.
+    private func panStepped(earlier: Bool) {
+        guard let b = panBounds else { return }
+        glidePan(to: ChartPan.stepped(shownPan, earlier: earlier, newest: b.newest, oldest: b.oldest, hours: b.hours))
+    }
+
+    /// Moves the right edge to `target` (nil: now) the way the span changes: a spring, with what
+    /// was on screen kept plotted on the way so the trace slides through, or a cross-fade with no
+    /// movement under Reduce Motion.
+    private func glidePan(to target: Date?) {
+        let from = shownPan
+        guard target != from, let b = panBounds else { return }
+        panGeneration += 1
+        let generation = panGeneration
+        guard !reduceMotion else {
+            withAnimation(Self.spanFadeAnimation) {
+                panEnd = target
+                panTrail = nil
+                spanFade += 1
+            }
+            return
+        }
+        let edge = from ?? b.newest
+        withTransaction(Transaction(animation: nil)) { panTrail = edge.addingTimeInterval(-b.hours * 3600)...edge }
+        // On the next turn, so the readings on the way are already plotted when the axis moves.
+        DispatchQueue.main.async {
+            withAnimation(Self.spanSpring, completionCriteria: .logicallyComplete) {
+                panEnd = target
+            } completion: {
+                guard generation == panGeneration else { return }
+                withTransaction(Transaction(animation: nil)) { panTrail = nil }
+            }
+        }
+    }
+
+    /// The time-axis strip, the Now button, the trackpad's sideways scrolling and what the screen
+    /// around the chart is told, kept out of `body`'s chain so it still type-checks in reasonable time.
+    fileprivate func withPan(_ chart: some View, domain: ClosedRange<Date>, pan: Date?) -> some View {
+        let secondsPerPoint = plotWidth > 0 ? domain.upperBound.timeIntervalSince(domain.lowerBound) / plotWidth : 0
+        let b = panBounds
+        return chart
+            // After the chart's own VoiceOver element, so the strip and the button are elements of their own.
+            .chartOverlay { proxy in
+                if pansBack, interactive, let b {
+                    ChartPanLayer(proxy: proxy, pan: pan,
+                                  behind: pan.map { ChartPan.behindLabel($0, newest: b.newest) },
+                                  spoken: ChartPan.spoken(end: pan, newest: b.newest, hours: b.hours,
+                                                          clock: { ClockLabel.time($0) }),
+                                  canPan: ChartPan.earliestEnd(newest: b.newest, oldest: b.oldest, hours: b.hours) != nil,
+                                  reduceMotion: reduceMotion,
+                                  moved: { panMoved(points: $0, secondsPerPoint: secondsPerPoint) },
+                                  ended: { panEnded() },
+                                  now: { glidePan(to: nil) },
+                                  step: { panStepped(earlier: $0) })
+                }
+            }
+            .preference(key: ChartPanKey.self, value: pansBack ? pan : nil)
+            .onChange(of: panScroll) { _, scroll in
+                guard let scroll else { return }
+                // The last movement can arrive in the same update as the end, so it's applied first.
+                if !scroll.ended || panFrom != nil { panMoved(points: scroll.points, secondsPerPoint: secondsPerPoint) }
+                if scroll.ended { panEnded() }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background { withTransaction(Transaction(animation: nil)) { panEnd = nil; panFrom = nil } }
+            }
+    }
+}
+
+/// A sideways trackpad swipe over the Mac popover's chart, passed to `GlucoseChart.panScroll`:
+/// how far the content has been moved since the swipe began (positive: to the right, showing
+/// earlier), or that it has ended. `id` changes with every event, so each one is seen.
+struct ChartPanScroll: Equatable {
+    var id = 0
+    var points: Double = 0
+    var ended = false
+}
+
+/// Where a panned chart's right edge is (`GlucoseChart.pansBack`), nil while it shows now, so the
+/// screen around it can follow (the Mac popover's arrow keys step through what's on screen).
+struct ChartPanKey: PreferenceKey {
+    static let defaultValue: Date? = nil
+    static func reduce(value: inout Date?, nextValue: () -> Date?) { value = value ?? nextValue() }
+}
+
+/// The strip along the time axis that a finger (or the pointer) drags to pan, and the Now button
+/// that springs back. VoiceOver reads the strip as "Chart time", swiping down for earlier hours.
+private struct ChartPanLayer: View {
+    let proxy: ChartProxy
+    let pan: Date?
+    let behind: String?
+    let spoken: String
+    let canPan: Bool
+    let reduceMotion: Bool
+    let moved: (Double) -> Void
+    let ended: () -> Void
+    let now: () -> Void
+    let step: (Bool) -> Void
+
+    @State private var dragging = false
+    /// Decided on the first movement: sideways pans, up or down is left alone.
+    @State private var sideways: Bool?
+
+    var body: some View {
+        GeometryReader { geo in
+            if let frame = proxy.plotFrame {
+                let plot = geo[frame]
+                let height = max(22, geo.size.height - plot.maxY + 4)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(dragging ? 0.06 : 0.001))
+                    .frame(width: plot.width, height: height)
+                    .contentShape(Rectangle())
+                    .position(x: plot.midX, y: plot.maxY + height / 2)
+                    .gesture(drag, including: canPan ? .all : .none)
+                    .animation(DSMotion.quick.animation, value: dragging)
+                    .accessibilityElement()
+                    .accessibilityLabel("Chart time")
+                    .accessibilityValue(spoken)
+                    .accessibilityHint("Swipe down for earlier hours, up for later.")
+                    // With no earlier readings there's nothing to pan to, and nothing to say.
+                    .accessibilityHidden(!canPan)
+                    .accessibilityAdjustableAction { direction in
+                        switch direction {
+                        case .decrement: step(true)
+                        case .increment: step(false)
+                        @unknown default: break
+                        }
+                    }
+                    #if os(macOS)
+                    .help("Drag along the times, or swipe sideways on the trackpad, to see earlier hours")
+                    #endif
+                ZStack(alignment: .topTrailing) {
+                    if let behind, pan != nil {
+                        nowButton(behind)
+                            .padding(6)
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.85, anchor: .topTrailing).combined(with: .opacity))
+                    }
+                }
+                .frame(width: plot.width, height: plot.height, alignment: .topTrailing)
+                .position(x: plot.midX, y: plot.midY)
+                .animation(reduceMotion ? GlucoseChart.spanFadeAnimation : DSMotion.quick.animation, value: pan != nil)
+            }
+        }
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .local)
+            .onChanged { v in
+                if sideways == nil { sideways = abs(v.translation.width) >= abs(v.translation.height) }
+                guard sideways == true else { return }
+                if !dragging { dragging = true }
+                moved(v.translation.width)
+            }
+            .onEnded { _ in
+                if sideways == true { ended() }
+                sideways = nil
+                dragging = false
+            }
+    }
+
+    private func nowButton(_ behind: String) -> some View {
+        Button(action: now) {
+            HStack(spacing: 4) {
+                Text(behind)
+                    .foregroundStyle(.secondary)
+                Image(systemName: "arrow.forward.to.line")
+                    .imageScale(.small)
+                Text("Now")
+                    .fontWeight(.semibold)
+            }
+            .font(.caption2)
+            .monospacedDigit()
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back to now")
+        .accessibilityValue(behind)
+        #if os(macOS)
+        .help("Back to the newest reading")
+        #endif
     }
 }
