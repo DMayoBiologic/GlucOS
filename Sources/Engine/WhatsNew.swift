@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "doc.on.doc",
                   title: "Copy or share your reading",
                   detail: "Long-press the reading on iPhone for Copy and Share, or press Command-C on the Mac, to send it as one line of text."),
+            .init(symbol: "fork.knife",
+                  title: "Forecasts on late rises after meals",
+                  detail: "We checked forecasts when glucose climbs again 3 to 5 hours after eating and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.77.0", highlights: [
             .init(symbol: "clock.arrow.circlepath",

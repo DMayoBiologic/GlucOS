@@ -6534,3 +6534,130 @@ from g where grp is not null group by 1,2 order by 1,2;
 
 **Dosing.** Not touched: the insulin curve, insulin on board, sensitivity and the bolus calculator
 are unchanged.
+
+## 89. Does the forecast miss the late rise 3–5 hours after a meal, and does fat or protein matter? (19 Nov 2026)
+
+**Question.** Some meals bring a second climb 3 to 5 hours after eating, well after the first
+peak, as fat and protein slow digestion. By then the engine's carb curve (10-minute delay plus 3
+hours) has finished, so the line is the trend plus the insulin tail. Does it miss these late rises,
+is it worse after fatty or protein-heavy food, and would carrying the trend on further help on days
+it wasn't fitted on? §25–§26 (the post-meal peak) and §43 (stacked meals) looked only at the first
+three hours.
+
+**Data.** Live readings 11–19 Nov 2026 (10,504), the Logbook's meals, rapid doses and hypo
+treatments, and the accuracy log's clean shown points. A forecast belongs to a meal when it is
+issued 3–5 hours after it and nothing (meal, rapid dose, treatment) was logged from 15 minutes after
+the meal up to issue; the meal's own dose is allowed. A **late rise** is such a forecast with an
+engine trend of +0.5 mg/dL a minute or more. Points with anything logged in the hour after issue are
+left out (the accuracy log's after_log rule), and a rise out of a reading under 70 in the hour
+before is a **rebound from a low**, reported on its own. GlucOS stores only carbs (the food list has
+carbs per 100 g), so **fat/protein** is judged from the food's name: burgers, eggs, meat, pastry,
+cheese, fried food. Replay: the engine's trend forecast every 5 minutes (as §65 and §88), which
+leaves out the insulin tail, so it draws a little higher than the app; the live log is shown first
+for that reason. Script: `scripts/late-meal-rises.py`.
+
+Seven meals had nothing logged for 6 hours after them:
+
+| Meal | Carbs | Fat/protein | First 3 h peak | Late climb (3–5 h) | Kind |
+|---|---|---|---|---|---|
+| 12 Nov 07:26 Big Brekkie Burger | 54 g | yes | 171 | +25 (135→160) | second rise |
+| 12 Nov 23:42 sports drink | 37 g | no | 185 | +30 (100→130) | second rise |
+| 13 Nov 09:58 eggs, hash browns | 36 g | yes | 216 | +30 (106→136) | second rise |
+| 13 Nov 19:27 sports drink | 21 g | no | 248 | +36 (249→285) | continued climb |
+| 16 Nov 01:19 Coke | 35 g | no | 165 | +87 (53→140) | rebound from a low |
+| 16 Nov 14:10 sausage rolls | 33 g | yes | 247 | +124 (217→341) | second rise |
+| 17 Nov 15:40 beer | 12 g | no | 326 | +74 (279→353) | second rise |
+
+Every one climbed again, fatty or not, so the "late rise" isn't a fat/protein signature here; the
+two biggest (sausage rolls, beer) are one fatty meal and one 12 g drink that can't explain a 353
+peak, probably unlogged food.
+
+Live accuracy log (the real engine), bias is actual − line:
+
+| Horizon | Group | Points (meals) | MAE | No change | Bias | Inside | Below |
+|---|---|---|---|---|---|---|---|
+| 15 min | late rise | 31 (4) | 16.7 | 18.0 | −0.8 | 81% | 13% |
+| 30 min | late rise | 22 (3) | 28.3 | 30.8 | −6.4 | 86% | 14% |
+| 60 min | late rise | 13 (2) | 35.7 | 40.5 | +34.5 | 100% | 0% |
+| 30 min | late, not rising | 30 (5) | 29.3 | 37.9 | −13.0 | 73% | 27% |
+
+Replay, gain 0.45 (0.6 and 0.7 are the same shape):
+
+| Horizon | Group | Points (meals/days) | MAE | No change | Bias | Inside | Below | Above |
+|---|---|---|---|---|---|---|---|---|
+| 30 min | late rise, all | 36 (6/4) | 20.6 | 21.6 | −5.2 | 83% | 11% | 6% |
+| 60 min | late rise, all | 36 (6/4) | 36.7 | 38.1 | −12.4 | 83% | 14% | 3% |
+| 30 min | late rise, fat/protein | 23 (3/3) | 16.6 | 21.1 | +2.8 | 91% | 4% | 4% |
+| 60 min | late rise, fat/protein | 23 (3/3) | 38.9 | 43.8 | −2.3 | 78% | 17% | 4% |
+| 30 min | late rise, other food | 13 (3/2) | 27.6 | 22.3 | −19.4 | 69% | 23% | 8% |
+| 60 min | late rise, other food | 13 (3/2) | 32.7 | 28.0 | −30.2 | 92% | 8% | 0% |
+| 30 min | day rise, nothing logged 5 h | 58 (6 days) | 18.3 | 21.0 | −0.9 | 91% | 3% | 5% |
+| 60 min | day rise, nothing logged 5 h | 58 (6 days) | 33.5 | 31.9 | −19.5 | 88% | 10% | 2% |
+
+The line **doesn't miss late rises as a rule.** Over all late rises it runs slightly high, not low
+(−5 at 30 minutes, −12 at 60), because most of them stall: the reading delivers a median 0.28 of
+the rise the line draws over 30 minutes. After fatty food it tracks them (+2.8 at 30, −2.3 at 60,
+91% inside at 30) and beats "no change"; after other food it runs high (−19 at 30) and "no change"
+does better. That is the opposite of a missing fat/protein tail, though on three meals a side. The
+range holds: 83% inside over all late rises, close to the 80% it aims for, with misses mostly below.
+
+The one real miss is **16 Nov's sausage rolls in the live log**: from 17:13 to 17:45 the app's
+60-minute line ran 43–69 mg/dL under the reading as it climbed to 341 (10 of the 13 live 60-minute
+points). The replay's trend line, without the insulin tail, missed the same stretch by only −5 on
+average, so the app's gap there is the insulin tail of the meal's dose pulling the line down while
+glucose climbed: insulin timing, which is dosing maths and not changed here (§87 saw the same shape
+after corrections).
+
+**Held out.** On late rises only, the trend's gain is scaled by k in the first 30 minutes (0.5 to
+1.5) and carries on past the fade at share b (0 to 0.5), picked on the other Perth days and scored
+on the held-out one (leave one day out over the 4 days with late rises), by 30- plus 60-minute MAE
+over all points. Also tried on fat/protein meals only (3 days).
+
+| Scope | Gain | Better held out, all points 30 / 60 | Late rises 30 / 60 | Most-picked | All-point MAE 30 / 60 |
+|---|---|---|---|---|---|
+| all late rises | 0.45 | 0/4, 0/4 | 0/4, 0/4 | k 1.25, b 0 | 23.96 → 23.96, 37.87 → 37.86 |
+| all late rises | 0.6 | 0/4, 0/4 | 0/4, 0/4 | k 1, b 0 (none) | unchanged |
+| all late rises | 0.7 | 2/4, 2/4 | 2/4, 2/4 | k 0.75, b 0 | 24.31 → 24.30, 38.33 → 38.32 |
+| fat/protein only | 0.45 | 0/3, 1/3 | 0/3, 1/3 | k 0.5, b 0.1 | 23.96 → 23.97, 37.87 → 37.86 |
+| fat/protein only | 0.6 | 0/3, 0/3 | 0/3, 0/3 | k 0.5, b 0.5 | 24.10 → 24.10, 38.10 → 38.08 |
+| fat/protein only | 0.7 | 0/3, 0/3 | 0/3, 0/3 | k 0.5, b 0 | 24.31 → 24.33, 38.33 → 38.36 |
+
+The fit flips between damping and boosting from day to day, never wins at most held-out days at
+any gain, and the carry-on it picks for fatty meals makes 12 and 13 Nov's 60-minute late rises
+worse (2.7 → 18.0 and 9.9 → 15.5). Predicted-high crossings (the 30-minute line crossing 250) move
+by one at most.
+
+**Decision.** Ship nothing. Late rises are real (every clean meal had one) but the trend already
+follows them about as well as it follows daytime rises with nothing logged, fat and protein don't
+make it worse, and no late-rise tweak wins held out. A real fat/protein tail would also need the
+food list to carry fat and protein, which it doesn't. Retest on **10 Dec 2026** with three weeks
+of meals, and only with 10+ meals on 6+ days that have nothing logged for 5 hours after them (at
+least 4 fatty and 4 other): refit k and b leave one day out, and ship only if better at 30 and 60
+minutes on most held-out days at every gain with no extra false predicted-high crossings. If the
+live 60-minute line keeps running low through late rises while the replay doesn't (the sausage-roll
+pattern), that is the insulin tail's timing: raise it with Declan as a decision, don't ship it.
+
+Live-log check, in the Supabase SQL editor (late rises 3–5 h after a meal, nothing logged since 15
+minutes after it). It keeps hypo treatments and rebounds from lows in, so it reads a little
+different from the table above (on 19 Nov: 60-minute late rises 13 points, bias +34.5):
+
+```sql
+with ml as (select (payload->>'timestamp')::float ts from glucos.logbook where not deleted and kind = 'meal'),
+lg as (select (payload->>'timestamp')::float ts from glucos.logbook where not deleted
+  and (kind = 'meal' or (kind = 'dose' and payload->>'kind' in ('rapid','ultraRapid')))),
+p as (select extract(epoch from c.issued_at) t, (e->>'minutes')::int m, (e->>'mgdl')::float f,
+  (e->>'lower')::float lo, (e->>'upper')::float hi, (e->>'actual')::float a, c.start_mgdl s, c.trend_per_minute tr
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,60)),
+g as (select p.*, (select max(ts) from ml where ml.ts between p.t - 18000 and p.t - 10800) meal from p)
+select m, tr >= 0.5 rising, count(*) n, count(distinct meal) meals, round(avg(a-f)::numeric,1) bias,
+  round(avg(abs(a-f))::numeric,1) mae, round(avg(abs(a-s))::numeric,1) nochange,
+  round(100*avg((a between lo and hi)::int)) inside
+from g where meal is not null
+  and not exists (select 1 from lg where lg.ts > g.meal + 900 and lg.ts <= g.t)
+group by 1,2 order by 1,2;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged.
