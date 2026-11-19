@@ -29,10 +29,15 @@ struct DaySummaryIntent: AppIntent {
             Task { await store.refresh() }
             let deadline = Date().addingTimeInterval(Self.refreshWait)
             while store.snapshot.fetchedAt <= before, Date() < deadline {
-                try? await Task.sleep(nanoseconds: 250_000_000)
+                try await Task.sleep(nanoseconds: 250_000_000)
             }
         }
         let settings = AppSettings.shared
+        // Signed out (or follower-only): the archive on disk may still hold an earlier account's
+        // readings, so say nothing about them, as the evening recap does.
+        guard settings.hasCredentials else {
+            return .result(value: SpokenDay.signedOut, dialog: IntentDialog(stringLiteral: SpokenDay.signedOut))
+        }
         let readings = store?.archive ?? HistoryArchive.load().readings
         let text = SpokenDay.answer(readings: readings, low: settings.lowMgdl, high: settings.highMgdl,
                                     unit: settings.unit, now: Date())

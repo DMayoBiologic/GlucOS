@@ -44,6 +44,7 @@ enum SpokenDay {
     }
 
     static let noReadings = "GlucOS has no readings of yours yet. Open GlucOS to connect."
+    static let signedOut = "GlucOS isn't signed in to LibreLinkUp, so it has no day of yours to describe."
     static let noneToday = "GlucOS has no readings from today yet."
     static let tooFewToday = "Not enough readings today yet to say. GlucOS needs an hour of readings since midnight."
 }

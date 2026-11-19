@@ -45,14 +45,16 @@ More App Shortcuts (Siri, Spotlight, Shortcuts, the Action button), in
 - **"How was my day in GlucOS"** (also "How's my day going in GlucOS", "My GlucOS day so far",
   "GlucOS today so far") answers out loud and on screen without opening the app: "So far today,
   midnight to 2:30 pm: 78% in range, average 7.4 mmol/L. 1 low and no highs." It's on the **Mac**
-  too (Siri, Spotlight and Shortcuts there, `GlucOSMacShortcuts` in `Sources/App/MacShortcuts.swift`).
+  too as a Shortcuts action (`GlucOSMacShortcuts` in `Sources/App/MacShortcuts.swift` lists the same
+  phrases, but whether macOS offers them to Siri depends on the macOS version: add it to a shortcut in
+  the Shortcuts app to be sure).
   The intent is `DaySummaryIntent` (`Sources/App/DaySummaryIntent.swift`, in both apps) and the words
   are `SpokenDay` (tests `SpokenDayTests`), built on the evening recap's figures, which read the day
   the way Today so far does: 5-minute buckets, lows and highs as runs of 15 minutes or more. It
   names the hours it covers, so an old last reading reads as "midnight to 6 pm". If the saved
   reading isn't fresh it asks for a new one and waits up to 8 seconds first. Before an hour of
   readings since midnight it says there aren't enough yet. Observations only, never advice. It's
-  your own readings only, not a person you follow.
+  your own readings only, not a person you follow, and says nothing while signed out.
 
 ### Control Center controls
 

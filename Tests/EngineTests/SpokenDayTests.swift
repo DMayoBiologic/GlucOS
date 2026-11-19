@@ -70,7 +70,7 @@ final class SpokenDayTests: XCTestCase {
 
     func testNeverGivesAdvice() {
         let advice = ["dose", "bolus", "insulin", "should", "inject", "take ", "try ", "correct"]
-        for text in [answer(day { $0 < 60 ? 50 : 250 }), answer(day()), SpokenDay.noReadings,
+        for text in [answer(day { $0 < 60 ? 50 : 250 }), answer(day()), SpokenDay.noReadings, SpokenDay.signedOut,
                      SpokenDay.noneToday, SpokenDay.tooFewToday] {
             for word in advice { XCTAssertFalse(text.lowercased().contains(word), "\(text) says \(word)") }
         }

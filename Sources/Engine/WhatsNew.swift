@@ -204,7 +204,7 @@ enum WhatsNewCatalog {
         WhatsNewRelease(version: "1.84.0", highlights: [
             .init(symbol: "sun.max",
                   title: "Ask Siri how your day went",
-                  detail: "Say \u{201C}How was my day in GlucOS\u{201D} on iPhone or Mac to hear today's time in range, average, lows and highs since midnight."),
+                  detail: "Say \u{201C}How was my day in GlucOS\u{201D} on iPhone, or use it in Shortcuts on Mac, to hear today's time in range, average, lows and highs since midnight."),
         ]),
         WhatsNewRelease(version: "1.83.0", highlights: [
             .init(symbol: "clock.badge.questionmark",
