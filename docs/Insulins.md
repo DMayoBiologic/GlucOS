@@ -37,9 +37,9 @@ iPhone a light tap plays at the pick-up (`HapticEvent.rowPicked`) and at the dro
 - **Reduce Motion:** the row keeps its size and only the shadow shows; the other rows jump to their
   places. **Increase Contrast:** no shadow, only the 1.03x lift.
 - **VoiceOver** and iPhone **Edit** mode keep the system rows, so VoiceOver's move actions and the
-  delete buttons work as before. A tap still opens the insulin. Outside Edit mode the rows no longer
-  swipe to delete on iPhone: Edit, or Delete Insulin in the insulin's own sheet, does that. On the
-  Mac, right-click offers Edit and Delete.
+  delete buttons work as before. A tap still opens the insulin. On iPhone, swipe left to delete as
+  before (the Logbook's swipe from round 95, Delete only, `phoneSwipeToDelete`). On the Mac,
+  right-click offers Edit and Delete.
 - Rules: `Sources/Shared/RowReorderDrag.swift` (tested by `RowReorderDragTests`); view:
   `InsulinReorderRows` in `InsulinSettingsView.swift`.
 

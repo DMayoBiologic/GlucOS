@@ -149,6 +149,8 @@ struct InsulinReorderRows<RowLabel: View>: View {
     @State private var translation: Double = 0
     @State private var target = 0
     @State private var heights: [UUID: Double] = [:]
+    /// The one row whose Delete is swiped open (iPhone).
+    @State private var swipeOpen: UUID?
 
     private var rowHeights: [Double] { insulins.map { heights[$0.id] ?? 44 } }
 
@@ -178,9 +180,12 @@ struct InsulinReorderRows<RowLabel: View>: View {
             if index > 0 {
                 Divider().padding(.leading, Self.dividerInset).opacity(lifted ? 0 : 1)
             }
-            label(insulin)
-                .padding(.horizontal, Self.horizontalPadding)
-                .padding(.vertical, Self.verticalPadding)
+            swipeable(insulin) {
+                label(insulin)
+                    .padding(.horizontal, Self.horizontalPadding)
+                    .padding(.vertical, Self.verticalPadding)
+                    .contentShape(Rectangle())
+            }
         }
         .contentShape(Rectangle())
         .background {
@@ -215,6 +220,19 @@ struct InsulinReorderRows<RowLabel: View>: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Edit")
         .accessibilityAction { onTap(insulin) }
+    }
+
+    /// On iPhone, swipe left to delete, as the system rows did (the Logbook's own swipe, Delete
+    /// only). The row's background covers the red action until it slides.
+    @ViewBuilder
+    private func swipeable<Content: View>(_ insulin: SavedInsulin, @ViewBuilder _ content: () -> Content) -> some View {
+        #if os(iOS)
+        content()
+            .background(Palette.controlBackground)
+            .phoneSwipeToDelete(insulin.id, openID: $swipeOpen, reduceMotion: reduceMotion) { onDelete(insulin) }
+        #else
+        content()
+        #endif
     }
 
     #if os(iOS)
