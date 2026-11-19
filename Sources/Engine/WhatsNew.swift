@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "tag",
                   title: "A livelier Tags card",
                   detail: "In Insights, each tag now has a small bar for its time in range that grows in, and tags glide to their new places when you change the period."),
+            .init(symbol: "sun.max",
+                  title: "Ask Siri how your day went",
+                  detail: "Say \u{201C}How was my day in GlucOS\u{201D} on iPhone, or use it in Shortcuts on Mac, to hear today's time in range, average, lows and highs since midnight."),
         ]),
         WhatsNewRelease(version: "1.83.0", highlights: [
             .init(symbol: "clock.badge.questionmark",

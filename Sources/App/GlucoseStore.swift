@@ -38,6 +38,10 @@ final class GlucoseStore: ObservableObject {
     /// "Check now" on a gap card that says no signal or can't connect (`ReadingGapCheck`).
     @Published private(set) var gapCheck = ReadingGapCheck.Status()
 
+    /// The app's one store, for App Intents (Siri and Shortcuts), which can't reach the SwiftUI
+    /// environment. Nil until the app has made it.
+    static private(set) weak var live: GlucoseStore?
+
     let settings = AppSettings.shared
     let alerts = AlertManager()
     /// Forecast and insulin/carbs still acting. Recomputed on every reading and logbook change.
@@ -119,6 +123,7 @@ final class GlucoseStore: ObservableObject {
         }
 
         record(snapshot)
+        Self.live = self
     }
 
     func start() {
