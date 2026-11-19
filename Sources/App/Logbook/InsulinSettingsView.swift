@@ -256,7 +256,7 @@ struct InsulinReorderRows<RowLabel: View>: View {
                 switch value {
                 case .second(true, let drag):
                     if picked == nil { lift(insulin, at: index) }
-                    follow(drag?.translation.height ?? 0)
+                    follow(Double(drag?.translation.height ?? 0))
                 default:
                     break
                 }
