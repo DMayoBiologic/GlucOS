@@ -580,6 +580,9 @@ private struct AlertSettingsTab: View {
                     }
                 }
                 .settingsAnchor(.alertRepeat)
+                AlertRepeatPreviewLine(readings: store.archive, records: logbook.alerts,
+                                       prefs: settings.alertPreferences,
+                                       lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl)
             } header: {
                 SettingsSectionHeader("Also Notify Me About", systemImage: "bell")
             } footer: {

@@ -500,6 +500,9 @@ struct PhoneSettingsView: View {
                         ForEach([5, 10, 15, 30, 60], id: \.self) { Text("\($0) min").tag($0) }
                     }
                     .settingsAnchor(.alertRepeat)
+                    AlertRepeatPreviewLine(readings: store.archive, records: logbook.alerts,
+                                           prefs: settings.alertPreferences,
+                                           lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl)
                     AlertSoundPickerLink()
                         .settingsAnchor(.alertSound)
                     TestAlertButton(requestsAuthorization: true)
