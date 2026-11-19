@@ -33,6 +33,8 @@ struct PopoverChartCard: View {
     /// Sideways trackpad swipes over the chart pan it back (`ChartPan`).
     @State private var scrollPan = ChartScrollPanMonitor()
     @State private var panScroll: ChartPanScroll?
+    /// ⌥← ⌥→ pan an hour, ⌘→ goes back to now, while the chart has the focus.
+    @State private var panKey: ChartPanKeyPress?
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -87,7 +89,7 @@ struct PopoverChartCard: View {
                              markerActions: markerAction, pinsHoveredMarker: pinHovered,
                              forecastDetails: details(outlook), opensForecastDetails: forecastKey,
                              gapContext: store.gapContext, gapCheck: store.gapCheckControl,
-                             pansBack: true, panScroll: panScroll)
+                             pansBack: true, panScroll: panScroll, panKey: panKey)
             }
                 .onPreferenceChange(MarkerCalloutOpenKey.self) { calloutOpen = $0 }
                 // Panned back: a pinned reading that's gone off screen is let go.
@@ -119,8 +121,17 @@ struct PopoverChartCard: View {
                             .allowsHitTesting(false)
                     }
                 }
-                .onKeyPress(.leftArrow) { step(-1, in: window) }
-                .onKeyPress(.rightArrow) { step(1, in: window) }
+                // ← → step readings; ⌥← ⌥→ pan an hour and ⌘→ goes back to now (`ChartPan.KeyMove`).
+                .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+                    let left = press.key == .leftArrow
+                    if let move = ChartPanKeys.move(left: left, modifiers: press.modifiers) {
+                        guard let next = ChartPanKeys.press(move, after: panKey, pannedBack: panEnd != nil) else { return .ignored }
+                        panKey = next
+                        return .handled
+                    }
+                    guard press.modifiers.intersection([.command, .option, .control]).isEmpty else { return .ignored }
+                    return step(left ? -1 : 1, in: window)
+                }
                 .onKeyPress(.home) { jump(to: window.first) }
                 .onKeyPress(.end) { jump(to: window.last) }
                 .onKeyPress(.escape) {
@@ -141,13 +152,13 @@ struct PopoverChartCard: View {
                 // Right-click for yesterday's faint line (also in Settings → Menu Bar); right-click a
                 // marker for its Edit / Log Again Now card instead.
                 .yesterdayLineMenu($settings.showYesterdayLine)
-                .help("Hover to see readings, click a marker for what was logged, right-click it to edit or log it again, click the forecast for its details, swipe sideways for earlier hours, or click and use ← →")
+                .help("Hover to see readings, click a marker for what was logged, right-click it to edit or log it again, click the forecast for its details, swipe sideways for earlier hours, or click and use ← → (⌥← ⌥→ for an hour earlier or later, ⌘→ for now)")
                 // A group, so its name doesn't land on the marker buttons inside it.
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(panEnd == nil ? "Glucose chart, last \(settings.chartHours) hours"
                                     : "Glucose chart, \(settings.chartHours) hours to \(ClockLabel.time(panEnd ?? Date()))")
                 .accessibilityValue(chartSummary(window))
-                .accessibilityHint("Use the left and right arrow keys to step through readings")
+                .accessibilityHint("Use the left and right arrow keys to step through readings. Option with an arrow moves an hour earlier or later, Command right arrow goes back to now.")
             // "Meal 1 h 40 m ago · 45 g": the last thing logged in 12 hours, opening in the Logbook.
             LastLoggedLine(entries: logbook.entries, open: openInLogbook)
             if let outlook, outlook.showsInsulin || (settings.showForecast && !outlook.forecast.isEmpty) {
@@ -294,6 +305,24 @@ struct PopoverChartCard: View {
               let line = YesterdayLine.spoken(YesterdayLine.reading(at: window.last?.timestamp ?? Date(), in: yesterday), unit: store.shownUnit)
         else { return sentence }
         return sentence + " " + line
+    }
+}
+
+/// The Mac's pan keys on a focused chart (popover and Outlook): ⌥← an hour earlier, ⌥→ an hour
+/// later, ⌘→ back to now. Plain ← → are left to the chart's reading steps.
+enum ChartPanKeys {
+    static func move(left: Bool, modifiers: EventModifiers) -> ChartPan.KeyMove? {
+        let mods = modifiers.intersection([.command, .option, .control, .shift])
+        if mods == .option { return left ? .earlier : .later }
+        if mods == .command, !left { return .now }
+        return nil
+    }
+
+    /// The press to hand the chart for `move`, or nil when there's nowhere for it to go: later or
+    /// now while already at now falls through to whatever else wants the key.
+    static func press(_ move: ChartPan.KeyMove, after last: ChartPanKeyPress?, pannedBack: Bool) -> ChartPanKeyPress? {
+        guard move == .earlier || pannedBack else { return nil }
+        return ChartPanKeyPress(id: (last?.id ?? 0) + 1, move: move)
     }
 }
 

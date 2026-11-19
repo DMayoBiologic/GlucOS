@@ -87,6 +87,64 @@ enum ChartPan {
         }
     }
 
+    // MARK: Mac keys
+
+    /// What a key does to the pan on the Mac (popover and Outlook charts, while focused):
+    /// ⌥← an hour earlier, ⌥→ an hour later, ⌘→ straight back to now.
+    enum KeyMove: Equatable, Sendable {
+        case earlier
+        case later
+        case now
+    }
+
+    /// How far one ⌥← or ⌥→ moves the right edge, whatever the span.
+    static let keyStepSeconds: TimeInterval = 3600
+
+    /// Where the right edge goes for `move`. Later stops at now, and an hour later that lands
+    /// within `snapToNow` of now goes the rest of the way, as letting go of a drag does.
+    static func keyed(_ end: Date?, _ move: KeyMove, newest: Date, oldest: Date, hours: Double) -> Date? {
+        switch move {
+        case .now:
+            return nil
+        case .earlier:
+            return clamped((end ?? newest).addingTimeInterval(-keyStepSeconds), newest: newest, oldest: oldest, hours: hours)
+        case .later:
+            guard let end else { return nil }
+            let next = clamped(end.addingTimeInterval(keyStepSeconds), newest: newest, oldest: oldest, hours: hours)
+            return released(next, newest: newest)
+        }
+    }
+
+    // MARK: End-time label
+
+    /// The small label on a panned chart naming the moment at its right edge: "Tue 2:40 pm".
+    /// Nil at now, where it fades out. The weekday is always there, since a day back the clock
+    /// alone could be today or yesterday.
+    static func endLabel(_ end: Date?, calendar: Calendar = .autoupdatingCurrent,
+                         locale: Locale = .autoupdatingCurrent) -> String? {
+        guard let end else { return nil }
+        let style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
+        return "\(end.formatted(style.weekday(.abbreviated))) \(ClockLabel.time(end, calendar: calendar, locale: locale))"
+    }
+
+    /// What VoiceOver says, once, when a pan settles on a new end: "Chart ends Tuesday 2:40 pm".
+    static func endSpoken(_ end: Date, calendar: Calendar = .autoupdatingCurrent,
+                          locale: Locale = .autoupdatingCurrent) -> String {
+        let style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
+        return "Chart ends \(end.formatted(style.weekday(.wide))) \(ClockLabel.time(end, calendar: calendar, locale: locale))"
+    }
+
+    /// Whether a pan that has just settled on `settled` should be read out, given what was read
+    /// last (`lastSpoken`, nil once it's back at now). Read once per new end: never at now, never
+    /// the same end twice in a row, and never in the middle of a drag (the caller only asks once
+    /// the fingers lift or a key's glide is chosen). VoiceOver's own swipes on the time strip
+    /// already read its value, so they don't ask.
+    static func announces(settled: Date?, lastSpoken: Date?) -> Bool {
+        guard let settled else { return false }
+        guard let lastSpoken else { return true }
+        return abs(settled.timeIntervalSince(lastSpoken)) >= 60
+    }
+
     /// What VoiceOver says for the pan: "Now", or "2:15 to 5:15 pm, 3 h earlier". `clock` names a
     /// time of day (`ClockLabel.time` in the app), passed in so tests don't depend on the locale.
     static func spoken(end: Date?, newest: Date, hours: Double, clock: (Date) -> String) -> String {
