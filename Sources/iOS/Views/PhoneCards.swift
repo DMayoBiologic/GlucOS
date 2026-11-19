@@ -81,11 +81,13 @@ struct PhoneHeroCard: View {
                                 // Crossing into or out of the target range: one light tap (a low
                                 // keeps its warning) and a brief wash of the new colour, once per
                                 // crossing and never while hovering at the edge. No wash under
-                                // Reduce Motion. Alerts are separate.
+                                // Reduce Motion. Alerts are separate. Back in range after 15+ min
+                                // out also sweeps one in-range ring and VoiceOver says so (round 89).
                                 .rangeCrossingCue(mgdl: cur.mgdl, at: cur.timestamp,
                                                   lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                                                   live: !stale && launch == .live && warmUp == nil,
-                                                  tint: tone.color) { Haptics.play($0.haptic) }
+                                                  tint: tone.color,
+                                                  follower: !settings.hasCredentials) { Haptics.play($0.haptic) }
                             trendRow(cur, stale: stale)
                         }
                         .launchDim(launch, stale: stale)

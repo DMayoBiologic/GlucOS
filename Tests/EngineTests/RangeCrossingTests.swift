@@ -106,4 +106,99 @@ final class RangeCrossingTests: XCTestCase {
         XCTAssertTrue(RangeCrossing.washes(reduceMotion: false))
         XCTAssertFalse(RangeCrossing.washes(reduceMotion: true))
     }
+
+    // MARK: Back-in-range moment (round 89)
+
+    /// Feeds readings a minute apart and returns, for each, whether it marked the moment.
+    private func moments(_ values: [Double], into tracker: inout RangeCrossing, from start: Int = 0,
+                         follower: Bool = false) -> [Bool] {
+        values.enumerated().map { i, v in
+            let cue = tracker.observe(mgdl: v, at: t0.addingTimeInterval(Double(start + i) * 60),
+                                      low: low, high: high, live: true)
+            return RangeCrossing.marksMoment(cue, outFor: tracker.backAfter, follower: follower)
+        }
+    }
+
+    func testMarksTheMomentAfterFifteenMinutesOutOnce() {
+        var t = RangeCrossing()
+        // In range, then low from minute 2 to minute 17 (the 16th reading out), back at minute 18.
+        XCTAssertEqual(moments([100, 90], into: &t), [false, false])
+        XCTAssertEqual(moments(Array(repeating: 60, count: 16), into: &t, from: 2), Array(repeating: false, count: 16))
+        XCTAssertEqual(moments([76], into: &t, from: 18), [true])
+        XCTAssertEqual(t.backAfter, 16 * 60)
+        // Once per spell: settling in range says nothing more.
+        XCTAssertEqual(moments([80, 90, 100], into: &t, from: 19), [false, false, false])
+    }
+
+    func testShortSpellsOnlyGetTheCrossingCue() {
+        var t = RangeCrossing()
+        _ = moments([100], into: &t)
+        XCTAssertEqual(moments(Array(repeating: 190, count: 14), into: &t, from: 1), Array(repeating: false, count: 14))
+        let cue = t.observe(mgdl: 170, at: t0.addingTimeInterval(15 * 60), low: low, high: high, live: true)
+        XCTAssertEqual(cue, .backInRange)
+        XCTAssertEqual(t.backAfter, 14 * 60)
+        XCTAssertFalse(RangeCrossing.marksMoment(cue, outFor: t.backAfter, follower: false))
+    }
+
+    func testFifteenMinutesExactlyCounts() {
+        XCTAssertTrue(RangeCrossing.marksMoment(.backInRange, outFor: 15 * 60, follower: false))
+        XCTAssertFalse(RangeCrossing.marksMoment(.backInRange, outFor: 15 * 60 - 1, follower: false))
+        XCTAssertFalse(RangeCrossing.marksMoment(.wentHigh, outFor: 60 * 60, follower: false))
+        XCTAssertFalse(RangeCrossing.marksMoment(.backInRange, outFor: nil, follower: false))
+    }
+
+    func testNeverForFollowers() {
+        var t = RangeCrossing()
+        _ = moments([100], into: &t, follower: true)
+        _ = moments(Array(repeating: 55, count: 20), into: &t, from: 1, follower: true)
+        XCTAssertEqual(moments([80], into: &t, from: 21, follower: true), [false])
+        XCTAssertEqual(t.backAfter, 20 * 60)
+    }
+
+    func testEachCrossingBackEndsTheSpell() {
+        var t = RangeCrossing()
+        _ = moments([100], into: &t)
+        _ = moments(Array(repeating: 60, count: 10), into: &t, from: 1)   // low from minute 1
+        // Back across at minute 11 after 10 minutes: the crossing cue only, and the spell ends.
+        XCTAssertEqual(moments([72], into: &t, from: 11), [false])
+        XCTAssertEqual(t.backAfter, 10 * 60)
+        // A new spell starts at the next reading out, so the next crossing back counts from there.
+        _ = moments([68], into: &t, from: 12)
+        _ = moments(Array(repeating: 60, count: 15), into: &t, from: 13)
+        XCTAssertEqual(moments([80], into: &t, from: 28), [true])
+        XCTAssertEqual(t.backAfter, 16 * 60)
+    }
+
+    func testAShallowDipEndsQuietly() {
+        var t = RangeCrossing()
+        _ = moments([100], into: &t)
+        // 68 is out but never 5 below the line, so coming back doesn't cue.
+        XCTAssertEqual(moments(Array(repeating: 68, count: 20), into: &t, from: 1), Array(repeating: false, count: 20))
+        XCTAssertEqual(moments([72, 80], into: &t, from: 21), [false, false])
+        XCTAssertNil(t.outSince)
+    }
+
+    func testAStaleStretchMidLowKeepsTheSpellButALongGapEndsIt() {
+        var t = RangeCrossing()
+        _ = moments([100, 60, 60, 60], into: &t)    // low from minute 1
+        _ = t.observe(mgdl: 60, at: t0.addingTimeInterval(4 * 60), low: low, high: high, live: false)
+        // Ten minutes later, still low: the same spell, taken quietly.
+        _ = moments([58, 58, 58, 58, 58, 58], into: &t, from: 14)
+        XCTAssertEqual(moments([80], into: &t, from: 20), [true])
+        XCTAssertEqual(t.backAfter, 19 * 60)
+
+        var g = RangeCrossing()
+        _ = moments([100, 60, 60], into: &g)
+        // 40 minutes with nothing: the spell ends unseen; the low starts again at minute 42.
+        _ = moments([58, 58, 58, 58, 58], into: &g, from: 42)
+        let cue = g.observe(mgdl: 80, at: t0.addingTimeInterval(47 * 60), low: low, high: high, live: true)
+        XCTAssertEqual(cue, .backInRange)
+        XCTAssertEqual(g.backAfter, 5 * 60)
+    }
+
+    func testRingStaysStillUnderReduceMotion() {
+        XCTAssertFalse(RangeCrossing.ringSweeps(reduceMotion: true))
+        XCTAssertTrue(RangeCrossing.ringSweeps(reduceMotion: false))
+        XCTAssertEqual(RangeCrossing.momentAnnouncement, "Back in range")
+    }
 }
