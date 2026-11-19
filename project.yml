@@ -203,6 +203,7 @@ targets:
       - path: Sources/App/Views/AlertSoundViews.swift
       - path: Sources/App/Views/LowTreatButtonView.swift
       - path: Sources/App/Views/LastLoggedLineView.swift
+      - path: Sources/App/Views/SimilarEntryLineView.swift
       - path: Sources/App/Views/WhileAwayLineView.swift
       - path: Sources/App/Views/RecentDaysCardView.swift
       - path: Sources/App/Views/MenuBar/PopoverInsights.swift
