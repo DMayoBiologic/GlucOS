@@ -61,6 +61,10 @@ sparkle-keys: resolve
 	 echo "Sparkle public key: $$PUB"; \
 	 echo "Private key is in your login Keychain (Sparkle) and in the repo secret SPARKLE_PRIVATE_KEY."
 
+## One-time: put the Developer ID certificate into the repo secrets release.yml signs the Mac app with.
+mac-signing-secret:
+	@REPO=$(REPO) scripts/mac_signing_secret.sh
+
 ## Optional: force a specific version (normal releases happen automatically on merge to main).
 release:
 	@test -n "$(V)" || { echo "Usage: make release V=0.2.0  (or just merge to main for an automatic patch bump)"; exit 1; }
