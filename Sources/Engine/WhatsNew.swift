@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "number",
                   title: "Averages roll to new readings",
                   detail: "On iPhone Today and in the Mac menu bar, your average and the other summary figures now roll to their new values as each reading arrives, alongside time in range."),
+            .init(symbol: "moon.stars",
+                  title: "Forecasts after late-evening snacks",
+                  detail: "We checked forecasts after carbs logged between 8 pm and midnight and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.84.0", highlights: [
             .init(symbol: "tag",

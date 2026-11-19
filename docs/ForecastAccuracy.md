@@ -7295,3 +7295,114 @@ group by 1, 2, ml.t order by ml.t;
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged.
+
+## 96. After a late-evening snack or meal, does the line run high or low, and is the range right? (19 Nov 2026)
+
+**Question.** Carbs logged between 8 pm and midnight (Perth) are often a snack before bed, or a
+top-up against a low overnight. For the 3 hours after them, does the line under- or over-call
+where glucose goes at 15, 30 and 60 minutes, compared with daytime meals (6 am to 8 pm) of similar
+size, and is the range right there?
+
+**Data.** Live readings 11–19 Nov 2026 (10,883), the Logbook's meals and rapid doses, and the
+accuracy log's clean shown points at 15, 30 and 60 minutes (1,347). Double logs count once. Each
+meal is scored from when it's logged for 3 hours or to the next meal or a later dose (doses up to
+90 minutes after it count as its own). Late meals are scored even when they were low treatments;
+they're compared with daytime meals within 15 g of them ("size-matched") and with every other
+carb entry that had no rapid dose within 90 minutes ("uncovered"). Replay: the engine's model
+forecast every 5 minutes (trend at the tuner's gain plus K × carbs − S × insulin, K 2.8, S 19.2),
+scored at 15, 30 and 60 minutes; points whose target falls after a later entry are dropped.
+Script: `scripts/late-evening-meals.py`.
+
+Only two late-evening entries have readings, and neither had insulin: **12 Nov 23:42 sports drink,
+36.8 g** (66 at the drink, so the engine treats it as a low treatment, peak 185 at 104 minutes,
++119) and **17 Nov 22:41 sundae, 68 g** (46 at the meal, tagged as a low treatment, peak 177 at
+145 minutes, +131; also in §95). The 12 Nov 19:08 burrito bowl and 13 Nov 19:27 sports drink fall
+just before 8 pm, and the 16 Nov 01:19 Coke after midnight. Seven size-matched daytime meals score
+(12 Nov breakfast burger and sushi, 13 Nov eggs, 14 Nov hamburger, 16 Nov pie and sausage roll,
+18 Nov hamburger), all with insulin, and most peaked 40–64 minutes in.
+
+Replay, gain 0.45 (0.6 and 0.7 are the same shape), bias is actual − line (negative = line high):
+
+| Group, time since meal | Meals (pts at 30) | 15 min MAE / bias | 30 min MAE / bias | 60 min MAE / bias | 30 min no change |
+|---|---|---|---|---|---|
+| Late, first hour | 2 (23) | 31.4 / +2.2 | 43.3 / −13.6 | 29.3 / −2.1 | 40.9 |
+| Late, 1–3 h | 2 (24) | 24.5 / +4.5 | 34.9 / −1.5 | 42.1 / −12.2 | 29.0 |
+| Day size-matched, first hour | 7 (66) | 22.5 / +3.3 | 36.7 / −0.3 | 43.3 / −19.4 | 40.2 |
+| Day size-matched, 1–3 h | 6 (107) | 11.2 / −1.2 | 19.9 / −5.2 | 36.9 / −16.3 | 21.7 |
+| Uncovered, not late, first hour | 7 (65) | 14.7 / +7.4 | 26.6 / +19.5 | 52.1 / +46.3 | 37.4 |
+| Uncovered, not late, 1–3 h | 5 (81) | 14.7 / +3.6 | 22.3 / +8.3 | 44.9 / +20.8 | 26.4 |
+
+By meal, the sports drink is roughly unbiased (−2.4 at 30, 0.0 at 60) and the sundae runs high
+(−16.4 at 30, −20.6 at 60), the same second-hour overshoot §95 found on large meals.
+
+Live accuracy log (the real engine): late points are few and only from the sports drink at 30 and
+60 minutes; the sundae has 15-minute points only. First hour 50% inside at 15 (8 points, width 51),
+0% at 30 (4 points, width 48, half the misses above), 1–3 h 36% inside at 15 (11 points). Size-
+matched daytime meals: 78% inside at 15 and 71% at 30 in the first hour, 82% and 74% after.
+The 12 Nov ranges were the narrow early ones (48 wide at 30 minutes on every 12–13 Nov meal,
+75–124 on later ones); the 12 Nov sushi was 57% inside on the same range.
+
+**Late-evening carbs aren't worse than daytime meals of their size, once you allow for how they
+start.** At 15 minutes the late line is about as unbiased as daytime (+2 vs +3) and beats no change;
+at 30 it's a little worse than no change in the first hour (43.3 vs 40.9), and at 60 it beats it
+(29.3 vs 37.3). The errors
+are bigger in mg/dL than daytime meals because both late entries started from a low, rose 120–130
+with no insulin and kept climbing for 1¾–2½ hours, which is slower and later than daytime meals.
+The fairer comparison is other uncovered carbs: daytime ones run **low** (+20 at 30, +46 at 60 in
+the first hour, glucose rising more than the line), while the two late ones run slightly **high**
+(−14 at 30). That's the opposite direction, but it rests on two entries, one a fast-curve
+treatment and one 68 g sundae that §95 already showed overshoots in hour two. The live range missed
+more often after the late drink, but that was on 12 Nov's narrow range; nothing late has been
+scored at 30 minutes on the wider ranges since.
+
+**Held out: a late-evening carb tweak.** Forecast only (carbs on board, the shared carb curve,
+insulin on board, the insulin curve, carb ratios, sensitivity and the bolus calculator untouched):
+for carbs logged 8 pm to midnight the forecast's own copy of the carb effect gets an extra onset
+delay e (0, 10 or 20 minutes) and a height scale c (0.6–1.4), picked on one late meal and scored on
+the other (leave one meal out; daytime meals unchanged by construction).
+
+| Gain | Sports drink 12 Nov held out, 15 / 30 / 60 | Sundae 17 Nov held out, 15 / 30 / 60 |
+|---|---|---|
+| 0.45 (c 0.7) | **20.6→21.5**, **35.9→38.0**, 39.2→36.2 | **38.0→38.2**, 44.6→42.5, 27.5→24.6 |
+| 0.6 (c 0.8 / 0.7) | **22.4→22.9**, **38.1→39.5**, 41.2→39.2 | **39.6→39.8**, 48.1→46.1, 31.1→28.3 |
+| 0.7 (c 0.8 / 0.7) | **23.7→24.2**, **39.7→41.0**, 42.8→40.8 | **41.1→41.2**, 50.5→48.4, 33.4→30.7 |
+
+The extra delay is never chosen (e = 0 every time). A lower late-evening carb effect (0.7–0.8)
+wins at 30 and 60 on the sundae and at 60 on the drink, but loses at 30 on the drink and at 15 on
+both, at every gain.
+
+**Decision.** Ship nothing. The tweak fails the bar (30 minutes worse on the drink, 15 worse on
+both), there are only two late entries, both started from a low with no insulin, and the sundae's
+win is the same large-meal overshoot §95 already holds back. A time-of-day carb scale would also
+sit next to carb ratios, so it needs a cleaner case than this. Retest on **10 Dec 2026**, only with
+5+ late-evening entries on 4+ evenings, 3+ of them starting at 70 or above with insulin logged
+within 15 minutes: refit c (and e) leave one meal out and ship only if better at 30 and 60 on
+every held-out late meal at every gain, 15 no worse, with no new predicted-low or predicted-high
+crossings overnight. Score the late range only on ranges from 14 Nov on.
+
+Live-log check, in the Supabase SQL editor (meals of 20 g or more by Perth time of day, 30-minute
+bias, inside rate and range width for points issued up to 3 hours after; it doesn't merge double
+logs or stop at the next meal. On 19 Nov: late 12 Nov 23:42 drink 8 points, +6.9, 13% inside,
+width 48, all from the model; 17 Nov 22:41 sundae no 30-minute points; daytime meals 50–100%
+inside):
+
+```sql
+with ml as (select (payload->>'timestamp')::float t, coalesce((payload->>'carbs')::float, 0) g,
+    extract(hour from to_timestamp((payload->>'timestamp')::float) at time zone 'Australia/Perth') h
+  from glucos.logbook where not deleted and kind = 'meal' and coalesce((payload->>'carbs')::float, 0) >= 20),
+p as (select extract(epoch from c.issued_at) t, (e->>'mgdl')::float f, (e->>'actual')::float a,
+    (e->>'lower')::float lo, (e->>'upper')::float hi, c.basis
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int = 30)
+select case when ml.h >= 20 then 'late' when ml.h >= 6 then 'day' else 'night' end grp,
+  to_char(to_timestamp(ml.t) at time zone 'Australia/Perth', 'DD Mon HH24:MI') meal, ml.g carbs,
+  count(p.t) pts, round(avg(p.a - p.f)::numeric, 1) bias_30,
+  round(100 * avg((p.a between p.lo and p.hi)::int)::numeric) inside_pct,
+  round(avg(p.hi - p.lo)::numeric) width, sum((p.basis = 'trendInsulinCarbs')::int) model_pts
+from ml left join p on p.t between ml.t and ml.t + 10800
+group by 1, 2, 3, ml.t order by 1 desc, ml.t;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged.
