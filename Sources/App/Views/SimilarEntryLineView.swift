@@ -30,31 +30,51 @@ struct SimilarEntryLine: View {
         }
     }
 
+    private var icon: some View {
+        Image(systemName: "clock.arrow.circlepath")
+            .imageScale(.small)
+            .accessibilityHidden(true)
+    }
+
+    private func note(_ found: SimilarEntry.Match) -> some View {
+        Text(found.line)
+            .monospacedDigit()
+            .accessibilityLabel(found.spoken)
+    }
+
+    private var viewButton: some View {
+        Button(showsEarlier ? "Hide" : "View") {
+            DS.animate(.quick, reduceMotion: reduceMotion) { showsEarlier.toggle() }
+        }
+        .buttonStyle(.plain)
+        .fontWeight(.semibold)
+        .foregroundStyle(Palette.brandText)
+        .accessibilityHint(showsEarlier ? "Hides the earlier entry" : "Shows the earlier entry")
+    }
+
     private func content(_ found: SimilarEntry.Match) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
-            HStack(spacing: DS.Space.xs) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .imageScale(.small)
-                    .accessibilityHidden(true)
-                Text(found.line)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .accessibilityLabel(found.spoken)
-                Text("·").accessibilityHidden(true)
-                Button(showsEarlier ? "Hide" : "View") {
-                    DS.animate(.quick, reduceMotion: reduceMotion) { showsEarlier.toggle() }
+            // One row when it fits; at large text sizes the note wraps and View drops below it.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
+                    icon
+                    note(found).lineLimit(1)
+                    Text("·").accessibilityHidden(true)
+                    viewButton
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.plain)
-                .fontWeight(.semibold)
-                .foregroundStyle(Palette.brandText)
-                .accessibilityHint(showsEarlier ? "Hides the earlier entry" : "Shows the earlier entry")
-                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
+                        icon
+                        note(found).fixedSize(horizontal: false, vertical: true)
+                    }
+                    viewButton.padding(.leading, DS.Space.lg)
+                }
             }
             if showsEarlier {
                 Text(SimilarEntry.detail(found.entry))
                     .monospacedDigit()
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, DS.Space.lg)
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
             }
