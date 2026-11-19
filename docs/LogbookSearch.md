@@ -191,6 +191,16 @@ Round 44 adds a compact month calendar to the Logbook, on iPhone and Mac (`Logbo
   the search or a chip is hiding that day's entries, they're cleared first so there's a day to
   land on (`LogbookJump.plan`). On the Mac, a day outside the toolbar's period moves the period
   so it ends with that day (24 hours at least), and that day's rows light once as they arrive.
+- **Motion and colour (round 86).** Besides the chevrons, a sideways swipe or drag steps the month
+  (left for later, right for earlier, 44 pt and mostly sideways); the grid follows the finger and
+  rubber-bands towards a month it can't show. Each pickable day's circle washes in tinted by that
+  day's time in range, in the day bars' colours: in range when 70% or more of it was, otherwise
+  low or high by whichever it spent longer in, stronger the bigger that share. A day without enough
+  readings keeps the plain circle. The wash runs from the 1st, 12 ms apart, all in within 0.4 s.
+  The selected day's mark springs in with a ring around it. VoiceOver adds the share ("3 entries,
+  78% in range"), so the colour never carries it alone. Under Reduce Motion the grid cross-fades,
+  the tints fade in together and the mark fades; nothing slides, follows or springs. Rules in
+  `LogbookCalendarMotion` (LogbookCalendarTests).
 
 ## Folding a day
 

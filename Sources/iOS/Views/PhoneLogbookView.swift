@@ -821,7 +821,11 @@ struct PhoneLogbookView: View {
                     compare: LogbookCalendarCompare(from: day.start, spokenDay: DayInRangeText.spokenDay(spokenDay),
                                                     days: { DayCompare.readingDays(store.archive) },
                                                     pick: { openCompare(day.start, with: $0) },
-                                                    startsComparing: calendarCompares)
+                                                    startsComparing: calendarCompares),
+                    ranges: { days in
+                        DayInRange.compute(readings: store.archive, days: days,
+                                           low: store.snapshot.lowMgdl, high: store.snapshot.highMgdl)
+                    }
                 ) { picked in
                     jump(to: picked, all: all, shownDays: shownDays)
                 }

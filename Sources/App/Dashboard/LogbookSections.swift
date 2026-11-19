@@ -463,7 +463,10 @@ struct LogbookSection: View {
                                                 spokenDay: DayInRangeText.spokenDay(ClockLabel.day(of: from, now: Date())),
                                                 days: { DayCompare.readingDays(store.archive) },
                                                 pick: { openCompare(from, with: $0) },
-                                                startsComparing: compareFrom != nil)
+                                                startsComparing: compareFrom != nil),
+                ranges: { [data] days in
+                    DayInRange.compute(readings: store.archive, days: days, low: data.lowMgdl, high: data.highMgdl)
+                }
             ) { picked in
                 jump(to: picked, shownDays: shownDays)
             }

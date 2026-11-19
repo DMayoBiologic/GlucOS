@@ -106,4 +106,69 @@ final class LogbookCalendarTests: XCTestCase {
     func testEachPickIsANewRequest() {
         XCTAssertNotEqual(LogbookJumpRequest(day: day(2026, 9, 3)), LogbookJumpRequest(day: day(2026, 9, 3)))
     }
+
+    // MARK: - Round 86 motion and tints
+
+    func testSpokenSaysTimeInRangeWhenTinted() {
+        let m = LogbookCalendar.month(referenceNow, counts: [day(2026, 9, 8): 3], now: referenceNow,
+                                      calendar: utc, locale: en)
+        let f = DayInRange(below: 0.04, inRange: 0.78, above: 0.18)
+        let name = DayInRangeText.spokenDay(.other(day(2026, 9, 8)), calendar: utc, locale: en)
+        XCTAssertEqual(LogbookJump.spoken(m.cells[7], now: referenceNow, figures: f, calendar: utc, locale: en),
+                       name + ", 3 entries, " + DayInRangeText.percent(f) + " in range")
+        // A future day says nothing more, figures or not.
+        XCTAssertEqual(LogbookJump.spoken(m.cells[25], now: referenceNow, figures: f, calendar: utc, locale: en),
+                       DayInRangeText.spokenDay(.other(day(2026, 9, 26)), calendar: utc, locale: en))
+    }
+
+    func testTintBands() {
+        XCTAssertNil(LogbookCalendarMotion.tint(nil))
+        let good = LogbookCalendarMotion.tint(DayInRange(below: 0.02, inRange: 0.9, above: 0.08))
+        XCTAssertEqual(good?.band, .inRange)
+        XCTAssertEqual(LogbookCalendarMotion.tint(DayInRange(below: 0, inRange: 0.7, above: 0.3))?.band, .inRange)
+        XCTAssertEqual(LogbookCalendarMotion.tint(DayInRange(below: 0.1, inRange: 0.5, above: 0.4))?.band, .above)
+        XCTAssertEqual(LogbookCalendarMotion.tint(DayInRange(below: 0.3, inRange: 0.6, above: 0.1))?.band, .below)
+        // A tie leans below, the share that matters more.
+        XCTAssertEqual(LogbookCalendarMotion.tint(DayInRange(below: 0.2, inRange: 0.6, above: 0.2))?.band, .below)
+    }
+
+    func testTintStrengthStaysInBoundsAndGrowsWithShare() {
+        let weak = LogbookCalendarMotion.tint(DayInRange(below: 0.1, inRange: 0.5, above: 0.4))!
+        let strong = LogbookCalendarMotion.tint(DayInRange(below: 0, inRange: 0.2, above: 0.8))!
+        XCTAssertLessThan(weak.strength, strong.strength)
+        for f in [DayInRange(below: 0, inRange: 1, above: 0), DayInRange(below: 0, inRange: 0, above: 1),
+                  DayInRange(below: 0.34, inRange: 0.33, above: 0.33)] {
+            let t = LogbookCalendarMotion.tint(f)!
+            XCTAssertGreaterThanOrEqual(t.strength, LogbookCalendarMotion.weakest)
+            XCTAssertLessThanOrEqual(t.strength, LogbookCalendarMotion.strongest)
+        }
+        XCTAssertEqual(LogbookCalendarMotion.tint(DayInRange(below: 0, inRange: 1, above: 0))?.strength,
+                       LogbookCalendarMotion.strongest)
+    }
+
+    func testSwipeStepsTheWayTheFingerWent() {
+        // Left is later, right is earlier.
+        XCTAssertEqual(LogbookCalendarMotion.swipeStep(width: -60, height: 5, hasEarlier: true, hasLater: true), 1)
+        XCTAssertEqual(LogbookCalendarMotion.swipeStep(width: 60, height: 5, hasEarlier: true, hasLater: true), -1)
+        // Too short, or mostly up and down, does nothing.
+        XCTAssertEqual(LogbookCalendarMotion.swipeStep(width: -30, height: 0, hasEarlier: true, hasLater: true), 0)
+        XCTAssertEqual(LogbookCalendarMotion.swipeStep(width: -60, height: 50, hasEarlier: true, hasLater: true), 0)
+        // Never past this month or before the first month with an entry.
+        XCTAssertEqual(LogbookCalendarMotion.swipeStep(width: -80, height: 0, hasEarlier: true, hasLater: false), 0)
+        XCTAssertEqual(LogbookCalendarMotion.swipeStep(width: 80, height: 0, hasEarlier: false, hasLater: true), 0)
+    }
+
+    func testDragRubberBandsTowardsAMonthItCantShow() {
+        XCTAssertEqual(LogbookCalendarMotion.dragOffset(width: 100, hasEarlier: true, hasLater: false), 60, accuracy: 0.001)
+        XCTAssertEqual(LogbookCalendarMotion.dragOffset(width: -100, hasEarlier: true, hasLater: false), -20, accuracy: 0.001)
+        XCTAssertEqual(LogbookCalendarMotion.dragOffset(width: 100, hasEarlier: false, hasLater: true), 20, accuracy: 0.001)
+    }
+
+    func testRevealWaveIsQuickAndCapped() {
+        XCTAssertEqual(LogbookCalendarMotion.revealDelay(index: 0), 0)
+        XCTAssertLessThan(LogbookCalendarMotion.revealDelay(index: 3), LogbookCalendarMotion.revealDelay(index: 4))
+        XCTAssertEqual(LogbookCalendarMotion.revealDelay(index: 30), LogbookCalendarMotion.revealDelay(index: 60))
+        XCTAssertLessThanOrEqual(LogbookCalendarMotion.revealDelay(index: 30), 0.5)
+        XCTAssertEqual(LogbookCalendarMotion.revealDelay(index: -2), 0)
+    }
 }
