@@ -10,6 +10,10 @@ import SwiftUI
 /// line on the edge nearest the forecast into the card, the figures roll from where the forecast
 /// starts to their value, and `closing` plays it backwards. A cross-fade under Reduce Motion. Only
 /// ever shown in the app's popover, never in a widget, where onAppear wouldn't run.
+///
+/// On iPhone it can be dragged down to put it away (`ForecastCardDrag`, round 93): it follows the
+/// finger, then drops out of the popover or springs back. Under Reduce Motion it only dims, and a
+/// drag far enough closes it with the cross-fade.
 struct ForecastDetailsCard: View {
     let details: ForecastDetails
     let unit: GlucoseUnit
@@ -17,14 +21,24 @@ struct ForecastDetailsCard: View {
     var opensFromTop = true
     /// Set while the chart lets the card go: the band narrows back and the figures roll back.
     var closing = false
-    /// VoiceOver's escape gesture, so it closes the same way.
+    /// VoiceOver's escape gesture and Close action, so it closes the same way.
     var close: (() -> Void)?
+    /// Once the card has dropped out after a drag: the popover goes straight away, without the
+    /// band narrowing again. Falls back to `close`.
+    var dropped: (() -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var open = false
     /// The rows (by minutes) whose figure has rolled to its value.
     @State private var rolled: Set<Int> = []
     @State private var rollTask: Task<Void, Never>?
+    /// How far the finger has dragged the card down (points; negative is up).
+    @State private var dragY: Double = 0
+    /// Let go far enough: dropping out, so nothing else should move it.
+    @State private var dropping = false
+    @State private var dropTask: Task<Void, Never>?
+    /// The card's measured height, for how far it drops.
+    @State private var height: Double = 0
 
     private var style: ForecastCardEntrance.Style { .init(reduceMotion: reduceMotion) }
 
@@ -62,12 +76,50 @@ struct ForecastDetailsCard: View {
         .background { band(Palette.stale.opacity(ForecastCardEntrance.bandTint(open: open, style: style))) }
         .mask { band(Color.black) }
         .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: Double.self) { Double($0.size.height) } action: { height = $0 }
+        .scaleEffect(ForecastCardDrag.scale(dragY, style: style), anchor: opensFromTop ? .top : .bottom)
+        .offset(y: ForecastCardDrag.offset(dragY, style: style))
+        .opacity(dropping && style == .widen ? 0 : ForecastCardDrag.opacity(dragY))
+        .modifier(ForecastCardDragGesture(onChanged: dragChanged, onEnded: dragEnded))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(ForecastDetails.spoken(details, unit: unit))
         .accessibilityAction(.escape) { close?() }
-        .onAppear { enter() }
+        .accessibilityAction(named: ForecastDetails.closeTitle) { close?() }
+        .onAppear { dragY = 0; dropping = false; enter() }
         .onChange(of: closing) { _, isClosing in isClosing ? leave() : enter() }
-        .onDisappear { rollTask?.cancel() }
+        .onDisappear { rollTask?.cancel(); dropTask?.cancel() }
+    }
+
+    // MARK: Drag to put away (iPhone)
+
+    private func dragChanged(_ dy: Double) {
+        guard !dropping, !closing else { return }
+        dragY = dy
+    }
+
+    /// Past the distance or a flick down: drop out (or cross-fade under Reduce Motion). Otherwise
+    /// spring back to where it sat.
+    private func dragEnded(_ dy: Double, predicted: Double) {
+        guard !dropping, !closing else { return }
+        guard ForecastCardDrag.dismisses(dy, predicted: predicted) else {
+            withAnimation(style == .widen ? DSMotion.emphasized.animation
+                                          : .easeInOut(duration: ForecastCardEntrance.fadeOutDuration)) { dragY = 0 }
+            return
+        }
+        guard style == .widen else {
+            close?()
+            return
+        }
+        rollTask?.cancel()
+        withAnimation(.easeIn(duration: ForecastCardDrag.dropDuration)) {
+            dropping = true
+            dragY = ForecastCardDrag.dropOffset(from: dy, height: height)
+        }
+        dropTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(ForecastCardDrag.dropDuration))
+            guard !Task.isCancelled else { return }
+            if let dropped { dropped() } else { close?() }
+        }
     }
 
     /// The band: the line on the edge nearest the forecast while closed, the whole card open.
@@ -148,5 +200,24 @@ struct ForecastDetailsCard: View {
             .contentTransition(style == .widen
                 ? .numericText(countsDown: ForecastCardEntrance.countsDown(h, start: details.startMgdl, rollingIn: isIn))
                 : .identity)
+    }
+}
+
+/// The card's drag down, on iPhone only: the Mac's popover is clicked, not dragged. A simultaneous
+/// gesture, so the popover's own touches still pass.
+private struct ForecastCardDragGesture: ViewModifier {
+    let onChanged: (Double) -> Void
+    let onEnded: (_ dy: Double, _ predicted: Double) -> Void
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.simultaneousGesture(
+            DragGesture(minimumDistance: ForecastCardDrag.minimumDistance)
+                .onChanged { onChanged($0.translation.height) }
+                .onEnded { onEnded($0.translation.height, $0.predictedEndTranslation.height) }
+        )
+        #else
+        content
+        #endif
     }
 }
