@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -5,8 +6,10 @@ import UniformTypeIdentifiers
 #endif
 
 // Settings › Alerts › History on the iPhone and the Mac (docs/AlertHistory.md): the last 7 days of
-// low and high alerts, grouped by day, each one a button into the Logbook around it. The rules and
-// words are in `AlertHistory` / `AlertHistoryText` (Sources/Engine/AlertHistory.swift). Each row
+// low and high alerts, grouped by day. Tapping a row opens it in place into a small chart of the
+// two hours around the alert, with Open in Logbook under it (docs/AlertHistory.md, "Chart in a
+// row"). The rules and words are in `AlertHistory` / `AlertHistoryText`
+// (Sources/Engine/AlertHistory.swift) and `AlertHistoryChart` (AlertHistoryChart.swift). Each row
 // also has Add note (docs/AlertNotes.md): a short Logbook note at the alert's time, with Undo.
 
 extension AlertHistory.Item {
@@ -45,11 +48,13 @@ struct AlertHistoryContent: View {
     let readings: [GlucoseReading]
     let unit: GlucoseUnit
     let alertsOn: Bool
-    /// A row was picked: the Logbook around it.
+    /// Open in Logbook was picked under a row's chart: the Logbook around it.
     let open: (LogbookLink) -> Void
 
     /// For the alerts' notes: the Logbook's plain notes.
     @EnvironmentObject private var logbook: LogbookStore
+    /// For the open row's chart: the target band.
+    @EnvironmentObject private var settings: AppSettings
     /// Set by `alertNoteEditor()` on the list; without it the rows have no note button.
     @Environment(AlertNoteEditor.self) private var editor: AlertNoteEditor?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -61,6 +66,8 @@ struct AlertHistoryContent: View {
     @State private var listed = AlertHistory.FilterPick.all
     /// The rows' opacity, dipped while the list switches to a new pick's rows.
     @State private var rowsFade = 1.0
+    /// The row opened into its chart, if any. One at a time; kept while the screen is open only.
+    @State private var openRow: UUID?
 
     var body: some View {
         let now = Date()
@@ -106,6 +113,9 @@ struct AlertHistoryContent: View {
                         ForEach(day.items) { item in
                             AlertHistoryRow(item: item, unit: unit,
                                             note: AlertNote.existing(near: item.firedAt, in: logbook.contexts)?.note,
+                                            chart: openRow == item.id ? chart(for: item, now: now) : nil,
+                                            lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl,
+                                            toggle: { toggle(item) },
                                             open: { open(AlertHistory.link(for: item, records: records, now: Date())) },
                                             editNote: editor.map { e -> () -> Void in { e.start(item, in: logbook.contexts) } })
                             .transition(DS.Transition.banner(reduceMotion: reduceMotion))
@@ -131,6 +141,32 @@ struct AlertHistoryContent: View {
         .dsAnimation(.standard, value: items.map(\.id))
         // A note appearing under its row, or going, fades in place; instant under Reduce Motion.
         .dsAnimation(.standard, value: noteTexts(items))
+        // A chip switch or an alert ageing out can take the open row away: nothing is open then.
+        .onChange(of: shown.map(\.id)) { _, ids in
+            let still = AlertHistoryChart.stillOpen(openRow, among: ids)
+            if still != openRow { openRow = still }
+        }
+    }
+
+    /// The open row's chart: its trace, what was logged, and the line VoiceOver reads.
+    private func chart(for item: AlertHistory.Item, now: Date) -> AlertHistoryRowChart {
+        AlertHistoryRowChart(item: item, readings: readings, entries: logbook.entries, unit: unit, now: now)
+    }
+
+    /// A row was tapped: it opens into its chart (closing any other), or closes. The row's height
+    /// springs open on the `.emphasized` spring; under Reduce Motion the chart cross-fades in place.
+    /// VoiceOver hears the chart's one-line summary as it opens.
+    private func toggle(_ item: AlertHistory.Item) {
+        let next = AlertHistoryChart.toggled(open: openRow, tapped: item.id)
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : DSMotion.emphasized.animation) {
+            openRow = next
+        }
+        #if os(iOS)
+        Haptics.play(.choice)
+        #endif
+        if next == item.id {
+            AccessibilityNotification.Announcement(chart(for: item, now: Date()).spoken).post()
+        }
     }
 
     /// The chips changed (a tap, Show All Alerts): the old rows fade out, the list switches to the
@@ -361,30 +397,71 @@ extension View {
 }
 
 /// One alert: a bell in the range's colour, what it was and what happened to it, and when, with the
-/// reading, and its note when it has one. One VoiceOver element that reads it all and opens the
-/// Logbook, with an "Add note" (or "Edit note") action for the note button beside it.
+/// reading, and its note when it has one. Tapped, it opens in place into a small chart of the two
+/// hours around the alert, with Open in Logbook under it. One VoiceOver element that reads it all
+/// (and the chart's one-line summary while open) and opens or closes the chart, with "Open in
+/// Logbook" and "Add note" (or "Edit note") actions.
 struct AlertHistoryRow: View {
     let item: AlertHistory.Item
     let unit: GlucoseUnit
     /// The note saved at the alert's time, if any.
     var note: String? = nil
+    /// The chart, while this row is open.
+    var chart: AlertHistoryRowChart? = nil
+    var lowMgdl: Double = 70
+    var highMgdl: Double = 180
+    /// Opens or closes the chart.
+    let toggle: () -> Void
+    /// The Logbook around the alert.
     let open: () -> Void
     var editNote: (() -> Void)? = nil
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: DS.Space.sm) {
-            mainButton
-            if let editNote { noteButton(editNote) }
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            HStack(spacing: DS.Space.sm) {
+                mainButton
+                if let editNote { noteButton(editNote) }
+            }
+            if let chart {
+                chartPanel(chart)
+                    .transition(reduceMotion ? AnyTransition.opacity
+                                : AnyTransition.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+            }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel([AlertHistoryText.spoken(item, unit: unit), AlertNoteText.spoken(note)]
+        .accessibilityLabel([AlertHistoryText.spoken(item, unit: unit), AlertNoteText.spoken(note), chart?.spoken]
             .compactMap { $0 }.joined(separator: ". "))
-        .accessibilityHint(AlertHistoryText.hint)
+        .accessibilityHint(chart == nil ? AlertHistoryChartText.showHint : AlertHistoryChartText.hideHint)
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { open() }
+        .accessibilityAction { toggle() }
+        .accessibilityAction(named: Text(AlertHistoryChartText.openLogbook)) { open() }
         .accessibilityAction(named: Text(AlertNoteText.buttonTitle(hasNote: note != nil))) { editNote?() }
+    }
+
+    /// The open row's chart, its lowest and highest, and Open in Logbook.
+    private func chartPanel(_ chart: AlertHistoryRowChart) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            AlertHistoryMiniChart(item: item, chart: chart, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
+            HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
+                Text(chart.caption)
+                    .dsFont(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(action: open) {
+                    Label(AlertHistoryChartText.openLogbook, systemImage: "book")
+                        .dsFont(.caption)
+                }
+                .buttonStyle(.borderless)
+                .help(AlertHistoryChartText.openLogbookHint)
+            }
+        }
+        .padding(.leading, 20 + DS.Space.sm)
     }
 
     /// The pencil beside the row: Add note, or Edit note once there's one.
@@ -402,7 +479,7 @@ struct AlertHistoryRow: View {
     }
 
     private var mainButton: some View {
-        Button(action: open) {
+        Button(action: toggle) {
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
                 Image(systemName: "bell.fill")
                     .imageScale(.small)
@@ -425,6 +502,10 @@ struct AlertHistoryRow: View {
                 }
                 Spacer(minLength: DS.Space.sm)
                 if !typeSize.dsLargeText { trailing(alignment: .trailing) }
+                Image(systemName: "chevron.down")
+                    .imageScale(.small)
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(chart == nil ? 0 : 180))
             }
             .contentShape(Rectangle())
         }
@@ -623,4 +704,129 @@ struct AlertHistoryExportRow: View {
         }
     }
     #endif
+}
+
+// MARK: - Chart in a row
+
+/// What an open row's chart shows: the trace of the two hours around the alert, what was logged
+/// then, the caption and the one line VoiceOver reads (`AlertHistoryChart`). Worked out only for
+/// the open row.
+struct AlertHistoryRowChart {
+    let window: DateInterval
+    let segments: [[DayChartPoint]]
+    let markers: [ChartLogMarker]
+    let caption: String
+    let spoken: String
+
+    init(item: AlertHistory.Item, readings: [GlucoseReading], entries: [LogEntry], unit: GlucoseUnit, now: Date) {
+        window = AlertHistoryChart.window(for: item)
+        segments = AlertHistoryChart.segments(readings, for: item, now: now)
+        var doses: [InsulinDose] = [], meals: [MealEntry] = [], contexts: [ContextEvent] = []
+        for e in entries where AlertHistoryChart.contains(e.timestamp, for: item, now: now) {
+            switch e {
+            case .dose(let d): doses.append(d)
+            case .meal(let m): meals.append(m)
+            case .context(let c): contexts.append(c)
+            case .siteChange: break
+            }
+        }
+        // The alert's own note is already under the row, so notes aren't marked again.
+        markers = ChartLogMarker.logbook(doses: doses, meals: meals, contexts: contexts, since: window.start, notes: false)
+        caption = AlertHistoryChartText.caption(segments, unit: unit)
+        spoken = AlertHistoryChartText.spoken(item, segments: segments, logged: markers.count, unit: unit, now: now)
+    }
+}
+
+/// The open row's chart: the reading line on the target band across the two hours around the
+/// alert, a rule at the alert's moment in its range's colour, and what was logged marked along the
+/// bottom (the Logbook day chart's markers). A picture only, hidden from VoiceOver: the row reads
+/// `AlertHistoryRowChart.spoken` instead.
+struct AlertHistoryMiniChart: View {
+    let item: AlertHistory.Item
+    let chart: AlertHistoryRowChart
+    let unit: GlucoseUnit
+    let lowMgdl: Double
+    let highMgdl: Double
+    var height: CGFloat = 96
+
+    private var yDomain: ClosedRange<Double> {
+        let values = chart.segments.joined().map(\.mgdl) + [lowMgdl, highMgdl] + (item.readingMgdl.map { [$0] } ?? [])
+        let lo = min(values.min() ?? 60, 60) - 10
+        let hi = max(values.max() ?? 200, 200) + 10
+        return unit.value(fromMgdl: lo)...unit.value(fromMgdl: hi)
+    }
+
+    var body: some View {
+        let yd = yDomain
+        let all = Array(chart.segments.joined())
+        let line = ThresholdGradient.style(minMgdl: all.map(\.mgdl).min() ?? lowMgdl,
+                                           maxMgdl: all.map(\.mgdl).max() ?? highMgdl,
+                                           low: lowMgdl, high: highMgdl)
+        Chart {
+            RectangleMark(
+                xStart: .value("Start", chart.window.start), xEnd: .value("End", chart.window.end),
+                yStart: .value("Low", unit.value(fromMgdl: lowMgdl)),
+                yEnd: .value("High", unit.value(fromMgdl: highMgdl))
+            )
+            .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.12))
+
+            RuleMark(x: .value("Alert", item.firedAt))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                .foregroundStyle(item.range.color.opacity(0.8))
+                .annotation(position: .top, spacing: 0) {
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(item.range.color)
+                }
+
+            ForEach(Array(chart.segments.enumerated()), id: \.offset) { i, run in
+                ForEach(run, id: \.date) { p in
+                    LineMark(
+                        x: .value("Time", p.date),
+                        y: .value("Glucose", unit.value(fromMgdl: p.mgdl)),
+                        series: .value("Run", i)
+                    )
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(line)
+                    .lineStyle(StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
+                }
+                if run.count == 1, let p = run.first {
+                    PointMark(x: .value("Time", p.date), y: .value("Glucose", unit.value(fromMgdl: p.mgdl)))
+                        .symbolSize(10)
+                        .foregroundStyle(GlucoseRange.classify(mgdl: p.mgdl, low: lowMgdl, high: highMgdl).tint)
+                }
+            }
+
+            // The reading the alert went off on, as a dot on the rule.
+            if let mgdl = item.readingMgdl {
+                PointMark(x: .value("Alert", item.firedAt), y: .value("Glucose", unit.value(fromMgdl: mgdl)))
+                    .symbolSize(28)
+                    .foregroundStyle(item.range.color)
+            }
+
+            ForEach(chart.markers) { m in
+                PointMark(x: .value("Time", m.date), y: .value("Logged", markerY(lane: m.lane, yd: yd)))
+                    .symbol { DayMarkerSymbol(marker: m) }
+            }
+        }
+        .chartXScale(domain: chart.window.start...chart.window.end)
+        .chartYScale(domain: yd)
+        .chartYAxis(.hidden)
+        .chartXAxis {
+            AxisMarks(values: [chart.window.start, item.firedAt, chart.window.end]) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(.quaternary)
+                AxisValueLabel(format: .dateTime.hour().minute(), centered: false)
+                    .font(.caption2)
+            }
+        }
+        .padding(.top, DS.Space.sm)
+        .frame(height: height)
+        .accessibilityHidden(true)
+    }
+
+    /// Markers sit in rows along the bottom of the chart, a meal above a dose logged with it.
+    private func markerY(lane: Int, yd: ClosedRange<Double>) -> Double {
+        let span = yd.upperBound - yd.lowerBound
+        return yd.lowerBound + span * (0.08 + 0.13 * Double(lane))
+    }
 }
