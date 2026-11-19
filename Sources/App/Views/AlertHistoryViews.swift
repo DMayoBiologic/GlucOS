@@ -82,6 +82,7 @@ struct AlertHistoryContent: View {
         let now = Date()
         let items = AlertHistory.items(records: records, readings: readings, now: now)
         let keys = AlertHistoryRowMotion.keys(for: items, previous: seen, previousKeys: seenKeys)
+        let ageOut = AlertHistoryRowMotion.nextAgeOut(items, now: now)
         let shown = listed.apply(items)
         let days = AlertHistory.days(shown)
         Group {
@@ -90,6 +91,16 @@ struct AlertHistoryContent: View {
                     // On the bar, not the Group: a Group hands its modifiers to every section.
                     AlertHistoryFilterBar(pick: $pick)
                         .task(id: pick) { await settleFilter() }
+                        // The oldest day leaves at midnight: one wake then, never a repeating
+                        // timer. On the bar so only one runs; it's here whenever anything is
+                        // listed, and nothing can age out otherwise. The deadline that keys the
+                        // task is the one it sleeps to, so a late start still refreshes at once.
+                        .task(id: ageOut) {
+                            guard let ageOut else { return }
+                            try? await Task.sleep(for: .seconds(max(0, ageOut.timeIntervalSinceNow) + 1))
+                            guard !Task.isCancelled else { return }
+                            ageOutTick &+= 1
+                        }
                     // Export what the chips show (docs/AlertHistory.md, "Export").
                     AlertHistoryExportRow(records: records, readings: readings, notes: logbook.contexts,
                                           unit: unit, pick: pick,
@@ -157,13 +168,6 @@ struct AlertHistoryContent: View {
         .onChange(of: items, initial: true) { _, fresh in
             seenKeys = AlertHistoryRowMotion.keys(for: fresh, previous: seen, previousKeys: seenKeys)
             seen = fresh
-        }
-        // The oldest day leaves at midnight: one wake then, never a repeating timer.
-        .task(id: AlertHistoryRowMotion.nextAgeOut(items, now: now)) {
-            guard let at = AlertHistoryRowMotion.nextAgeOut(items, now: Date()) else { return }
-            try? await Task.sleep(for: .seconds(max(0, at.timeIntervalSinceNow) + 1))
-            guard !Task.isCancelled else { return }
-            ageOutTick &+= 1
         }
         // A note appearing under its row, or going, fades in place; instant under Reduce Motion.
         .dsAnimation(.standard, value: noteTexts(items))
