@@ -6767,3 +6767,120 @@ from p group by 1,2 order by 1,2;
 
 **Dosing.** Not touched: carb ratios, the carb curve, §37's treatment curve, the insulin curve,
 insulin on board, sensitivity and the bolus calculator are unchanged.
+
+## 91. On a long high plateau, does the line drift, and is the range right? (19 Nov 2026)
+
+**Question.** Glucose often sits above 180 for a long stretch with almost no movement, for
+example after a meal that was under-covered or overnight. On those plateaus, does the forecast
+line drift up or down off what follows, and is the likely range too wide or too narrow at 15, 30
+and 60 minutes, compared with flat runs inside the target range? §41 widened only the lower side
+for starts above 180, and only around 60 minutes; §58 looked at identical readings, not high ones.
+
+**Data.** Live readings 11–19 Nov 2026 (10,556), the Logbook's meals, rapid doses and hypo
+treatments, and the accuracy log's clean shown points. A forecast is **on a plateau** when, judged
+only from what the app had at issue, every reading in the 45 minutes before was over 180, the
+45-minute least-squares slope was under 0.5 mg/dL a minute either way, and so was the engine's
+20-minute trend. An **in-range flat run** is the same with every reading between 70 and 180. Each
+plateau point is compared with the mean of its 5 in-range flat points with the nearest trend
+(within 0.2) and the same "logged in the 2 hours before" flag. Replay: the engine's trend forecast
+every 5 minutes (as §88–§90), which leaves out carbs and insulin, scored with the same band for
+every start (10th–90th percentile of the other days' errors), since the app's range is an offset in
+mg/dL that doesn't grow with glucose. Script: `scripts/high-plateaus.py` (same export as §90).
+
+Plateaus are common but bunch up: 90 clean replay points on 7 days, 40 of them on 11 Nov (an
+8-hour stretch from 15:43), 20 on 15 Nov and 19 on 14 Nov, starts 181–324.
+
+Live accuracy log (the real engine, so correction doses are in the line), bias is actual − line:
+
+| Horizon | Group | Points (days) | MAE | Bias | Line − start | Inside | Below | Width |
+|---|---|---|---|---|---|---|---|---|
+| 15 min | plateau | 7 (4) | 23.4 | −23.4 | 0.0 | 57% | 43% | 50.9 |
+| 15 min | in-range flat | 86 (6) | 11.7 | +1.3 | −0.1 | 88% | 2% | 49.4 |
+| 30 min | plateau | 4 (2) | 27.2 | −27.2 | −1.3 | 75% | 25% | 83.1 |
+| 30 min | in-range flat | 37 (4) | 17.2 | +7.9 | −1.3 | 84% | 3% | 82.3 |
+
+There are almost no live 60-minute plateau points yet (none by the script's rule, one by the
+looser SQL below), as the log keeps few 60-minute points and plateaus with nothing logged after are rare.
+
+Replay, gain 0.45 (0.6 and 0.7 are within 0.2 mg/dL of it everywhere):
+
+| Horizon | Group | Points (days) | MAE | No change | Bias | Inside | Above | Below | Error spread (10–90%) | Matched bias, plateau vs in-range flat |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 15 min | plateau, all | 90 (7) | 15.2 | 15.2 | −4.5 | 77% | 7% | 17% | 50 | −4.5 vs +3.8 |
+| 15 min | in-range flat | 282 (8) | 10.0 | | +3.1 | 93% | | | 30 | |
+| 30 min | plateau, all | 90 (7) | 25.7 | 25.7 | −13.4 | 78% | 7% | 16% | 93 | −13.4 vs +6.5 |
+| 30 min | plateau, dose in the 3 h before | 14 (4) | 43.6 | 43.5 | −40.6 | 71% | 0% | 29% | 113 | −40.6 vs +23.8 |
+| 30 min | plateau, nothing logged in 4 h | 73 (5) | 22.0 | 22.0 | −8.9 | 79% | 7% | 14% | 71 | −8.9 vs +3.4 |
+| 30 min | in-range flat | 282 (8) | 15.3 | | +4.7 | 91% | | | 46 | |
+| 60 min | plateau, all | 90 (7) | 36.2 | 35.9 | −21.5 | 81% | 4% | 14% | 139 | −21.5 vs +7.5 |
+| 60 min | plateau, nothing logged in 4 h | 73 (5) | 30.6 | 30.4 | −16.4 | 84% | 5% | 11% | 89 | −16.4 vs +5.7 |
+| 60 min | in-range flat | 282 (8) | 25.3 | | +7.6 | 91% | | | 82 | |
+
+**The line runs high on plateaus: glucose tends to come down off them.** With a flat trend the line
+stays level (line − start about 0), and readings an hour later are on average 21 mg/dL lower in the
+replay (13 at 30 minutes), where matched in-range flat runs drift slightly *up* (+7.5). It's
+biggest after a correction dose (−41 at 30 minutes, which the live engine partly draws with its
+insulin curve) but holds with nothing logged for 4 hours (−9 and −16). Every plateau day with more
+than one point ran high at 30 minutes. The live log agrees in direction (−23 and −27 at 15 and 30)
+on only 11 points.
+
+**The range is about right overall, but lopsided.** Plateau errors spread 1.7–2 times wider than
+in-range flat runs, and the shared band holds 77/78/81% of plateau readings at 15/30/60 (close to
+the 80% target) while it holds 91–93% of in-range flat runs. So the range is not too narrow on
+plateaus; if anything it's a little wide in range. But the misses fall below: 14–17% of plateau
+readings land under the range against 4–7% over it. Live, the plateau range is the same width as
+in range (51 vs 49 at 15, 83 vs 82 at 30), and its misses are all below. §41's lower-side widening
+only starts after 30 minutes, which fits: replay coverage at 60 is the best of the three.
+
+**Held out.** On plateau points with nothing logged in the 4 hours before (where the live line is
+the trend alone, so a tweak can't double-count insulin), the trend is scaled by k (0 to 1.5) and the
+line moves by a drift d (−0.8 to +0.2 mg/dL a minute, faded in over 30 minutes), picked on the
+other Perth days and scored on the held-out day by 30- plus 60-minute MAE over all points (leave one
+day out over the 5 days with 3+ such points; 12 and 13 Nov have one each):
+
+| Gain | Better held out, all points 30 / 60 | Plateau points 30 / 60 | Most-picked | All-point MAE 30 / 60 | Predicted-high crossings |
+|---|---|---|---|---|---|
+| 0.45 | 4/5, 4/5 | 4/5, 4/5 | k 0, d −0.3 | 24.00 → 23.95, 37.98 → 37.87 | 27 → 27 |
+| 0.6 | 4/5, 4/5 | 4/5, 4/5 | k 0, d −0.1 | 24.14 → 24.12, 38.19 → 38.11 | 34 → 33 |
+| 0.7 | 4/5, 4/5 | 4/5, 4/5 | k 0, d −0.3 | 24.34 → 24.29, 38.41 → 38.30 | 41 → 39 |
+
+It passes the day count, but not on substance. Only 11 Nov gains much (plateau 60-minute MAE
+19.4 → 16.3); 14 Nov moves by under 1 mg/dL on plateaus, 18 Nov's gain (34.0 → 29.5 at 30) is 4
+points, all three move all-point MAE by 0.01–0.2, and 17 Nov is 3 points. 15 Nov, the highest plateaus (277–324) and the second-biggest day, gets much
+worse at 60 minutes (10.8 → 24.3), because those plateaus held instead of easing. The pick swings
+from d −0.1 to −0.5 depending on which day is out, and the most-picked drift differs by gain. The
+same downward shift for highs lost in §36 and is the learnt drift PR #53 rejected, and a lower line
+on highs would bring the "back in range ≈ X min" estimate forward on exactly the days it held.
+
+**Decision.** Ship nothing. On high plateaus the line stays level while glucose tends to ease down,
+by about 13 mg/dL at 30 minutes and 21 at 60, and the range's misses fall below rather than above.
+But most of the data is three days, the one drift that fits doesn't hold across them, and the
+highest plateaus didn't ease at all. Retest on **10 Dec 2026**, only with 15+ plateaus on 10+ days
+and 40+ live 30-minute plateau points: refit the drift leave one day out (ship only if it is stable
+across held-out days and wins by more than noise on most), and if live readings keep landing under
+the range at 15 and 30 minutes, try extending §41's lower-side widening to 15–30 minutes on
+plateaus only. A plateau that eases only after a correction dose is the insulin curve's business
+(dosing maths, a decision card for Declan, not a ship).
+
+Live-log check, in the Supabase SQL editor (plateau = all readings over 180 for the 45 minutes
+before issue with a flat 45-minute slope and trend, against in-range flat runs; unmatched. On 19
+Nov: 15-minute plateau 9 points, bias −20.8, 67% inside, 33% below; in range 91 points, +1.6, 88%):
+
+```sql
+with p as (select c.issued_at t, (e->>'minutes')::int m, (e->>'mgdl')::float f, (e->>'lower')::float lo,
+  (e->>'upper')::float hi, (e->>'actual')::float a
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,60) and abs(c.trend_per_minute) < 0.5),
+w as (select p.*, r.mn, r.mx, r.sl from p, lateral (select min(mgdl) mn, max(mgdl) mx,
+  regr_slope(mgdl, extract(epoch from at)/60) sl from glucos.readings
+  where trend > 0 and at between p.t - interval '45 minutes' and p.t) r)
+select m, case when mn > 180 then 'plateau' else 'in-range flat' end grp, count(*) n,
+  round(avg(a-f)::numeric,1) bias, round(avg(abs(a-f))::numeric,1) mae,
+  round(100*avg((a between lo and hi)::int)) inside, round(100*avg((a < lo)::int)) below,
+  round(avg(hi-lo)::numeric,1) width
+from w where abs(sl) < 0.5 and (mn > 180 or (mn >= 70 and mx <= 180)) group by 1,2 order by 1,2;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged.
