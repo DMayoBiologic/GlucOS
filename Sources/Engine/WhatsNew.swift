@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.89.0", highlights: [
+            .init(symbol: "arrow.down.right",
+                  title: "Forecasts on fast falls in range",
+                  detail: "We checked how the forecast and low warnings do when glucose falls fast inside your range, and kept them as they are for now."),
+        ]),
         WhatsNewRelease(version: "1.88.0", highlights: [
             .init(symbol: "cursorarrow.motionlines",
                   title: "Insights cards lift under the pointer",
