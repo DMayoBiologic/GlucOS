@@ -17,6 +17,13 @@ import SwiftUI
 /// in range, average 7.2 mmol/L, 1 low, 2 highs."), and hears "Comparing Today with Monday 11
 /// November." once when the comparison opens and once per change. Shows what happened only: no day
 /// is called better.
+///
+/// Shared cursor (`DayCompareScrub`): dragging along the chart on iPhone, or pointing at it on the
+/// Mac, puts one line across both days at a clock time, snapped to the nearest reading. The row
+/// above the chart then reads that time, each day's value there and how far apart they are, with
+/// the higher line's swatch. iPhone ticks `scrubSnapped` on landing and `scrubRangeEdge` when
+/// either line crosses the low or high line; readings themselves don't tick. VoiceOver hears each
+/// stop once per touch, and can swipe up or down to move the cursor an hour at a time.
 struct DayCompareView: View {
     let readings: [GlucoseReading]
     /// Days with enough readings to compare (`DayCompare.readingDays`), for the chevrons.
@@ -43,6 +50,10 @@ struct DayCompareView: View {
     @State private var outgoingSecond: Date?
     @State private var firstDirection = 1.0
     @State private var secondDirection = 1.0
+    /// The shared scrub cursor's clock minute, snapped to a reading, or nil when it isn't showing.
+    @State private var cursor: Double?
+    /// The stops VoiceOver has been told about in this touch, so each is said once.
+    @State private var spokenStops: Set<Double> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let firstColor = Palette.brand
@@ -66,12 +77,29 @@ struct DayCompareView: View {
         let b = DayCompare.day(second, readings: readings, low: lowMgdl, high: highMgdl, now: now)
         let aName = spokenDay(first, now: now)
         let bName = spokenDay(second, now: now)
+        let stops = DayCompareScrub.stops(a.runs, b.runs)
+        let readout = cursor.map { DayCompareScrub.readout(at: $0, first: a.runs, second: b.runs) }
         VStack(alignment: .leading, spacing: DS.Space.md) {
             legend(now: now)
-            chart(a, b, now: now)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(DayCompareText.chartSpoken(first: aName, second: bName, unit: unit,
-                                                               low: lowMgdl, high: highMgdl))
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                readoutRow(readout)
+                chart(a, b, readout: readout,
+                      selection: scrubSelection(a, b, stops: stops, aName: aName, bName: bName), now: now)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(DayCompareText.chartSpoken(first: aName, second: bName, unit: unit,
+                                                                   low: lowMgdl, high: highMgdl))
+                    .accessibilityValue(readout.map {
+                        DayCompareScrubText.spoken($0, first: aName, second: bName, unit: unit)
+                    } ?? "")
+                    .accessibilityHint("Swipe up or down to move through the day an hour at a time.")
+                    .accessibilityAdjustableAction { direction in
+                        let by = direction == .increment ? 1 : direction == .decrement ? -1 : 0
+                        guard let next = DayCompareScrub.stepped(cursor, by: by, stops: stops) else { return }
+                        // VoiceOver reads the new value itself, so it isn't announced as well.
+                        cursor = next
+                        spokenStops.insert(next)
+                    }
+            }
             figures(a, b, aName: aName, bName: bName)
         }
         .onAppear {
@@ -112,14 +140,18 @@ struct DayCompareView: View {
         }
     }
 
+    private func swatch(color: Color, dashed: Bool) -> some View {
+        Path { p in
+            p.move(to: CGPoint(x: 0, y: 4))
+            p.addLine(to: CGPoint(x: 18, y: 4))
+        }
+        .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: dashed ? [4, 3] : []))
+        .frame(width: 18, height: 8)
+    }
+
     private func swatchLabel(_ title: String, color: Color, dashed: Bool) -> some View {
         HStack(spacing: DS.Space.xs) {
-            Path { p in
-                p.move(to: CGPoint(x: 0, y: 4))
-                p.addLine(to: CGPoint(x: 18, y: 4))
-            }
-            .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: dashed ? [4, 3] : []))
-            .frame(width: 18, height: 8)
+            swatch(color: color, dashed: dashed)
             Text(title)
                 .dsFont(.label)
                 .lineLimit(1)
@@ -205,15 +237,111 @@ struct DayCompareView: View {
                                                              second: spokenDay(newSecond, now: now)))
     }
 
+    // MARK: Shared cursor
+
+    /// The row above the chart: a hint until a scrub, then the cursor's time, each day's value
+    /// there by its swatch, and how far apart they are beside the higher line's swatch. Hidden from
+    /// VoiceOver, which reads the same as the chart's value.
+    private func readoutRow(_ r: DayCompareReadout?) -> some View {
+        HStack(spacing: DS.Space.sm) {
+            if let r {
+                Text(DayCompareScrubText.time(r.minute))
+                    .dsFont(.label)
+                    .monospacedDigit()
+                valueChip(r.first, color: Self.firstColor, dashed: false)
+                valueChip(r.second, color: Self.secondColor, dashed: true)
+                Spacer(minLength: 0)
+                if let difference = DayCompareScrubText.difference(r, unit: unit) {
+                    HStack(spacing: DS.Space.xs) {
+                        if let firstHigher = DayCompareScrubText.firstHigher(r, unit: unit) {
+                            swatch(color: firstHigher ? Self.firstColor : Self.secondColor, dashed: !firstHigher)
+                        }
+                        Text(difference)
+                            .dsFont(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Text(Self.hint)
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .frame(minHeight: 22)
+        .accessibilityHidden(true)
+    }
+
+    private static var hint: String {
+        #if os(macOS)
+        return DayCompareScrubText.macHint
+        #else
+        return DayCompareScrubText.hint
+        #endif
+    }
+
+    private func valueChip(_ mgdl: Double?, color: Color, dashed: Bool) -> some View {
+        HStack(spacing: DS.Space.xs) {
+            swatch(color: color, dashed: dashed)
+            Text(DayCompareScrubText.value(mgdl, unit: unit))
+                .dsFont(.label)
+                .monospacedDigit()
+        }
+    }
+
+    /// What Charts' selection reads and writes: a drag on iPhone, the pointer on the Mac. The
+    /// cursor snaps to the nearest reading of either day, and goes when the finger or pointer
+    /// leaves the chart.
+    private func scrubSelection(_ a: DayCompareDay, _ b: DayCompareDay, stops: [Double],
+                                aName: String, bName: String) -> Binding<Double?> {
+        Binding(get: { cursor }, set: { finger in
+            guard let finger else {
+                cursor = nil
+                spokenStops = []
+                return
+            }
+            moveCursor(to: DayCompareScrub.snap(finger: finger, stops: stops), a, b, aName: aName, bName: bName)
+        })
+    }
+
+    /// Moves the cursor from one reading to the next (instantly: the stops are a few points apart).
+    /// Ticks on iPhone when it lands or a line crosses the low or high line, and tells VoiceOver
+    /// each stop once per touch.
+    private func moveCursor(to next: Double?, _ a: DayCompareDay, _ b: DayCompareDay, aName: String, bName: String) {
+        guard next != cursor else { return }
+        #if os(iOS)
+        let tick = DayCompareScrubTick.tick(from: cursor, to: next, first: a.runs, second: b.runs,
+                                            low: lowMgdl, high: highMgdl)
+        #endif
+        withTransaction(Transaction(animation: nil)) { cursor = next }
+        #if os(iOS)
+        switch tick {
+        case .landed: Haptics.play(.scrubSnapped)
+        case .rangeEdge: Haptics.play(.scrubRangeEdge)
+        case nil: break
+        }
+        #endif
+        guard let next, !spokenStops.contains(next) else { return }
+        spokenStops.insert(next)
+        let r = DayCompareScrub.readout(at: next, first: a.runs, second: b.runs)
+        let spoken = AttributedString(DayCompareScrubText.spoken(r, first: aName, second: bName, unit: unit))
+        AccessibilityNotification.Announcement(spoken).post()
+    }
+
     // MARK: Chart
 
-    private func chart(_ a: DayCompareDay, _ b: DayCompareDay, now: Date) -> some View {
+    private func chart(_ a: DayCompareDay, _ b: DayCompareDay, readout: DayCompareReadout?,
+                       selection: Binding<Double?>, now: Date) -> some View {
         let day = { (d: Date?) in d.map { DayCompare.day($0, readings: readings, low: lowMgdl, high: highMgdl, now: now).runs } }
         return DayCompareChart(
             first: a.runs, second: b.runs,
             outgoingFirst: day(outgoingFirst), outgoingSecond: day(outgoingSecond),
             firstDirection: firstDirection, secondDirection: secondDirection,
             reveal: reveal, slidePhase: slidePhase, slideTarget: slideTarget,
+            cursor: readout, selection: selection,
             unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl, height: chartHeight
         )
     }
@@ -285,6 +413,9 @@ private struct DayCompareChart: View, Animatable {
     var reveal: Double
     var slidePhase: Double
     let slideTarget: Double
+    /// The shared scrub cursor, drawn as one line with a dot on each day's value.
+    let cursor: DayCompareReadout?
+    let selection: Binding<Double?>
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
@@ -342,10 +473,31 @@ private struct DayCompareChart: View, Animatable {
             runs(firstOut, key: "first-out", color: DayCompareView.firstColor.opacity(fa.outgoingOpacity), dashed: false)
             runs(firstIn, key: "first",
                  color: DayCompareView.firstColor.opacity(outgoingFirst == nil ? 1 : fa.incomingOpacity), dashed: false)
+
+            if let c = cursor {
+                RuleMark(x: .value("Cursor", c.minute))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                    .foregroundStyle(Color.primary.opacity(0.35))
+                // A circle on the solid line and a diamond on the dashed one, so they tell apart
+                // without colour too.
+                if let v = c.first {
+                    PointMark(x: .value("Cursor", c.minute), y: .value("Glucose", unit.value(fromMgdl: v)))
+                        .symbol(.circle)
+                        .symbolSize(48)
+                        .foregroundStyle(DayCompareView.firstColor)
+                }
+                if let v = c.second {
+                    PointMark(x: .value("Cursor", c.minute), y: .value("Glucose", unit.value(fromMgdl: v)))
+                        .symbol(.diamond)
+                        .symbolSize(56)
+                        .foregroundStyle(DayCompareView.secondColor)
+                }
+            }
         }
         .chartXScale(domain: 0...DayCompare.minutesPerDay)
         .chartYScale(domain: domain)
         .chartPlotStyle { $0.clipped() }
+        .chartXSelection(value: selection)
         .chartYAxis {
             AxisMarks(position: .leading, values: [unit.value(fromMgdl: lowMgdl), unit.value(fromMgdl: highMgdl)]) { v in
                 AxisValueLabel {
