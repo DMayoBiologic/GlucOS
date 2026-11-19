@@ -42,9 +42,32 @@ record (`AlertRecord.Response.dismissed`, `AlertLog.dismissed`). The alert categ
 
 The Logbook's alert rows say "Dismissed at 9:03" the same way.
 
+## Chart in a row
+
+Tapping (iPhone) or clicking (Mac) a row opens it in place into a small chart of the two hours
+around the alert, an hour either side (`AlertHistoryChart`, Sources/Engine/AlertHistoryChart.swift):
+
+- the reading line on the target band, as the Logbook's day chart draws it (5-minute means, broken
+  at gaps over 20 minutes), stopping at now for an alert less than an hour old;
+- a dashed rule and bell at the alert's moment in its range's colour, with a dot on the reading it
+  went off on;
+- whatever was logged in that time (insulin, food, wake-ups, sensor starts) marked along the
+  bottom, as on the day chart. The alert's own note is already under the row, so notes aren't
+  marked again;
+- a caption with the lowest and highest, and an **Open in Logbook** button (below).
+
+One row is open at a time: tapping another moves the chart there, tapping it again closes it, and a
+chip switch that hides the open row closes it. The row's height springs open on the `.emphasized`
+spring and the chart grows in from the top; under Reduce Motion it cross-fades in place. The chevron
+on the row turns to show which way it goes. The chart is a picture only and hidden from VoiceOver:
+the row adds one line instead, "Chart from 1:14 pm to 3:14 pm: lowest 3.1 mmol/L at 2:20 pm,
+highest 5.6 mmol/L at 3:05 pm, 2 entries logged." ("so far" and "to now" while the hour after is
+still running), and that line is announced as the chart opens.
+
 ## Opening the Logbook
 
-Tapping (iPhone) or clicking (Mac) a row opens the Logbook around that alert: everything from 15
+**Open in Logbook** under an open row's chart (or the row's VoiceOver action of the same name)
+opens the Logbook around that alert: everything from 15
 minutes before the start of the Logbook row it folds into to 2 hours after it, under a period chip
 "Around Yesterday 2:14 pm" with no kind chip (`LogbookFilter.aroundAlert`, unlisted).
 
@@ -55,7 +78,8 @@ minutes before the start of the Logbook row it folds into to 2 hours after it, u
 ## Accessibility and motion
 
 - Each row is one VoiceOver element and a button: "Low alert, 2:14 pm, reading 3.4 mmol/L,
-  Snoozed 30 min at 2:16 pm", hint "Opens the Logbook around this alert." Day headers are headers
+  Snoozed 30 min at 2:16 pm", hint "Shows a chart of the two hours around this alert." Activating
+  it opens or closes the chart; actions Open in Logbook and Add note (or Edit note). Day headers are headers
   and read their count.
 - At the largest text sizes the time and reading move under the title.
 - Live while open: see below. Under Reduce Motion every change is instant.

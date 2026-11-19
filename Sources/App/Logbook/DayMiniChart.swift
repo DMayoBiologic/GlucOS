@@ -94,8 +94,9 @@ struct DayMiniChart: View {
     }
 }
 
-/// A logged dose, meal or wake-up on a day chart: the Today chart's marker, a size smaller.
-private struct DayMarkerSymbol: View {
+/// A logged dose, meal or wake-up on a day chart (and an Alert History row's chart): the Today
+/// chart's marker, a size smaller.
+struct DayMarkerSymbol: View {
     let marker: ChartLogMarker
 
     var body: some View {

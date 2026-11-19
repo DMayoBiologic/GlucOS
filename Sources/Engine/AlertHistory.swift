@@ -2,8 +2,8 @@ import Foundation
 
 // Settings › Alerts › History (docs/AlertHistory.md): every low and high alert of the last 7 days,
 // one row each, grouped by day. When it went off, which alert, the reading at the time, and what
-// happened to it: snoozed, "Log treatment" tapped, dismissed, or nothing. Tapping a row opens the
-// Logbook around that time.
+// happened to it: snoozed, "Log treatment" tapped, dismissed, or nothing. Tapping a row opens it
+// into a small chart of the two hours around it (`AlertHistoryChart`), with Open in Logbook.
 //
 // Built only from what the device already keeps: the alert records (`AlertLog`, synced between the
 // Mac and the iPhone) and the stored readings. Test alerts (docs/TestAlert.md) are never recorded,
@@ -316,8 +316,8 @@ extension AlertHistory {
 enum AlertHistoryText {
     static let title = "Alert history"
     static let rowTitle = "Alert History"
-    static let footer = "Low and high alerts from the last 7 days, with what was done about each. Tap one to see the Logbook around it."
-    static let macFooter = "Low and high alerts from the last 7 days, with what was done about each. Click one to see the Logbook around it."
+    static let footer = "Low and high alerts from the last 7 days, with what was done about each. Tap one to see a chart of the two hours around it."
+    static let macFooter = "Low and high alerts from the last 7 days, with what was done about each. Click one to see a chart of the two hours around it."
 
     static let emptyTitle = "No alerts in the last 7 days"
     /// Why there's nothing, and what would put something here.
@@ -343,8 +343,6 @@ enum AlertHistoryText {
         let reading = item.readingMgdl.map { "reading \(unit.format(mgdl: $0, withUnit: true))" } ?? "no reading stored"
         return "\(item.title), \(ClockLabel.time(item.firedAt, calendar: calendar)), \(reading), \(outcome(item, calendar: calendar))"
     }
-
-    static let hint = "Opens the Logbook around this alert."
 
     /// The one VoiceOver announcement for what changed while the list was open, or nil when nothing
     /// did. One change says what it was: "New low alert, 2:14 pm, reading 3.4 mmol/L", "Low alert
