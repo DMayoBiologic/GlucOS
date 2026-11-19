@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "bell.badge",
                   title: "See what the repeat setting means",
                   detail: "Under the alert repeat in Settings, one line says how many alerts the last 7 days would have sent at the time picked, and the number rolls as you change it. Urgent lows always repeat every 5 minutes."),
+            .init(symbol: "tag",
+                  title: "Amounts beside markers when zoomed",
+                  detail: "Zoom the chart in on iPhone Today or in the Mac popover and each meal and insulin marker shows what you logged beside it, such as 45 g or 4 u. Where two would crowd, insulin stays and the other is left out. With Reduce Motion on, they appear without fading."),
         ]),
         WhatsNewRelease(version: "1.91.0", highlights: [
             .init(symbol: "arrow.up.arrow.down",

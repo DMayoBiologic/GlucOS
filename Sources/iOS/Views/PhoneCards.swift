@@ -638,7 +638,7 @@ struct PhoneChartCard: View {
                              snapsScrub: true,
                              markerActions: navigator.map { _ in { (action: MarkerActions.Action, id: UUID) in markerAction(action, id) } },
                              forecastDetails: details, gapContext: store.gapContext,
-                             gapCheck: store.gapCheckControl, pansBack: true)
+                             gapCheck: store.gapCheckControl, pansBack: true, labelsMarkers: true)
             }
                 .frame(height: 260)
                 .chartHoursPinch($settings.chartHours)

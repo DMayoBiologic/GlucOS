@@ -89,7 +89,7 @@ struct PopoverChartCard: View {
                              markerActions: markerAction, pinsHoveredMarker: pinHovered,
                              forecastDetails: details(outlook), opensForecastDetails: forecastKey,
                              gapContext: store.gapContext, gapCheck: store.gapCheckControl,
-                             pansBack: true, panScroll: panScroll, panKey: panKey)
+                             pansBack: true, panScroll: panScroll, panKey: panKey, labelsMarkers: true)
             }
                 .onPreferenceChange(MarkerCalloutOpenKey.self) { calloutOpen = $0 }
                 // Panned back: a pinned reading that's gone off screen is let go.

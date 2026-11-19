@@ -44,6 +44,7 @@ let package = Package(
                 "Shared/ChartPan.swift",
                 "Shared/YesterdayLine.swift",
                 "Shared/MarkerPop.swift",
+                "Shared/MarkerLabels.swift",
                 "Shared/MarkerPeek.swift",
                 "Shared/MarkerCallout.swift",
                 "Shared/MarkerActions.swift",
