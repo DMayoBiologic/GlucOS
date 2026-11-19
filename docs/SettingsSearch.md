@@ -29,9 +29,35 @@ Tests: `SettingsSearchTests`.
 There are no alert quiet hours in GlucOS; "quiet", "mute" and "silence" lead to the alerts switch
 and the repeat interval instead.
 
+## Motion
+
+Round 88. Rules and timings: `Sources/Engine/SettingsSearchMotion.swift` (tested in
+`SettingsSearchMotionTests`); views in `SettingsSearchViews.swift`. Display only: what a search
+finds and where a jump lands are unchanged.
+
+1. **Results stagger in as you type.** Rows the latest letter adds fade and rise 6 pt into place,
+   top to bottom, 35 ms apart (`entranceDelays`); past 6 rows the rest come in together. Rows
+   already listed hold still, so narrowing a search moves nothing. A row takes its delay once, so
+   scrolling it away and back never replays it.
+2. **Matched words glint.** The result titles use `SearchHighlightText` with `flare`: newly matched
+   letters' wash rises to 1.8× its resting strength and settles over 0.55 s (`flaredWash`); still
+   matched letters hold, letters no longer matched fade out. Bold switches at once, as in the
+   Logbook, so the line never reflows.
+3. **Jumping springs the row into view.** The scroll uses the emphasized spring, then 0.3 s later,
+   once the row is on screen, it and its wash grow to 1.025× for 0.16 s and spring back, alongside the 1.6 s highlight.
+4. **Section icons bounce once.** Section headers are `SettingsSectionHeader(title, systemImage:)`
+   on a Section tagged `.settingsSection(title)`; when a jump lands on one of its rows the header
+   icon bounces once (`symbolBounce`). Rows in a section without a header (the Mac Alerts tab's
+   top section, About) only spring.
+
+Under Reduce Motion rows appear at once, the wash switches with no glint, the scroll is instant,
+the row holds still and the icon doesn't bounce. VoiceOver is unchanged: header icons are hidden,
+result rows read as before.
+
 ## Adding a setting
 
 Add a `SettingsAnchor` case, a `SettingsItem` in `SettingsCatalog.phone` and/or `.mac` in screen
 order, and `.settingsAnchor(.thatCase)` on the row (a row, never a Section). The catalogue tests
 check anchors are unique, parents exist, Mac rows name a real tab, and every row finds itself by
-its title.
+its title. Give a new section a `SettingsSectionHeader` and `.settingsSection` with the same
+title so its icon answers a jump.

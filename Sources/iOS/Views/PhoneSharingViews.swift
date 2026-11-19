@@ -766,10 +766,11 @@ struct FollowingSettingsSection: View {
                 }
             }
         } header: {
-            Text("Following")
+            SettingsSectionHeader("Following", systemImage: "person.2.wave.2")
         } footer: {
             Text("Readings people have shared with you. Alerts are their lows, highs and missing data, sent even when GlucOS is closed. Check in, at the bottom of their screen at any time (and on their Lock Screen card when they're low), asks if they're okay and shows their answer. Your name tells them who's asking. Swipe to stop following.")
         }
+        .settingsSection("Following")
         .sheet(isPresented: $showsAdd) { NavigationStack { AddFollowView() } }
         .confirmationDialog("Stop following \(stopping?.label ?? "")?",
                             isPresented: Binding(get: { stopping != nil }, set: { if !$0 { stopping = nil } }),
