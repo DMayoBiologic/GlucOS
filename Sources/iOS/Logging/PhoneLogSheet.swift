@@ -308,7 +308,13 @@ struct PhoneLogSheet: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                if !needsTherapy { saveBar }
+                if !needsTherapy {
+                    VStack(spacing: 0) {
+                        similarLine
+                        saveBar
+                    }
+                    .background(.bar)
+                }
             }
         }
         .overlay {
@@ -1231,8 +1237,32 @@ struct PhoneLogSheet: View {
         .padding(.horizontal, DS.Space.lg)
         .padding(.top, DS.Space.sm)
         .padding(.bottom, DS.Space.xs)
-        .background(.bar)
         .animation(DSMotion.quick.animation, value: canSave)
+    }
+
+    /// "You logged a similar meal 3 min ago · View" above Log, for a new meal or dose that looks
+    /// like one logged in the last 10 minutes (`SimilarEntry`). Only a note: Log is unchanged.
+    @ViewBuilder private var similarLine: some View {
+        if isNew && !saved {
+            SimilarEntryLine(drafts: similarDrafts, entries: logbook.entries,
+                             isFollower: !settings.hasCredentials,
+                             padding: EdgeInsets(top: DS.Space.sm, leading: DS.Space.lg + DS.Space.xs,
+                                                 bottom: 0, trailing: DS.Space.lg))
+        }
+    }
+
+    /// The meal and dose as Log would save them now, for `SimilarEntry`.
+    private var similarDrafts: [LogEntry] {
+        var drafts: [LogEntry] = []
+        if includes(.insulin), let units {
+            drafts.append(.dose(InsulinDose(id: doseID, timestamp: time, units: units, kind: kind,
+                                            name: insulinName.trimmingCharacters(in: .whitespacesAndNewlines))))
+        }
+        if includes(.food), let carbs {
+            let described = foodText.isEmpty ? mealItems.map(\.name).joined(separator: ", ") : foodText
+            drafts.append(.meal(MealEntry(id: mealID, timestamp: time, carbs: carbs, food: described)))
+        }
+        return drafts
     }
 
     /// "Log 45 g + 4 u", "Log Woke up", "Save".
