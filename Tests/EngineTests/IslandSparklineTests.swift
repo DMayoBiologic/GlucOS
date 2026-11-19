@@ -86,6 +86,21 @@ final class IslandSparklineTests: XCTestCase {
         XCTAssertEqual(new.ring[IslandSparkline.index(1002)], 260)
     }
 
+    func testAGapOnTheLeftEdgeFillsTheSameOnBothCards() throws {
+        // 40 at slot 985, nothing for 986...988, then 150 from 989 to the reading.
+        var old = [Int?](repeating: nil, count: 37)
+        old[36 - 15] = 40
+        for i in (36 - 11)...36 { old[i] = 150 }
+        // Two slots later, with two more readings of 150.
+        let new = Array(old.dropFirst(2)) + [150, 150]
+        let a = try XCTUnwrap(IslandSparkline.frame(history: old, readingAt: at(1000)))
+        let b = try XCTUnwrap(IslandSparkline.frame(history: new, readingAt: at(1002)))
+        for slot in 987...1000 {
+            XCTAssertEqual(a.ring[IslandSparkline.index(slot)], b.ring[IslandSparkline.index(slot)], accuracy: 1e-9, "slot \(slot)")
+        }
+        XCTAssertEqual(a.ring[IslandSparkline.index(988)], 122.5, accuracy: 1e-9)
+    }
+
     func testHalfwayThroughAGlideTheNewPointIsOffTheRightEdge() throws {
         let old = try XCTUnwrap(IslandSparkline.frame(history: history(rising(from: 100)), readingAt: at(1000)))
         let new = try XCTUnwrap(IslandSparkline.frame(history: history(rising(from: 110)), readingAt: at(1001)))

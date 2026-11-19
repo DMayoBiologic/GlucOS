@@ -65,7 +65,12 @@ enum IslandSparkline {
         let visible = tail.suffix(visibleSteps + 1)
         guard visible.compactMap({ $0 }).count >= minReadings else { return nil }
 
-        let filled = fillGaps(tail)
+        // Gaps are filled across the card's whole history before the window is cut, so a slot's
+        // filled value doesn't change when the window moves on (that would bend the line's left
+        // end while it glides).
+        let full = fillGaps(history)
+        let filled = Array(repeating: full.first ?? Double(current), count: max(0, wanted - full.count))
+            + Array(full.suffix(wanted))
         var ring = [Double](repeating: Double(current), count: ringSize)
         for (i, v) in filled.enumerated() {
             let slot = end - (wanted - 1 - i)
