@@ -58,6 +58,24 @@ the same days.
 It describes what happened after entries the person tagged. It never suggests a change to insulin,
 food or a setting.
 
+### Motion
+
+Round 90 (`Sources/Engine/TagsCardMotion.swift`, tests in `TagsCardMotionTests`):
+
+- Each tag's tile has a thin bar for its time in range after the tag, with an upright mark where
+  every reading's time in range sits. As the card rises in (`onEntrance`), the bars grow from the
+  leading edge one after another (0.15 s, then 0.05 s apart, never more than 0.45 s) while the
+  figures count up.
+- When the period or the data changes, the tiles spring to their new places (the list is most used
+  first, so the order can change), the figures roll, the bars glide, and a newly listed tag slides
+  in from the trailing side. A tag that drops off fades.
+- Under Reduce Motion the old picture cross-fades to the new one in 0.2 s and nothing slides; the
+  bars fade in where they are.
+- VoiceOver hears one line per change: the period and which tag leads after a period change, then
+  any tag added or no longer listed. New readings that only nudge the figures stay quiet. The bars
+  are hidden from VoiceOver, since each tile already says its figures.
+- A shared picture shows the bars full and never announces.
+
 ## What tags don't do
 
 Tags are labels for finding things. Apart from the descriptive Tags card above, Insights, the
