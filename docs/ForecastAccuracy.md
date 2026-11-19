@@ -6998,3 +6998,97 @@ from g where grp is not null group by 1,2 order by 1,2;
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged.
+
+## 93. When a meal is logged well before glucose starts to rise, does the line rise too early? (19 Nov 2026)
+
+**Question.** The engine starts a meal's carbs at the moment it's logged (the carb curve's
+10-minute delay, then 3 hours). A meal logged while ordering, before sitting down, or one that is
+slow to start acting, reaches glucose later than that, so the modelled rise would come too early
+and the line would run high at 15 and 30 minutes. Is it, compared with meals logged near the rise?
+§38 looked at the opposite case (meals logged after the rise had started).
+
+**Data.** Live readings 11–19 Nov 2026 (10,676), the Logbook's meals and rapid doses, and the
+accuracy log's clean shown points. Double logs (same carbs within 15 minutes) count once, and
+low treatments (45 g or less with a hypo tag or under 70) are left out. A meal's **rise onset** is
+the reading trough before glucose first climbs 15 mg/dL above its lowest point since 10 minutes
+before the log, looking 2 hours ahead; the **lag** is onset minus log time. **Logged early** = a
+lag of 15 minutes or more, **near the rise** = under 15. A meal's window runs to 3 hours after it
+or the next entry (its own dose within 30 minutes doesn't end it). Replay: the engine's model
+forecast every 5 minutes in each window (trend at the tuner's gain plus K × carbs − S × insulin,
+K 2.8, S 19.2), scored at 15, 30 and 60 minutes; points whose target falls after a later entry are
+dropped. Script: `scripts/early-logged-meals.py`.
+
+Lags of the 11 non-treatment meals with readings: 12 Nov 15:23 green juice **+40 min** and
+13 Nov 09:58 eggs and hash browns **+36 min** were logged early (11 Nov 09:29 pancakes, +70, has no
+readings at the log and isn't scored). The other eight (lags −10 to +12 minutes) were near the
+rise. So only 2 of 10 scorable meals were logged ahead of eating.
+
+Replay, gain 0.45 (0.6 and 0.7 are the same shape), bias is actual − line (negative = line high):
+
+| Group | Meals | 15 min MAE / bias | 30 min MAE / bias | 60 min MAE / bias | 30 min no change |
+|---|---|---|---|---|---|
+| Logged early, before the onset | 2 (14 pts) | 8.2 / −5.4 | 16.4 / −13.3 | 41.4 / −19.4 | 16.9 |
+| Logged early, first hour | 2 (24) | 11.3 / −5.6 | 22.7 / −8.9 | 49.2 / −10.7 | 22.8 |
+| Logged early, 1–3 h | 2 (46) | 9.4 / −1.5 | 18.6 / −4.0 | 35.4 / −6.0 | 21.7 |
+| Near the rise, first hour | 8 (73) | 26.6 / +11.6 | 43.4 / +9.5 | 51.8 / +5.3 | 43.3 |
+| Near the rise, 1–3 h | 6 (124) | 16.0 / +3.7 | 23.0 / +8.4 | 40.9 / +23.5 | 25.1 |
+| All meal windows | 10 (267) | 17.4 / +4.1 | 27.3 / +4.8 | 43.5 / +10.1 | 28.9 |
+
+Live accuracy log (the real engine; every point here was modelled, not cut to trend only):
+
+| Group | Horizon | Points | MAE | Bias | Inside |
+|---|---|---|---|---|---|
+| Logged early, first hour | 15 / 30 / 60 | 8 / 9 / 8 | 13.6 / 16.9 / 36.8 | −5.3 / −8.9 / −20.8 | 62% / 67% / 75% |
+| Logged early, 1–3 h | 15 / 30 / 60 | 22 / 22 / 21 | 8.3 / 14.2 / 29.8 | +1.4 / +0.7 / +2.4 | 91% / 82% / 67% |
+| Near the rise, first hour | 15 / 30 | 26 / 9 | 24.6 / 43.4 | +12.0 / +6.2 | 77% / 56% |
+
+**Yes, a little, and only before the rise starts.** On the two early meals the line runs high
+before glucose starts to climb (−13 at 30 minutes in the replay, −9 in the live log's first hour),
+because it draws the carbs' rise while glucose is still level. Once the rise arrives the line is
+close (−4 and +1 from the second hour). Meals logged near the rise go the other way: the line runs
+low in their first hour (+9.5 at 30 minutes), so the carb curve isn't early in general, and moving
+every meal's carbs later would make most meals worse.
+
+**Held out: an onset hold.** Forecast only (insulin on board, carbs on board, the carb curve
+itself and the bolus calculator untouched): until glucose has climbed R mg/dL above its lowest
+reading since the log, the meal is treated as eaten c minutes before now (never before the log);
+once it has climbed, its clock starts 10 minutes before the trough; the hold never moves a meal more
+than cap minutes. R 10/15/20, c 0/10/20, cap 20/40/60/90, picked on the other Perth days and scored
+on the held-out one (leave one day out over the 6 days with meal windows), by 15- plus 30-minute MAE.
+
+| Gain | Better held out, 15 / 30 / 60 | 12 Nov (early juice) 30 min | 18 Nov 30 min | Most-picked |
+|---|---|---|---|---|
+| 0.45 | 0/6, 0/6, 1/6 | 20.0 → 21.2 | 26.4 → 28.7 | R 20, c 10–20, cap 90 |
+| 0.6 | 0/6, 1/6, 1/6 | 19.9 → 20.5 | 25.2 → 27.4 | R 20, c 20, cap 90 |
+| 0.7 | 0/6, 1/6, 1/6 | 19.9 → 20.5 | 24.4 → 26.6 | R 20, c 20, cap 90 |
+
+Before the onset the hold does what it should (the 30-minute line on the early meals' pre-onset
+points comes down 8.5 mg/dL, the juice's bias goes −6.7 → +4.5), but it can't tell a meal that
+hasn't started from one whose rise is hidden by a fall, so after the onset it moves the clock on
+meals logged near the rise too and costs more than it saves: worse on 12 and 18 Nov, within 0.1
+elsewhere, and on 13 Nov (the only other early meal) the fit picked no hold at all. With two early
+meals there's nothing to fit a cleaner rule on.
+
+**Decision.** Ship nothing. Logging a meal ahead of eating does pull the line high before the rise
+by about 10 mg/dL at 30 minutes, but it's rare here (2 of 10 meals), the line recovers once the
+rise starts, and the onset hold loses held out. Retest on **10 Dec 2026**, only with 6+ meals
+logged 15+ minutes ahead on 4+ days: refit the hold leave one day out (also a hold that only
+applies before the onset and lets go after it) and ship only if better at 15 and 30 minutes on
+most held-out days at every gain, with 60 no worse and near-rise meals no worse.
+
+Live-log check, in the Supabase SQL editor (each meal's onset lag; it doesn't merge double logs
+or leave out low treatments, so 13 Nov 10:10 and the treatments show too):
+
+```sql
+with ml as (select to_timestamp((payload->>'timestamp')::float) t, (payload->>'carbs')::float g
+  from glucos.logbook where not deleted and kind = 'meal'),
+r as (select ml.t, ml.g, x.at, x.mgdl, min(x.mgdl) over (partition by ml.t order by x.at) lo
+  from ml join glucos.readings x on x.trend > 0 and x.at between ml.t - interval '10 min' and ml.t + interval '2 hours'),
+c as (select distinct on (t) t, g, at climb, lo from r where mgdl - lo >= 15 order by t, at)
+select to_char(c.t at time zone 'Australia/Perth', 'DD Mon HH24:MI') meal, c.g carbs,
+  round(extract(epoch from (select max(r.at) from r where r.t = c.t and r.at <= c.climb and r.mgdl = c.lo) - c.t) / 60) onset_lag_min
+from c order by c.t;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged.
