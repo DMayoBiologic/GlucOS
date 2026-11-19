@@ -86,5 +86,12 @@ struct GlucOSAppShortcuts: AppShortcutsProvider {
                               "I'm treating a low in \(.applicationName)"],
                     shortTitle: "Log Treatment",
                     systemImageName: "cube.fill")
+        AppShortcut(intent: DaySummaryIntent(),
+                    phrases: ["How was my day in \(.applicationName)",
+                              "How's my day going in \(.applicationName)",
+                              "My \(.applicationName) day so far",
+                              "\(.applicationName) today so far"],
+                    shortTitle: "How Was My Day",
+                    systemImageName: "sun.max")
     }
 }
