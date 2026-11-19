@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "arrow.left.and.right",
                   title: "Look back along the chart",
                   detail: "Drag along the times under the iPhone chart, or swipe sideways on the Mac trackpad, to see earlier hours. Now brings you back."),
+            .init(symbol: "arrow.up.forward",
+                  title: "Forecasts on rebounds after lows",
+                  detail: "We checked forecasts in the 2 hours after a low as glucose climbs back and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.78.0", highlights: [
             .init(symbol: "sparkles",
