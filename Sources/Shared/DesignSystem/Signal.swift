@@ -831,11 +831,15 @@ extension View {
     ///
     /// `live` is false while the reading is stale or still the one saved before launch, which
     /// never cue. Apply it to the row that holds the reading's figure.
+    ///
+    /// Back in range after 15 minutes or more out (round 89, `RangeCrossing.marksMoment`), one
+    /// soft ring of the in-range colour also sweeps out around the reading and VoiceOver says
+    /// "Back in range" once. Never when `follower` is true, and no ring under Reduce Motion.
     func rangeCrossingCue(mgdl: Double, at timestamp: Date, lowMgdl: Double, highMgdl: Double,
-                          live: Bool, tint: Color,
+                          live: Bool, tint: Color, follower: Bool = false,
                           onCross: ((RangeCrossing.Cue) -> Void)? = nil) -> some View {
         modifier(RangeCrossingCue(key: .init(mgdl: mgdl, at: timestamp, low: lowMgdl, high: highMgdl, live: live),
-                                  tint: tint, onCross: onCross))
+                                  tint: tint, follower: follower, onCross: onCross))
     }
 }
 
@@ -850,11 +854,19 @@ private struct RangeCrossingCue: ViewModifier {
 
     let key: Key
     let tint: Color
+    let follower: Bool
     let onCross: ((RangeCrossing.Cue) -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tracker = RangeCrossing()
     /// Counts the washes played; each new value plays the keyframes once.
     @State private var washes = 0
+    /// Counts the back-in-range rings played; each new value sweeps one ring.
+    @State private var rings = 0
+
+    private struct Ring {
+        var scale: Double = 1
+        var opacity: Double = 0
+    }
 
     func body(content: Content) -> some View {
         content
@@ -871,6 +883,29 @@ private struct RangeCrossingCue: ViewModifier {
                 CubicKeyframe(1, duration: RangeCrossing.washRise)
                 CubicKeyframe(0, duration: RangeCrossing.washFade)
             }
+            // Back in range after a real spell out: one ring of the in-range colour sweeps out
+            // from the reading and fades, after the wash has come up.
+            .keyframeAnimator(initialValue: Ring(), trigger: rings) { view, ring in
+                view.overlay {
+                    RoundedRectangle(cornerRadius: DS.Radius.tile, style: .continuous)
+                        .strokeBorder(GlucoseRange.inRange.tint.opacity(ring.opacity), lineWidth: 2)
+                        .padding(.horizontal, -DS.Space.sm)
+                        .padding(.vertical, -DS.Space.xxs)
+                        .scaleEffect(ring.scale)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            } keyframes: { _ in
+                KeyframeTrack(\.scale) {
+                    LinearKeyframe(1, duration: RangeCrossing.washRise)
+                    CubicKeyframe(RangeCrossing.ringGrowth, duration: RangeCrossing.ringDuration - RangeCrossing.washRise)
+                }
+                KeyframeTrack(\.opacity) {
+                    LinearKeyframe(0, duration: RangeCrossing.washRise * 0.5)
+                    LinearKeyframe(RangeCrossing.ringPeakOpacity, duration: RangeCrossing.washRise * 0.5)
+                    CubicKeyframe(0, duration: RangeCrossing.ringDuration - RangeCrossing.washRise)
+                }
+            }
             .onAppear { observe(key) }
             .onChange(of: key) { _, new in observe(new) }
     }
@@ -878,7 +913,11 @@ private struct RangeCrossingCue: ViewModifier {
     private func observe(_ k: Key) {
         guard let cue = tracker.observe(mgdl: k.mgdl, at: k.at, low: k.low, high: k.high, live: k.live) else { return }
         if RangeCrossing.washes(reduceMotion: reduceMotion) { washes += 1 }
+        // The crossing's own light tap (iPhone) is the moment's haptic; nothing plays twice.
         onCross?(cue)
+        guard RangeCrossing.marksMoment(cue, outFor: tracker.backAfter, follower: follower) else { return }
+        if RangeCrossing.ringSweeps(reduceMotion: reduceMotion) { rings += 1 }
+        AccessibilityNotification.Announcement(RangeCrossing.momentAnnouncement).post()
     }
 }
 

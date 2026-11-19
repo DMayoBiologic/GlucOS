@@ -55,7 +55,8 @@ struct PopoverHero: View {
                                 // Crossing into or out of the target range: one brief wash of the
                                 // new colour behind the reading, once per crossing and never while
                                 // hovering at the edge (`RangeCrossing`). No haptic on the Mac, and
-                                // no wash under Reduce Motion. Alerts are separate.
+                                // no wash under Reduce Motion. Alerts are separate. Back in range
+                                // after 15+ min out also sweeps one in-range ring (round 89).
                                 .rangeCrossingCue(mgdl: cur.mgdl, at: cur.timestamp,
                                                   lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,
                                                   live: !stale && launch == .live, tint: tint)

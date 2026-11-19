@@ -430,6 +430,11 @@ old, last 6.2." Follower: prefixed with the person's name.
   new side, so a reading hovering at the edge never repeats it. Nothing cues on the first reading,
   a stale or saved one, the same reading redrawn, or a moved target range. Under Reduce Motion the
   tap stays and the wash doesn't draw. Alerts are separate and unchanged.
+  Since round 89, coming back into range after 15 minutes or more out (counted from the first
+  reading out, by the same crossings and hysteresis) is marked once: a soft ring of the in-range
+  colour sweeps out around the figure as the wash comes up, the crossing's one light tap is its
+  haptic, and VoiceOver says "Back in range". Shorter spells get the usual cue only. A live gap
+  over 30 minutes ends the spell unseen. Never for a follower; no ring under Reduce Motion.
 - **Collapsing header.** Scrolling down folds the stage into the navigation bar, so the reading is
   never off screen (iOS 18 `onScrollGeometryChange`). Since round 46 (`HeaderCollapse`) the fold
   follows the scroll position rather than swapping at a threshold: the stage's value, unit, trend
@@ -564,6 +569,8 @@ on hover", on by default.
 - Crossing into or out of the target range washes the new range colour behind the hero value once
   (`RangeCrossing`, the same rule and hysteresis as the iPhone, round 43). No haptic on the Mac,
   nothing while the popover just sits open or reopens, and no wash under Reduce Motion.
+  Back in range after 15 minutes or more out also sweeps one ring of the in-range colour round
+  the hero value and VoiceOver says "Back in range" (round 89, same rule as the iPhone).
 - Changing the summary card's period cross-slides its figures: the old ones slide 18 pt out as the
   new ones come in from the other side, a longer period from the trailing edge. Reduce Motion
   swaps them.
