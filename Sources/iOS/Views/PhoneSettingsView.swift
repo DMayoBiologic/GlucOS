@@ -176,7 +176,7 @@ struct PhoneSettingsView: View {
     @State private var notificationsAllowed: Bool?
     @State private var relaySecret = ""
     @State private var confirmsSignOut = false
-    @StateObject private var search = SettingsSearchModel()
+    @StateObject private var search = SettingsSearchModel(catalog: SettingsCatalog.phone)
     @State private var searching = false
     /// Opens scrolled to this section (a banner's Set Up button lands on the relay, not the top).
     var scrollTo: Jump?
@@ -219,7 +219,7 @@ struct PhoneSettingsView: View {
                     placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search Settings")
         // Return goes to the best match.
         .onSubmit(of: .search) {
-            if let first = search.results(in: SettingsCatalog.phone).first { open(first, proxy: proxy) }
+            if let first = search.found.first { open(first, proxy: proxy) }
         }
         // Rows a toggle reveals or hides slide in and out with the toggle, instead of popping.
         .dsAnimation(.standard, value: settings.alertsEnabled)
@@ -268,13 +268,14 @@ struct PhoneSettingsView: View {
 
     /// What a search found, or a plain "nothing matches".
     @ViewBuilder private func searchResults(_ proxy: ScrollViewProxy) -> some View {
-        let found = search.results(in: SettingsCatalog.phone)
+        let found = search.found
         Section {
             if found.isEmpty {
                 SettingsSearchEmptyView(query: search.query)
             } else {
                 ForEach(found) { item in
                     SettingsSearchResultRow(item: item, query: search.query) { open(item, proxy: proxy) }
+                        .settingsResultEntrance(item.anchor, search: search)
                 }
             }
         } header: {
@@ -308,7 +309,7 @@ struct PhoneSettingsView: View {
     // MARK: Sections
 
     private var accountSection: some View {
-        Section("LibreLinkUp") {
+        Section {
             LabeledContent("Account", value: settings.email)
                 .settingsAnchor(.account)
             LabeledContent("Region", value: LibreRegion.all.first { $0.id == settings.region }?.name ?? settings.region)
@@ -316,7 +317,10 @@ struct PhoneSettingsView: View {
             Button("Sign Out…", role: .destructive) { confirmsSignOut = true }
             NavigationLink("Read sensor") { SensorScanView() }
                 .settingsAnchor(.readSensor)
+        } header: {
+            SettingsSectionHeader("LibreLinkUp", systemImage: "person.crop.circle")
         }
+        .settingsSection("LibreLinkUp")
     }
 
     private var displaySection: some View {
@@ -334,10 +338,11 @@ struct PhoneSettingsView: View {
             Toggle("Show yesterday on the chart", isOn: $settings.showYesterdayLine)
                 .settingsAnchor(.showYesterday)
         } header: {
-            Text("Display")
+            SettingsSectionHeader("Display", systemImage: "chart.xyaxis.line")
         } footer: {
             Text("The target range colours every reading, chart and alert, here and on the Lock Screen. Yesterday shows as a faint grey line at the same time of day; touch and hold the chart to turn it on or off.")
         }
+        .settingsSection("Display")
     }
 
     private var loggingSection: some View {
@@ -373,10 +378,11 @@ struct PhoneSettingsView: View {
             Toggle("Log new sensors", isOn: $settings.logSensorStarts)
                 .settingsAnchor(.sensorStartLog)
         } header: {
-            Text("Logging")
+            SettingsSectionHeader("Logging", systemImage: "square.and.pencil")
         } footer: {
             Text(loggingFooter)
         }
+        .settingsSection("Logging")
     }
 
     private var loggingFooter: String {
@@ -405,15 +411,15 @@ struct PhoneSettingsView: View {
             .onDelete { idx in idx.map { logbook.presets[$0].id }.forEach(logbook.deletePreset(id:)) }
             .onMove { logbook.movePresets(from: $0, to: $1) }
         } header: {
-            HStack {
-                Text("Presets")
-                    .settingsAnchor(.presets)
+            SettingsSectionHeader("Presets", systemImage: "star") {
                 Spacer()
                 EditButton().textCase(nil)
             }
+            .settingsAnchor(.presets)
         } footer: {
             Text("One-tap quick adds in the log sheet. Save one by turning on Save as preset when you log.")
         }
+        .settingsSection("Presets")
     }
 
     private var syncSection: some View {
@@ -440,10 +446,11 @@ struct PhoneSettingsView: View {
                 .dependentRow()
             }
         } header: {
-            Text("Logbook")
+            SettingsSectionHeader("Logbook", systemImage: "arrow.triangle.2.circlepath")
         } footer: {
             Text("Doses, food, site changes and events logged here or in GlucOS on your Mac, shared through the GlucOS sync server with the same LibreLinkUp account. The forecast and insulin on board here count them.")
         }
+        .settingsSection("Logbook")
     }
 
     private var alertsSection: some View {
@@ -508,10 +515,11 @@ struct PhoneSettingsView: View {
             }
             .settingsAnchor(.alertHistory)
         } header: {
-            Text("Alerts")
+            SettingsSectionHeader("Alerts", systemImage: "bell.badge")
         } footer: {
             Text("Lows and very highs always alert while alerts are on; urgent lows repeat every 5 minutes. \(services.relayStatus?.isDeliveringAlerts() == true ? "Your push relay is sending these, so they arrive even when GlucOS is closed." : "Without the push relay, alerts can only come while GlucOS is open or briefly refreshing in the background.")")
         }
+        .settingsSection("Alerts")
         .id(Jump.alerts)
     }
 
@@ -540,10 +548,11 @@ struct PhoneSettingsView: View {
                     .dependentRow()
             }
         } header: {
-            Text("Daily recap")
+            SettingsSectionHeader("Daily recap", systemImage: "moon.stars")
         } footer: {
             Text(EveningRecapText.settingsFooter(minute: settings.eveningRecapMinute) + " Tap it to open Insights on today. It uses the readings GlucOS had when it last refreshed, and says which hours it covers.")
         }
+        .settingsSection("Daily recap")
     }
 
     /// The evening-before sensor reminder (docs/SensorEnd.md): off until turned on.
@@ -555,10 +564,11 @@ struct PhoneSettingsView: View {
                 }
                 .settingsAnchor(.sensorEndReminder)
         } header: {
-            Text("Sensor")
+            SettingsSectionHeader("Sensor", systemImage: "sensor.tag.radiowaves.forward")
         } footer: {
             Text(SensorEndReminder.settingsFooter)
         }
+        .settingsSection("Sensor")
     }
 
     private var lockScreenSection: some View {
@@ -585,10 +595,11 @@ struct PhoneSettingsView: View {
                 .dependentRow()
             }
         } header: {
-            Text("Lock Screen")
+            SettingsSectionHeader("Lock Screen", systemImage: "lock")
         } footer: {
             Text("Your reading, trend, the last 3 hours and the forecast on the Lock Screen and in the Dynamic Island. With the last hour on, a small line sits beside the trend arrow in the compact Dynamic Island, in place of the change since the last reading. iOS ends a Live Activity after 8 hours; the push relay starts a fresh one automatically. Without the relay it only updates while GlucOS is open.")
         }
+        .settingsSection("Lock Screen")
     }
 
     private var sharingSection: some View {
@@ -600,10 +611,11 @@ struct PhoneSettingsView: View {
             }
             .settingsAnchor(.shareLive)
         } header: {
-            Text("Sharing")
+            SettingsSectionHeader("Sharing", systemImage: "person.2")
         } footer: {
             Text("Send family a link in Messages that shows your glucose live, and on their Lock Screen if they have GlucOS.")
         }
+        .settingsSection("Sharing")
     }
 
     /// The latest reading while it's fresh, for the range editor's marker.
@@ -647,10 +659,11 @@ struct PhoneSettingsView: View {
                 Text("Push registration failed: \(e)").dsFont(.caption).foregroundStyle(.secondary)
             }
         } header: {
-            Text("Push relay")
+            SettingsSectionHeader("Push relay", systemImage: "antenna.radiowaves.left.and.right")
         } footer: {
             Text("A small server of your own that checks LibreLinkUp every minute and pushes alerts and Lock Screen updates to this iPhone while it's locked. It receives your LibreLinkUp login so it can fetch for you. Signed in with the same LibreLinkUp account as the relay, this iPhone connects by itself.")
         }
+        .settingsSection("Push relay")
         .id(Jump.relay)
     }
 }
@@ -662,9 +675,10 @@ struct DiagnosticsSettingsSection: View {
             DiagnosticsToggle()
                 .settingsAnchor(.diagnostics)
         } header: {
-            Text("Diagnostics")
+            SettingsSectionHeader("Diagnostics", systemImage: "stethoscope")
         } footer: {
             Text(DiagnosticsToggle.privacyNote)
         }
+        .settingsSection("Diagnostics")
     }
 }

@@ -88,12 +88,15 @@ enum SearchHighlight {
     /// A line part way from one search to the next (`LogbookSearchMotion.spans`): what's still found
     /// stays lit, what's newly found fades in, and what's no longer found fades out, `progress` of
     /// the way through.
+    /// `flare` is Settings search's version (`SettingsSearchMotion.flaredWash`): a newly found
+    /// word's wash glints brighter on the way in, then settles.
     static func attributed(_ text: String, from old: [String], to new: [String], tint: Color,
-                           progress: Double) -> AttributedString {
+                           progress: Double, flare: Bool = false) -> AttributedString {
         var out = AttributedString(text)
         for span in LogbookSearchMotion.spans(in: text, from: old, to: new) {
             guard let range = Range(span.range, in: out) else { continue }
-            let wash = LogbookSearchMotion.wash(span.phase, progress: progress)
+            let wash = flare ? SettingsSearchMotion.flaredWash(span.phase, progress: progress)
+                             : LogbookSearchMotion.wash(span.phase, progress: progress)
             if LogbookSearchMotion.isBold(span.phase) { out[range].inlinePresentationIntent = .stronglyEmphasized }
             if wash > 0 {
                 out[range][AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] = tint.opacity(0.2 * wash)
@@ -112,6 +115,9 @@ struct SearchHighlightText: View {
     let text: String
     let terms: [String]
     let tint: Color
+    /// Settings search: newly found words glint once (`SettingsSearchMotion.flaredWash`) over
+    /// `SettingsSearchMotion.washFlare`, instead of the Logbook's plain fade.
+    var flare = false
     /// The words before the latest change, which the fade starts from.
     @State private var from: [String]?
     /// Bumped on every change of words; the fade runs from the last count to this one.
@@ -119,25 +125,35 @@ struct SearchHighlightText: View {
     @State private var faded = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(_ text: String, terms: [String], tint: Color) {
+    init(_ text: String, terms: [String], tint: Color, flare: Bool = false) {
         self.text = text
         self.terms = terms
         self.tint = tint
+        self.flare = flare
     }
 
     var body: some View {
         SearchHighlightFrame(text: text, from: from ?? terms, to: terms, tint: tint,
-                             generation: generation, faded: faded)
-            .onChange(of: terms) { old, _ in
-                generation += 1
-                if reduceMotion {
-                    from = nil
-                    faded = Double(generation)
-                } else {
-                    from = old
-                    withAnimation(.easeOut(duration: LogbookSearchMotion.highlightFade)) { faded = Double(generation) }
-                }
+                             flare: flare, generation: generation, faded: faded)
+            // Settings search: a row that arrives already matching glints too, from no highlight.
+            .onAppear {
+                guard flare, !reduceMotion, !terms.isEmpty, generation == 0 else { return }
+                fade(from: [])
             }
+            .onChange(of: terms) { old, _ in fade(from: old) }
+    }
+
+    private func fade(from old: [String]) {
+        generation += 1
+        if reduceMotion {
+            from = nil
+            faded = Double(generation)
+        } else {
+            from = old
+            let duration = flare ? SettingsSearchMotion.washFlare : LogbookSearchMotion.highlightFade
+            // Linear for the flare: its own curve rises and settles.
+            withAnimation(flare ? .linear(duration: duration) : .easeOut(duration: duration)) { faded = Double(generation) }
+        }
     }
 }
 
@@ -148,6 +164,7 @@ private struct SearchHighlightFrame: View, Animatable {
     let from: [String]
     let to: [String]
     let tint: Color
+    let flare: Bool
     let generation: Int
     var faded: Double
 
@@ -161,7 +178,7 @@ private struct SearchHighlightFrame: View, Animatable {
         if progress >= 1 || from == to {
             Text(SearchHighlight.attributed(text, terms: to, tint: tint))
         } else {
-            Text(SearchHighlight.attributed(text, from: from, to: to, tint: tint, progress: progress))
+            Text(SearchHighlight.attributed(text, from: from, to: to, tint: tint, progress: progress, flare: flare))
         }
     }
 }
