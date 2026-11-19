@@ -7853,3 +7853,90 @@ group by 1, 2 order by 1, 2;
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged. No app or relay code changed.
+
+## 101. After a meal with no rapid insulin logged within 30 minutes, does the line run high or low, and is the range right? (20 Nov 2026)
+
+**Question.** When a meal is logged with no rapid dose from 30 minutes before to 30 minutes after
+it, the forecast has carbs to add and no insulin to take away. Does the 30- and 60-minute line run
+high or low there, compared with meals that have a dose within 30 minutes, and how often does
+glucose land inside the drawn range? Post-meal peaks (§26, §95) and sensor-day range (§17) are
+left out.
+
+**Data.** Live readings 12–20 Nov 2026 (11,413), the Logbook's meals and rapid doses, and the
+accuracy log's clean shown points at 15, 30 and 60 minutes issued up to 3 hours after a meal.
+Double logs count once. Low treatments (45 g or less with a hypo tag or under 70 at the meal) are
+their own group, whatever was dosed, since the engine draws them on the fast curve (§37). Each
+meal is scored from when it's logged for 3 hours, stopping at the next meal or any dose that isn't
+the meal's own. Replay: the engine's model forecast every 5 minutes (trend at the tuner's gain
+plus K × carbs − S × insulin, K 2.8, S 19.2), scored at 15, 30 and 60 minutes; points whose target
+falls after a later entry are dropped. Script: `scripts/unbolused-meals.py`.
+
+Four meals with readings had no dose within 30 minutes and weren't low treatments: **12 Nov 15:23
+green juice, 16.6 g** (start 104, last dose 40 minutes earlier), **17 Nov 15:40 beer, 12.2 g**
+(start 120, glucose climbed to 326), **17 Nov 22:41 sundae, 68 g** (start 46, hypo tag, too big to
+count as a treatment) and **18 Nov 11:51 hamburger and chips, 82.9 g** (start 55 after two
+treatments, dose 65 minutes later, which ends its window). Six meals had a dose within 30 minutes
+and seven were low treatments.
+
+Replay, gain 0.45 (0.6 and 0.7 are the same shape), bias is actual − line (positive = line low):
+
+| Group, time since meal | Meals (pts at 30) | 15 min MAE / bias | 30 min MAE / bias | 60 min MAE / bias | 30 min no change |
+|---|---|---|---|---|---|
+| No dose, first hour | 4 (42) | 24.3 / +13.6 | 39.6 / +19.5 | 55.1 / +46.2 | 42.9 |
+| No dose, 1–3 h | 3 (42) | 20.2 / +4.2 | 24.3 / +5.1 | 43.2 / +26.1 | 26.9 |
+| Dose within 30 min, first hour | 6 (46) | 21.5 / +1.7 | 36.0 / −9.3 | 48.6 / −27.3 | 33.0 |
+| Dose within 30 min, 1–3 h | 5 (89) | 11.0 / +0.7 | 17.6 / +0.1 | 27.4 / −2.5 | 20.3 |
+| Low treatments, all | 7 (146) | 14.6 / +2.8 | 24.5 / +6.4 | 41.5 / +20.0 | 31.2 |
+
+By meal, 30 / 60-minute bias: juice +4.7 / +28.0, beer +33.0 / +73.8, sundae −16.4 / −20.6,
+hamburger +26.4 / +39.0 (one 60-minute point).
+
+Live accuracy log (the real engine, same groups and windows): no-dose meals 35 points at 15
+minutes on 3 days, bias +8.4, 71% inside (17% above, 11% below, width 56); 11 at 30 minutes on 2
+days, +6.8, 64% inside (18% above, 18% below); 7 at 60 on 1 day, +16.5, 86% inside. Only 10 of
+the 35 were drawn by the model; the beer, sundae and hamburger were mostly trend only, at 15
+minutes. Meals with a dose: 70% inside at 30 (+4.3), 76% at 60 (−28.5, misses below). Low
+treatments: 75% inside at 30, 89% at 60.
+
+**Meals with no dose nearby run low, but it's mostly two odd meals.** Across the four meals the
+replayed line sits under where glucose goes (+20 at 30 and +46 at 60 in the first hour), the
+mirror of dosed meals, which run high by 60 minutes (−27). The weight comes from the beer, which
+the line read as 12 g while glucose climbed 200 over 3 hours (something unlogged, or not carbs
+alone), and the hamburger, eaten straight after two low treatments. The juice is close at 30, and
+the sundae runs the other way (line high). The live range holds about two in three at 30 minutes
+with misses on both sides, a little under the 8 in 10 target, on too few points to read much into.
+
+**Held out: carb and trend scale while a no-dose meal is active.** Forecast only (carbs on board,
+the carb curve shared with Insights, insulin on board, the insulin curve, carb ratios, sensitivity
+and the bolus calculator untouched): for 3 hours after a meal with no dose within 30 minutes the
+forecast's own carb effect from that meal is scaled by c (0.5–1.5) and the trend term by w
+(0.5–1.5), picked on the other days and scored on the held-out day (leave one day out; dosed
+meals unchanged by construction).
+
+| Gain | 12 Nov held out, 15 / 30 / 60 | 17 Nov held out, 15 / 30 / 60 | 18 Nov held out, 15 / 30 / 60 | Days better 15 / 30 / 60 |
+|---|---|---|---|---|
+| 0.45 | 11.7→12.4, 21.9→22.9, 36.6→37.7 | 29.2→30.6, 39.2→41.1, 58.4→61.9 | 17.7→16.6, 26.4→25.5, 39.0→39.5 | 1 / 1 / 0 of 3 |
+| 0.6 | 11.6→12.1, 21.3→22.6, 35.9→37.3 | 30.1→32.8, 40.0→44.3, 58.4→61.9 | no change | 0 / 0 / 0 of 3 |
+| 0.7 | 11.5→12.0, 20.9→22.4, 35.4→37.1 | 30.9→34.6, 40.7→46.4, 58.4→63.0 | 15.1→16.9, 24.4→25.8, 40.2→39.3 | 0 / 0 / 1 of 3 |
+
+The fit swings from damping (c 1, w 0.5 when 12 Nov is held out) to a bigger carb effect and a
+steeper trend (c 1.5, w 1.5 when 17 Nov is held out). Scaling up cuts the 17 Nov bias (+15→+7 at
+30) but makes its error worse, because the beer's climb was slow and the sundae ran the other
+way.
+
+**Decision.** Ship nothing. The tweak loses held out at every gain, there are only four no-dose
+meals on three days, two of them started from a low, and the biggest miss (the beer) looks like
+food the Logbook doesn't know about rather than a shape the forecaster can learn. Retest on **10
+Dec 2026**, only with 6+ no-dose meals on 4+ days, at least 3 starting at 70 or above with no hypo
+tag: refit c and w leave one day out, and ship only if better at 30 and 60 on most held-out days
+at every gain, 15 no worse, with no new predicted-low or predicted-high crossings. Also check the
+live 30-minute inside rate on those meals against the 8 in 10 target, on 20+ points.
+
+Live-log check, in the Supabase SQL editor: `scripts/unbolused-meals.sql` (30 and 60-minute bias,
+inside and above rates per meal, no dose within 30 minutes vs a dose). It doesn't split out low
+treatments or stop at the next meal or dose, so its no-dose group is mostly treatments. On 20 Nov:
+no dose 72 points at 30 minutes, +1.8, 76% inside; 39 at 60, −0.6, 85% inside; with a dose 104 at
+30, +5.6, 73% inside; 85 at 60, +8.7, 72% inside.
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged. No app or relay code changed.
