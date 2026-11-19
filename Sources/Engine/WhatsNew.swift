@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "list.bullet.below.rectangle",
                   title: "Alert History rows glide",
                   detail: "In Alert History, a new alert slides in at the top and one leaving the last 7 days shrinks away while the rows close up. With Reduce Motion on, rows simply fade in and out."),
+            .init(symbol: "fork.knife",
+                  title: "Forecasts on meals logged alone",
+                  detail: "We checked how the forecast does after a meal logged on its own, without insulin logged close to it, and kept it as it is for now."),
         ]),
         WhatsNewRelease(version: "1.89.0", highlights: [
             .init(symbol: "clock.badge.questionmark",
