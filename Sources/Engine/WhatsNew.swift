@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.90.0", highlights: [
+            .init(symbol: "list.bullet.below.rectangle",
+                  title: "Alert History rows glide",
+                  detail: "In Alert History, a new alert slides in at the top and one leaving the last 7 days shrinks away while the rows close up. With Reduce Motion on, rows simply fade in and out."),
+        ]),
         WhatsNewRelease(version: "1.89.0", highlights: [
             .init(symbol: "clock.badge.questionmark",
                   title: "Honest hours on days with gaps",

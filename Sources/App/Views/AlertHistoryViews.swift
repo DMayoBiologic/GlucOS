@@ -39,7 +39,9 @@ extension AlertHistory.Outcome {
 /// The days and their alerts, worked out from the logbook's alert records and the stored readings.
 /// Recomputed as records arrive (a new alert, a tap synced from the other device), so the list
 /// keeps up while it's open: a new alert slides in at the top and a row's status chip morphs to
-/// its new outcome (docs/AlertHistory.md, "Live while open"). Instant under Reduce Motion.
+/// its new outcome (docs/AlertHistory.md, "Live while open"). An alert ageing out of the 7 days
+/// shrinks away and the rows close up ("Rows coming and going"). Under Reduce Motion rows
+/// cross-fade in and out; chips and counts change instantly.
 ///
 /// VoiceOver hears each change once through `alertHistoryAnnouncements`, which the screen around
 /// the list applies (a `List`'s sections come and go, so they can't watch for it themselves).
@@ -68,10 +70,18 @@ struct AlertHistoryContent: View {
     @State private var rowsFade = 1.0
     /// The row opened into its chart, if any. One at a time; kept while the screen is open only.
     @State private var openRow: UUID?
+    /// The items as last drawn and the key each row was drawn under, so a row keeps its identity
+    /// when the other device's copy of its alert moves the item's id (`AlertHistoryRowMotion.keys`).
+    @State private var seen: [AlertHistory.Item] = []
+    @State private var seenKeys: [UUID: UUID] = [:]
+    /// Bumped once when the oldest day ages out at midnight, so the list redraws without it.
+    @State private var ageOutTick = 0
 
     var body: some View {
+        let _ = ageOutTick
         let now = Date()
         let items = AlertHistory.items(records: records, readings: readings, now: now)
+        let keys = AlertHistoryRowMotion.keys(for: items, previous: seen, previousKeys: seenKeys)
         let shown = listed.apply(items)
         let days = AlertHistory.days(shown)
         Group {
@@ -110,7 +120,8 @@ struct AlertHistoryContent: View {
             } else {
                 ForEach(days) { day in
                     Section {
-                        ForEach(day.items) { item in
+                        ForEach(day.items.map { AlertHistoryKeyedItem(id: keys[$0.id] ?? $0.id, item: $0) }) { row in
+                            let item = row.item
                             AlertHistoryRow(item: item, unit: unit,
                                             note: AlertNote.existing(near: item.firedAt, in: logbook.contexts)?.note,
                                             chart: openRow == item.id ? chart(for: item, now: now) : nil,
@@ -118,7 +129,7 @@ struct AlertHistoryContent: View {
                                             toggle: { toggle(item) },
                                             open: { open(AlertHistory.link(for: item, records: records, now: Date())) },
                                             editNote: editor.map { e -> () -> Void in { e.start(item, in: logbook.contexts) } })
-                            .transition(DS.Transition.banner(reduceMotion: reduceMotion))
+                            .transition(rowTransition)
                             .opacity(rowsFade)
                         }
                     } header: {
@@ -136,9 +147,24 @@ struct AlertHistoryContent: View {
                 }
             }
         }
-        // A new alert slides in at the top; instant under Reduce Motion. A chip switch doesn't
-        // slide rows: it fades them over (`settleFilter`).
-        .dsAnimation(.standard, value: items.map(\.id))
+        // A new alert slides in at the top and an aged-out one shrinks away, the rows around them
+        // gliding on the `.standard` curve; under Reduce Motion they cross-fade. Keyed on every
+        // item, not the shown ones, so a chip switch doesn't slide rows: it fades them over
+        // (`settleFilter`). A copy from the other device keeps its row's key, so nothing moves.
+        .animation(reduceMotion ? .easeInOut(duration: AlertHistoryRowMotion.reduceMotionFade)
+                                : DSMotion.standard.animation,
+                   value: items.map { keys[$0.id] ?? $0.id })
+        .onChange(of: items, initial: true) { _, fresh in
+            seenKeys = AlertHistoryRowMotion.keys(for: fresh, previous: seen, previousKeys: seenKeys)
+            seen = fresh
+        }
+        // The oldest day leaves at midnight: one wake then, never a repeating timer.
+        .task(id: AlertHistoryRowMotion.nextAgeOut(items, now: now)) {
+            guard let at = AlertHistoryRowMotion.nextAgeOut(items, now: Date()) else { return }
+            try? await Task.sleep(for: .seconds(max(0, at.timeIntervalSinceNow) + 1))
+            guard !Task.isCancelled else { return }
+            ageOutTick &+= 1
+        }
         // A note appearing under its row, or going, fades in place; instant under Reduce Motion.
         .dsAnimation(.standard, value: noteTexts(items))
         // A chip switch or an alert ageing out can take the open row away: nothing is open then.
@@ -146,6 +172,15 @@ struct AlertHistoryContent: View {
             let still = AlertHistoryChart.stillOpen(openRow, among: ids)
             if still != openRow { openRow = still }
         }
+    }
+
+    /// A new alert slides down from the top of its day; one ageing out fades as it shrinks toward
+    /// its top edge, and the rows below close up. A cross-fade in place under Reduce Motion.
+    private var rowTransition: AnyTransition {
+        reduceMotion ? .opacity
+            : .asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
+                          removal: .opacity.combined(with: .scale(scale: AlertHistoryRowMotion.removalScale,
+                                                                  anchor: .top)))
     }
 
     /// The open row's chart: its trace, what was logged, and the line VoiceOver reads.
@@ -199,6 +234,12 @@ struct AlertHistoryContent: View {
     private func noteTexts(_ items: [AlertHistory.Item]) -> [String] {
         items.map { AlertNote.existing(near: $0.firedAt, in: logbook.contexts)?.note ?? "" }
     }
+}
+
+/// An item under the key its row is drawn with (`AlertHistoryRowMotion.keys`).
+private struct AlertHistoryKeyedItem: Identifiable {
+    let id: UUID
+    let item: AlertHistory.Item
 }
 
 /// The history's chips: what kind of alert (All, Lows, Highs, Predicted) and, on a second row,
