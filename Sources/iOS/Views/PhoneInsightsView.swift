@@ -15,10 +15,14 @@ struct PhoneInsightsRow: View {
                         .frame(width: 40, height: 40)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text("Insights").dsFont(.label).foregroundStyle(.secondary)
-                        // The share rolls to a new figure, such as after the target range changes.
+                        // The share and the average both roll to their new figures when a new
+                        // reading or a target range change moves them. No pulse here (that's for
+                        // Insights), and VoiceOver hears only the settled figures.
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             RollingFigure(stats.timeInRange) { Format.percent($0) }
-                            Text(" in range · avg \(unit.format(mgdl: stats.meanMgdl)) \(unit.label)")
+                            Text(" in range · avg ")
+                            RollingFigure(stats.meanMgdl, order: 1) { unit.format(mgdl: $0) }
+                            Text(" \(unit.label)")
                         }
                         .dsFont(.headline)
                         .foregroundStyle(.primary)
