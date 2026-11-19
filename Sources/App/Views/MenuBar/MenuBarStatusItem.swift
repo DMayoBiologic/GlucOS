@@ -35,6 +35,9 @@ final class MenuBarStatusModel: ObservableObject {
     private var animation: Task<Void, Never>?
     /// The hover preview (MenuBarHoverPanel.swift). Idle until the pointer rests on the item.
     private var hover: MenuBarHoverController?
+    /// The right-click menu (MenuBarQuickMenuController.swift). Does nothing until a right or
+    /// Control click lands on the item.
+    private var quickMenu: MenuBarQuickMenuController?
 
     /// Frames per second for a value change. Low on purpose: it is an 8 pt slide in the menu bar.
     private static let framesPerSecond = 24.0
@@ -76,6 +79,10 @@ final class MenuBarStatusModel: ObservableObject {
         hover = MenuBarHoverController(store: store, settings: settings) { [weak self] now in
             self?.hoverPreview(now: now)
         }
+        quickMenu = MenuBarQuickMenuController(store: store, settings: settings) { [weak self] in
+            self?.hover?.dismiss()
+        }
+        quickMenu?.start()
         refresh()
     }
 

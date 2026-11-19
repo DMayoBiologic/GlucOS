@@ -62,6 +62,9 @@ final class MenuBarHoverController {
         tracker = view
     }
 
+    /// Closes the card as a click would (the right-click menu is about to open over it).
+    func dismiss() { handle(.interaction) }
+
     // MARK: State
 
     private var allowed: Bool {

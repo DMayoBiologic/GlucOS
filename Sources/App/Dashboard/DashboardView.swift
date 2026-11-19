@@ -10,6 +10,8 @@ final class DashboardRequest: ObservableObject {
     @Published var logbookEntry: UUID?
     /// The popover's "while you were away" line: the Logbook over the span it covers.
     @Published var logbookLink: LogbookLink?
+    /// The menu bar item's right-click menu: Open Logbook, as it is (no span, no entry picked).
+    @Published var opensLogbook = false
 }
 
 /// The pop-out dashboard: a regular, resizable window with the full picture. Opened from the
@@ -138,6 +140,7 @@ struct DashboardView: View {
         }
         .onChange(of: request.logbookEntry) { _, _ in takeEntryRequest() }
         .onChange(of: request.logbookLink) { _, _ in takeLinkRequest() }
+        .onChange(of: request.opensLogbook) { _, _ in takeLogbookRequest() }
         // A click on the evening recap, including one that opened this window.
         .onReceive(EveningRecapRoute.shared.$request) { request in
             guard request != nil, let firedAt = EveningRecapRoute.shared.take() else { return }
@@ -158,6 +161,7 @@ struct DashboardView: View {
             if logbook.logSheetRequested { openRequestedLogSheet() }
             takeEntryRequest()
             takeLinkRequest()
+            takeLogbookRequest()
         }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
     }
@@ -632,6 +636,15 @@ struct DashboardView: View {
         logbookLink = link
         cameFromCard = nil
         revealEntry = nil
+        select(.logbook)
+    }
+
+    /// Open Logbook from the menu bar item's right-click menu: cross-fade to the Logbook as the user
+    /// last left it, with no way back to an Insights card.
+    private func takeLogbookRequest() {
+        guard request.opensLogbook else { return }
+        request.opensLogbook = false
+        cameFromCard = nil
         select(.logbook)
     }
 
