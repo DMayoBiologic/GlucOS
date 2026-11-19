@@ -70,6 +70,13 @@ enum WhatsNew {
     static let riseDistance: Double = 12
     /// The stagger stops growing after this many rows, so a long list doesn't keep you waiting.
     static let maxStaggerSteps = 8
+    /// Each row's symbol plays its one-shot effect this far into the row's rise, as it settles.
+    static let symbolLead: TimeInterval = 0.2
+    /// Continue fades in this long after the last row has finished rising, over `continueFade`.
+    static let continueGap: TimeInterval = 0.1
+    static let continueFade: TimeInterval = 0.25
+    /// Under Reduce Motion the rows and Continue simply fade in together, over this.
+    static let reduceMotionFade: TimeInterval = 0.25
 
     enum Decision: Equatable {
         /// Show these releases, newest first, then remember the current version.
@@ -117,6 +124,21 @@ enum WhatsNew {
     static func riseDelay(row index: Int, reduceMotion: Bool) -> TimeInterval {
         reduceMotion ? 0 : rowStagger * Double(min(max(index, 0), maxStaggerSteps))
     }
+
+    /// When row `index`'s symbol plays its one-shot effect, or nil under Reduce Motion (no effect).
+    static func symbolDelay(row index: Int, reduceMotion: Bool) -> TimeInterval? {
+        reduceMotion ? nil : riseDelay(row: index, reduceMotion: false) + symbolLead
+    }
+
+    /// When Continue starts to fade in: last, once every row of `rows` has risen. Under Reduce
+    /// Motion it fades in with the rows, straight away.
+    static func continueDelay(rows: Int, reduceMotion: Bool) -> TimeInterval {
+        guard !reduceMotion, rows > 0 else { return 0 }
+        return riseDelay(row: rows - 1, reduceMotion: false) + riseDuration + continueGap
+    }
+
+    /// VoiceOver focus moves to the title once the sheet or card has settled on screen.
+    static func titleFocusDelay(reduceMotion: Bool) -> TimeInterval { reduceMotion ? 0.25 : 0.55 }
 
     /// True while a reading would be hidden behind the sheet when it matters: the automatic sheet
     /// waits for the next opening instead. Settings › About still opens it.
@@ -179,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.78.0", highlights: [
+            .init(symbol: "sparkles",
+                  title: "A livelier What's New",
+                  detail: "Highlights now rise in one after another, each icon gives a little bounce, and Continue appears once you've seen them."),
+        ]),
         WhatsNewRelease(version: "1.77.0", highlights: [
             .init(symbol: "clock.arrow.circlepath",
                   title: "Smoother missing-readings widgets",
