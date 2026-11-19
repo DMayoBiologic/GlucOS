@@ -6,6 +6,8 @@ import SwiftUI
 /// colours match the bar (`GlucoseRange.low/inRange/high.tint`) and always sit beside the words.
 /// A picture of text only: hidden from VoiceOver, whoever shows it says
 /// `DayInRangeBreakdownText.spoken` in its one element. Nothing moves; the figures change at once.
+/// On a day readings only partly cover, the hours are estimates ("78% · ≈18 h 40 min") with one
+/// quiet line saying so; under half covered only the percents show (`DayInRange.times`).
 struct DayRangeBreakdown: View {
     let figures: DayInRange
 
@@ -18,17 +20,25 @@ struct DayRangeBreakdown: View {
     }
 
     var body: some View {
-        let hasTimes = figures.spanMinutes > 0
-        // Wide enough for three across on every iPhone; stacks at the largest text sizes.
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: DS.Space.md) { cells(hasTimes) }
-            VStack(alignment: .leading, spacing: DS.Space.xs) { cells(hasTimes) }
+        let times = figures.times
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            // Wide enough for three across on every iPhone; stacks at the largest text sizes.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: DS.Space.md) { cells(times) }
+                VStack(alignment: .leading, spacing: DS.Space.xs) { cells(times) }
+            }
+            if let note = DayInRangeBreakdownText.estimateNote(figures) {
+                Text(note)
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .accessibilityHidden(true)
     }
 
     @ViewBuilder
-    private func cells(_ hasTimes: Bool) -> some View {
+    private func cells(_ times: DayInRange.Times) -> some View {
         ForEach(figures.parts, id: \.band) { part in
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
                 Circle()
@@ -38,7 +48,7 @@ struct DayRangeBreakdown: View {
                     Text(DayInRangeBreakdownText.label(part.band))
                         .dsFont(.caption)
                         .foregroundStyle(.secondary)
-                    Text(DayInRangeBreakdownText.figure(part, hasTimes: hasTimes))
+                    Text(DayInRangeBreakdownText.figure(part, times: times))
                         .dsFont(.caption)
                         .fontWeight(.semibold)
                         .monospacedDigit()

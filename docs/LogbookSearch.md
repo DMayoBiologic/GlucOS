@@ -186,6 +186,13 @@ tested in DayInRangeTests; drawn by `DayRangeBreakdown`).
   clock change), midnight to now for today. Below and above are rounded to the nearest 5 minutes
   (never to nothing if it happened) and in range takes the rest, so the three add up to the day.
   Shares, not reading counts, so 15-minute LinkUp history reads the same as 1-minute readings.
+- **Days with gaps (round 95).** The hours spread the shares over the whole span, so a day with
+  readings in only part of its 15-minute slots would read as if the missing hours went the same
+  way. `DayInRange.coverage` is the share of slots with a reading and `DayInRange.times` decides
+  the hours: 90% or more, as measured; 50% to 90%, estimates ("78% · ≈18 h 40 min", VoiceOver
+  "about 18 hours 40 minutes") with one line under the row, also ending the tooltip and VoiceOver
+  label: "Hours estimated from readings over 72% of the day."; under 50%, percents only. Days
+  under 50% get no bar today anyway, so that case is a guard. Today counts its slots up to now.
 - **VoiceOver.** Still one element: the opened header (and the Mac popover) now reads "78% in
   range, 18 hours 40 minutes. 4% below, 1 hour" in place of the bare shares
   (`DayChartText.spoken(breakdown: true)`). The row itself is hidden.
