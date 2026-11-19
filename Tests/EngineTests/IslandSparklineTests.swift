@@ -61,13 +61,15 @@ final class IslandSparklineTests: XCTestCase {
     func testSharedSlotsKeepTheirRingIndexAcrossANewReading() throws {
         let old = try XCTUnwrap(IslandSparkline.frame(history: history(rising(from: 100)), readingAt: at(1000)))
         let new = try XCTUnwrap(IslandSparkline.frame(history: history(rising(from: 110)), readingAt: at(1001)))
-        // Slots 987...1000 are on both cards: same value at the same index, so nothing jumps.
-        for slot in 987...1000 {
+        // Slots 988...1000 are on screen on both cards: same value at the same index, so nothing jumps.
+        for slot in 988...1000 {
             XCTAssertEqual(old.ring[IslandSparkline.index(slot)], new.ring[IslandSparkline.index(slot)], "slot \(slot)")
         }
         // The new slot starts at the old reading and ends at the new one.
         XCTAssertEqual(old.ring[IslandSparkline.index(1001)], 240)
         XCTAssertEqual(new.ring[IslandSparkline.index(1001)], 250)
+        // So does the one after it, for a card two slots later.
+        XCTAssertEqual(old.ring[IslandSparkline.index(1002)], 240)
     }
 
     func testHalfwayThroughAGlideTheNewPointIsOffTheRightEdge() throws {

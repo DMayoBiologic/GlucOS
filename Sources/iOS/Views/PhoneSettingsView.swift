@@ -300,6 +300,7 @@ struct PhoneSettingsView: View {
             return settings.alertsEnabled
         case .warnAhead:
             return settings.alertsEnabled && (settings.alertOnPredictedLow || settings.alertOnPredictedHigh)
+        case .islandSparkline: return services.liveActivityEnabled
         default: return true
         }
     }

@@ -9,9 +9,10 @@ import Foundation
 // right edge, rather than every point jumping to its neighbour's height. ActivityKit can only
 // interpolate between two states, so the values are kept in a ring keyed by the reading's 5-minute
 // slot (`slot mod ringSize`): a value that's on both the old and the new card sits at the same
-// ring index in both, so only the slot's position moves. The one index that changes meaning (the
-// slot after the reading) holds the reading itself until it's filled, so the incoming point grows
-// out of the line's end. Under Reduce Motion the view doesn't animate at all.
+// ring index in both, so only the slot's position moves. The indices that change meaning (the two
+// slots after the reading) hold the reading itself until they're filled, so incoming points grow
+// out of the line's end. A jump of three or more slots (a 15-minute gap) can briefly show one odd
+// segment at the right edge while it glides. Under Reduce Motion the view doesn't animate at all.
 //
 // Free of SwiftUI so it's unit-tested; the widget extension draws it (IslandSparklineShape).
 
@@ -51,9 +52,10 @@ enum IslandSparkline {
     static func frame(history: [Int?], readingAt: Double) -> Frame? {
         guard let last = history.last, let current = last else { return nil }
         let end = Int((readingAt / GlucoseActivityState.historyStep).rounded(.down))
-        // Slots end-(ringSize-2) ... end, oldest first: the visible hour plus the one off the edge
-        // (and one more, so a two-slot jump still has a real value to slide in).
-        let wanted = ringSize - 1
+        // Slots end-13 ... end, oldest first: the visible hour plus the one just off the left edge.
+        // The ring's other two indices are the next two slots, so a card that comes one or two
+        // slots later glides in from the reading instead of from an unrelated old value.
+        let wanted = visibleSteps + 2
         var tail: [Int?] = Array(history.suffix(wanted))
         if tail.count < wanted { tail = Array(repeating: nil, count: wanted - tail.count) + tail }
 
@@ -66,9 +68,10 @@ enum IslandSparkline {
             let slot = end - (wanted - 1 - i)
             ring[index(slot)] = v
         }
-        // The slot after the reading starts at the reading, so the next card's new point grows
-        // out of the line's end instead of from wherever an old value left it.
+        // The slots after the reading start at the reading, so the next card's new points grow
+        // out of the line's end instead of from wherever an old value left them.
         ring[index(end + 1)] = Double(current)
+        ring[index(end + 2)] = Double(current)
 
         let shown = filled.suffix(visibleSteps + 1)
         var lo = shown.min() ?? Double(current)
