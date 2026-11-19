@@ -202,6 +202,25 @@ Round 44 adds a compact month calendar to the Logbook, on iPhone and Mac (`Logbo
   the tints fade in together and the mark fades; nothing slides, follows or springs. Rules in
   `LogbookCalendarMotion` (LogbookCalendarTests).
 
+## Back to today
+
+Round 91 adds a quick way back to the top of the Logbook (`LogbookToday`, Engine, tested in
+LogbookTodayTests).
+
+- **iPhone.** Once the list has scrolled more than 0.8 of a screen from the top (360 pt at least),
+  a small **Today** pill drops in under the navigation bar. It goes again once the list is back
+  within 0.4 of a screen (180 pt at least), so it never blinks at one spot. A tap springs the list
+  (the emphasized spring) back to the very top, chips included, lights the newest day's header once,
+  plays the light choice tap and VoiceOver says "Showing Today". When nothing was logged today (or
+  the search leaves today out) the pill says **Latest** and goes to the newest listed day. It hides
+  in Select mode and while an entry is open.
+- **Mac.** In the Logbook the toolbar has a **Today** button, also ⌘T. If the toolbar's period is
+  in the past it moves back to now first; the table then springs to its newest row and that day's
+  rows light once.
+- **Reduce Motion.** The pill just appears and goes, and the list or table moves at once, with no
+  spring and no dip.
+- **VoiceOver.** One button, "Back to today" (or "Back to the latest entries").
+
 ## Folding a day
 
 Round 63 lets a day fold down to its header, on iPhone and Mac (`LogbookCollapse`,

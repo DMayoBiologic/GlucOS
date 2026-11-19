@@ -216,5 +216,8 @@ enum LogbookCalendarMotion {
 /// again still moves the list.
 struct LogbookJumpRequest: Equatable {
     let day: Date
+    /// Back to the top (`LogbookToday`): the Today pill or ⌘T, not a day picked in the calendar.
+    /// Lands on the newest listed row, and moves instantly under Reduce Motion.
+    var toTop = false
     let token = UUID()
 }

@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.85.0", highlights: [
+            .init(symbol: "arrow.up.to.line",
+                  title: "Back to today in the Logbook",
+                  detail: "Scroll back through the Logbook and a Today button appears at the top of the list on iPhone; tap it to spring back to today. On the Mac, use the Today button in the toolbar or press Command-T."),
             .init(symbol: "number",
                   title: "Averages roll to new readings",
                   detail: "On iPhone Today and in the Mac menu bar, your average and the other summary figures now roll to their new values as each reading arrives, alongside time in range."),

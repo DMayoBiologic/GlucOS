@@ -147,6 +147,9 @@ struct PhoneLogbookView: View {
     @State private var landed: String?
     /// The list's opacity, dipped for the Reduce Motion cross-fade while it moves to a day.
     @State private var listFade = 1.0
+    /// The "Today" pill under the navigation bar, shown once the list is well away from the top
+    /// (`LogbookToday`). A tap springs the list back to the newest day.
+    @State private var showsToday = false
     /// Days folded down to their header (`LogbookCollapse`), kept on this phone only.
     @AppStorage(LogbookCollapse.defaultsKey) private var foldedStored = ""
     /// The folds in force: the kept ones, and a running search's own (`LogbookFolds`).
@@ -323,22 +326,49 @@ struct PhoneLogbookView: View {
 
     private func list(all: [LogEntry], kinds: [LogbookFilter], shown: [PhoneLogbookItem],
                       search: LogbookQuery) -> some View {
-        ScrollViewReader { proxy in
+        let topID: String? = showsFilterBar(all: all, kinds: kinds) ? LogbookTodayPill.topID : nil
+        let target = LogbookToday.target(shownDays: Set(shown.map { Calendar.autoupdatingCurrent.startOfDay(for: $0.timestamp) }))
+        return ScrollViewReader { proxy in
             listBody(all: all, kinds: kinds, shown: shown, search: search)
                 .opacity(listFade)
-                .task(id: jumping) { await land(jumping, proxy: proxy) }
+                .task(id: jumping) { await land(jumping, proxy: proxy, topID: topID) }
+                // How far the list is from the top decides the Today pill, with a gap between the
+                // lines it shows and hides at so it never blinks.
+                .onScrollGeometryChange(for: LogbookScrollSpot.self) { geo in
+                    LogbookScrollSpot(offset: geo.contentOffset.y + geo.contentInsets.top,
+                                      viewport: geo.containerSize.height)
+                } action: { _, spot in
+                    let on = LogbookToday.shows(offset: spot.offset, viewport: spot.viewport, showing: showsToday)
+                    if on != showsToday { DS.animate(.emphasized, reduceMotion: reduceMotion) { showsToday = on } }
+                }
+                .overlay(alignment: .top) {
+                    if showsToday && !selecting && target != nil && !opener.isOpen {
+                        LogbookTodayPill(target: target, reduceMotion: reduceMotion) {
+                            guard let target else { return }
+                            jumping = LogbookJumpRequest(day: target, toTop: true)
+                        }
+                        .padding(.top, DS.Space.sm)
+                    }
+                }
         }
+    }
+
+    /// The chips above the list: shown once there's more than one kind to pick, or a pick or a tag.
+    private func showsFilterBar(all: [LogEntry], kinds: [LogbookFilter]) -> Bool {
+        kinds.count > 1 || kind != nil || tagFilter != nil || !LogbookTags.used(all).isEmpty
     }
 
     private func listBody(all: [LogEntry], kinds: [LogbookFilter], shown: [PhoneLogbookItem],
                           search: LogbookQuery) -> some View {
         List {
-            if kinds.count > 1 || kind != nil || tagFilter != nil || !LogbookTags.used(all).isEmpty {
+            if showsFilterBar(all: all, kinds: kinds) {
                 Section {
                     filterBar(kinds, tags: LogbookTags.used(all))
                         .listRowInsets(EdgeInsets(top: DS.Space.xs, leading: 0, bottom: DS.Space.xs, trailing: 0))
                         .listRowBackground(Color.clear)
                 }
+                // Where the Today pill lands, so the chips come back into view with today.
+                .id(LogbookTodayPill.topID)
             }
             if !search.isEmpty && !all.isEmpty {
                 Section {
@@ -1052,12 +1082,23 @@ struct PhoneLogbookView: View {
     /// Once the calendar has gone (and any cleared search has rebuilt the list): springs the list
     /// so the day's header is at the top, or under Reduce Motion dips the list out, moves it, and
     /// fades it back. The header then lights once, and VoiceOver says where it landed.
-    private func land(_ request: LogbookJumpRequest?, proxy: ScrollViewProxy) async {
+    /// The Today pill (`request.toTop`) goes to the very top, chips included, with no wait for a
+    /// calendar to close, and under Reduce Motion it moves at once with no dip.
+    private func land(_ request: LogbookJumpRequest?, proxy: ScrollViewProxy, topID: String?) async {
         guard let request else { return }
         let id = LogbookJump.sectionID(request.day)
-        try? await Task.sleep(for: .milliseconds(reduceMotion ? 80 : 200))
+        let scrollID = request.toTop ? (topID ?? id) : id
+        if !request.toTop {
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 80 : 200))
+        }
         guard !Task.isCancelled else { return }
-        if reduceMotion {
+        if request.toTop {
+            if reduceMotion {
+                proxy.scrollTo(scrollID, anchor: .top)
+            } else {
+                withAnimation(DSMotion.emphasized.animation) { proxy.scrollTo(scrollID, anchor: .top) }
+            }
+        } else if reduceMotion {
             withAnimation(.easeOut(duration: 0.15)) { listFade = 0 }
             try? await Task.sleep(for: .milliseconds(160))
             proxy.scrollTo(id, anchor: .top)
