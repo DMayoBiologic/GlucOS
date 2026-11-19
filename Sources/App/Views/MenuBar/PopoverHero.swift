@@ -247,7 +247,7 @@ private struct PopoverSensorCountdown: View {
                 }
             }
         } else if let starts = SensorEnd.countdownStarts(sensor: sensor), starts > Date() {
-            TimelineView(.explicit([starts])) { context in
+            TimelineView(.explicit(RedrawMoments.explicit([starts], now: Date()))) { context in
                 if let countdown = SensorEnd.countdown(sensor: sensor, at: context.date) {
                     SensorCountdownLine(countdown: countdown)
                 }

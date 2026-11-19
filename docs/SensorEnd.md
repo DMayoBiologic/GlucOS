@@ -20,6 +20,11 @@ daylight-saving changes).
   the ended card, then the first reading over that. The Mac's stale notice is hidden while it
   shows, and the popover's old "Sensor ends in…" / "Sensor has ended" notices are gone: the top
   card says both. The Mac popover redraws at the end moment, so an open popover changes over.
+  Its schedule starts with now (`GlucoseSnapshot.heroRedrawMoments`, `RedrawMoments.explicit`):
+  `TimelineView(.explicit(_:))` draws its first date straight away even when it's in the future,
+  so a schedule of only the end moment showed the ended card from the moment the popover opened,
+  with the live reading labelled "Yesterday" (`RedrawMomentsTests`). The
+  countdown line's wait, the Mac warm-up card and the snooze chip go through the same helper.
 - **Evening-before reminder.** Opt-in, off by default (`sensorEndReminderEnabled`, per device).
   iPhone: Settings → Sensor → Sensor change reminder. Mac: Settings → Alerts → Sensor. One local
   notification at 7 pm by the clock on the day before the end day, under the identifier
