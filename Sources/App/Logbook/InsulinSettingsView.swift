@@ -71,12 +71,13 @@ struct InsulinListSection: View {
                     .foregroundStyle(.secondary)
             }
         } header: {
-            Text("Your Insulins")
+            SettingsSectionHeader("Your Insulins", systemImage: "cross.vial")
                 .settingsAnchor(.insulins)
         } footer: {
             Text("The log sheet picks the mealtime insulin you logged last, or the first one here. Shared with GlucOS on your other devices.")
                 .foregroundStyle(.secondary)
         }
+        .settingsSection("Your Insulins")
         .sheet(item: $editing) { target in
             InsulinEditor(existing: target.insulin, viaPump: viaPump) { editing = nil }
                 .environmentObject(logbook)

@@ -15,7 +15,7 @@ struct SettingsView: View {
     /// Where the open tab is kept; the Insights Alerts card sets it to open on Alerts.
     static let tabKey = "settingsTab"
     @AppStorage(SettingsView.tabKey) private var tab: Tab = .general
-    @StateObject private var search = SettingsSearchModel()
+    @StateObject private var search = SettingsSearchModel(catalog: SettingsCatalog.mac)
 
     var body: some View {
         TabView(selection: $tab) {
@@ -88,18 +88,20 @@ private struct GeneralSettingsTab: View {
                     .help("A faint grey line of yesterday's readings at the same time of day. Right-click the chart to turn it on or off.")
                     .settingsAnchor(.showYesterday)
             } header: {
-                Text("Menu Bar")
+                SettingsSectionHeader("Menu Bar", systemImage: "menubar.rectangle")
             } footer: {
                 Text("The reading takes its range colour; urgent lows always do. A stale reading turns grey and crossed through, with an amber warning sign and how old it is.")
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("Menu Bar")
 
             Section {
                 TextSizePicker()
                     .settingsAnchor(.textSize)
             } header: {
-                Text("Appearance")
+                SettingsSectionHeader("Appearance", systemImage: "textformat.size")
             }
+            .settingsSection("Appearance")
 
             Section {
                 // A binding rather than onChange: the toggle only ever reflects the service's real
@@ -112,11 +114,12 @@ private struct GeneralSettingsTab: View {
                         .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                 }
             } header: {
-                Text("Startup")
+                SettingsSectionHeader("Startup", systemImage: "power")
             } footer: {
                 Text("Recommended, so alerts keep working after a restart.")
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("Startup")
 
             Section {
                 LabeledContent("Desktop widget") {
@@ -132,8 +135,9 @@ private struct GeneralSettingsTab: View {
                 }
                 .settingsAnchor(.setupAssistant)
             } header: {
-                Text("Getting Started")
+                SettingsSectionHeader("Getting Started", systemImage: "sparkles")
             }
+            .settingsSection("Getting Started")
         }
         .formStyle(.grouped)
         .settingsSearchPage(.general)
@@ -241,11 +245,12 @@ private struct AccountSettingsTab: View {
                         .disabled(email.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty || signingIn)
                 }
             } header: {
-                Text("LibreLinkUp Follower Account")
+                SettingsSectionHeader("LibreLinkUp Follower Account", systemImage: "person.crop.circle")
             } footer: {
                 Text("Use the *follower* account that accepted the invitation from LibreLink, not your LibreLink login. Credentials are stored in the macOS Keychain and sent to Abbott. If logbook sync is on, they're also checked once by the GlucOS sync server to confirm the account, and not kept there.")
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("LibreLinkUp Follower Account")
 
             Section {
                 FollowerAccountHelp()
@@ -403,13 +408,16 @@ private struct GlucoseSettingsTab: View {
 
     var body: some View {
         Form {
-            Section("Units") {
+            Section {
                 Picker("Glucose units", selection: $settings.unit) {
                     ForEach(GlucoseUnit.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .settingsAnchor(.units)
+            } header: {
+                SettingsSectionHeader("Units", systemImage: "ruler")
             }
+            .settingsSection("Units")
 
             Section {
                 TargetRangeEditor(settings: settings, readingMgdl: freshMgdl, previewReadings: store.archive,
@@ -417,11 +425,12 @@ private struct GlucoseSettingsTab: View {
                     .padding(.vertical, 4)
                     .settingsAnchor(.targetRange)
             } header: {
-                Text("Target Range")
+                SettingsSectionHeader("Target Range", systemImage: "target")
             } footer: {
                 Text("Readings from \(settings.unit.format(mgdl: settings.lowMgdl)) to \(settings.unit.format(mgdl: settings.highMgdl, withUnit: true)) count as in range. This sets the colours everywhere, time in range, and when low and high alerts fire. Urgent low (below \(settings.unit.format(mgdl: 54))) and very high (above \(settings.unit.format(mgdl: 250))) are fixed.")
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("Target Range")
         }
         .formStyle(.grouped)
         .settingsSearchPage(.glucose)
@@ -516,7 +525,7 @@ private struct AlertSettingsTab: View {
                 AlertRow(title: "Very high", detail: "Above \(u.format(mgdl: 250, withUnit: true))",
                          tint: GlucoseRange.veryHigh.tint, isOn: nil)
             } header: {
-                Text("Glucose")
+                SettingsSectionHeader("Glucose", systemImage: "drop")
             } footer: {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Lows and very highs always alert while glucose alerts are on.")
@@ -526,6 +535,7 @@ private struct AlertSettingsTab: View {
                         .buttonStyle(.link)
                 }
             }
+            .settingsSection("Glucose")
             .disabled(!settings.alertsEnabled)
 
             Section {
@@ -545,11 +555,12 @@ private struct AlertSettingsTab: View {
                 .disabled(!showsWarnAhead)
                 .settingsAnchor(.warnAhead)
             } header: {
-                Text("Forecast")
+                SettingsSectionHeader("Forecast", systemImage: "chart.line.uptrend.xyaxis")
             } footer: {
                 Text("A heads-up from GlucOS's estimate of where glucose is heading, based on the recent trend and, once it has learnt from your logs, the insulin and carbs still acting. Forecasts can be wrong: always check your reading before acting. Only fires while glucose is falling or rising, and never replaces the alerts above.")
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("Forecast")
             .disabled(!settings.alertsEnabled)
 
             Section {
@@ -570,11 +581,12 @@ private struct AlertSettingsTab: View {
                 }
                 .settingsAnchor(.alertRepeat)
             } header: {
-                Text("Also Notify Me About")
+                SettingsSectionHeader("Also Notify Me About", systemImage: "bell")
             } footer: {
                 Text("Repeats apply to low, high, very high and rapid-change alerts. Urgent low always repeats every 5 minutes.")
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("Also Notify Me About")
             .disabled(!settings.alertsEnabled)
 
             Section {
@@ -587,11 +599,12 @@ private struct AlertSettingsTab: View {
                 DatePicker("Time", selection: settings.eveningRecapTime, displayedComponents: .hourAndMinute)
                     .disabled(!settings.eveningRecapEnabled)
             } header: {
-                Text("Daily Recap")
+                SettingsSectionHeader("Daily Recap", systemImage: "moon.stars")
             } footer: {
                 Text(EveningRecapText.settingsFooter(minute: settings.eveningRecapMinute) + " Click it to open Insights on today.")
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("Daily Recap")
 
             Section {
                 LabeledContent("Last 7 days") {
@@ -599,11 +612,12 @@ private struct AlertSettingsTab: View {
                 }
                 .settingsAnchor(.alertHistory)
             } header: {
-                Text("History")
+                SettingsSectionHeader("History", systemImage: "clock.arrow.circlepath")
             } footer: {
                 Text(AlertHistoryText.macFooter)
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("History")
 
             Section {
                 Toggle("Sensor change reminder", isOn: $settings.sensorEndReminderEnabled)
@@ -612,11 +626,12 @@ private struct AlertSettingsTab: View {
                     }
                     .settingsAnchor(.sensorEndReminder)
             } header: {
-                Text("Sensor")
+                SettingsSectionHeader("Sensor", systemImage: "sensor.tag.radiowaves.forward")
             } footer: {
                 Text(SensorEndReminder.settingsFooter)
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("Sensor")
         }
         .formStyle(.grouped)
         .settingsSearchPage(.alerts)
@@ -768,11 +783,12 @@ private struct LogbookSyncSection: View {
                 .dependentRow()
             }
         } header: {
-            Text("Sync")
+            SettingsSectionHeader("Sync", systemImage: "arrow.triangle.2.circlepath")
         } footer: {
             Text("Doses, food, site changes, tags and presets are shared with GlucOS on your iPhone, signed in with the same LibreLinkUp account. Everything is kept on this Mac too and works offline; changes sync when you're back online. If an entry is edited on two devices, the later edit is kept.")
                 .foregroundStyle(.secondary)
         }
+        .settingsSection("Sync")
     }
 }
 
@@ -800,13 +816,14 @@ private struct LoggingSettingsTab: View {
                 }
                 .settingsAnchor(.therapy)
             } header: {
-                Text("How You Take Insulin")
+                SettingsSectionHeader("How You Take Insulin", systemImage: "syringe")
             } footer: {
                 Text(settings.therapy == .notSet
                      ? "Decides what GlucOS asks when you log, and which patterns it shows."
                      : settings.therapy.detail)
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("How You Take Insulin")
 
             if settings.therapy.logsInsulin {
                 InsulinListSection()
@@ -817,11 +834,12 @@ private struct LoggingSettingsTab: View {
                 Toggle("Log new sensors", isOn: $settings.logSensorStarts)
                     .settingsAnchor(.sensorStartLog)
             } header: {
-                Text("Sensor")
+                SettingsSectionHeader("Sensor", systemImage: "sensor.tag.radiowaves.forward")
             } footer: {
                 Text("When GlucOS first sees a new sensor, it adds \"Sensor started\" to your Logbook at the time it started. Logged once, on all your devices.")
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("Sensor")
 
             KeyboardLoggingSection()
 
@@ -834,11 +852,12 @@ private struct LoggingSettingsTab: View {
                     }
                     .settingsAnchor(.bolus)
                 } header: {
-                    Text("Bolus Calculator")
+                    SettingsSectionHeader("Bolus Calculator", systemImage: "plus.forwardslash.minus")
                 } footer: {
                     Text("Uses only the settings you enter and confirm. Shared with GlucOS on your iPhone. Not medical advice.")
                         .foregroundStyle(.secondary)
                 }
+                .settingsSection("Bolus Calculator")
                 .dependentRow()
             }
 
@@ -875,7 +894,7 @@ private struct LoggingSettingsTab: View {
                     .onMove { logbook.movePresets(from: $0, to: $1) }
                 }
             } header: {
-                Text("Quick-Add Presets")
+                SettingsSectionHeader("Quick-Add Presets", systemImage: "star")
                     .settingsAnchor(.presets)
             } footer: {
                 if !logbook.presets.isEmpty {
@@ -883,6 +902,7 @@ private struct LoggingSettingsTab: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .settingsSection("Quick-Add Presets")
 
             Section {
                 Text("Patterns in Dashboard → Insights are observations from your own logs and readings. They aren't medical advice and never suggest a dose. Don't change your insulin, ratios or pump settings based on them without talking to your diabetes care team.")
@@ -949,12 +969,13 @@ private struct AdvancedSettingsTab: View {
                 }
                 .settingsAnchor(.clientVersion)
             } header: {
-                Text("Connection")
+                SettingsSectionHeader("Connection", systemImage: "network")
             } footer: {
                 Text("Libre sensors last 14 days (Libre 2, 3) or 15 days (Libre 2 Plus, 3 Plus). Abbott periodically raises the minimum LibreLinkUp client version; GlucOS offers to switch when that happens.")
                     .foregroundStyle(.secondary)
             }
-            Section("Updates") {
+            .settingsSection("Connection")
+            Section {
                 LabeledContent("Version", value: updater.version)
                     .settingsAnchor(.updates)
                 LabeledContent("Highlights of recent updates") {
@@ -972,7 +993,10 @@ private struct AdvancedSettingsTab: View {
                         Text("Checks hourly; installs and relaunches automatically.")
                     }
                 }
+            } header: {
+                SettingsSectionHeader("Updates", systemImage: "arrow.down.circle")
             }
+            .settingsSection("Updates")
             Section {
                 DiagnosticsToggle()
                     .settingsAnchor(.diagnostics)
@@ -994,11 +1018,12 @@ private struct AdvancedSettingsTab: View {
                     Button("Reconnect") { store.reconnect() }
                 }
             } header: {
-                Text("Diagnostics")
+                SettingsSectionHeader("Diagnostics", systemImage: "stethoscope")
             } footer: {
                 Text(DiagnosticsToggle.privacyNote)
                     .foregroundStyle(.secondary)
             }
+            .settingsSection("Diagnostics")
         }
         .formStyle(.grouped)
         .settingsSearchPage(.advanced)
@@ -1047,11 +1072,12 @@ private struct KeyboardLoggingSection: View {
                 .frame(width: 520, height: 560)
             }
         } header: {
-            Text("Keyboard")
+            SettingsSectionHeader("Keyboard", systemImage: "keyboard")
         } footer: {
             Text("In GlucOS, ⌘L logs (during a low, it opens Log treatment) and ⌘? lists every shortcut. Tab and the arrow keys move a focus ring through the menu bar, Insights and the Logbook; Return or Space does what a click would, and Esc closes. In the log window, the arrow keys move between moments, Return picks one and moves on, and Space picks several.")
                 .foregroundStyle(.secondary)
         }
+        .settingsSection("Keyboard")
     }
 }
 
@@ -1171,7 +1197,7 @@ private struct SettingsSearchPageBody: ViewModifier {
         }
     }
 
-    private var found: [SettingsItem] { search.results(in: SettingsCatalog.mac) }
+    private var found: [SettingsItem] { search.found }
 
     private var field: some View {
         HStack(spacing: DS.Space.xs) {
@@ -1219,6 +1245,7 @@ private struct SettingsSearchPageBody: ViewModifier {
                 } else {
                     ForEach(items) { item in
                         SettingsSearchResultRow(item: item, query: search.query) { pick(item) }
+                            .settingsResultEntrance(item.anchor, search: search)
                     }
                 }
             } header: {
