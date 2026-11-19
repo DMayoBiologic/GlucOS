@@ -1235,7 +1235,8 @@ struct LogbookSection: View {
     /// "Tue 12 Nov ▬▬▬ 78%": the day, its time in range as a thin bar (`DayRangeBar`, drawn in
     /// once when the row first shows) and the figure. Days without enough readings show the name.
     /// Clicking a day with a bar shows that day's chart in a popover (`DayMiniChart`), the iPhone's
-    /// opened day header in Mac form.
+    /// opened day header in Mac form, with the day's breakdown under it (`DayRangeBreakdown`).
+    /// Hovering the cell gives the same breakdown as its tooltip (`DayInRangeBreakdownText.help`).
     ///
     /// The chevron before the name folds the day down to this one line, or opens it again
     /// (`toggleFold`). VoiceOver hears it as its own button: "Tuesday 12 November, Expanded".
@@ -1358,7 +1359,8 @@ struct LogbookSection: View {
         if range != nil {
             Button { openDay = start } label: { content.contentShape(Rectangle()) }
                 .buttonStyle(.plain)
-                .help("Show this day's chart")
+                // Hovering gives the day's breakdown, with how long each share lasted.
+                .help(range.map(DayInRangeBreakdownText.help) ?? "Show this day's chart")
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(DayInRangeText.spoken(day, range))
                 .accessibilityValue(spokenTotals)
@@ -1393,6 +1395,9 @@ struct LogbookSection: View {
             }
             DayMiniChart(start: start, segments: segments, markers: markers, unit: data.unit,
                          lowMgdl: data.lowMgdl, highMgdl: data.highMgdl, height: 140)
+            if let range {
+                DayRangeBreakdown(figures: range)
+            }
             Text(DayChartText.caption(segments, unit: data.unit) ?? "No readings")
                 .dsFont(.caption).monospacedDigit().foregroundStyle(.secondary)
         }
@@ -1400,7 +1405,8 @@ struct LogbookSection: View {
         .frame(width: 380)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(DayChartText.spoken(day: day, figures: range, segments: segments, unit: data.unit,
-                                                low: data.lowMgdl, high: data.highMgdl, logged: markers.count))
+                                                low: data.lowMgdl, high: data.highMgdl, logged: markers.count,
+                                                breakdown: true))
     }
 
     @ViewBuilder

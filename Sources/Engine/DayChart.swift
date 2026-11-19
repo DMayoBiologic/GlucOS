@@ -108,13 +108,18 @@ enum DayChartText {
     }
 
     /// What VoiceOver says for an open day: "Tuesday 12 November, chart. 78% in range, 4% below.
+    /// (With `breakdown`, each share also says how long it lasted: "78% in range, 18 hours 40
+    /// minutes. 4% below, 1 hour.")
     /// Lowest 3.9 mmol/L at 4:10 am, highest 12.1 mmol/L at 1:30 pm. Target 3.9 to 10.0. 3 entries
     /// logged."
     static func spoken(day: ClockLabel.Day, figures: DayInRange?, segments: [[DayChartPoint]], unit: GlucoseUnit,
-                       low: Double, high: Double, logged: Int, calendar: Calendar = .autoupdatingCurrent,
-                       locale: Locale = .autoupdatingCurrent) -> String {
+                       low: Double, high: Double, logged: Int, breakdown: Bool = false,
+                       calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent) -> String {
         var parts = ["\(DayInRangeText.spokenDay(day, calendar: calendar, locale: locale)), chart"]
-        if let f = figures {
+        if breakdown, let f = figures {
+            // The opened day's breakdown, with how long each share lasted.
+            parts.append(DayInRangeBreakdownText.spoken(f))
+        } else if let f = figures {
             var share = ["\(Format.percent(f.inRange)) in range"]
             if f.below >= 0.005 { share.append("\(Format.percent(f.below)) below") }
             if f.above >= 0.005 { share.append("\(Format.percent(f.above)) above") }

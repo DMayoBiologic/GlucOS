@@ -87,6 +87,15 @@ final class DayChartTests: XCTestCase {
         XCTAssertTrue(text.hasSuffix("3 entries logged."), text)
     }
 
+    func testSpokenWithBreakdown() {
+        let text = DayChartText.spoken(day: .yesterday,
+                                       figures: DayInRange(below: 0.04, inRange: 0.78, above: 0.18, spanMinutes: 1440),
+                                       segments: [], unit: .mgdl, low: 70, high: 180, logged: 0, breakdown: true,
+                                       calendar: utc)
+        XCTAssertTrue(text.hasPrefix("Yesterday, chart. 78% in range, 18 hours 40 minutes. 4% below, 1 hour. "
+                                     + "18% above, 4 hours 20 minutes. No readings."), text)
+    }
+
     func testSpokenWithoutReadings() {
         let text = DayChartText.spoken(day: .today, figures: nil, segments: [], unit: .mgdl, low: 70, high: 180,
                                        logged: 1, calendar: utc)
