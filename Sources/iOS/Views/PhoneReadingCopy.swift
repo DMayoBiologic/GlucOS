@@ -84,6 +84,9 @@ private struct CopiedToastModifier: ViewModifier {
                     visible = false
                 }
             }
-            .onDisappear { hide?.cancel() }
+            .onDisappear {
+                hide?.cancel()
+                visible = false
+            }
     }
 }
