@@ -53,6 +53,8 @@ final class SettingsSearchTests: XCTestCase {
     func testEverydayWordsLandOnTheRightRow() {
         XCTAssertEqual(top("hypo", SettingsCatalog.mac), .lowAlerts)
         XCTAssertEqual(top("dynamic island"), .liveActivity)
+        XCTAssertEqual(top("sparkline"), .islandSparkline)
+        XCTAssertEqual(top("island"), .islandSparkline)
         XCTAssertEqual(top("lock screen"), .liveActivity)
         XCTAssertEqual(top("nfc"), .readSensor)
         XCTAssertEqual(top("password"), .account)

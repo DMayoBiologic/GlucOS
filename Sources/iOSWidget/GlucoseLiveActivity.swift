@@ -107,9 +107,17 @@ struct GlucoseLiveActivity: Widget {
                         .accessibilityLabel(state.warmUpAccessibility)
                 } else {
                     HStack(spacing: 2) {
+                        // The optional last-hour line (Settings › Lock Screen) takes the delta's
+                        // place; the expanded island still shows the delta.
+                        let line = IslandSparkline.isOn(SharedStore.defaults)
+                            ? IslandSparkline.frame(history: state.history, readingAt: state.readingAt) : nil
+                        if let line {
+                            IslandSparklineView(line: line, tint: tint)
+                                .frame(width: 26, height: 14)
+                        }
                         TrendArrow(trend: state.glucoseTrend, stale: stale)
                             .font(.body.weight(.bold))
-                        if !stale, let delta = state.deltaText {
+                        if line == nil, !stale, let delta = state.deltaText {
                             Text(delta)
                                 .font(.caption2.weight(.bold))
                                 .monospacedDigit()
@@ -577,6 +585,78 @@ struct ActivitySparkline: View {
                      highMgdl: state.highMgdl, hours: GlucoseActivityState.historyHours, showAxes: false,
                      latestIsStale: stale, forecast: stale ? [] : forecast)
     }
+}
+
+/// The Dynamic Island's compact last-hour line (`IslandSparkline`). Glides one slot left on each
+/// new reading on the `.ambient` curve (no spring, so the line never overshoots); still under
+/// Reduce Motion. Hidden from VoiceOver: the compact leading reading already says the trend.
+struct IslandSparklineView: View {
+    let line: IslandSparkline.Frame
+    let tint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        IslandSparklineShape(line: line)
+            .stroke(tint, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+            .clipped()
+            .animation(reduceMotion ? nil : DSMotion.ambient.animation, value: line)
+            .transaction { if reduceMotion { $0.animation = nil } }
+            .accessibilityHidden(true)
+    }
+}
+
+/// Draws an `IslandSparkline.Frame`; everything it draws from is animatable, so between two cards
+/// the slot position, the ring of values and the scale all interpolate together.
+struct IslandSparklineShape: Shape {
+    var line: IslandSparkline.Frame
+
+    var animatableData: AnimatablePair<AnimatablePair<Double, AnimatablePair<Double, Double>>, IslandRingVector> {
+        get {
+            AnimatablePair(AnimatablePair(line.endSlot, AnimatablePair(line.lowMgdl, line.highMgdl)),
+                           IslandRingVector(values: line.ring))
+        }
+        set {
+            line.endSlot = newValue.first.first
+            line.lowMgdl = newValue.first.second.first
+            line.highMgdl = newValue.first.second.second
+            line.ring = newValue.second.values
+        }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        // A point's own width of headroom, so the stroke isn't cut at the top and bottom.
+        let inset: CGFloat = 1
+        let h = rect.height - inset * 2
+        let step = rect.width / CGFloat(IslandSparkline.visibleSteps)
+        for (i, pt) in IslandSparkline.points(line).enumerated() {
+            let point = CGPoint(x: rect.maxX - CGFloat(pt.back) * step,
+                                y: rect.maxY - inset - CGFloat(pt.level) * h)
+            if i == 0 { p.move(to: point) } else { p.addLine(to: point) }
+        }
+        return p
+    }
+}
+
+/// The ring of values as one animatable vector (always `IslandSparkline.ringSize` long).
+struct IslandRingVector: VectorArithmetic {
+    var values: [Double]
+
+    static var zero: IslandRingVector { IslandRingVector(values: Array(repeating: 0, count: IslandSparkline.ringSize)) }
+
+    private static func combine(_ a: IslandRingVector, _ b: IslandRingVector, _ op: (Double, Double) -> Double) -> IslandRingVector {
+        let n = max(a.values.count, b.values.count)
+        func at(_ v: [Double], _ i: Int) -> Double { i < v.count ? v[i] : 0 }
+        return IslandRingVector(values: (0..<n).map { op(at(a.values, $0), at(b.values, $0)) })
+    }
+
+    static func + (a: IslandRingVector, b: IslandRingVector) -> IslandRingVector { combine(a, b, +) }
+    static func - (a: IslandRingVector, b: IslandRingVector) -> IslandRingVector { combine(a, b, -) }
+    static func += (a: inout IslandRingVector, b: IslandRingVector) { a = a + b }
+    static func -= (a: inout IslandRingVector, b: IslandRingVector) { a = a - b }
+
+    mutating func scale(by rhs: Double) { values = values.map { $0 * rhs } }
+    var magnitudeSquared: Double { values.reduce(0) { $0 + $1 * $1 } }
 }
 
 /// The forecast note and insulin on board, or what to do when the reading is old.
