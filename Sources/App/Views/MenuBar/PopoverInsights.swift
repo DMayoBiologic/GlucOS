@@ -40,18 +40,6 @@ extension GlucoseSnapshot {
         return RangeStreak(range: range, duration: current.timestamp.timeIntervalSince(start),
                            isOpenEnded: reachedOldest && points.count > 1)
     }
-
-    /// Plain-text summary for the clipboard, e.g. "6.1 mmol/L, Rising (+0.3) at 3:41 pm".
-    func clipboardSummary(at now: Date = Date()) -> String? {
-        guard let current else { return nil }
-        var text = unit.format(mgdl: current.mgdl, withUnit: true)
-        var trendPart = current.trend == .unknown ? "" : current.trend.description
-        if let d = deltaMgdl { trendPart += trendPart.isEmpty ? unit.formatDelta(mgdl: d) : " (\(unit.formatDelta(mgdl: d)))" }
-        if !trendPart.isEmpty { text += ", \(trendPart)" }
-        text += " at \(current.timestamp.formatted(date: .omitted, time: .shortened))"
-        if isStale(at: now) { text += " (stale, \(PopoverFormat.age(current.age(at: now))) old)" }
-        return text
-    }
 }
 
 enum PopoverFormat {
@@ -156,16 +144,17 @@ extension GlucoseStore {
                            colorByRange: false, now: now).text
     }
 
+    /// The current reading as one line, in the unit on screen: "6.1 mmol/L, steady, 2 min ago", or
+    /// "No readings for 12 min · last …" during a gap (`ReadingCopy`). Nil with nothing to copy.
+    func readingCopyText(at now: Date = Date()) -> String? {
+        ReadingCopy.text(snapshot, unit: shownUnit, at: now)
+    }
+
     /// Copies the current reading to the clipboard. Returns false when there's nothing to copy.
     @discardableResult
     func copyReadingToClipboard() -> Bool {
-        guard let text = snapshot.clipboardSummary() else { return false }
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #else
-        UIPasteboard.general.string = text
-        #endif
+        guard let text = readingCopyText() else { return false }
+        ReadingClipboard.copy(text)
         return true
     }
 }
@@ -179,5 +168,19 @@ extension LogbookStore {
         let dose = doses.last { $0.timestamp >= cutoff && $0.timestamp <= now }
         let meal = meals.last { $0.timestamp >= cutoff && $0.timestamp <= now }
         return (dose, meal)
+    }
+}
+
+// MARK: - Clipboard
+
+/// Puts a line of text on the clipboard, on either platform.
+enum ReadingClipboard {
+    static func copy(_ text: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
+        #endif
     }
 }

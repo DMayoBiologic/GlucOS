@@ -20,6 +20,10 @@ struct PhoneHeroCard: View {
     @State private var ripple = 0
     /// The reading details card (round 56), opened by tapping the reading.
     @State private var showDetails = false
+    /// Bumped on each copy to show the "Copied" capsule (round 84, `PhoneReadingCopy`).
+    @State private var copied = 0
+    /// The line Share… hands the share sheet, while it's open.
+    @State private var sharing: SharedReadingText?
 
     private var s: GlucoseSnapshot { store.snapshot }
 
@@ -160,11 +164,22 @@ struct PhoneHeroCard: View {
                 if s.current != nil, !replaced {
                     Button("Show Reading Details") { showDetails = true }
                 }
+                if s.current != nil {
+                    Button("Copy Reading") { copyReading() }
+                    Button("Share Reading") { shareReading() }
+                }
             }
+            // Long-press the reading: Copy and Share… one line, "6.1 mmol/L, steady, 2 min ago"
+            // ("No readings for 12 min · …" during a gap), in the unit on screen (round 84).
             .contextMenu {
-                Button("Copy Reading", systemImage: "doc.on.doc") { store.copyReadingToClipboard() }
+                if s.current != nil {
+                    Button("Copy", systemImage: "doc.on.doc") { copyReading() }
+                    Button("Share…", systemImage: "square.and.arrow.up") { shareReading() }
+                }
                 Button("Refresh Now", systemImage: "arrow.clockwise") { Task { await store.refresh() } }
             }
+            .copiedToast(trigger: copied)
+            .readingShareSheet($sharing)
         }
         // One ripple per new reading, but not for the launch handover, which is a single fade.
         .onChange(of: RippleKey(timestamp: s.current?.timestamp, phase: store.launchPhase())) { old, new in
@@ -180,6 +195,17 @@ struct PhoneHeroCard: View {
                 AccessibilityNotification.Announcement(text).post()
             }
         }
+    }
+
+    private func copyReading() {
+        guard let text = store.readingCopyText() else { return }
+        PhoneReadingCopy.copy(text)
+        copied += 1
+    }
+
+    private func shareReading() {
+        guard let text = store.readingCopyText() else { return }
+        sharing = SharedReadingText(text: text)
     }
 
     /// Before the first reading: the shape of the card with a placeholder number, so the screen
