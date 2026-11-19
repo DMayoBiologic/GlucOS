@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "contextualmenu.and.cursorarrow",
                   title: "A quick menu in the menu bar",
                   detail: "On the Mac, right-click or Control-click your reading in the menu bar for your usual entries, Log Something, Open Logbook and Settings. A usual opens the log window filled in, ready to check and log."),
+            .init(symbol: "moon",
+                  title: "A livelier Overnight card",
+                  detail: "In Insights, the Overnight card's figures count up and a new bar of time below, in and above range fills in as the card comes into view. Pick another period and they glide to the new nights; with Reduce Motion on, the card simply fades."),
         ]),
         WhatsNewRelease(version: "1.85.0", highlights: [
             .init(symbol: "arrow.up.to.line",
