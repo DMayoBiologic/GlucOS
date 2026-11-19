@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.81.0", highlights: [
+            .init(symbol: "arrow.left.and.right",
+                  title: "One cursor across compared days",
+                  detail: "When comparing two days, drag across the chart or point at it on the Mac to see both days at the same time and how far apart they are."),
             .init(symbol: "chart.xyaxis.line",
                   title: "The last hour in the Dynamic Island",
                   detail: "Turn it on in Settings › Lock Screen and a small line of the last hour sits beside the trend arrow, gliding along with each new reading."),
