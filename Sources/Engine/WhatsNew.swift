@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.83.0", highlights: [
+            .init(symbol: "checkmark.circle",
+                  title: "A moment for back in range",
+                  detail: "After 15 minutes or more out of range, your reading gets one soft ring of the in-range colour as it comes back, with a light tap on iPhone."),
             .init(symbol: "chart.xyaxis.line",
                   title: "A chart inside each past alert",
                   detail: "In Alert History, tap an alert to open a small chart of the two hours around it, with the moment it went off and anything you logged then."),
