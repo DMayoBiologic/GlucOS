@@ -33,6 +33,10 @@ enum HapticEvent: String, CaseIterable, Sendable {
     /// Two fingers resting on the iPhone Today chart turned into a span (`ChartSpanHold`): its band
     /// fades in and the span's figures appear.
     case spanPicked
+    /// A Logbook row's swipe passed the point where letting go does something: Delete would delete,
+    /// or Log Again Now would stay open for a tap (`LogbookSwipe.Tick`, round 95). A soft tick that
+    /// follows the finger; it never logs or deletes by itself.
+    case swipeThreshold
     /// A new reading, with the app open, crossed into a low.
     case enteredLow
     /// A new reading came back into range (follower card).
@@ -65,6 +69,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         case .scrubRangeEdge: return .lightImpact(intensity: 0.9)
         case .scrubLogged: return .lightImpact(intensity: 0.6)
         case .scrubSnapped: return .lightImpact(intensity: 0.5)
+        case .swipeThreshold: return .lightImpact(intensity: 0.4)
         case .spanPicked: return .lightImpact(intensity: 0.5)
         case .copied: return .lightImpact(intensity: 0.6)
         case .rangeCrossed: return .lightImpact(intensity: 0.7)
@@ -79,7 +84,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         case .enteredLow, .alertBanner, .followerNeedsHelp: return 3
         case .done, .logSaved, .backInRange, .rangeCrossed, .followerOkay: return 2
         case .choice, .undone, .deleted, .newData, .spanPicked, .copied: return 1
-        case .scrubRangeEdge, .scrubLogged, .scrubSnapped: return 0
+        case .scrubRangeEdge, .scrubLogged, .scrubSnapped, .swipeThreshold: return 0
         }
     }
 
@@ -87,7 +92,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
     /// each one still plays.
     var isTick: Bool {
         switch self {
-        case .choice, .scrubRangeEdge, .scrubLogged, .scrubSnapped: return true
+        case .choice, .scrubRangeEdge, .scrubLogged, .scrubSnapped, .swipeThreshold: return true
         default: return false
         }
     }

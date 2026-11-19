@@ -458,6 +458,26 @@ LogbookGroupingTests.
 - **Export and sync** are untouched: the PDF, the CSV and the sync records stay one per entry.
   Grouping never changes an entry; the totals are the logged amounts added up, as the day headers do.
 
+## Swiping a row (round 95)
+
+On iPhone, a Logbook row's swipes are drawn by GlucOS (`PhoneLogbookSwipe`, rules in
+Sources/Engine/LogbookSwipe.swift, tests in LogbookSwipeTests). What they do is unchanged from #249:
+
+- **Swipe left to delete.** A full swipe (past 55% of the row, at least 140 pt) deletes on letting
+  go, and the Undo toast offers it back. A shorter swipe (past 38 pt) leaves the trash button open
+  to tap.
+- **Swipe right for Log Again Now.** It never logs on letting go, however far or fast: past 38 pt
+  the button stays open (76 pt wide), and only a tap on it logs. Past 76 pt the row resists.
+- **Motion.** The icon grows from 40% to full size and fades in as the row opens, and the trash
+  grows a touch more once letting go would delete. A soft tick (`HapticEvent.swipeThreshold`,
+  light impact 0.4) plays once each time the drag passes the point where letting go acts (38 pt on the right, the
+  delete point on the left), never
+  again while the finger rests there (10 pt hysteresis). Under Reduce Motion the icon is there at
+  full size as soon as the row moves, and the row snaps instead of springing.
+- **One open at a time.** Swiping another row, scrolling, or tapping the open row shuts it.
+- **VoiceOver** keeps Log Again Now and Delete as the row's actions; the icons are hidden from it.
+- **Mac** is unchanged: right-click a line for Log Again Now and Delete.
+
 ## Selecting several entries (round 71)
 
 Delete or tag several entries at once (`LogbookSelection`, `LogbookBulkTag` in

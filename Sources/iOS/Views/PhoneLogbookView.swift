@@ -127,6 +127,8 @@ struct PhoneLogbookView: View {
     /// Where a day's bar and its chart meet, so the chart grows out of the bar and back into it.
     @Namespace private var dayChartSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The one row whose swipe action is open (`PhoneLogbookSwipe`); scrolling shuts it.
+    @State private var swipeOpen: UUID?
     /// The home stack's zoom namespace, which the edit sheet grows out of a row in.
     @Environment(\.phoneNavigator) private var navigator
 
@@ -394,6 +396,10 @@ struct PhoneLogbookView: View {
                         .listRowBackground(Color.clear)
                 }
             }
+        }
+        // Scrolling shuts an open swipe action, as the system's own did.
+        .onScrollPhaseChange { _, phase in
+            if phase == .interacting, swipeOpen != nil { swipeOpen = nil }
         }
     }
 
@@ -1157,20 +1163,15 @@ struct PhoneLogbookView: View {
         }
         .buttonStyle(.plain)
         .accessibilityHint("Show details")
+        // VoiceOver offers both swipes as actions on the row.
+        .accessibilityAction(named: "Log Again Now") { logAgain(entry) }
+        .accessibilityAction(named: "Delete") { delete(entry) }
         // Swipe left to delete (a full swipe works, since the Undo toast can bring it back); swipe
         // right for "Log Again Now". That one needs a tap on the button, never a full swipe, so a
-        // dose can't be logged twice by a flick. VoiceOver offers both as actions on the row.
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive) { delete(entry) } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        }
-        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            Button { logAgain(entry) } label: {
-                Label("Log Again Now", systemImage: "arrow.clockwise")
-            }
-            .tint(entry.part.logbookTint)
-        }
+        // dose can't be logged twice by a flick. The icons grow in with the drag and a soft tick
+        // plays where letting go does something (`PhoneLogbookSwipe`, round 95).
+        .phoneLogbookSwipe(entry.id, openID: $swipeOpen, tint: entry.part.logbookTint, reduceMotion: reduceMotion,
+                           logAgain: { logAgain(entry) }, delete: { delete(entry) })
         .contextMenu {
             Button("Edit", systemImage: "pencil") { router.edit(entry, from: LogbookEditMorph.sourceID(.row, entry.id)) }
             Button("Log Again Now", systemImage: "arrow.clockwise") { logAgain(entry) }
