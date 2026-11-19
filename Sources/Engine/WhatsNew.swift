@@ -207,7 +207,7 @@ enum WhatsNewCatalog {
                   detail: "When readings cover only part of a Logbook day, its hours in range show as estimates, and under half a day only the percentages show."),
             .init(symbol: "hand.draw",
                   title: "Swipe actions follow your finger",
-                  detail: "On iPhone, swipe a Logbook entry and its Log Again or Delete icon grows in as you drag, with a soft tick at the point where letting go acts. With Reduce Motion on, the icon simply appears."),
+                  detail: "On iPhone, swipe a Logbook entry and its Log Again or Delete icon grows in as you drag, with a soft tick where letting go deletes or leaves Log Again open to tap. Log Again only logs when you tap it. With Reduce Motion on, the icon simply appears."),
         ]),
         WhatsNewRelease(version: "1.88.0", highlights: [
             .init(symbol: "cursorarrow.motionlines",

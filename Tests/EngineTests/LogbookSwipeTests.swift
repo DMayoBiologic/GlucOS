@@ -67,15 +67,18 @@ final class LogbookSwipeTests: XCTestCase {
 
     func testTickOncePerCrossingWithHysteresis() {
         var tick = LogbookSwipe.Tick()
-        XCTAssertFalse(tick.update(offset: 40, rowWidth: width))
-        XCTAssertTrue(tick.update(offset: 77, rowWidth: width))
+        // On the right it ticks where letting go starts leaving the button open.
+        XCTAssertEqual(LogbookSwipe.commitThreshold(.logAgain, rowWidth: width), 38)
+        XCTAssertFalse(tick.update(offset: 30, rowWidth: width))
+        XCTAssertTrue(tick.update(offset: 39, rowWidth: width))
+        XCTAssertEqual(LogbookSwipe.release(offset: 39, velocity: 0, rowWidth: width), .open(.logAgain))
         // Resting at the edge or wobbling inside the hysteresis doesn't tick again.
-        XCTAssertFalse(tick.update(offset: 80, rowWidth: width))
-        XCTAssertFalse(tick.update(offset: 70, rowWidth: width))
-        XCTAssertFalse(tick.update(offset: 77, rowWidth: width))
+        XCTAssertFalse(tick.update(offset: 42, rowWidth: width))
+        XCTAssertFalse(tick.update(offset: 30, rowWidth: width))
+        XCTAssertFalse(tick.update(offset: 39, rowWidth: width))
         // Coming well back re-arms it.
-        XCTAssertFalse(tick.update(offset: 50, rowWidth: width))
-        XCTAssertTrue(tick.update(offset: 78, rowWidth: width))
+        XCTAssertFalse(tick.update(offset: 20, rowWidth: width))
+        XCTAssertTrue(tick.update(offset: 40, rowWidth: width))
         // Left ticks at the delete point, not the open point.
         tick.reset()
         XCTAssertFalse(tick.update(offset: -100, rowWidth: width))

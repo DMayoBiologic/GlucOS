@@ -58,9 +58,10 @@ private struct PhoneLogbookSwipe: ViewModifier {
             .background(alignment: .trailing) { action(.delete) }
             .clipped()
             .onGeometryChange(for: Double.self) { Double($0.size.width) } action: { rowWidth = max($0, 1) }
-            .gesture(PhoneHorizontalPan(onChange: changed, onEnd: ended))
+            .gesture(PhoneHorizontalPan(onChange: changed, onEnd: ended, onCancel: cancelled))
             .onChange(of: openID) { _, now in
-                if now != id, offset != 0, !dragging { settle(.close, sharing: false) }
+                // Only a resting open action; a row sliding away to delete keeps going.
+                if now != id, openEdge != nil, !dragging { settle(.close, sharing: false) }
             }
     }
 
@@ -103,6 +104,13 @@ private struct PhoneLogbookSwipe: ViewModifier {
         if tick.update(offset: offset, rowWidth: rowWidth) { Haptics.play(.swipeThreshold) }
     }
 
+    /// The system took the drag away (a call, a notification): nothing happens, the row shuts.
+    private func cancelled() {
+        dragging = false
+        tick.reset()
+        settle(.close)
+    }
+
     private func ended(_ velocity: Double) {
         dragging = false
         tick.reset()
@@ -143,8 +151,10 @@ private struct PhoneLogbookSwipe: ViewModifier {
 /// still scrolls and a row's tap and long-press still work.
 private struct PhoneHorizontalPan: UIGestureRecognizerRepresentable {
     var onChange: (Double) -> Void
-    /// Called with the finger's sideways speed, in points per second (0 when cancelled).
+    /// Called with the finger's sideways speed, in points per second, when the finger lifts.
     var onEnd: (Double) -> Void
+    /// Called when the system cancels the drag; never commits anything.
+    var onCancel: () -> Void
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
 
@@ -160,7 +170,7 @@ private struct PhoneHorizontalPan: UIGestureRecognizerRepresentable {
         switch recognizer.state {
         case .began, .changed: onChange(Double(recognizer.translation(in: view).x))
         case .ended: onEnd(Double(recognizer.velocity(in: view).x))
-        case .cancelled, .failed: onEnd(0)
+        case .cancelled, .failed: onCancel()
         default: break
         }
     }

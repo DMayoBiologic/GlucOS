@@ -31,6 +31,8 @@ enum LogbookSwipe {
 
     /// How wide an open action is, in points: the row slides this far and stays.
     static let actionWidth: Double = 76
+    /// How far the row has to slide before letting go leaves its button open (half the open width).
+    static let openThreshold: Double = actionWidth / 2
     /// How far past an open Log Again Now the row can be pulled, as a share of the extra distance
     /// (it resists, as nothing more happens out there).
     static let resistance: Double = 0.3
@@ -65,7 +67,7 @@ enum LogbookSwipe {
     /// open point on the right. The tick plays here.
     static func commitThreshold(_ edge: Edge, rowWidth: Double) -> Double {
         switch edge {
-        case .logAgain: return actionWidth
+        case .logAgain: return openThreshold
         case .delete: return deleteThreshold(rowWidth: rowWidth)
         }
     }
@@ -113,11 +115,11 @@ enum LogbookSwipe {
         switch edge {
         case .logAgain:
             if velocity < -flickSpeed { return .close }
-            return offset >= actionWidth / 2 || velocity > flickSpeed ? .open(.logAgain) : .close
+            return offset >= openThreshold || velocity > flickSpeed ? .open(.logAgain) : .close
         case .delete:
             if velocity > flickSpeed { return .close }
             if -offset >= deleteThreshold(rowWidth: rowWidth) { return .delete }
-            return -offset >= actionWidth / 2 || velocity < -flickSpeed ? .open(.delete) : .close
+            return -offset >= openThreshold || velocity < -flickSpeed ? .open(.delete) : .close
         }
     }
 
