@@ -31,8 +31,13 @@ struct LogbookCalendarView: View {
     /// Time in range for the months worked out so far, by local midnight.
     @State private var figures: [Date: DayInRange] = [:]
     @State private var figuredMonths: Set<Date> = []
-    /// Where the grid sits while being dragged sideways.
-    @State private var dragOffset: CGFloat = 0
+    /// Where the grid sits while being dragged sideways. Springs back by itself when the drag ends
+    /// or is cancelled.
+    @GestureState(resetTransaction: Transaction(animation: DSMotion.emphasized.animation))
+    private var dragOffset: CGFloat = 0
+    /// The grid whose tints have washed in. Each grid starts unwashed, so a month shown again
+    /// (its figures already worked out) still washes in.
+    @State private var washedGrid: String?
 
     @State private var comparing = false
     /// Days with readings, worked out the first time compare mode opens.
@@ -98,13 +103,17 @@ struct LogbookCalendarView: View {
                         .accessibilityHidden(true)
                 }
                 ForEach(Array(grid.cells.enumerated()), id: \.element.id) { i, cell in
-                    dayCell(cell, index: i, selected: cell.day == currentDay, now: now)
+                    dayCell(cell, index: i, selected: cell.day == currentDay, now: now,
+                            washed: washedGrid == gridKey(grid))
                 }
             }
             .offset(x: dragOffset)
-            .id("\(grid.month.timeIntervalSince1970)-\(comparing)")
+            .id(gridKey(grid))
             .transition(slide)
-            .onAppear { figure(grid) }
+            .onAppear {
+                figure(grid)
+                washedGrid = gridKey(grid)
+            }
             .contentShape(Rectangle())
             .gesture(swipe(grid))
             footer
@@ -120,6 +129,10 @@ struct LogbookCalendarView: View {
                            removal: .move(edge: edge == .trailing ? .leading : .trailing).combined(with: .opacity))
     }
 
+    private func gridKey(_ grid: LogbookCalendar) -> String {
+        "\(grid.month.timeIntervalSince1970)-\(comparing)"
+    }
+
     /// Works out the shown month's time in range once, so the tints wash in as it arrives.
     private func figure(_ grid: LogbookCalendar) {
         guard let ranges, !figuredMonths.contains(grid.month) else { return }
@@ -132,10 +145,14 @@ struct LogbookCalendarView: View {
     /// A sideways drag follows the finger and, let go far enough, steps the month the way it went.
     private func swipe(_ grid: LogbookCalendar) -> some Gesture {
         DragGesture(minimumDistance: 12)
-            .onChanged { value in
-                guard !reduceMotion, abs(value.translation.width) > abs(value.translation.height) else { return }
-                dragOffset = LogbookCalendarMotion.dragOffset(width: value.translation.width,
-                                                              hasEarlier: grid.hasEarlier, hasLater: grid.hasLater)
+            .updating($dragOffset) { value, offset, _ in
+                // Mostly up and down (or Reduce Motion): the grid stays put.
+                guard !reduceMotion, abs(value.translation.width) > abs(value.translation.height) else {
+                    offset = 0
+                    return
+                }
+                offset = LogbookCalendarMotion.dragOffset(width: value.translation.width,
+                                                          hasEarlier: grid.hasEarlier, hasLater: grid.hasLater)
             }
             .onEnded { value in
                 let by = LogbookCalendarMotion.swipeStep(width: value.translation.width,
@@ -146,8 +163,6 @@ struct LogbookCalendarView: View {
                     #if os(iOS)
                     Haptics.play(.choice)
                     #endif
-                } else if dragOffset != 0 {
-                    withAnimation(DSMotion.emphasized.animation) { dragOffset = 0 }
                 }
             }
     }
@@ -200,11 +215,12 @@ struct LogbookCalendarView: View {
         .frame(width: cellSize * 7)
     }
 
-    private func dayCell(_ cell: LogbookCalendar.Cell, index: Int, selected: Bool, now: Date) -> some View {
+    private func dayCell(_ cell: LogbookCalendar.Cell, index: Int, selected: Bool, now: Date,
+                         washed: Bool) -> some View {
         // Comparing, the day it was opened from is shown filled but can't be picked against itself.
         let canPick = cell.canPick && !(comparing && selected)
         let dayFigures = cell.isFuture ? nil : figures[cell.day]
-        let tint = cell.canPick ? LogbookCalendarMotion.tint(dayFigures) : nil
+        let tint = cell.canPick && washed ? LogbookCalendarMotion.tint(dayFigures) : nil
         let wash: Animation = reduceMotion ? .easeInOut(duration: 0.2)
             : .easeOut(duration: 0.3).delay(LogbookCalendarMotion.revealDelay(index: index))
         return Button { choose(cell.day) } label: {
@@ -237,7 +253,7 @@ struct LogbookCalendarView: View {
         }
         .buttonStyle(.plain)
         .disabled(!canPick)
-        .accessibilityLabel(comparing ? DayCompareText.calendarSpoken(cell, isFrom: selected, now: now)
+        .accessibilityLabel(comparing ? DayCompareText.calendarSpoken(cell, isFrom: selected, now: now, figures: dayFigures)
                                       : LogbookJump.spoken(cell, now: now, figures: dayFigures))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -273,7 +289,6 @@ struct LogbookCalendarView: View {
         direction = by
         withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : DSMotion.standard.animation) {
             month = LogbookCalendar.shifted(month, by: by)
-            dragOffset = 0
         }
     }
 }

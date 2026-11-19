@@ -186,6 +186,11 @@ final class DayCompareTests: XCTestCase {
         XCTAssertTrue(DayCompareText.calendarSpoken(cell, isFrom: false, now: referenceNow, calendar: utc).hasSuffix(", has readings"))
         XCTAssertTrue(DayCompareText.calendarSpoken(dim, isFrom: false, now: referenceNow, calendar: utc).hasSuffix(", too few readings"))
         XCTAssertTrue(DayCompareText.calendarSpoken(cell, isFrom: true, now: referenceNow, calendar: utc).hasSuffix(", the day being compared"))
+        let f = DayInRange(below: 0, inRange: 0.78, above: 0.22)
+        XCTAssertTrue(DayCompareText.calendarSpoken(cell, isFrom: false, now: referenceNow, figures: f, calendar: utc)
+            .hasSuffix(", has readings, \(DayInRangeText.percent(f)) in range"))
+        XCTAssertTrue(DayCompareText.calendarSpoken(cell, isFrom: true, now: referenceNow, figures: f, calendar: utc)
+            .hasSuffix(", the day being compared"))
     }
 
     func testPairIDNamesBothDays() {

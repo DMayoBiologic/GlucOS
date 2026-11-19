@@ -194,13 +194,16 @@ enum DayCompareText {
 
     /// A calendar day in compare mode as VoiceOver says it: "Tuesday 12 November, has readings", or
     /// "too few readings" for a dimmed day, or "the day being compared" for the one it opened from.
-    static func calendarSpoken(_ cell: LogbookCalendar.Cell, isFrom: Bool, now: Date,
+    /// With `figures`, a day with readings also says its time in range, as its tint shows.
+    static func calendarSpoken(_ cell: LogbookCalendar.Cell, isFrom: Bool, now: Date, figures: DayInRange? = nil,
                                calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent) -> String {
         let name = DayInRangeText.spokenDay(ClockLabel.day(of: cell.day, now: now, calendar: calendar),
                                             calendar: calendar, locale: locale)
         if isFrom { return "\(name), the day being compared" }
         if cell.isFuture { return name }
-        return cell.entries > 0 ? "\(name), has readings" : "\(name), too few readings"
+        guard cell.entries > 0 else { return "\(name), too few readings" }
+        if let figures { return "\(name), has readings, \(DayInRangeText.percent(figures)) in range" }
+        return "\(name), has readings"
     }
 
     /// The hour labels along the bottom: "midnight", "6 am", "noon", "6 pm".
