@@ -11,7 +11,21 @@ struct InsulinListSection: View {
     @State private var editing: InsulinEditTarget?
     @State private var tidiedCount: Int?
 
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    #if os(iOS)
+    @Environment(\.editMode) private var editMode
+    #endif
+
     private var viaPump: Bool { settings.therapy == .pump }
+
+    /// The system's rows under VoiceOver (its move actions stay as they were) and in iPhone Edit
+    /// mode (delete buttons and grab handles); the lifting rows otherwise.
+    private var usesSystemList: Bool {
+        #if os(iOS)
+        if editMode?.wrappedValue.isEditing == true { return true }
+        #endif
+        return voiceOver
+    }
 
     var body: some View {
         Section {
@@ -22,31 +36,29 @@ struct InsulinListSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             let preferred = logbook.preferredInsulin(viaPump: viaPump)
-            ForEach(logbook.insulins) { insulin in
-                Button { editing = InsulinEditTarget(insulin: insulin) } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: insulin.kind.isBolus ? "syringe" : "syringe.fill")
-                            .foregroundStyle(Palette.insulin)
-                            .frame(width: 20)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(insulin.name).foregroundStyle(.primary)
-                            Text(insulin.summary).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 8)
-                        if insulin.id == preferred?.id {
-                            Text("Picked first").font(.caption).foregroundStyle(.secondary)
-                        }
-                        if viaPump && !InsulinKind.pumpKinds.contains(insulin.kind) {
-                            Text("Not for a pump").font(.caption).foregroundStyle(.secondary)
-                        }
+            if usesSystemList {
+                // VoiceOver and the iPhone's Edit mode keep the system rows, with their own move
+                // and delete actions, exactly as before.
+                ForEach(logbook.insulins) { insulin in
+                    Button { editing = InsulinEditTarget(insulin: insulin) } label: {
+                        InsulinRowLabel(insulin: insulin, preferred: insulin.id == preferred?.id, viaPump: viaPump)
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Edit")
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("Edit")
+                .onDelete { offsets in offsets.map { logbook.insulins[$0].id }.forEach(logbook.deleteInsulin(id:)) }
+                .onMove { logbook.moveInsulins(from: $0, to: $1) }
+            } else if !logbook.insulins.isEmpty {
+                InsulinReorderRows(
+                    insulins: logbook.insulins,
+                    onTap: { editing = InsulinEditTarget(insulin: $0) },
+                    onMove: { logbook.moveInsulins(from: $0, to: $1) },
+                    onDelete: { logbook.deleteInsulin(id: $0.id) }
+                ) { insulin in
+                    InsulinRowLabel(insulin: insulin, preferred: insulin.id == preferred?.id, viaPump: viaPump)
+                }
+                .listRowInsets(EdgeInsets())
             }
-            .onDelete { offsets in offsets.map { logbook.insulins[$0].id }.forEach(logbook.deleteInsulin(id:)) }
-            .onMove { logbook.moveInsulins(from: $0, to: $1) }
 
             Button { editing = InsulinEditTarget(insulin: nil) } label: {
                 Label("Add Insulin", systemImage: "plus.circle")
@@ -82,6 +94,206 @@ struct InsulinListSection: View {
             InsulinEditor(existing: target.insulin, viaPump: viaPump) { editing = nil }
                 .environmentObject(logbook)
         }
+    }
+}
+
+/// One saved insulin's row: its icon, name and summary.
+struct InsulinRowLabel: View {
+    let insulin: SavedInsulin
+    let preferred: Bool
+    let viaPump: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: insulin.kind.isBolus ? "syringe" : "syringe.fill")
+                .foregroundStyle(Palette.insulin)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(insulin.name).foregroundStyle(.primary)
+                Text(insulin.summary).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if preferred {
+                Text("Picked first").font(.caption).foregroundStyle(.secondary)
+            }
+            if viaPump && !InsulinKind.pumpKinds.contains(insulin.kind) {
+                Text("Not for a pump").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+/// The saved insulins as rows you can pick up and drag to a new place (`RowReorderDrag`, round
+/// 97). On iPhone a row lifts after a short rest of the finger, with a light tap, and taps again as
+/// it drops; on the Mac it lifts once the pointer drags it a few points. While it's held it grows
+/// to 1.03x with a soft shadow and follows the finger or pointer, and the rows it passes slide
+/// aside to show where it will land. Under Reduce Motion only the shadow shows and the rows jump.
+/// Nothing animates until a row is picked up.
+struct InsulinReorderRows<RowLabel: View>: View {
+    let insulins: [SavedInsulin]
+    let onTap: (SavedInsulin) -> Void
+    let onMove: (IndexSet, Int) -> Void
+    let onDelete: (SavedInsulin) -> Void
+    @ViewBuilder let label: (SavedInsulin) -> RowLabel
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    @State private var picked: UUID?
+    /// Where the picked-up row started.
+    @State private var from = 0
+    /// True while a finger or pointer holds a row; resets by itself if the system cancels the
+    /// gesture (a call coming in, the sheet closing), so a row is never left lifted.
+    @GestureState private var holding = false
+    @State private var translation: Double = 0
+    @State private var target = 0
+    @State private var heights: [UUID: Double] = [:]
+
+    private var rowHeights: [Double] { insulins.map { heights[$0.id] ?? 44 } }
+
+    private var pickedIndex: Int? { picked.flatMap { id in insulins.firstIndex { $0.id == id } } }
+
+    private var slide: Animation? {
+        reduceMotion ? nil : .snappy(duration: RowReorderDrag.duration)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(insulins.enumerated()), id: \.element.id) { index, insulin in
+                row(insulin, at: index)
+            }
+        }
+        .onChange(of: holding) { _, now in
+            if !now { drop() }
+        }
+    }
+
+    private func row(_ insulin: SavedInsulin, at index: Int) -> some View {
+        let lifted = picked == insulin.id
+        let look = RowReorderDrag.look(lifted: lifted, reduceMotion: reduceMotion,
+                                       increasedContrast: contrast == .increased)
+        let shift = pickedIndex.map { RowReorderDrag.shift(of: index, from: $0, target: target, heights: rowHeights) } ?? 0
+        return VStack(spacing: 0) {
+            if index > 0 {
+                Divider().padding(.leading, Self.dividerInset).opacity(lifted ? 0 : 1)
+            }
+            label(insulin)
+                .padding(.horizontal, Self.horizontalPadding)
+                .padding(.vertical, Self.verticalPadding)
+        }
+        .contentShape(Rectangle())
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { heights[insulin.id] = geo.size.height }
+                    .onChange(of: geo.size.height) { _, h in heights[insulin.id] = h }
+            }
+        }
+        .background {
+            if lifted {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Palette.controlBackground)
+                    .shadow(color: .black.opacity(look.shadowOpacity), radius: RowReorderDrag.shadowRadius,
+                            y: RowReorderDrag.shadowY)
+            }
+        }
+        .scaleEffect(look.scale)
+        .offset(y: lifted ? translation : shift)
+        .zIndex(lifted ? 1 : 0)
+        .animation(slide, value: shift)
+        .animation(slide, value: look)
+        .onTapGesture { onTap(insulin) }
+        .gesture(pickup(insulin, at: index))
+        #if os(macOS)
+        .contextMenu {
+            Button("Edit…") { onTap(insulin) }
+            Button("Delete", role: .destructive) { onDelete(insulin) }
+        }
+        #endif
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Edit")
+        .accessibilityAction { onTap(insulin) }
+    }
+
+    #if os(iOS)
+    private static let horizontalPadding: CGFloat = 20
+    private static let verticalPadding: CGFloat = 8
+    private static let dividerInset: CGFloat = 50
+    #else
+    private static let horizontalPadding: CGFloat = 10
+    private static let verticalPadding: CGFloat = 6
+    private static let dividerInset: CGFloat = 40
+    #endif
+
+    #if os(iOS)
+    private func pickup(_ insulin: SavedInsulin, at index: Int) -> some Gesture {
+        LongPressGesture(minimumDuration: RowReorderDrag.pickupDelay)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+            .updating($holding) { value, state, _ in
+                if case .second(true, _) = value { state = true }
+            }
+            .onChanged { value in
+                switch value {
+                case .second(true, let drag):
+                    if picked == nil { lift(insulin, at: index) }
+                    follow(drag?.translation.height ?? 0)
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in drop() }
+    }
+    #else
+    private func pickup(_ insulin: SavedInsulin, at index: Int) -> some Gesture {
+        DragGesture(minimumDistance: RowReorderDrag.macPickupDistance, coordinateSpace: .global)
+            .updating($holding) { _, state, _ in state = true }
+            .onChanged { drag in
+                if picked == nil { lift(insulin, at: index) }
+                follow(drag.translation.height)
+            }
+            .onEnded { _ in drop() }
+    }
+    #endif
+
+    private func lift(_ insulin: SavedInsulin, at index: Int) {
+        from = index
+        target = index
+        translation = 0
+        picked = insulin.id
+        #if os(iOS)
+        Haptics.play(.rowPicked)
+        #endif
+    }
+
+    private func follow(_ dy: Double) {
+        guard picked != nil else { return }
+        // Kept inside the list, so the row never slides out past the first or last place.
+        let heights = rowHeights
+        let above = heights.prefix(from).reduce(0, +)
+        let below = heights.dropFirst(from + 1).reduce(0, +)
+        translation = min(max(dy, -above), below)
+        let next = RowReorderDrag.target(from: from, translation: translation, heights: heights)
+        if next != target { target = next }
+    }
+
+    private func drop() {
+        guard picked != nil else { return }
+        let index = from
+        let destination = RowReorderDrag.moveDestination(from: index, target: target)
+        // The row settles from under the finger into its new place while the list reorders.
+        var transaction = Transaction(animation: slide)
+        transaction.disablesAnimations = reduceMotion
+        withTransaction(transaction) {
+            if let destination { onMove(IndexSet(integer: index), destination) }
+            picked = nil
+            translation = 0
+            target = 0
+        }
+        #if os(iOS)
+        Haptics.play(.rowDropped)
+        #endif
     }
 }
 

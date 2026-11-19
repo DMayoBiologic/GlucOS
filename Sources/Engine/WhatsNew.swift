@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.91.0", highlights: [
+            .init(symbol: "arrow.up.arrow.down",
+                  title: "Insulins lift as you reorder them",
+                  detail: "In Settings, rest a finger on one of your insulins, or drag it with the pointer on the Mac, and it lifts with a soft shadow while the others slide aside to show where it will land. On iPhone a light tap marks the pick-up and the drop. With Reduce Motion on, only the shadow shows."),
+        ]),
         WhatsNewRelease(version: "1.90.0", highlights: [
             .init(symbol: "list.bullet.below.rectangle",
                   title: "Alert History rows glide",
