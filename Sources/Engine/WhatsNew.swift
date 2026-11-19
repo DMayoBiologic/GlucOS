@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "sun.max",
                   title: "Ask Siri how your day went",
                   detail: "Say \u{201C}How was my day in GlucOS\u{201D} on iPhone, or use it in Shortcuts on Mac, to hear today's time in range, average, lows and highs since midnight."),
+            .init(symbol: "fork.knife.circle",
+                  title: "Forecasts after large meals",
+                  detail: "We checked forecasts after meals of 60 grams of carbs or more and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.83.0", highlights: [
             .init(symbol: "clock.badge.questionmark",
