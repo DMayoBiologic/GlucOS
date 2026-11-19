@@ -7746,3 +7746,110 @@ select string_agg(concat_ws(',', extract(epoch from p.t)::bigint, p.device, p.ba
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged. No app or relay code changed.
+
+## 100. On a fast fall inside the range, does the line run high or low, and does the low warning come in time? (19 Nov 2026)
+
+**Question.** When glucose is inside the target range (70–180 mg/dL) and falling faster than
+2 mg/dL a minute, does the 30- and 60-minute forecast end above or below where glucose really
+goes, does the drawn range hold its 8 in 10, and how much warning does the predicted-low alert
+give? Then one tweak, held out by day. (§82 covered falls back from above 180; §62 / §99 the
+range's lean overall. Post-meal peaks and sensor-day ranges are left out here.)
+
+**Data.** Two sources, 11–19 Nov Perth.
+- *Replay*: 11,234 live readings and the Logbook's meals and rapid doses, the engine's trend
+  forecast (20-minute slope clamped at ±4, 30-minute fade) issued every 5 minutes and scored at
+  15 / 30 / 60 minutes at the tuner's gains (0.45 Mac / relay, 0.6, 0.7 iPhone): 2,167 points.
+  **Fast** = start 70–180 and trend under −2 (101 points, 9 days, 43 hours, mean trend −2.67);
+  **moderate** = start 70–180 and trend −2 to −1 (182 points). 78 of the 101 fast points came
+  down from above 180 in the hour before; 23 had a rapid dose in the 3 hours before. Script:
+  `scripts/fast-falls-in-range.py`.
+- *Live log*: the app's clean shown points (nothing logged after, drawn), Mac, iPhone and relay,
+  §40's low-start widening put back on older points: fast 40 / 18 / 13 points at 15 / 30 / 60
+  minutes. SQL: `scripts/fast-falls-in-range.sql`.
+
+Bias = actual − forecast, so **+ means glucose ended above the line** (the line ran low).
+
+| Replay, gain 0.45 | 15 min: miss / bias | 30 min | 60 min | No-change miss 15 / 30 / 60 |
+|---|---|---|---|---|
+| Fast falls (101) | 24.9 / **+13.5** | 35.1 / **+13.4** | 47.7 / **+18.6** | 24.2 / 37.1 / 45.8 |
+| Moderate falls (182) | 13.8 / +1.6 | 22.5 / +2.7 | 39.3 / +16.6 | 15.3 / 23.9 / 37.9 |
+| Everything else (1,884) | 15.9 / −0.8 | 24.9 / −0.7 | 39.8 / −2.0 | 16.3 / 25.3 / 39.9 |
+
+At gain 0.6 / 0.7 the fast-fall bias grows to +19.4 / +23.4 at 30 minutes and +24.6 / +28.6 at 60.
+
+| Live log, fast falls | Points | Miss / bias | Inside / above / below | Score | Lows inside |
+|---|---|---|---|---|---|
+| 15 min | 40 (8 days) | 24.4 / +14.8 | **68%** / 30% / 3% | 130.5 | 4/4 |
+| 30 min | 18 (7 days) | 30.0 / +17.2 | **72%** / 28% / 0% | 188.2 | 1/1 |
+| 60 min | 13 (5 days) | 53.7 / +33.8 | **69%** / 31% / 0% | 307.5 | 1/1 |
+
+Moderate falls on the live log: 78 / 77 / 63% inside at 15 / 30 / 60, bias +4.6 / +4.0 / +38.4.
+
+- **The line runs low into fast falls.** Glucose ends above the line at every horizon, in replay
+  and on the live log alike: the fall slows sooner than the trend carried over 30 minutes
+  expects. At 15 minutes the line is no better than "no change" (24.9 vs 24.2). The higher the
+  gain, the bigger the gap, so iPhone forecasts run lowest.
+- **It's mostly the low end.** Fast falls starting under 120 end +24.5 / +39.6 above the line at
+  30 / 60 minutes (42 points, 36% under 70 at 30 minutes, so many end in a low that is treated
+  and rebounds, §90); from 120 up it's +5.5 / +3.7 (59 points). Falls with no dose in 3 hours
+  run further low (+15.8 / +21.6) than dosed ones (+5.5 / +8.3). Trends steeper than −3 are the
+  worst (+34.7 at 30, 22 points). Days swing from −21 to +74 at 30 minutes; 19 Nov alone is +74.
+- **The range is short on top, not underneath.** 68–72% inside against 80%, and nearly every miss
+  is a reading above the range (28–31%), 0–3% below. Every reading under 70 was inside its range.
+- **Low warnings arrive, but late.** 11 lows under 70 in the replay, 6 with a fast in-range fall
+  in the 45 minutes before. All 11 were warned. Lows after a fast fall got a median 5 minutes'
+  warning (mean 6.2) at gain 0.45, 6.5 at 0.6, 8 at 0.7; other lows a median 9–11. Warnings fired
+  on fast falls: 8 at gain 0.45, of which 3 had no reading under 70 in the next 45 minutes
+  (5 of 11 at 0.6, 7 of 13 at 0.7; a warning without 45 minutes of readings after it isn't counted): the dips that bottom out are the same ones the line runs low on.
+
+**Held out: trend × w on fast in-range falls.** Leave one Perth day out, w from 0.5 to 2.0 fitted
+on the other days' 30 + 60-minute miss, every other forecast left alone.
+
+| Gain | Picks | 15 min, fast points (days better) | 30 min | 60 min | All points 30 / 60 |
+|---|---|---|---|---|---|
+| 0.45 | 0.5–0.9 | −2.2% (8/9) | **+3.8%** (5/9) | −1.1% (5/9) | +0.25 / −0.06% |
+| 0.6 | 0.5–0.7 | −6.6% (8/9) | +0.3% (5/9) | −4.9% (7/9) | +0.02 / −0.28% |
+| 0.7 | 0.5–0.6 | −9.4% (9/9) | −2.8% (5/9) | −7.1% (7/9) | −0.19 / −0.41% |
+
+Effect on lows of a fixed w (all 11 lows):
+
+| Gain | w = 0.8 (damp) | w = 1.2–1.5 (steepen) |
+|---|---|---|
+| 0.45 | 3 lows warned later, false alarms 3 → 2 | 1–3 earlier, false alarms 3 → 5 |
+| 0.6 | 2 later, 5 → 4 | 5–6 earlier, 5 → 9–14 |
+| 0.7 | 4 later, 7 → 5 | 6 earlier, 7 → 13–15 |
+
+- **Damping helps the 15-minute line and little else.** Every fold picks damping, and 15 minutes
+  wins on 8–9 of 9 days, but 30 minutes splits 5/4 at every gain and gets worse at 0.45 (the
+  Mac / relay gain); overall the change is under half a percent.
+- **Damping makes low warnings later**, on 2–4 of 11 lows, for one or two fewer false alarms.
+  Steepening warns earlier but roughly doubles the false alarms. Neither is a trade worth making while
+  lows after fast falls get only 5–8 minutes' notice.
+
+**Decision.** Ship nothing. The tweak misses the bar (better held out at both 30 and 60 minutes
+on most days at every gain, no low warning later): 30 minutes is 5/9 days at best and +3.8% worse
+at gain 0.45, and damping delays real lows. The finding to keep is the direction: on fast falls
+inside the range the forecast runs low and the range is short on top. Retest on **10 Dec 2026**
+with 40+ live 30-minute fast-fall points on 8+ days (18 now): damp only falls starting under 120,
+keep predicted lows reading the undamped line (as §45 does for highs), and score the range's top
+side separately (§99's lean).
+
+Live-log check, in the Supabase SQL editor (`scripts/fast-falls-in-range.sql` has the full
+version with per-day rows, scores and the §40 widening put back; this short form gives the live
+table exactly on 19 Nov):
+
+```sql
+select (e->>'minutes')::int m, case when c.trend_per_minute < -2 then 'fast' else 'moderate' end grp,
+  count(*) n, round(avg((e->>'actual')::float - (e->>'mgdl')::float)::numeric, 1) bias,
+  round(100 * avg(((e->>'actual')::float between (e->>'lower')::float and (e->>'upper')::float)::int)::numeric) inside,
+  round(100 * avg(((e->>'actual')::float > (e->>'upper')::float)::int)::numeric) above
+from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean, false)
+  and coalesce(e->>'shown', 'true') = 'true' and (e->>'minutes')::int in (15, 30, 60)
+  and c.trend_per_minute <= -1 and c.start_mgdl between 70 and 180
+  and c.issued_at >= timestamptz '2026-11-11 00:00+08'
+group by 1, 2 order by 1, 2;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged. No app or relay code changed.

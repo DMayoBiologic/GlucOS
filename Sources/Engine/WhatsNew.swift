@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "hand.draw",
                   title: "Swipe actions follow your finger",
                   detail: "On iPhone, swipe a Logbook entry and its Log Again or Delete icon grows in as you drag, with a soft tick where letting go deletes or leaves Log Again open to tap. Log Again only logs when you tap it. With Reduce Motion on, the icon simply appears."),
+            .init(symbol: "arrow.down.right",
+                  title: "Forecasts on fast falls in range",
+                  detail: "We checked how the forecast and low warnings do when glucose falls fast inside your range, and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.88.0", highlights: [
             .init(symbol: "cursorarrow.motionlines",
