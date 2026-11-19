@@ -781,7 +781,9 @@ struct PhoneLogbookView: View {
     /// new totals once.
     ///
     /// Tapping a day with a bar opens it in place into that day's chart (`DayMiniChart`): the bar
-    /// grows into the chart and the chart shrinks back into the bar on a second tap. Opening
+    /// grows into the chart and the chart shrinks back into the bar on a second tap. Under the
+    /// chart, the day's breakdown gives below, in range and above with how long each lasted
+    /// (`DayRangeBreakdown`), and VoiceOver hears it in the header's one element. Opening
     /// another day closes this one. Under Reduce Motion the two cross-fade instead. Nothing loops.
     ///
     /// Tapping the day's name (and its totals) opens a compact calendar over it instead
@@ -874,6 +876,10 @@ struct PhoneLogbookView: View {
                             .padding(.top, DS.Space.xs)
                             .dayChartMatch(day.id, in: dayChartSpace, enabled: !reduceMotion)
                             .transition(.opacity)
+                        // Below, in range and above in numbers, with how long each lasted.
+                        DayRangeBreakdown(figures: range)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .transition(.opacity)
                     }
                     HStack(spacing: DS.Space.sm) {
                         if open {
@@ -925,7 +931,8 @@ struct PhoneLogbookView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(open
             ? DayChartText.spoken(day: spokenDay, figures: range, segments: segments, unit: snapshot.unit,
-                                  low: snapshot.lowMgdl, high: snapshot.highMgdl, logged: markers.count)
+                                  low: snapshot.lowMgdl, high: snapshot.highMgdl, logged: markers.count,
+                                  breakdown: true)
             : DayInRangeText.spoken(spokenDay, range))
         .accessibilityValue(spokenValue)
         .accessibilityAddTraits([.isHeader, .isButton])

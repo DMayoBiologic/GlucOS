@@ -127,4 +127,74 @@ final class DayInRangeTests: XCTestCase {
         let firsts = LogbookDays.firstRows(zip(ids, times).map { (id: $0, timestamp: $1) }, calendar: utc)
         XCTAssertEqual(firsts, [ids[0]: today, ids[2]: yesterday, ids[4]: yesterday.addingTimeInterval(-86_400)])
     }
+
+    // MARK: Breakdown
+
+    func testBreakdownSpreadsTheDayByShare() throws {
+        // Low midnight–1 am, high 6–10 am, in range the rest, in 15-minute LinkUp history.
+        let r = readings(from: yesterday, to: today, step: 15) { m in
+            m < 60 ? 60 : (m >= 360 && m < 600 ? 220 : 120)
+        }
+        let d = try XCTUnwrap(compute(r, days: [yesterday])[yesterday])
+        XCTAssertEqual(d.spanMinutes, 1440)
+        let parts = d.parts
+        XCTAssertEqual(parts.map(\.band), [.below, .inRange, .above])
+        XCTAssertEqual(parts[0].minutes, 60)
+        XCTAssertEqual(parts[2].minutes, 240)
+        XCTAssertEqual(parts[1].minutes, 1140)
+        XCTAssertEqual(parts.map(\.minutes).reduce(0, +), 1440)
+    }
+
+    func testTodaysBreakdownRunsToNow() throws {
+        let r = readings(from: today, to: referenceNow) { _ in 120 }
+        let d = try XCTUnwrap(compute(r, days: [today])[today])
+        XCTAssertEqual(d.spanMinutes, 14 * 60)
+        XCTAssertEqual(d.parts[1].minutes, 14 * 60)
+        XCTAssertEqual(d.parts[0].minutes, 0)
+    }
+
+    func testBreakdownNeverRoundsAShareAway() {
+        let d = DayInRange(below: 0.001, inRange: 0.999, above: 0, spanMinutes: 1440)
+        XCTAssertEqual(d.parts[0].minutes, 5)
+        XCTAssertEqual(d.parts[1].minutes, 1435)
+        XCTAssertEqual(d.parts[2].minutes, 0)
+    }
+
+    func testBreakdownKeepsASmallInRangeShare() {
+        // 01:00:30 today-style split: 6 below, 1 in range, 6 above over a 60-minute span.
+        let d = DayInRange(below: 6.0 / 13, inRange: 1.0 / 13, above: 6.0 / 13, spanMinutes: 60)
+        let m = d.parts.map(\.minutes)
+        XCTAssertGreaterThanOrEqual(m[1], 5)
+        XCTAssertEqual(m.reduce(0, +), 60)
+    }
+
+    func testBreakdownAddsUpWithNothingInRange() {
+        let d = DayInRange(below: 0.5, inRange: 0, above: 0.5, spanMinutes: 857)
+        let m = d.parts.map(\.minutes)
+        XCTAssertEqual(m[1], 0)
+        XCTAssertEqual(m.reduce(0, +), 857)
+    }
+
+    func testSpokenBreakdownSaysATinyShare() {
+        let d = DayInRange(below: 1.0 / 288, inRange: 287.0 / 288, above: 0, spanMinutes: 1440)
+        XCTAssertEqual(DayInRangeBreakdownText.spoken(d), "100% in range, 23 hours 55 minutes. 0% below, 5 minutes")
+    }
+
+    func testBreakdownWords() {
+        let d = DayInRange(below: 0.04, inRange: 0.78, above: 0.18, spanMinutes: 1440)
+        // 57.6 → 60 min below, 259.2 → 260 min above, the rest in range.
+        XCTAssertEqual(DayInRangeBreakdownText.figure(d.parts[0], hasTimes: true), "4% · 1 h")
+        XCTAssertEqual(DayInRangeBreakdownText.figure(d.parts[1], hasTimes: true), "78% · 18 h 40 min")
+        XCTAssertEqual(DayInRangeBreakdownText.figure(d.parts[2], hasTimes: true), "18% · 4 h 20 min")
+        XCTAssertEqual(DayInRangeBreakdownText.help(d),
+                       "In range 78% · 18 h 40 min, below 4% · 1 h, above 18% · 4 h 20 min. Click to show the day's chart.")
+        XCTAssertEqual(DayInRangeBreakdownText.spoken(d),
+                       "78% in range, 18 hours 40 minutes. 4% below, 1 hour. 18% above, 4 hours 20 minutes")
+        XCTAssertEqual(DayInRangeBreakdownText.duration(25), "25 min")
+        XCTAssertEqual(DayInRangeBreakdownText.spokenDuration(61), "1 hour 1 minute")
+        // Shares only (no span known): just the percents.
+        let bare = DayInRange(below: 0, inRange: 1, above: 0)
+        XCTAssertEqual(DayInRangeBreakdownText.spoken(bare), "100% in range")
+        XCTAssertEqual(DayInRangeBreakdownText.figure(bare.parts[1], hasTimes: false), "100%")
+    }
 }

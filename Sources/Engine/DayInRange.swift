@@ -20,6 +20,10 @@ struct DayInRange: Hashable {
     var below: Double
     var inRange: Double
     var above: Double
+    /// How long the day ran, in minutes: 1440 for a past day (1380 or 1500 across a clock change),
+    /// midnight to now for today. The breakdown spreads it by the shares to say how long each
+    /// lasted (`parts`). 0 when only the shares are known.
+    var spanMinutes: Int = 0
 
     static let bucketMinutes = TodaySoFar.bucketMinutes
     static let coverageMinutes = TodaySoFar.coverageMinutes
@@ -67,7 +71,32 @@ struct DayInRange: Hashable {
             if mgdl < low { below += 1 } else if mgdl > high { above += 1 } else { inside += 1 }
         }
         let n = Double(buckets.count)
-        return DayInRange(below: Double(below) / n, inRange: Double(inside) / n, above: Double(above) / n)
+        return DayInRange(below: Double(below) / n, inRange: Double(inside) / n, above: Double(above) / n,
+                          spanMinutes: Int((span / 60).rounded(.down)))
+    }
+
+    /// The three shares in the bar's order, each with how long it lasted: its share of the day's
+    /// span, to the nearest 5 minutes (the bucket size), so a day of 15-minute LinkUp history reads
+    /// the same as one of 1-minute readings. A share that happened never rounds away to nothing,
+    /// one that didn't stays at zero, and any rounding left over goes to the largest share, so the
+    /// three always add up to the span.
+    var parts: [DayInRangePart] {
+        let step = Self.bucketMinutes
+        let shares = [below, inRange, above]
+        var mins = shares.map { share -> Int in
+            guard share > 0, spanMinutes > 0 else { return 0 }
+            let m = Int((share * Double(spanMinutes) / Double(step)).rounded()) * step
+            return max(step, m)
+        }
+        // Below and above as rounded; in range takes the rest (at least 5 minutes if it happened).
+        if inRange > 0 { mins[1] = max(step, spanMinutes - mins[0] - mins[2]) }
+        let diff = spanMinutes - mins.reduce(0, +)
+        if diff != 0, let top = shares.indices.max(by: { shares[$0] < shares[$1] }) {
+            mins[top] = max(0, mins[top] + diff)
+        }
+        return [DayInRangePart(band: .below, share: below, minutes: mins[0]),
+                DayInRangePart(band: .inRange, share: inRange, minutes: mins[1]),
+                DayInRangePart(band: .above, share: above, minutes: mins[2])]
     }
 
     private static func isSorted(_ readings: [GlucoseReading]) -> Bool {
@@ -83,6 +112,14 @@ struct DayInRange: Hashable {
         }
         return lo
     }
+}
+
+/// One share of a day's time in range, for the breakdown shown when the day is opened.
+struct DayInRangePart: Hashable {
+    enum Band: Hashable { case below, inRange, above }
+    let band: Band
+    let share: Double
+    let minutes: Int
 }
 
 // MARK: - Words
@@ -115,6 +152,71 @@ enum DayInRangeText {
         if f.below >= 0.005 { parts.append("\(Format.percent(f.below)) below") }
         if f.above >= 0.005 { parts.append("\(Format.percent(f.above)) above") }
         return parts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Breakdown
+
+/// The words for a day's breakdown: each share as a percent and the time it lasted, shown under an
+/// opened day on iPhone, in the Mac popover and in the Mac Day cell's tooltip
+/// (docs/LogbookSearch.md, "Day breakdown").
+enum DayInRangeBreakdownText {
+    static func label(_ band: DayInRangePart.Band) -> String {
+        switch band {
+        case .below: return "Below"
+        case .inRange: return "In range"
+        case .above: return "Above"
+        }
+    }
+
+    /// "25 min", "1 h", "18 h 40 min". "0 min" for a share that never happened.
+    static func duration(_ minutes: Int) -> String {
+        let m = max(0, minutes)
+        guard m >= 60 else { return "\(m) min" }
+        return m % 60 == 0 ? "\(m / 60) h" : "\(m / 60) h \(m % 60) min"
+    }
+
+    /// "1 minute", "1 hour", "18 hours 40 minutes", as VoiceOver should say it.
+    static func spokenDuration(_ minutes: Int) -> String {
+        let m = max(0, minutes)
+        let mins = { (n: Int) in n == 1 ? "1 minute" : "\(n) minutes" }
+        guard m >= 60 else { return mins(m) }
+        let h = m / 60 == 1 ? "1 hour" : "\(m / 60) hours"
+        return m % 60 == 0 ? h : "\(h) \(mins(m % 60))"
+    }
+
+    /// "4% · 1 h", the figure under a share's name. Without bucket counts just the percent.
+    static func figure(_ part: DayInRangePart, hasTimes: Bool) -> String {
+        hasTimes ? "\(Format.percent(part.share)) · \(duration(part.minutes))" : Format.percent(part.share)
+    }
+
+    /// The Mac Day cell's tooltip: "In range 78% · 18 h 40 min, below 4% · 1 h, above 18% · 4 h 20 min.
+    /// Click to show the day's chart."
+    static func help(_ f: DayInRange) -> String {
+        let has = f.spanMinutes > 0
+        let order: [DayInRangePart.Band] = [.inRange, .below, .above]
+        let parts = order.compactMap { band in f.parts.first { $0.band == band } }
+        let lines = parts.enumerated().map { i, p in
+            let name = i == 0 ? label(p.band) : label(p.band).lowercased()
+            return "\(name) \(figure(p, hasTimes: has))"
+        }
+        return lines.joined(separator: ", ") + ". Click to show the day's chart."
+    }
+
+    /// The shares for VoiceOver, in range first: "78% in range, 18 hours 40 minutes. 4% below, 1
+    /// hour. 18% above, 4 hours 20 minutes". Below and above are left out when they never happened.
+    static func spoken(_ f: DayInRange) -> String {
+        let has = f.spanMinutes > 0
+        func one(_ p: DayInRangePart, _ name: String) -> String {
+            has ? "\(Format.percent(p.share)) \(name), \(spokenDuration(p.minutes))" : "\(Format.percent(p.share)) \(name)"
+        }
+        let parts = f.parts
+        var out = [one(parts[1], "in range")]
+        // With times, any share that happened is said, as the row shows it ("0% · 5 min").
+        let floor = has ? 0 : 0.005
+        if f.below > 0, f.below >= floor { out.append(one(parts[0], "below")) }
+        if f.above > 0, f.above >= floor { out.append(one(parts[2], "above")) }
+        return out.joined(separator: ". ")
     }
 }
 

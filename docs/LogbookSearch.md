@@ -172,6 +172,25 @@ DayChartTests; drawn by `DayMiniChart`).
   (`DayChartText.spoken`); the chart itself is hidden.
 - **Cost.** Only the open day is worked out, once per day or readings change (`DayChartCache`).
 
+## Day breakdown
+
+Round 94 puts the bar's split into numbers (`DayInRange.parts`, `DayInRangeBreakdownText`, Engine,
+tested in DayInRangeTests; drawn by `DayRangeBreakdown`).
+
+- **Where.** On iPhone, under an opened day's chart: three small columns, Below, In range and
+  Above, each with its colour dot, share and how long it lasted ("4% · 1 h", "78% · 18 h 40 min").
+  On the Mac the same row sits under the chart in the Day popover, and hovering the Day cell shows
+  it as the tooltip: "In range 78% · 18 h 40 min, below 4% · 1 h, above 18% · 4 h 20 min. Click
+  to show the day's chart." The row stacks at the largest text sizes.
+- **What it counts.** Each share of the day's span: 24 hours for a past day (23 or 25 across a
+  clock change), midnight to now for today. Below and above are rounded to the nearest 5 minutes
+  (never to nothing if it happened) and in range takes the rest, so the three add up to the day.
+  Shares, not reading counts, so 15-minute LinkUp history reads the same as 1-minute readings.
+- **VoiceOver.** Still one element: the opened header (and the Mac popover) now reads "78% in
+  range, 18 hours 40 minutes. 4% below, 1 hour" in place of the bare shares
+  (`DayChartText.spoken(breakdown: true)`). The row itself is hidden.
+- **Motion.** None. It arrives with the chart (cross-fade) and its figures change at once.
+
 ## Jump to a date
 
 Round 44 adds a compact month calendar to the Logbook, on iPhone and Mac (`LogbookCalendar` and
