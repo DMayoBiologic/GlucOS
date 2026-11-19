@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "contextualmenu.and.cursorarrow",
                   title: "Quick menu picks fill in as shown",
                   detail: "On the Mac, a usual meal picked from the menu bar quick menu now fills the log window with exactly what the menu showed, even if the time of day moved on to the next meal as you picked it."),
+            .init(symbol: "hand.draw",
+                  title: "Drag the forecast card away",
+                  detail: "On iPhone, drag the forecast details card down and it follows your finger, then drops away or springs back. With Reduce Motion on, it simply fades."),
         ]),
         WhatsNewRelease(version: "1.86.0", highlights: [
             .init(symbol: "contextualmenu.and.cursorarrow",

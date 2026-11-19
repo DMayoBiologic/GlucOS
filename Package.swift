@@ -55,6 +55,7 @@ let package = Package(
                 "Shared/ForecastMorph.swift",
                 "Shared/ForecastDetails.swift",
                 "Shared/ForecastCardEntrance.swift",
+                "Shared/ForecastCardDrag.swift",
                 "Shared/PopoverStagger.swift",
                 "Shared/ContentResize.swift",
                 "Shared/DependentRows.swift",

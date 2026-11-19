@@ -1252,7 +1252,8 @@ struct GlucoseChart: View {
                     ForecastPopoverAnchor(proxy: proxy, unit: unit,
                                           anchor: ForecastDetails.anchor(tapped: forecastTapped, in: projection),
                                           isPresented: $forecastOpen, details: forecastDetails,
-                                          closing: forecastClosing, close: { closeForecast() })
+                                          closing: forecastClosing, close: { closeForecast() },
+                                          dropped: { closeForecast(animated: false) })
                 }
             }
             // Return on the Mac opens the card, and closes it again when it's open.
@@ -2459,6 +2460,8 @@ private struct ForecastPopoverAnchor: View {
     let details: ForecastDetails?
     let closing: Bool
     let close: () -> Void
+    /// The card was dragged down and has dropped out (iPhone): let the popover go now.
+    let dropped: () -> Void
 
     var body: some View {
         GeometryReader { geo in
@@ -2471,7 +2474,7 @@ private struct ForecastPopoverAnchor: View {
                 .popover(isPresented: $isPresented, arrowEdge: fromTop ? .bottom : .top) {
                     if let details {
                         ForecastDetailsCard(details: details, unit: unit, opensFromTop: fromTop,
-                                            closing: closing, close: close)
+                                            closing: closing, close: close, dropped: dropped)
                             .presentationCompactAdaptation(.popover)
                     }
                 }
