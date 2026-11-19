@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.88.0", highlights: [
+            .init(symbol: "cursorarrow.motionlines",
+                  title: "Insights cards lift under the pointer",
+                  detail: "On the Mac, an Insights card rises a touch with a soft shadow while the pointer rests on it. With Reduce Motion on, only the shadow fades in."),
+        ]),
         WhatsNewRelease(version: "1.87.0", highlights: [
             .init(symbol: "contextualmenu.and.cursorarrow",
                   title: "Quick menu picks fill in as shown",

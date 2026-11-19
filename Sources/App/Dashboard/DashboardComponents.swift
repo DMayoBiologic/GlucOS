@@ -583,3 +583,50 @@ struct WindowConfigurator: NSViewRepresentable {
         }
     }
 }
+
+// MARK: - Hover lift
+
+/// An Insights card lifting while the pointer rests on it (`CardHoverLift`): 1.01x and a soft
+/// shadow, 0.15 s. Hover-driven only, so nothing runs while the pointer is still. Apply it inside
+/// `dsReveal`, so the card's rise-in fades the shadow in with the card, never before it.
+private struct InsightsHoverLift: ViewModifier {
+    let lifted: Bool
+    let hover: (Bool) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.dsDensity) private var density
+
+    func body(content: Content) -> some View {
+        let look = CardHoverLift.look(hovering: lifted, reduceMotion: reduceMotion,
+                                      increasedContrast: contrast == .increased)
+        content
+            .background { liftShadow(opacity: look.shadowOpacity) }
+            .scaleEffect(look.scale)
+            .animation(.snappy(duration: CardHoverLift.duration), value: look)
+            .onHover(perform: hover)
+    }
+
+    /// The shadow alone, drawn around the card's shape and cut out under it, so the card's
+    /// translucent surface still shows the window behind it and its text casts no shadow.
+    private func liftShadow(opacity: Double) -> some View {
+        let shape = RoundedRectangle(cornerRadius: density.cardRadius, style: .continuous)
+        return shape.fill(Color.black)
+            .shadow(color: .black.opacity(opacity), radius: CardHoverLift.shadowRadius, y: CardHoverLift.shadowY)
+            .mask {
+                Rectangle()
+                    .padding(-CardHoverLift.shadowRadius * 3)
+                    .overlay { shape.blendMode(.destinationOut) }
+                    .compositingGroup()
+            }
+            .opacity(opacity > 0 ? 1 : 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// Lifts the card while the pointer is over it. See `InsightsHoverLift`.
+    func insightsHoverLift(_ lifted: Bool, hover: @escaping (Bool) -> Void) -> some View {
+        modifier(InsightsHoverLift(lifted: lifted, hover: hover))
+    }
+}
