@@ -103,6 +103,8 @@ struct ForecastDetails: Equatable, Sendable {
     // MARK: Wording
 
     static let title = "Forecast"
+    /// VoiceOver's action that puts the card away, alongside its escape gesture.
+    static let closeTitle = "Close"
     /// Under the figures, so the card never reads as a reading or a guide.
     static let footnote = "An estimate, not a reading. Range checks are from this device's last 7 days."
     /// VoiceOver's action on the chart that opens the card.
