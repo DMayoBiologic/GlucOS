@@ -1,0 +1,88 @@
+name: Mac signing
+
+# Runs the Mac release's Developer ID signing and notarization on a pull request that touches
+# them, so a broken setup is caught before it reaches main (where releases would fall back to
+# ad-hoc signing and the Keychain password prompt would come back after every update). Builds,
+# signs and notarizes; nothing is published. The first run may make the sealed identity
+# (scripts/mac_identity.sh), which releases then reuse. Skips itself on forks.
+
+on:
+  pull_request:
+    paths:
+      - scripts/mac_identity.sh
+      - scripts/seal_mac_app.sh
+      - scripts/asc_developer_id.py
+      - .github/workflows/release.yml
+      - .github/workflows/mac-signing.yml
+      - project.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write   # to publish the sealed identity on the mac-signing prerelease, once
+
+concurrency:
+  group: mac-signing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sign:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Developer ID identity
+        id: sign
+        env:
+          P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          SEAL: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MINT: "true"
+        run: bash scripts/mac_identity.sh
+      - name: Require a Developer ID identity
+        if: steps.sign.outputs.identity == '-'
+        run: |
+          echo "::error::No Developer ID identity, so releases would still be ad-hoc signed (see the warning above)."
+          exit 1
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate --spec project.yml
+      - name: Build and sign
+        run: |
+          set -o pipefail
+          xcodebuild -project GlucOS.xcodeproj -scheme GlucOS -configuration Release \
+            -derivedDataPath build -skipPackagePluginValidation -skipMacroValidation \
+            MARKETING_VERSION=0.0.1 CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            CODE_SIGN_IDENTITY="${{ steps.sign.outputs.identity }}" \
+            DEVELOPMENT_TEAM="${{ steps.sign.outputs.team }}" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp" \
+            build 2>&1 | tee build.log | grep -E "error:|BUILD|Signing" || true
+          test -d build/Build/Products/Release/GlucOS.app || { echo "::error::Build failed"; grep -E "error:" build.log | sort -u; exit 1; }
+          bash scripts/seal_mac_app.sh build/Build/Products/Release/GlucOS.app \
+            "${{ steps.sign.outputs.identity }}" "${{ steps.sign.outputs.team }}"
+      - name: Notarize
+        env:
+          KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          APP=build/Build/Products/Release/GlucOS.app
+          echo "$KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
+          OUT=$(xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$KEY_ID" --issuer "$ISSUER" --wait 2>&1) || true
+          echo "$OUT"
+          SUB=$(echo "$OUT" | sed -n 's/^ *id: //p' | head -1)
+          if ! echo "$OUT" | grep -q "status: Accepted"; then
+            [ -n "$SUB" ] && xcrun notarytool log "$SUB" --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$KEY_ID" --issuer "$ISSUER" || true
+            echo "::error::Notarization wasn't accepted"; exit 1
+          fi
+          xcrun stapler staple "$APP"
+          spctl --assess --type execute -vv "$APP"
