@@ -6884,3 +6884,117 @@ from w where abs(sl) < 0.5 and (mn > 180 or (mn >= 70 and mx <= 180)) group by 1
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged.
+
+## 92. On a slow, steady drift, does the line fade too early and under-call where glucose ends up? (19 Nov 2026)
+
+**Question.** Glucose often eases gently down or up inside the target range for an hour or more,
+at 0.5–1 mg/dL a minute (for example a slow fall through the afternoon). The trend fades out over
+30 minutes, so on a drift that keeps going the line would stop short of where glucose ends up at
+30 and 60 minutes. Does it, compared with flat runs in range? §45 and §71 looked at turns, §82 at
+falls from above range, §58 and §91 at flat stretches; none at slow in-range drifts.
+
+**Data.** Live readings 11–19 Nov 2026 (10,596), the Logbook's meals, rapid doses and hypo
+treatments, and the accuracy log's clean shown points. A forecast is **on a drift** when, judged
+only from what the app had at issue, every reading in the 60 minutes before was between 70 and 180,
+the 60-minute least-squares slope was 0.5 to 1 mg/dL a minute either way, the engine's 20-minute
+trend had the same sign and was within 0.5 of it, and the hour fit a straight line well (residual
+SD under 6 mg/dL), so it is steady rather than a turn or a bump. A **flat run** is the same hour in
+range with a slope under 0.2. Bias is signed **along the drift** (actual − line, times +1 on a
+climb and −1 on a fall), so positive means glucose went further than the line said: an under-call.
+Each drift point is compared with its 5 flat points with the nearest start (within 20 mg/dL) and the
+same "logged in the 2 hours before" flag. Replay as §88–§91 (the engine's trend forecast every 5
+minutes, which leaves out carbs and insulin, band = 10th–90th percentile of the other days'
+errors). Script: `scripts/slow-drifts.py` (same export as §91).
+
+Steady drifts are less common than they feel: 60 clean replay points on 7 days (34 falling, 26
+rising), starts 82–180, mostly daytime; 23 of them on 13 Nov and 14 on 18 Nov.
+
+Live accuracy log (the real engine; most drift points had something logged, so carbs and insulin
+are in the line), bias along the drift, "moved" is how far glucose went along the drift, "drawn" how
+far the line went:
+
+| Horizon | Group | Points (days) | MAE | No change | Bias | Moved | Drawn | Inside | Short side | Width |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 15 min | drift | 37 (6) | 8.8 | 10.6 | +3.0 | +7.7 | +4.7 | 97% | 0% | 51.1 |
+| 15 min | flat | 90 (7) | 12.4 | 12.7 | −0.4 | | | 88% | | 52.6 |
+| 30 min | drift | 23 (5) | 12.8 | 15.0 | +5.0 | +12.1 | +7.0 | 100% | 0% | 86.9 |
+| 30 min | flat | 29 (6) | 19.6 | 24.2 | +12.9 | | | 79% | | 82.2 |
+| 60 min | drift | 9 (3) | 28.1 | 19.6 | −16.5 | −3.9 | +12.6 | 78% | 0% | 95.1 |
+
+Replay, gain 0.45 (0.6 and 0.7 shift the bias by 1–3 mg/dL the expected way and change nothing
+else), "full trend" is the MAE if the 20-minute trend carried on unfaded:
+
+| Horizon | Group | Points (days) | MAE | No change | Full trend | Bias | Moved | Drawn | Inside | Short side | Matched MAE, drift vs flat |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 15 min | drift, all | 60 (7) | 10.0 | 10.8 | 10.0 | +3.1 | +6.4 | +3.3 | 95% | 5% | 10.0 vs 11.5 |
+| 30 min | drift, all | 60 (7) | 14.9 | 15.9 | 17.7 | +2.0 | +6.4 | +4.4 | 95% | 3% | 14.9 vs 17.0 |
+| 30 min | falling | 34 (6) | 16.0 | 17.2 | 16.7 | +2.7 | +6.6 | +3.9 | 94% | 6% | 16.0 vs 17.1 |
+| 30 min | rising | 26 (4) | 13.4 | 14.2 | 19.0 | +1.1 | +6.2 | +5.1 | 96% | 0% | 13.4 vs 17.0 |
+| 30 min | nothing logged in 3 h | 26 (6) | 12.1 | 12.8 | 18.1 | −0.5 | +3.8 | +4.2 | 100% | 0% | 12.1 vs 15.2 |
+| 60 min | drift, all | 60 (7) | 30.4 | 30.2 | 45.5 | −2.4 | +2.0 | +4.4 | 87% | 3% | 30.4 vs 24.6 |
+| 60 min | nothing logged in 3 h | 26 (6) | 24.0 | 24.1 | 35.7 | +8.3 | +12.5 | +4.2 | 100% | 0% | 24.0 vs 22.2 |
+
+**The line doesn't fade too early: slow drifts mostly stall.** At 0.5–1 mg/dL a minute, a drift
+that kept going would move 15–30 mg/dL in 30 minutes and 30–60 in an hour. Glucose moved only 6
+along the drift at 30 minutes and 2 at 60 in the replay, close to the 4 the line draws, and carrying
+the trend on unfaded is the worst of the three at 30 and 60 minutes (17.7 and 45.5 against 14.9 and
+30.4). The small under-call is at 15–30 minutes (+2 to +3 in the replay, +3 and +5 live), and it is
+well inside the range: 95–100% of drift readings land inside at 15 and 30 minutes, and almost none
+fall short on the drift's side. Drift forecasts are no worse than matched flat runs at 15 and 30
+minutes; at 60 minutes they are worse (30.4 against 24.6), but because drifts turn, not because the
+line stops short: the bias there is near zero in the replay and negative live (glucose turned back
+on 9 points). Per day the 30-minute bias swings from −29 to +35, with no direction or day that
+under-calls consistently. A looser rule (slope 0.4–1.2, residual under 9; 108 points on 8 days)
+says the same more strongly: glucose moved +1.3 along the drift at 30 minutes and −4.3 at 60, so
+the line slightly over-calls (−3 and −8).
+
+**Held out.** On drift points with nothing logged in the 3 hours before (where the live line is the
+trend alone), the trend's gain is scaled by k (0.5 to 1.5) and it fades over F minutes instead of 30
+(30 to 120), picked on the other Perth days and scored on the held-out day by 30- plus 60-minute
+MAE over all points (leave one day out over the 4 days with 3+ such points):
+
+| Gain | Better held out, all points 30 / 60 | Drift points 30 / 60 | Most-picked | All-point MAE 30 / 60 | Predicted-low crossings |
+|---|---|---|---|---|---|
+| 0.45 | 0/4, 1/4 | 0/4, 1/4 | k 1, F 120 | 23.96 → 23.97, 37.96 → 37.96 | 11 → 11 |
+| 0.6 | 0/4, 0/4 | 0/4, 0/4 | k 0.75, F 120 | 24.10 → 24.11, 38.17 → 38.17 | 16 → 16 |
+| 0.7 | 0/4, 0/4 | 0/4, 0/4 | k 0.75, F 90 | 24.31 → 24.31, 38.39 → 38.39 | 18 → 18 |
+
+It loses. The pick swings from a stronger trend (k 1.5, 13 Nov) to a weaker one (k 0.5, 14 Nov) to
+a longer fade (16 and 18 Nov), and every longer fade made the held-out drift points worse (16 Nov
+60-minute MAE 23.3 → 30.5, 18 Nov 27.4 → 31.4), because those drifts stopped. In-sample the best
+cell moves drift-point 30-minute MAE by 0.2 mg/dL.
+
+**Decision.** Ship nothing. On slow in-range drifts the line under-calls by only 2–5 mg/dL at 15
+and 30 minutes, the range holds nearly every reading, and the drifts themselves mostly stall within
+half an hour, so a longer fade or a stronger trend only adds error when they stop. Retest on
+**10 Dec 2026**, only with 150+ replay drift points on 12+ days and 60+ live 30-minute drift points:
+refit k and F leave one day out (ship only if it wins most held-out days at every gain and adds no
+predicted-low crossings), and check separately whether overnight drifts (3 points so far, all on
+14 Nov, under-called by 21 at 30 minutes) keep going where daytime ones stop. A drift that follows a
+dose or a meal is the insulin or carb curve's business (dosing maths, a decision card for Declan,
+not a ship).
+
+Live-log check, in the Supabase SQL editor (drift = all readings in range for the 60 minutes before
+issue with a steady 0.5–1 mg/dL a minute slope and a matching trend, against flat in-range runs;
+unmatched. On 19 Nov: 30-minute drift 23 points, bias along the drift +5.0, 100% inside):
+
+```sql
+with p as (select c.issued_at t, (e->>'minutes')::int m, (e->>'mgdl')::float f, (e->>'lower')::float lo,
+  (e->>'upper')::float hi, (e->>'actual')::float a, c.start_mgdl s, c.trend_per_minute tr
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,60)),
+w as (select p.*, r.mn, r.mx, r.n, r.sl, sqrt(greatest(r.syy*(1-coalesce(r.r2,0)),0)/r.n) res from p,
+  lateral (select min(mgdl) mn, max(mgdl) mx, count(*) n, regr_slope(mgdl, extract(epoch from at)/60) sl,
+  regr_r2(mgdl, extract(epoch from at)/60) r2, regr_syy(mgdl, extract(epoch from at)/60) syy
+  from glucos.readings where trend > 0 and at between p.t - interval '60 minutes' and p.t) r),
+g as (select *, case when abs(sl) between 0.5 and 1.0 and tr*sl > 0 and abs(tr-sl) <= 0.5 and res < 6 then 'drift'
+  when abs(sl) < 0.2 then 'flat' end grp from w where n >= 30 and mn >= 70 and mx <= 180)
+select m, grp, count(*) n, round(avg((a-f)*case when grp='drift' then sign(sl) else 1 end)::numeric,1) bias_along,
+  round(avg(abs(a-f))::numeric,1) mae, round(avg(abs(a-s))::numeric,1) no_change,
+  round(100*avg((a between lo and hi)::int)) inside, round(avg(hi-lo)::numeric,1) width
+from g where grp is not null group by 1,2 order by 1,2;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged.
