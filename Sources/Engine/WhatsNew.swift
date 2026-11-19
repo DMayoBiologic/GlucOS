@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.87.0", highlights: [
+            .init(symbol: "contextualmenu.and.cursorarrow",
+                  title: "Quick menu picks fill in as shown",
+                  detail: "On the Mac, a usual meal picked from the menu bar quick menu now fills the log window with exactly what the menu showed, even if the time of day moved on to the next meal as you picked it."),
+        ]),
         WhatsNewRelease(version: "1.86.0", highlights: [
             .init(symbol: "contextualmenu.and.cursorarrow",
                   title: "A quick menu in the menu bar",

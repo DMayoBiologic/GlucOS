@@ -62,6 +62,9 @@ struct LogSheet: View {
     /// The id of the usual entry picked in the popover or on the widget, filled in once the sheet
     /// appears.
     private let startingUsualID: String?
+    /// The usual exactly as the picker showed it (quick menu, popover row), so a slot rollover
+    /// between showing and picking doesn't leave the sheet unfilled.
+    private let startingUsual: UsualEntry?
 
     /// Set when editing: only that part is shown.
     private let editing: Part?
@@ -214,9 +217,9 @@ struct LogSheet: View {
         }
         if case .treating(let t) = target { treating = t } else { treating = nil }
         switch target {
-        case .usual(let u): startingUsualID = u.id
-        case .usualID(let id, _): startingUsualID = id
-        default: startingUsualID = nil
+        case .usual(let u): startingUsualID = u.id; startingUsual = u
+        case .usualID(let id, _): startingUsualID = id; startingUsual = nil
+        default: startingUsualID = nil; startingUsual = nil
         }
         self.editing = editing
         self.editingID = editingID
@@ -1338,13 +1341,15 @@ struct LogSheet: View {
         apply(u)
     }
 
-    /// Opened from a "Your usual" chip in the popover or a button on the desktop widget: filled in
-    /// from that entry, if the sheet still offers it (worked out again now, so a correction that
-    /// stopped applying because glucose came down isn't filled in). Nothing is logged until Log,
-    /// after `RepeatCheck`.
+    /// Opened from a "Your usual" pick in the popover row, the menu bar quick menu or a button on
+    /// the desktop widget. A picked meal or low treatment fills in exactly as it was shown, even if
+    /// the meal slot rolled over since; a correction only while one is still offered (so one that
+    /// stopped applying because glucose came down isn't filled in); a widget id only if the sheet
+    /// offers it now (`UsualEntries.startingFill`). Nothing is logged until Log, after `RepeatCheck`.
     private func applyStartingUsual() {
-        guard isNew, appliedUsual == nil, let picked = startingUsualID,
-              let u = usuals.first(where: { $0.id == picked }) else { return }
+        guard isNew, appliedUsual == nil,
+              let u = UsualEntries.startingFill(shown: startingUsual, pickedID: startingUsualID,
+                                                offered: usuals) else { return }
         apply(u)
     }
 
