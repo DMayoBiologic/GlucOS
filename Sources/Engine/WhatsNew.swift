@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "hand.draw",
                   title: "Drag the forecast card away",
                   detail: "On iPhone, drag the forecast details card down and it follows your finger, then drops away or springs back. With Reduce Motion on, it simply fades."),
+            .init(symbol: "chart.bar.xaxis",
+                  title: "Forecasts from low and high readings",
+                  detail: "We checked how forecasts do when they start low, in range, high or very high, and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.86.0", highlights: [
             .init(symbol: "contextualmenu.and.cursorarrow",

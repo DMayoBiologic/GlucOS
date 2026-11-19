@@ -7512,3 +7512,104 @@ where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged. No app or relay code changed.
+
+## 98. Does the forecast miss more when it starts low, in range, high or very high? (19 Nov 2026)
+
+**Question.** §36 split forecasts into three bands on four days, before the low-start (§40) and
+high-start (§41) range widening shipped. With eight days now, in four bands by the reading the
+forecast started from (under 70, 70–180, 180–250, over 250 mg/dL), how do the line and the range
+do at 15, 30 and 60 minutes, and would a shift or a range width learnt per band do better on days
+it wasn't learnt from? (Sensor day is left to §29's retest after the next sensor start.)
+
+**Data.** The accuracy log's clean shown points (nothing logged after, drawn) with a reading at 15
+(796), 30 (377) or 60 minutes (185), Mac, iPhone and relay, 12–19 Nov Perth. Bias is actual − line
+(positive = line low); "no change" is the reading the forecast started from; above / below are
+misses outside the range on that side. Script: `scripts/start-band-forecasts.py` (reads the §97
+export).
+
+| Start, horizon | Points (days) | Bias | Miss | No change | Inside | Above / below | Width |
+|---|---|---|---|---|---|---|---|
+| Under 70, 15 | 41 (6) | +14.7 | 18.8 | 18.2 | 78.0% | 17.1 / 4.9% | 56 |
+| 70–180, 15 | 510 (8) | +3.5 | 14.9 | 16.2 | 81.2% | 14.5 / 4.3% | 52 |
+| 180–250, 15 | 172 (8) | −8.9 | 17.3 | 19.1 | 83.1% | 2.3 / 14.5% | 55 |
+| Over 250, 15 | 73 (6) | −8.4 | 20.4 | 22.7 | 78.1% | 4.1 / 17.8% | 62 |
+| Under 70, 30 | 19 (2) | +21.8 | 33.4 | 33.9 | 78.9% | 15.8 / 5.3% | 82 |
+| 70–180, 30 | 235 (8) | +9.8 | 24.2 | 27.5 | 77.4% | 16.6 / 6.0% | 85 |
+| 180–250, 30 | 83 (8) | −13.9 | 27.7 | 34.8 | 81.9% | 0 / 18.1% | 87 |
+| Over 250, 30 | 40 (5) | −22.6 | 39.7 | 42.7 | 67.5% | 0 / 32.5% | 115 |
+| Under 70, 60 | 8 (2) | +71.4 | 71.4 | 83.1 | 62.5% | 37.5 / 0% | 109 |
+| 70–180, 60 | 117 (6) | +33.8 | 48.7 | 47.1 | 77.8% | 18.8 / 3.4% | 136 |
+| 180–250, 60 | 50 (6) | −44.7 | 66.2 | 71.1 | 70.0% | 0 / 30.0% | 172 |
+| Over 250, 60 | 10 (2) | +2.1 | 44.9 | 46.8 | 80.0% | 0 / 20.0% | 233 |
+
+- **Same direction as §36, a little smaller at the low end.** Starts under 70 still run low (the
+  line under-calls the climb back) and highs still run high, and the line beats no change in every
+  band at 15 and 30 except under 70 at 15 (18.8 vs 18.2), where the recovery is mostly
+  unlogged treatment (§36). §40's upper widening has lifted low-start coverage from §36's 63% (then under 81) to
+  78% at 15 and 79% at 30.
+- **The weak spot is over 250 at 30 minutes.** 67.5% inside, every miss below, the line 22.6
+  high: §41 widens the lower side at 60 minutes only (none at 15–30), and the 180–250 band is
+  fine at 30 (82%). It is five days, and 28 of the 40 points are Monday 16 Nov, so it reads one
+  long high more than a pattern. At 60 minutes 180–250 holds only 70%, all misses below, as §41
+  found before it shipped; on ranges from 14 Nov on it is 80%.
+- **The 60-minute under-70 and over-250 cells are 8 and 10 points on two days each**; nothing in
+  them is readable yet.
+
+**Held out: a per-band correction.** Leave one Perth day out. Each point's line moved by the
+shrunk mean miss (sum / (n + k), k 0 / 10 / 30, once there were 5) of the other days' points in
+its band × horizon, and/or its range scaled about the line so those points would have been 80%
+inside (1× to 2.5×, as `ForecastLedger.rangeScale` does). "Shift over 180 only" is §36's carried
+retest (move only high starts). Shipped: miss 16.1 / 27.1 / 54.2, inside 81.2% / 77.5% / 75.1%.
+Low warnings read the line, so "Lows" counts the readings that ended under 70 where the line was
+already under 70: 32 of 53 as shipped.
+
+| Version | 15 min | 30 min | 60 min | Days better (15 / 30 / 60) | Lows |
+|---|---|---|---|---|---|
+| Shift + range per band, k 0 | −0.2% | +5.1% | −12.4% | 4/8, 5/8, 4/6 | 14/53 |
+| Shift + range per band, k 30 | −2.2% | −2.0% | −12.2% | 5/8, 5/8, 4/6 | 23/53 |
+| Range per band only | 0 (score +4.5%) | 0 (score +13.8%) | 0 (score +7.9%) | 1/8, 2/8, 2/6 (score) | 32/53 |
+| Shift over 180 only, k 10 | −1.9% | −2.0% | −8.1% | 5/8, 6/8, 6/6 | 32/53 |
+| Shift over 180 only, k 30 | −1.9% | −2.3% | −6.5% | 5/8, 6/8, 6/6 | 32/53 |
+
+- **Any shift in the under-70 band costs low warnings.** It moves the line up where glucose
+  recovered on other days, so 9 to 18 of the 32 caught lows would no longer show the line under
+  70. That is ruled out, as in §36.
+- **Per-band range width loses on interval score** at every horizon (+4.5 / +13.8 / +7.9%): it
+  buys coverage (over 250 at 30 goes 68 → 90%) with width the other days didn't need.
+- **Shifting high starts down** is the steadiest version (6 of 8 days at 30, every day at 60,
+  low warnings unchanged) but gives only −2.0 to −2.3% at 30 minutes; most of the 60-minute gain
+  is the same 60-minute lean §46 and §51 found (15 and 18 Nov carry it). It is still the learnt
+  drift PR #53 rejected, and it would make "Back in range ≈ X min" sooner.
+
+**Decision.** Ship nothing. No version clears the bar (held-out ≥3% better at 30 **and** 60, most
+days better, low warnings unchanged): the only one that keeps low warnings stops at −2.3% at 30
+minutes. Retest on **10 Dec 2026**, with §91 (high plateaus) and §41: score only ranges from 14 Nov
+on, and ship "shift over 180 only" only if it reaches −3% at 30 on most held-out days with the
+back-in-range gate checked; if over-250 30-minute coverage is still under 75% on 5+ days, try
+extending §41's lower widening to 15–30 minutes for starts over 250 instead.
+
+Live-log check, in the Supabase SQL editor (start band × horizon: points, days, bias, miss,
+no-change miss, inside / above / below rates and width. On 19 Nov it gives the table above,
+within a point or two where the export rounds a start to one decimal):
+
+```sql
+with p as (select c.issued_at at time zone 'Australia/Perth' lt, (e->>'minutes')::int m,
+    (e->>'mgdl')::float f, (e->>'actual')::float a, c.start_mgdl s,
+    (e->>'lower')::float lo, (e->>'upper')::float hi
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,60))
+select case when s < 70 then '1 <70' when s <= 180 then '2 70-180' when s <= 250 then '3 180-250' else '4 >250' end band,
+  m minutes, count(*) pts, count(distinct lt::date) days, round(avg(a - f)::numeric, 1) bias,
+  round(avg(abs(a - f))::numeric, 1) miss, round(avg(abs(a - s))::numeric, 1) no_change,
+  round(100 * avg((a between lo and hi)::int)::numeric, 1) inside_pct,
+  round(100 * avg((a > hi)::int)::numeric, 1) above_pct, round(100 * avg((a < lo)::int)::numeric, 1) below_pct,
+  round(avg(hi - lo)::numeric) width
+from p group by rollup(1), 2 order by 2, 1;
+```
+
+Export for the script: the `string_agg` query in §97 (save the `rows` value one point per line,
+`;` → newline).
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged. No app or relay code changed.
