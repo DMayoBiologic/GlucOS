@@ -308,6 +308,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **Get back to today in the Logbook.** Scroll away from today in the Logbook and a Today pill appears; tap it to spring back. On Today, your average and the other figures beside time in range roll to their new values as each reading comes in.
 - **Drag the forecast card away.** Tap the forecast line on Today to open its details card, then drag the card down to put it away. It follows your finger, then drops away or springs back. With Reduce Motion on, it fades instead.
 - **See how long a day spent in range.** Open a day in the Logbook to see how long it spent below, in and above range, for example "78% · 18 h 40 min" in range. Today counts from midnight until now. On a day with gaps in readings the hours are estimates, shown as "≈18 h 40 min" (VoiceOver says "about"), and if readings cover less than half the day only the percentages show.
+- **See your last 7 days at a glance.** Touch and hold time in range on Today for a small card with the last 7 days as bars, today last. Tap a day to open it in the Logbook. In Settings › Alerts › Alert History, new alerts slide in at the top and older ones shrink away.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
