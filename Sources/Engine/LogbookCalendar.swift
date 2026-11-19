@@ -121,16 +121,22 @@ enum LogbookJump {
 
     /// A day in the calendar as VoiceOver says it: "Tuesday 12 November, 3 entries", or "nothing
     /// logged" for a dimmed day.
-    static func spoken(_ cell: LogbookCalendar.Cell, now: Date, calendar: Calendar = .autoupdatingCurrent,
+    /// With `figures`, the day's time in range follows, so the cell's tint is said in words too:
+    /// "Tuesday 12 November, 3 entries, 78% in range".
+    static func spoken(_ cell: LogbookCalendar.Cell, now: Date, figures: DayInRange? = nil,
+                       calendar: Calendar = .autoupdatingCurrent,
                        locale: Locale = .autoupdatingCurrent) -> String {
         let name = DayInRangeText.spokenDay(ClockLabel.day(of: cell.day, now: now, calendar: calendar),
                                             calendar: calendar, locale: locale)
         if cell.isFuture { return name }
+        let entries: String
         switch cell.entries {
-        case 0: return "\(name), nothing logged"
-        case 1: return "\(name), 1 entry"
-        default: return "\(name), \(cell.entries) entries"
+        case 0: entries = "\(name), nothing logged"
+        case 1: entries = "\(name), 1 entry"
+        default: entries = "\(name), \(cell.entries) entries"
         }
+        guard let figures else { return entries }
+        return entries + ", \(DayInRangeText.percent(figures)) in range"
     }
 
     /// Said once the list lands: "Showing Tuesday 12 November".
@@ -138,6 +144,71 @@ enum LogbookJump {
                              locale: Locale = .autoupdatingCurrent) -> String {
         "Showing " + DayInRangeText.spokenDay(ClockLabel.day(of: day, now: now, calendar: calendar),
                                               calendar: calendar, locale: locale)
+    }
+}
+
+/// How the jump-to-a-date calendar moves and colours its days (round 86): a sideways swipe steps the
+/// month, each day's circle washes in tinted by its time in range (`DayInRange`, the Logbook day
+/// bars' figures and colours), one after another along the grid. Plain numbers so the rules are
+/// tested; the view only animates them. docs/LogbookSearch.md "Jump to a date".
+enum LogbookCalendarMotion {
+    /// Which range colour a day's circle takes.
+    enum Band: Equatable {
+        case below, inRange, above
+    }
+
+    struct Tint: Equatable {
+        let band: Band
+        /// The circle's fill opacity, 0.12...0.32: stronger the more of the day sat in that band.
+        let strength: Double
+    }
+
+    /// The in-range share at or above which a day reads as in range (the usual 70% goal).
+    static let inRangeGoal = 0.7
+    static let weakest = 0.12
+    static let strongest = 0.32
+
+    /// A day with enough readings is tinted in range when at least 70% of it was; otherwise by
+    /// whichever of below or above it spent longer in (below on a tie, the one that matters more).
+    /// A day without enough readings has no tint and keeps the plain circle.
+    static func tint(_ figures: DayInRange?) -> Tint? {
+        guard let f = figures else { return nil }
+        let band: Band
+        let share: Double
+        if f.inRange >= inRangeGoal {
+            band = .inRange; share = f.inRange
+        } else if f.below >= f.above {
+            band = .below; share = f.below
+        } else {
+            band = .above; share = f.above
+        }
+        let strength = weakest + (strongest - weakest) * min(1, max(0, share))
+        return Tint(band: band, strength: (strength * 1000).rounded() / 1000)
+    }
+
+    /// How far a drag must travel sideways before letting go steps the month.
+    static let swipeDistance: Double = 44
+
+    /// The month step a drag ends in: a swipe left goes to the later month, right to the earlier
+    /// one, only when it travelled far enough, mostly sideways, and that month can be shown.
+    static func swipeStep(width: Double, height: Double, hasEarlier: Bool, hasLater: Bool) -> Int {
+        guard abs(width) >= swipeDistance, abs(width) > abs(height) * 1.5 else { return 0 }
+        if width < 0 { return hasLater ? 1 : 0 }
+        return hasEarlier ? -1 : 0
+    }
+
+    /// Where the grid sits while dragging: with the finger, or a fifth as far (a rubber band)
+    /// towards a month that can't be shown.
+    static func dragOffset(width: Double, hasEarlier: Bool, hasLater: Bool) -> Double {
+        let blocked = width < 0 ? !hasLater : !hasEarlier
+        return blocked ? width * 0.2 : width * 0.6
+    }
+
+    /// Each tint's wait, by the day's place in the month: a quick wave from the 1st, capped so the
+    /// whole month is in within half a second.
+    static func revealDelay(index: Int) -> Double {
+        let i = min(max(0, index), 30)
+        return (Double(i) * 0.012 * 1000).rounded() / 1000
     }
 }
 

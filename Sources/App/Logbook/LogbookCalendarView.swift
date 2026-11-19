@@ -5,6 +5,13 @@ import SwiftUI
 /// ringed; the day the list is on is filled. Months step with the chevrons (a slide, or a fade under
 /// Reduce Motion), from the first month with an entry up to this one. Rules in `LogbookCalendar`.
 ///
+/// Round 86 motion (`LogbookCalendarMotion`): a sideways swipe or drag steps the month too, the grid
+/// following the finger (a rubber band towards a month it can't show). Each day's circle washes in
+/// tinted by that day's time in range, in the Logbook day bars' range colours, one after another
+/// from the 1st; VoiceOver says the share, so the colour never carries it alone. The selected day's
+/// mark springs in with a ring around it. Under Reduce Motion the grid cross-fades, tints simply
+/// fade in together and the mark fades, nothing slides or springs.
+///
 /// With `compare`, the footer also offers Compare: the grid then lights the days with readings
 /// instead (`DayCompare.readingDays`), the day it was opened from is filled and can't be picked,
 /// and picking another day opens the two days compared (`DayCompareView`). The switch cross-fades,
@@ -18,6 +25,14 @@ struct LogbookCalendarView: View {
     let pick: (Date) -> Void
     /// Offers comparing the day it was opened from with another (`DayCompare`).
     var compare: LogbookCalendarCompare?
+    /// Each of the given days' time in range (`DayInRange.compute`), asked once per month shown.
+    var ranges: (([Date]) -> [Date: DayInRange])?
+
+    /// Time in range for the months worked out so far, by local midnight.
+    @State private var figures: [Date: DayInRange] = [:]
+    @State private var figuredMonths: Set<Date> = []
+    /// Where the grid sits while being dragged sideways.
+    @State private var dragOffset: CGFloat = 0
 
     @State private var comparing = false
     /// Days with readings, worked out the first time compare mode opens.
@@ -34,11 +49,13 @@ struct LogbookCalendarView: View {
     private let cellSize: CGFloat = 30
     #endif
 
-    init(counts: [Date: Int], current: Date?, compare: LogbookCalendarCompare? = nil, pick: @escaping (Date) -> Void) {
+    init(counts: [Date: Int], current: Date?, compare: LogbookCalendarCompare? = nil,
+         ranges: (([Date]) -> [Date: DayInRange])? = nil, pick: @escaping (Date) -> Void) {
         self.counts = counts
         self.current = current
         self.pick = pick
         self.compare = compare
+        self.ranges = ranges
         _month = State(initialValue: LogbookCalendar.monthStart(of: compare?.from ?? current ?? Date()))
         if let compare, compare.startsComparing {
             _comparing = State(initialValue: true)
@@ -80,12 +97,16 @@ struct LogbookCalendarView: View {
                     Color.clear.frame(width: cellSize, height: cellSize)
                         .accessibilityHidden(true)
                 }
-                ForEach(grid.cells) { cell in
-                    dayCell(cell, selected: cell.day == currentDay, now: now)
+                ForEach(Array(grid.cells.enumerated()), id: \.element.id) { i, cell in
+                    dayCell(cell, index: i, selected: cell.day == currentDay, now: now)
                 }
             }
+            .offset(x: dragOffset)
             .id("\(grid.month.timeIntervalSince1970)-\(comparing)")
             .transition(slide)
+            .onAppear { figure(grid) }
+            .contentShape(Rectangle())
+            .gesture(swipe(grid))
             footer
         }
         .padding(DS.Space.md)
@@ -97,6 +118,38 @@ struct LogbookCalendarView: View {
         let edge: Edge = direction > 0 ? .trailing : .leading
         return .asymmetric(insertion: .move(edge: edge).combined(with: .opacity),
                            removal: .move(edge: edge == .trailing ? .leading : .trailing).combined(with: .opacity))
+    }
+
+    /// Works out the shown month's time in range once, so the tints wash in as it arrives.
+    private func figure(_ grid: LogbookCalendar) {
+        guard let ranges, !figuredMonths.contains(grid.month) else { return }
+        figuredMonths.insert(grid.month)
+        let found = ranges(grid.cells.filter { !$0.isFuture }.map(\.day))
+        guard !found.isEmpty else { return }
+        figures.merge(found) { _, new in new }
+    }
+
+    /// A sideways drag follows the finger and, let go far enough, steps the month the way it went.
+    private func swipe(_ grid: LogbookCalendar) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard !reduceMotion, abs(value.translation.width) > abs(value.translation.height) else { return }
+                dragOffset = LogbookCalendarMotion.dragOffset(width: value.translation.width,
+                                                              hasEarlier: grid.hasEarlier, hasLater: grid.hasLater)
+            }
+            .onEnded { value in
+                let by = LogbookCalendarMotion.swipeStep(width: value.translation.width,
+                                                         height: value.translation.height,
+                                                         hasEarlier: grid.hasEarlier, hasLater: grid.hasLater)
+                if by != 0 {
+                    step(by)
+                    #if os(iOS)
+                    Haptics.play(.choice)
+                    #endif
+                } else if dragOffset != 0 {
+                    withAnimation(DSMotion.emphasized.animation) { dragOffset = 0 }
+                }
+            }
     }
 
     private func header(_ grid: LogbookCalendar) -> some View {
@@ -121,10 +174,11 @@ struct LogbookCalendarView: View {
 
     private var footer: some View {
         HStack {
-            Text(comparing ? DayCompareText.calendarFootnote : "Dimmed days have nothing logged")
+            Text(comparing ? DayCompareText.calendarFootnote
+                 : ranges == nil ? "Dimmed days have nothing logged" : LogbookCalendarText.footnote)
                 .dsFont(.caption)
                 .foregroundStyle(.tertiary)
-                .lineLimit(2)
+                .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: DS.Space.md)
             if compare != nil {
@@ -146,9 +200,13 @@ struct LogbookCalendarView: View {
         .frame(width: cellSize * 7)
     }
 
-    private func dayCell(_ cell: LogbookCalendar.Cell, selected: Bool, now: Date) -> some View {
+    private func dayCell(_ cell: LogbookCalendar.Cell, index: Int, selected: Bool, now: Date) -> some View {
         // Comparing, the day it was opened from is shown filled but can't be picked against itself.
         let canPick = cell.canPick && !(comparing && selected)
+        let dayFigures = cell.isFuture ? nil : figures[cell.day]
+        let tint = cell.canPick ? LogbookCalendarMotion.tint(dayFigures) : nil
+        let wash: Animation = reduceMotion ? .easeInOut(duration: 0.2)
+            : .easeOut(duration: 0.3).delay(LogbookCalendarMotion.revealDelay(index: index))
         return Button { choose(cell.day) } label: {
             Text("\(cell.number)")
                 .dsFont(.body)
@@ -160,9 +218,15 @@ struct LogbookCalendarView: View {
                 .frame(width: cellSize - 4, height: cellSize - 4)
                 .background {
                     if selected {
-                        Circle().fill(Palette.brand)
+                        SelectedDayMark(size: cellSize - 4)
                     } else if cell.canPick {
-                        Circle().fill(Palette.brand.opacity(0.12))
+                        ZStack {
+                            Circle().fill(Palette.brand.opacity(0.12))
+                                .opacity(tint == nil ? 1 : 0)
+                            Circle().fill(Self.color(tint?.band ?? .inRange).opacity(tint?.strength ?? 0))
+                                .opacity(tint == nil ? 0 : 1)
+                        }
+                        .animation(wash, value: tint)
                     }
                 }
                 .overlay {
@@ -174,8 +238,17 @@ struct LogbookCalendarView: View {
         .buttonStyle(.plain)
         .disabled(!canPick)
         .accessibilityLabel(comparing ? DayCompareText.calendarSpoken(cell, isFrom: selected, now: now)
-                                      : LogbookJump.spoken(cell, now: now))
+                                      : LogbookJump.spoken(cell, now: now, figures: dayFigures))
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// The Logbook day bars' range colours (`DayRangeBar`).
+    static func color(_ band: LogbookCalendarMotion.Band) -> Color {
+        switch band {
+        case .below: return GlucoseRange.low.tint
+        case .inRange: return GlucoseRange.inRange.tint
+        case .above: return GlucoseRange.high.tint
+        }
     }
 
     private func choose(_ day: Date) {
@@ -200,6 +273,36 @@ struct LogbookCalendarView: View {
         direction = by
         withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : DSMotion.standard.animation) {
             month = LogbookCalendar.shifted(month, by: by)
+            dragOffset = 0
+        }
+    }
+}
+
+enum LogbookCalendarText {
+    static let footnote = "Colour shows each day's time in range. Dimmed days have nothing logged"
+}
+
+/// The selected day: a filled circle with a ring around it that springs in when its month shows
+/// (each month's grid is built afresh, so stepping back to it plays it again), and just fades in
+/// under Reduce Motion.
+private struct SelectedDayMark: View {
+    let size: CGFloat
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Palette.brand)
+                .padding(2.5)
+            Circle().strokeBorder(Palette.brand, lineWidth: 1.5)
+                .scaleEffect(shown || reduceMotion ? 1 : 1.45)
+        }
+        .frame(width: size, height: size)
+        .scaleEffect(shown || reduceMotion ? 1 : 0.6)
+        .opacity(shown ? 1 : 0)
+        .onAppear {
+            withAnimation(reduceMotion ? .easeInOut(duration: 0.2)
+                          : .spring(response: 0.42, dampingFraction: 0.58).delay(0.08)) { shown = true }
         }
     }
 }
