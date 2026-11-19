@@ -7189,3 +7189,109 @@ where md.d is not null group by 1, 2, 3, md.t order by md.t;
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged.
+
+## 95. After a large meal, does the line under- or over-call the peak, and is the range wide enough? (19 Nov 2026)
+
+**Question.** The engine draws every meal's carbs over the same 3-hour curve, whatever its size.
+For large meals (60 g or more), does the line under- or over-call how high glucose peaks and
+when, at 30 and 60 minutes, compared with mid-size meals (20–59 g)? Is the range wide enough
+there? This complements §83, small meals.
+
+**Data.** Live readings 12–19 Nov 2026 (10,803), the Logbook's meals and rapid doses, and the
+accuracy log's clean shown points at 15, 30 and 60 minutes. Double logs count once and low
+treatments (45 g or less with a hypo tag or under 70) are never scored. Each meal is scored from
+when it's logged for 3 hours or to the next meal or a later dose (doses up to 90 minutes after it
+count as its own). Peak = highest reading in that window. Replay: the engine's model forecast
+every 5 minutes (trend at the tuner's gain plus K × carbs − S × insulin, K 2.8, S 19.2), scored at
+15, 30 and 60 minutes; points whose target falls after a later entry are dropped. Script:
+`scripts/large-meals.py`.
+
+Only two large meals have readings, and both started from a low: **17 Nov 22:41 sundae, 68 g**
+(46 at the meal, tagged as a low treatment, no insulin) and **18 Nov 11:51 hamburger and chips,
+82.9 g** (55 at the meal, straight after two low treatments, insulin logged 65 minutes later, see
+§94). The 7 Nov Double Quarter Pounder (60 g) is before readings start. Six mid-size meals score
+(12 Nov breakfast burger and sushi, 13 Nov eggs, 14 Nov hamburger, 16 Nov pie and sausage roll).
+
+Replay, gain 0.45 (0.6 and 0.7 are the same shape), bias is actual − line (negative = line high):
+
+| Group, time since meal | Meals (pts at 30) | 15 min MAE / bias | 30 min MAE / bias | 60 min MAE / bias | 30 min no change |
+|---|---|---|---|---|---|
+| Large, first hour | 2 (23) | 29.9 / +13.5 | 39.5 / +8.8 | 25.8 / +2.5 | 51.0 |
+| Large, 1–2 h | 2 (12) | 13.7 / −7.6 | 34.2 / −34.2 | 68.8 / −68.8 | 27.1 |
+| Large, 2–3 h | 2 (12) | 22.5 / −4.1 | 26.8 / −25.9 | – | 25.0 |
+| Mid, first hour | 6 (54) | 23.4 / +0.3 | 38.9 / −6.3 | 46.9 / −26.2 | 35.8 |
+| Mid, 1–2 h | 5 (59) | 10.3 / −4.0 | 14.2 / −7.6 | 27.4 / −2.5 | 18.3 |
+| Mid, 2–3 h | 5 (30) | 11.9 / +6.8 | 24.1 / +15.3 | – | 24.2 |
+
+Peaks: the sundae rose +131 to 177 at 145 minutes, the line's highest point from the first hour
+averaged 169 at about 92 minutes; the hamburger rose +151 to 206 at 97 minutes, the line's highest
+179 at about 91 minutes (+8 on the five forecasts whose 60-minute point reached the peak). Mid-size
+meals peaked 40–64 minutes in (bar the 14 Nov hamburger, still climbing at 3 hours), and the line's
+highest point fell 6–48 below the real peak.
+
+Live accuracy log (the real engine): every large-meal point was drawn trend only (the low-treatment
+tag and the stacked treatments keep the model off), first hour +16.6 at 15 (8 points, 88% inside
+the range, width 79), 1–3 h −0.2 at 15 (14 points, 79% inside), and the three 30-minute points (all on
+the hamburger) inside. Mid-size meals: first hour 74% inside at 15 and 62% at 30 (width 54 and 90), most misses
+above the range.
+
+**Large meals run a little low in the first hour, then high.** In the first hour the replayed line
+sits slightly under where glucose goes (+9 at 30, +3 at 60), about the same as or better than
+mid-size meals, which run high by 60 minutes (−26). From the second hour the large-meal line runs
+well above (−34 at 30, −69 at 60): the 3-hour curve keeps adding carbs that, on these two meals,
+had mostly shown up already. The peak height is called fairly closely (within about 8–27), its
+timing about right on the hamburger and early on the sundae, which climbed slowly for 2½ hours.
+The range is wide enough on large meals (every 30-minute point inside, 79–88% at 15, wider than
+mid-size meals because those forecasts were trend only); it's mid-size meals' first hour that
+misses above it more often.
+
+**Held out: a size-aware carb curve.** Forecast only (carbs on board, the shared carb curve,
+insulin on board, the insulin curve, carb ratios, sensitivity and the bolus calculator untouched):
+for meals of 60 g or more the forecast's own copy of the curve is stretched, absorb = 3 h × (1 + a ×
+(g − 60) / 60), and its height scaled by c. a 0–1, c 0.6–1.2, picked on one large meal and scored on
+the other (leave one meal out; mid-size meals unchanged by construction).
+
+| Gain | Sundae 17 Nov held out, 15 / 30 / 60 | Hamburger 18 Nov held out, 15 / 30 / 60 |
+|---|---|---|
+| 0.45 (c 0.6 / 0.7) | **38.0→38.3**, 44.6→42.0, 27.5→25.7 | **14.1→14.2**, 29.4→29.2, 55.5→53.5 |
+| 0.6 (c 0.6 / 0.8) | **39.6→39.9**, 48.1→45.4, 31.1→29.3 | 13.0→13.0, 28.9→28.6, 56.8→54.5 |
+| 0.7 (c 0.6 / 0.8) | **41.1→41.2**, 50.5→47.7, 33.4→31.8 | 12.5→12.4, 28.6→28.3, 57.8→55.1 |
+
+Stretching never helps (a = 0 every time); scaling the big meal's carb effect down to 0.6–0.8 cuts
+the second-hour high bias and wins at 30 and 60 on both held-out meals at every gain, by 2–3 mg/dL.
+It costs a little at 15 minutes on the sundae at every gain.
+
+**Decision.** Ship nothing. The lower curve for large meals is the right direction on these two
+meals, but it fails the bar: 15 minutes is slightly worse on the sundae, there are only two large
+meals, and both started from a low (one a low treatment, one straight after two, with insulin
+logged an hour late), so the fit may be learning low recovery rather than meal size. The live
+engine also drew both as trend only, so the change wouldn't have touched a shown line. Retest on
+**10 Dec 2026**, only with 5+ large meals on 3+ days, at least 3 of them starting at 70 or above
+with insulin logged within 15 minutes: refit c (and a) leave one meal out, and ship only if better
+at 30 and 60 on every held-out meal at every gain, 15 no worse, with no new predicted-low or
+predicted-high crossings. If it wins then, note that a size-scaled carb effect sits next to carb
+ratios, so confirm it changes only the forecaster's own copy of the curve.
+
+Live-log check, in the Supabase SQL editor (meals of 60 g or more, 30-minute bias and inside rate
+for points issued up to 3 hours after; it doesn't merge double logs or leave out low treatments, and
+it doesn't stop at the next meal either. On 19 Nov: 17 Nov sundae 68 g, no 30-minute points; 18 Nov
+hamburger 82.9 g, 3 points, +6.5, all inside, none from the model):
+
+```sql
+with ml as (select (payload->>'timestamp')::float t, (payload->>'carbs')::float g
+  from glucos.logbook where not deleted and kind = 'meal' and (payload->>'carbs')::float >= 60),
+p as (select extract(epoch from c.issued_at) t, (e->>'mgdl')::float f, (e->>'actual')::float a,
+    (e->>'lower')::float lo, (e->>'upper')::float hi, c.basis
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int = 30)
+select to_char(to_timestamp(ml.t) at time zone 'Australia/Perth', 'DD Mon HH24:MI') meal, ml.g carbs,
+  count(p.t) pts, round(avg(p.a - p.f)::numeric, 1) bias_30,
+  round(100 * avg((p.a between p.lo and p.hi)::int)::numeric) inside_pct,
+  sum((p.basis = 'trendInsulinCarbs')::int) model_pts
+from ml left join p on p.t between ml.t and ml.t + 10800
+group by 1, 2, ml.t order by ml.t;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged.
