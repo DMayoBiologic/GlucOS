@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.91.0", highlights: [
+            .init(symbol: "syringe",
+                  title: "Forecasts by insulin amount",
+                  detail: "We checked how the forecast does after small and larger amounts of rapid insulin, with and without a meal, and kept it as it is for now."),
             .init(symbol: "clock.arrow.circlepath",
                   title: "A note when it looks logged already",
                   detail: "If you logged a similar meal or insulin in the last 10 minutes, say from Siri, the log sheet says so in one line above Log, and View shows that entry. It never stops you logging."),

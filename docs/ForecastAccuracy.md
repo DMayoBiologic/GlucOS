@@ -7940,3 +7940,77 @@ no dose 72 points at 30 minutes, +1.8, 76% inside; 39 at 60, −0.6, 85% inside;
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged. No app or relay code changed.
+
+## 102. After a small rapid dose versus a larger one, with or without a meal, does the line run high or low? (20 Nov 2026)
+
+**Question.** Does the 30- and 60-minute forecast miss differently after a small rapid dose than
+after a larger one, and does it matter whether a meal was logged with it? Post-meal peaks (§26,
+§95) and sensor-day range (§17) are left out. §87 (corrections) and §85 (stacked doses) cover parts
+of the same doses; this cuts them by size instead.
+
+**Data.** Live readings 11–20 Nov 2026 (11,568), the Logbook's rapid doses and meals, and the
+accuracy log's clean shown points at 15, 30 and 60 minutes issued up to 3 hours after a dose.
+A meal within 30 minutes either side belongs to the dose. Each dose is scored from when it's logged
+for 3 hours, stopping at any later entry that isn't its own meal. Replay: the engine's model
+forecast every 5 minutes (as §101: trend at the tuner's gain plus K × carbs − S × insulin, K 2.8,
+S 19.2), scored at 15, 30 and 60 minutes. Script: `scripts/dose-size.py DIR [SMALL]`.
+
+**The 2-unit cut has one dose.** Seventeen doses have readings around them, and only one is 2 units
+or less: **14 Nov 20:04, 1.5 u**, a correction from 235 with no meal (replay 30 / 60-minute bias
+−11.8 / −24.3, line high, on 17 / 11 points). Every other dose is 4 units or more, so the analysis
+uses the nearest split the data allows: **small = 4 u or less** (5 doses: 12 Nov 14:43, 12 Nov 19:08
+burrito bowl, 14 Nov 20:04, 14 Nov 22:00, 18 Nov 18:23) and **large = 4.5 u or more** (12 doses).
+Only one small dose had a meal with it (the burrito bowl, from 68).
+
+Replay, gain 0.45 (0.6 and 0.7 are the same shape), bias is actual − line (negative = line high):
+
+| Group, time since dose | Doses, days | 15 min MAE / bias | 30 min MAE / bias | 60 min MAE / bias | 30 min no change |
+|---|---|---|---|---|---|
+| Small, no meal, first hour | 4, 3 | 16.2 / −11.7 | 25.0 / −19.9 | 33.3 / −21.1 | 26.9 |
+| Small, no meal, 1–3 h | 3, 2 | 11.9 / +2.9 | 22.6 / +11.0 | 46.6 / +40.7 | 21.0 |
+| Large, no meal, first hour | 6, 3 | 20.2 / −11.3 | 35.7 / −18.7 | 52.0 / −28.9 | 42.9 |
+| Large, no meal, 1–3 h | 6, 3 | 19.7 / +4.1 | 33.2 / +10.3 | 47.7 / +19.8 | 36.7 |
+| Small, meal, all (one dose) | 1, 1 | 14.1 / +2.4 | 23.4 / +6.6 | 37.4 / +34.2 | 30.2 |
+| Large, meal, first hour | 6, 4 | 21.1 / −0.2 | 35.6 / −11.0 | 47.0 / −32.8 | 32.4 |
+| Large, meal, 1–3 h | 5, 4 | 10.9 / +0.8 | 16.7 / +1.1 | 26.8 / −2.2 | 19.8 |
+
+Live accuracy log (the real engine, same groups): small doses with no meal, 49 points at 30 minutes
+on 2 days, bias −0.8, 88% inside (6% above, 6% below, width 101); 28 at 60, 89% inside. Large with
+no meal: 25 at 30, −3.1, 76% inside; 5 at 60. Large with a meal: 52 at 30, +4.2, 71% inside; 25
+at 60, −27.8, 76% inside (misses below). The one small dose with a meal: 11 at 30, 55% inside.
+
+**Size doesn't change the shape; the meal does.** With no meal, small and large doses show the
+same §87 shape: the line falls too slowly in the first hour (−20 and −19 at 30 minutes) and too far
+after it (+11 and +10). The 60-minute first-hour lean is a little bigger after large doses (−29 vs
+−21), and errors are larger overall after large doses because those started higher (271–312 for
+four of the six) and moved more (no-change MAE 43 vs 27 at 30). With a meal, large doses run high by
+60 minutes in the first hour (−33), as §101 found for dosed meals. The live range holds best after
+small doses alone (about 9 in 10 inside), because it is drawn wide there (about 100 at 30 minutes);
+after large doses with a meal it sits a little under the 8 in 10 target, missing below at 60.
+
+**Held out: trend scale by dose group.** Forecast only (insulin on board, the insulin curve,
+sensitivity, carb ratios, the carb curve and the bolus calculator untouched): for 3 hours after a
+dose the trend term is scaled by w (0.5–1.5) for each size × meal group, picked on the other days
+and scored on the held-out day (leave one day out, 7 days).
+
+| Gain | Days better at 15 / 30 / 60 | Largest held-out loss | In-sample pick (large+meal, large, small+meal, small) |
+|---|---|---|---|
+| 0.45 | 0 / 2 / 3 of 7 | 13 Nov 30 min 17.2 → 19.2 | 0.5, 1.25, 1.5, 0.5 |
+| 0.6 | 2 / 3 / 3 of 7 | 13 Nov 60 min 39.6 → 43.1 | 0.5, 0.75, 1.25, 0.5 |
+| 0.7 | 2 / 3 / 4 of 7 | 13 Nov 60 min 38.4 → 42.5 | 0.5, 0.75, 1, 0.5 |
+
+Gains on held-out days are under 1.1 mg/dL; the losses go up to 4. The large-with-meal pick (0.5)
+damps the trend on a meal day where the line already ran high (13 Nov), and the small-with-meal
+group is one dose, so its factor swings to the clamp. It fails the bar.
+
+**Decision.** Ship nothing. Dose size doesn't add anything beyond what §87 (corrections) and §101
+(meals with and without a dose) already found, the asked-for 2-unit cut has a single dose, and the
+trend tweak loses held out at every gain. The remaining first-hour lean after doses is the insulin
+curve's timing, which is dosing maths and needs Declan's approval to change; this only records it.
+Retest on **16 Dec 2026** with §87, only if `scripts/dose-size.py DIR 2` finds 5+ doses of 2 units
+or less on 3+ days (or, at the 4-unit cut, 4+ small doses with a meal): refit the same trend scale
+leave one day out and ship only if better at 30 and 60 on most held-out days at every gain, 15 no
+worse. If small and large still share the first-hour shape, fold it into the §87 decision card.
+
+**Dosing.** Not touched: the insulin curve, insulin on board, sensitivity, carb ratios, the carb
+curve and the bolus calculator are unchanged. No app or relay code changed.
