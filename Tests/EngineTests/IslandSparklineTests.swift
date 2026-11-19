@@ -72,6 +72,20 @@ final class IslandSparklineTests: XCTestCase {
         XCTAssertEqual(old.ring[IslandSparkline.index(1002)], 240)
     }
 
+    func testATwoSlotJumpKeepsBothEdgesTrue() throws {
+        // Both cards hold 100 + 10 mg/dL a slot from slot 986.
+        let old = try XCTUnwrap(IslandSparkline.frame(history: history(rising(from: 100)), readingAt: at(1000)))
+        let new = try XCTUnwrap(IslandSparkline.frame(history: history(rising(from: 120)), readingAt: at(1002)))
+        // Every slot on screen during the glide keeps its value (987, empty in this test history,
+        // is only drawn on the first frame), and the new ones grow from the old reading.
+        for slot in 988...1000 {
+            XCTAssertEqual(old.ring[IslandSparkline.index(slot)], new.ring[IslandSparkline.index(slot)], "slot \(slot)")
+        }
+        XCTAssertEqual(old.ring[IslandSparkline.index(1001)], 240)
+        XCTAssertEqual(old.ring[IslandSparkline.index(1002)], 240)
+        XCTAssertEqual(new.ring[IslandSparkline.index(1002)], 260)
+    }
+
     func testHalfwayThroughAGlideTheNewPointIsOffTheRightEdge() throws {
         let old = try XCTUnwrap(IslandSparkline.frame(history: history(rising(from: 100)), readingAt: at(1000)))
         let new = try XCTUnwrap(IslandSparkline.frame(history: history(rising(from: 110)), readingAt: at(1001)))
@@ -85,8 +99,9 @@ final class IslandSparklineTests: XCTestCase {
     }
 
     func testIndexWrapsForAnySlot() {
-        XCTAssertEqual(IslandSparkline.index(16), 0)
-        XCTAssertEqual(IslandSparkline.index(17), 1)
-        XCTAssertEqual(IslandSparkline.index(-1), 15)
+        XCTAssertEqual(IslandSparkline.ringSize, 18)
+        XCTAssertEqual(IslandSparkline.index(18), 0)
+        XCTAssertEqual(IslandSparkline.index(19), 1)
+        XCTAssertEqual(IslandSparkline.index(-1), 17)
     }
 }

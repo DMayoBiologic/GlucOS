@@ -9,9 +9,9 @@ import Foundation
 // right edge, rather than every point jumping to its neighbour's height. ActivityKit can only
 // interpolate between two states, so the values are kept in a ring keyed by the reading's 5-minute
 // slot (`slot mod ringSize`): a value that's on both the old and the new card sits at the same
-// ring index in both, so only the slot's position moves. The indices that change meaning (the two
-// slots after the reading) hold the reading itself until they're filled, so incoming points grow
-// out of the line's end. A jump of three or more slots (a 15-minute gap) can briefly show one odd
+// ring index in both, so only the slot's position moves. The two slots after the reading hold the
+// reading itself until they're filled, so incoming points grow out of the line's end, and two
+// slots older than the left edge keep their real values, so the line leaving on the left is true. A jump of three or more slots (a 15-minute gap) can briefly show one odd
 // segment at the right edge while it glides. Under Reduce Motion the view doesn't animate at all.
 //
 // Free of SwiftUI so it's unit-tested; the widget extension draws it (IslandSparklineShape).
@@ -23,9 +23,12 @@ enum IslandSparkline {
 
     /// Five-minute steps across the line: 12 steps, 13 points, the last hour.
     static let visibleSteps = 12
-    /// Ring of slots: the visible 13, one more off the left edge so the line runs out of view
-    /// as it glides, and spares for the incoming slot.
-    static let ringSize = 16
+    /// How many slots a card can move on by and still glide cleanly.
+    static let glideSlots = 2
+    /// Ring of slots: the visible 13, one more off the left edge so the line runs out of view as it
+    /// glides, `glideSlots` older ones (so the slots leaving on the left keep their values) and
+    /// `glideSlots` incoming ones (so new points grow out of the reading).
+    static let ringSize = visibleSteps + 2 + 2 * glideSlots
     /// The vertical scale never shrinks below this (2 mmol/L), so a flat hour reads as flat.
     static let minSpanMgdl: Double = 36
     /// Fewer readings than this in the last hour and the line isn't drawn.
@@ -52,10 +55,10 @@ enum IslandSparkline {
     static func frame(history: [Int?], readingAt: Double) -> Frame? {
         guard let last = history.last, let current = last else { return nil }
         let end = Int((readingAt / GlucoseActivityState.historyStep).rounded(.down))
-        // Slots end-13 ... end, oldest first: the visible hour plus the one just off the left edge.
-        // The ring's other two indices are the next two slots, so a card that comes one or two
-        // slots later glides in from the reading instead of from an unrelated old value.
-        let wanted = visibleSteps + 2
+        // Slots end-15 ... end, oldest first: the visible hour, the one just off the left edge and
+        // two older ones. A card one or two slots later still holds the same values for the slots
+        // sliding out on the left; the ring's last two indices are the next two slots.
+        let wanted = visibleSteps + 2 + glideSlots
         var tail: [Int?] = Array(history.suffix(wanted))
         if tail.count < wanted { tail = Array(repeating: nil, count: wanted - tail.count) + tail }
 
@@ -70,8 +73,7 @@ enum IslandSparkline {
         }
         // The slots after the reading start at the reading, so the next card's new points grow
         // out of the line's end instead of from wherever an old value left them.
-        ring[index(end + 1)] = Double(current)
-        ring[index(end + 2)] = Double(current)
+        for ahead in 1...glideSlots { ring[index(end + ahead)] = Double(current) }
 
         let shown = filled.suffix(visibleSteps + 1)
         var lo = shown.min() ?? Double(current)
