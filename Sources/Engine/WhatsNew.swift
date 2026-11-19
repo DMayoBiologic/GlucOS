@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "cursorarrow.motionlines",
                   title: "Insights cards lift under the pointer",
                   detail: "On the Mac, an Insights card rises a touch with a soft shadow while the pointer rests on it. With Reduce Motion on, only the shadow fades in."),
+            .init(symbol: "scope",
+                  title: "How often the range holds",
+                  detail: "We checked how often readings land inside the forecast's likely range from 5 minutes to an hour ahead, and kept it as it is for now."),
         ]),
         WhatsNewRelease(version: "1.87.0", highlights: [
             .init(symbol: "contextualmenu.and.cursorarrow",
