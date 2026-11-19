@@ -289,6 +289,17 @@ tested in `DayCompareTests`; the view is `Sources/App/Logbook/DayCompareView.swi
   and has Compare with Another Day as a header action on iPhone and a Day cell action on the Mac.
   The calendar's Compare says
   what to pick.
+- **Shared cursor.** Round 87 (`DayCompareScrub`, Engine, tested in `DayCompareScrubTests`):
+  drag along the chart on iPhone, or point at it on the Mac, and one line sits across both days
+  at a clock time, snapped to the nearest reading of either day (nothing shows over a stretch of
+  more than 20 minutes with no reading on either day). The row above the chart reads that time,
+  each day's value there by its swatch ("–" where a day has no reading within 5 minutes), and how
+  far apart they are ("1.1 higher" beside the higher line's swatch, or "Same"). The solid line
+  gets a circle and the dashed one a diamond. iPhone ticks `scrubSnapped` when the cursor lands
+  and `scrubRangeEdge` when either line crosses the low or high line; readings themselves don't
+  tick. VoiceOver hears each stop once per touch ("6:15 pm. Today 7.2 mmol/L, Monday 11 November
+  6.1 mmol/L. Today 1.1 mmol/L higher."), and can swipe up or down on the chart to move the cursor
+  an hour at a time. It shows what was there only, never which day was better.
 - iPhone: a sheet with Done (medium and large detents). Mac: a sheet with Done (Return or Esc).
 
 ## From the Insights cards
