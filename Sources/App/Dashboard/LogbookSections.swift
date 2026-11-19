@@ -1623,6 +1623,12 @@ struct InsightsSection: View {
         // drawing in, and roll from the old figure to the new one when the data changes. Once per
         // appearance, never a loop; still under Reduce Motion; VoiceOver hears the final value.
         .environment(\.figuresCountUp, true)
+        // As on iPhone: a figure that a new reading or a synced entry changes gives one soft pulse
+        // as it rolls (`InsightsFigurePulse`); the toolbar's Earlier and Later only roll it.
+        .environment(\.insightsPeriodBack, step.back)
+        .environment(\.insightsDataRevision, .init(
+            newestReading: readings.last?.timestamp, readingCount: readings.count,
+            loggedCount: logbook.doses.count + logbook.meals.count + logbook.contexts.count + logbook.siteChanges.count))
         .sheet(isPresented: $customising) {
             InsightsCustomiseSheet(layout: cardLayoutBinding, defaults: Self.defaults, change: change)
         }

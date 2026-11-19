@@ -350,10 +350,39 @@ extension EnvironmentValues {
     }
 }
 
+private struct InsightsDataRevisionKey: EnvironmentKey {
+    static let defaultValue = InsightsFigurePulse.Revision.none
+}
+
+private struct InsightsPeriodBackKey: EnvironmentKey {
+    static let defaultValue = 0
+}
+
+extension EnvironmentValues {
+    /// What the Insights figures were built from (`InsightsFigurePulse`). Set on iPhone and Mac
+    /// Insights only, so a figure there gives one soft pulse when a new reading or entry changes
+    /// it. `.none` everywhere else, including widgets, where figures never pulse.
+    var insightsDataRevision: InsightsFigurePulse.Revision {
+        get { self[InsightsDataRevisionKey.self] }
+        set { self[InsightsDataRevisionKey.self] = newValue }
+    }
+
+    /// How many periods back Insights is stepped, for `RollingFigure`, which is also compiled into
+    /// the widgets and so can't read `insightsStep`. Stepping only rolls; it never pulses.
+    var insightsPeriodBack: Int {
+        get { self[InsightsPeriodBackKey.self] }
+        set { self[InsightsPeriodBackKey.self] = newValue }
+    }
+}
+
 /// A statistic's figure: the same digit roll as a reading (`.numericText(value:)`, as on the
 /// widgets and the Live Activity) on the `.arrival` spring, so it rolls from the old value to the
 /// new one when the value changes (a new period, new readings). Where `figuresCountUp` is on, it
 /// also counts up from zero the first time it appears, alongside the rings and bars drawing in.
+///
+/// On iPhone and Mac Insights (where `insightsDataRevision` is set), a figure that new data changes
+/// also grows a touch and settles back once as it rolls (`InsightsFigurePulse`), so the eye catches
+/// what just moved. A change the person made (a picker, a period step) only rolls.
 ///
 /// Plays once per change and never repeats. Under Reduce Motion it shows the value at once.
 /// VoiceOver only ever hears the final value, never a figure on its way there. Style it like a
@@ -366,8 +395,12 @@ struct RollingFigure: View {
 
     @Environment(\.figuresCountUp) private var countsUp
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.insightsDataRevision) private var revision
+    @Environment(\.insightsPeriodBack) private var periodBack
     /// What's on screen while it counts; nil until the first count has started.
     @State private var shown: Double?
+    /// Bumped once per pulse (`InsightsFigurePulse`).
+    @State private var pulse = 0
 
     init(_ value: Double, order: Int = 0, text: @escaping (Double) -> String) {
         self.value = value
@@ -396,6 +429,20 @@ struct RollingFigure: View {
             .onChange(of: value) { _, new in
                 guard animates else { shown = new; return }
                 withAnimation(DSMotion.arrival.animation) { shown = new }
+            }
+            // The figure, the data and the period in one, so a period step and the new value it
+            // brings are seen together and never mistaken for new data.
+            .onChange(of: InsightsFigurePulse.Shown(text: text(value), revision: revision, periodBack: periodBack)) { old, new in
+                if InsightsFigurePulse.pulses(from: old, to: new, reduceMotion: reduceMotion,
+                                              countingUp: countsUp && shown == nil) {
+                    pulse += 1
+                }
+            }
+            .keyframeAnimator(initialValue: 1.0, trigger: pulse) { content, scale in
+                content.scaleEffect(scale)
+            } keyframes: { _ in
+                CubicKeyframe(InsightsFigurePulse.peakScale, duration: InsightsFigurePulse.riseDuration)
+                SpringKeyframe(1.0, duration: InsightsFigurePulse.settleDuration, spring: .smooth)
             }
     }
 }
