@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.89.0", highlights: [
+            .init(symbol: "hand.draw",
+                  title: "Swipe actions follow your finger",
+                  detail: "On iPhone, swipe a Logbook entry and its Log Again or Delete icon grows in as you drag, with a soft tick at the point where letting go acts. With Reduce Motion on, the icon simply appears."),
+        ]),
         WhatsNewRelease(version: "1.88.0", highlights: [
             .init(symbol: "cursorarrow.motionlines",
                   title: "Insights cards lift under the pointer",

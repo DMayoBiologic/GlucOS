@@ -22,6 +22,10 @@ final class HapticRulesTests: XCTestCase {
         XCTAssertTrue(HapticEvent.scrubSnapped.isTick)
         XCTAssertEqual(HapticEvent.scrubSnapped.priority, HapticEvent.scrubLogged.priority)
         XCTAssertEqual(HapticEvent.rangeCrossed.feel, .lightImpact(intensity: 0.7))
+        // The Logbook swipe threshold is the softest tick, and gives way to the delete it leads to.
+        XCTAssertEqual(HapticEvent.swipeThreshold.feel, .lightImpact(intensity: 0.4))
+        XCTAssertTrue(HapticEvent.swipeThreshold.isTick)
+        XCTAssertLessThan(HapticEvent.swipeThreshold.priority, HapticEvent.deleted.priority)
         // Saving from the log sheet is a light tap under the checkmark, not a success buzz.
         XCTAssertEqual(HapticEvent.logSaved.feel, .lightImpact(intensity: 0.7))
     }
