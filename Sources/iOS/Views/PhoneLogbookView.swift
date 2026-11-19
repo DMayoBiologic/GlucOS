@@ -41,6 +41,8 @@ enum PhoneRoute: Hashable {
     var zooms: Bool {
         if case .chartMarkerEntry = self { return false }
         if case .logbookLink(let link) = self, link.filter == .whileAway { return false }
+        // The last 7 days card closes as the Logbook opens: nothing left to grow from.
+        if case .logbookLink(let link) = self, link.filter == .recentDay { return false }
         // Settings › Alerts › History closes its sheet first: nothing on the stack to grow from.
         if case .logbookLink(let link) = self, link.filter == .aroundAlert { return false }
         return true

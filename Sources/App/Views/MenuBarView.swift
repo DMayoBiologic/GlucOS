@@ -184,7 +184,8 @@ struct MenuBarView: View {
                                  forecastDelay: PopoverStagger.forecastDelay(showing: showing))
                     .popoverEntrance(.chart, showing: showing, shown: sectionsIn)
                 PopoverSummaryCard(expanded: detailsExpanded, showsShortcuts: commandKey.isHeld,
-                                   onToggleDetails: toggleDetails, onOpenDashboard: showDashboard)
+                                   onToggleDetails: toggleDetails, onOpenDashboard: showDashboard,
+                                   onOpenDay: openWhileAway)
                     // Return or Space shows or hides the details, as ⌘I does.
                     .keyStop("popover.summary", radius: PopoverLayout.cardRadius, action: toggleDetails)
                     .popoverEntrance(.summary, showing: showing, shown: sectionsIn)
@@ -478,7 +479,8 @@ struct MenuBarView: View {
         NSApp.activate()
     }
 
-    /// The dashboard, on the Logbook over the span the "while you were away" line covered.
+    /// Opens the Dashboard's Logbook on a link from the popover: the "while you were away" line,
+    /// or a day of the last 7 days card.
     private func openWhileAway(_ link: LogbookLink) {
         DashboardRequest.shared.logbookLink = link
         showDashboard()

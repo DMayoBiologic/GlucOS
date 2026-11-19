@@ -3,11 +3,24 @@ import SwiftUI
 /// The home screen's one line about how things have been going: today's time in range with the
 /// average, and the way into Insights. Replaces the At a glance, Mornings and Forecast accuracy
 /// cards that used to sit in the home stack, so the logbook stays near the top.
+///
+/// A long-press opens the last 7 days card (docs/RecentDays.md): each day's time in range as a
+/// mini bar, a tap on one opening the Logbook on that day. Not for followers.
 struct PhoneInsightsRow: View {
     @EnvironmentObject var store: GlucoseStore
+    var isFollower = false
+    var openInsights: () -> Void
+    var openLink: (LogbookLink) -> Void
+
+    @State private var showsDays = false
+    /// Set by the long-press, so the tap that ends it doesn't also open Insights.
+    @State private var pressedLong = false
 
     var body: some View {
-        NavigationLink(value: PhoneRoute.insights) {
+        Button {
+            if pressedLong { pressedLong = false; return }
+            openInsights()
+        } label: {
             HStack(spacing: DS.Space.md) {
                 if let stats = store.glanceStats(.day) {
                     let unit = store.shownUnit
@@ -52,8 +65,26 @@ struct PhoneInsightsRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressScaleStyle())
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+            guard canShowDays else { return }
+            pressedLong = true
+            Haptics.play(.choice)
+            showsDays = true
+        })
+        .recentDaysPopover(isPresented: $showsDays, readings: store.archive,
+                           lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl, open: openLink)
+        // If the lift after a long-press never reaches the button, the next tap still opens Insights.
+        .onChange(of: showsDays) { _, open in if !open { pressedLong = false } }
         .accessibilityHint("Opens time in range by day, week in review, lows, highs, alerts, overnight, weekdays and weekends, your usual day, time in range by hour, mornings, forecast accuracy and sensor coverage")
+        .accessibilityActions {
+            if canShowDays {
+                Button(RecentDaysText.showAction) { showsDays = true }
+            }
+        }
     }
+
+    /// The owner's own readings with a figure to show; a follower never gets the card.
+    private var canShowDays: Bool { !isFollower && store.glanceStats(.day) != nil }
 }
 
 /// How things have been going: time in range over 24 hours to 14 days, each of the last seven
