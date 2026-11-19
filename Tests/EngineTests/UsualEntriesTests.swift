@@ -213,4 +213,46 @@ final class UsualEntriesTests: XCTestCase {
         XCTAssertEqual(RepeatCheck.when(t.addingTimeInterval(5 * 60), from: t, now: now), "5 minutes later")
         XCTAssertEqual(RepeatCheck.when(now, from: now, now: now), "just now")
     }
+
+    // MARK: Starting fill (a pick from the quick menu, popover row or widget)
+
+    func usual(_ kind: UsualEntry.Kind, food: String = "", carbs: Double = 0, units: Double? = nil) -> UsualEntry {
+        UsualEntry(kind: kind, food: food, carbs: carbs, items: nil, units: units, insulinKind: units == nil ? nil : .rapid,
+                   insulinName: units == nil ? "" : "NovoRapid", count: 3, lastLogged: at(daysAgo: 1, hour: 8))
+    }
+
+    func testPickedBreakfastStillFillsAfterTheSlotRollsOverToLunch() {
+        // Shown at 10:59 as the usual breakfast, picked at 11:00: the sheet now offers lunch.
+        let shown = usual(.meal(.breakfast), food: "Porridge", carbs: 45)
+        let offered = [usual(.meal(.lunch), food: "Sandwich", carbs: 40)]
+        let filled = UsualEntries.startingFill(shown: shown, pickedID: shown.id, offered: offered)
+        XCTAssertEqual(filled, shown)
+        XCTAssertEqual(filled?.food, "Porridge")
+        XCTAssertEqual(filled?.carbs, 45)
+    }
+
+    func testPickedMealFillsAsShownWhenNothingIsOfferedNow() {
+        let shown = usual(.meal(.dinner), food: "Pasta", carbs: 70)
+        XCTAssertEqual(UsualEntries.startingFill(shown: shown, pickedID: shown.id, offered: []), shown)
+    }
+
+    func testPickedLowTreatmentFillsAsShown() {
+        let shown = usual(.lowTreatment, food: "Jelly beans", carbs: 15)
+        XCTAssertEqual(UsualEntries.startingFill(shown: shown, pickedID: shown.id, offered: []), shown)
+    }
+
+    func testPickedCorrectionOnlyFillsWhileOneIsStillOffered() {
+        let shown = usual(.correction, units: 2)
+        XCTAssertEqual(UsualEntries.startingFill(shown: shown, pickedID: shown.id, offered: [shown]), shown)
+        // Glucose came down between showing and picking: no correction offered, nothing filled.
+        XCTAssertNil(UsualEntries.startingFill(shown: shown, pickedID: shown.id,
+                                               offered: [usual(.meal(.lunch), food: "Sandwich", carbs: 40)]))
+    }
+
+    func testAWidgetIDOnlyFillsWhatIsOfferedNow() {
+        let lunch = usual(.meal(.lunch), food: "Sandwich", carbs: 40)
+        XCTAssertEqual(UsualEntries.startingFill(shown: nil, pickedID: lunch.id, offered: [lunch]), lunch)
+        XCTAssertNil(UsualEntries.startingFill(shown: nil, pickedID: "meal-breakfast", offered: [lunch]))
+        XCTAssertNil(UsualEntries.startingFill(shown: nil, pickedID: nil, offered: [lunch]))
+    }
 }

@@ -13,7 +13,10 @@ A plain click still opens the popover, and the hover preview closes when the men
 ## Nothing is logged from the menu
 
 Picking a usual opens the log window filled in from it, exactly as the popover row does
-(`LogSheetTarget.usual`). It is logged there with Log, after `RepeatCheck` ("Already logged?") and,
+(`LogSheetTarget.usual`), with the entry
+itself rather than its id: a usual meal shown at 10:59 as breakfast and picked at 11:00 still fills
+breakfast. A usual correction only fills while one is still offered, so one that stopped applying
+because glucose came down opens unfilled (`UsualEntries.startingFill`). It is logged there with Log, after `RepeatCheck` ("Already logged?") and,
 for a dose, the calculator's confirm step. A meal never brings a dose with it.
 
 ## How it works
