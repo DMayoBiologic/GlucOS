@@ -59,6 +59,7 @@ let package = Package(
                 "Shared/ContentResize.swift",
                 "Shared/DependentRows.swift",
                 "Shared/ReadingRoll.swift",
+                "Shared/InsightsFigurePulse.swift",
                 "Shared/UnitSwitch.swift",
                 "Shared/TypedAmountRoll.swift",
                 "Shared/RangeCrossing.swift",

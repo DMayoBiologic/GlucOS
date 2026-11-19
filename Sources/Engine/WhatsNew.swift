@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.79.0", highlights: [
+            .init(symbol: "waveform.path.ecg",
+                  title: "Insights figures catch your eye",
+                  detail: "When a new reading changes a figure on Insights, it gives a small pulse as it rolls, so you can see what just moved."),
             .init(symbol: "arrow.left.and.right",
                   title: "Look back along the chart",
                   detail: "Drag along the times under the iPhone chart, or swipe sideways on the Mac trackpad, to see earlier hours. Now brings you back."),

@@ -180,6 +180,12 @@ struct PhoneInsightsView: View {
         .environment(\.figuresCountUp, true)
         // Cards with a period show the one `step` periods back; their figures roll to it.
         .environment(\.insightsStep, step)
+        // A figure that a new reading or a synced entry changes gives one soft pulse as it rolls
+        // (`InsightsFigurePulse`); a picker or a period step only rolls it.
+        .environment(\.insightsPeriodBack, step.back)
+        .environment(\.insightsDataRevision, .init(
+            newestReading: store.archive.last?.timestamp, readingCount: store.archive.count,
+            loggedCount: logbook.doses.count + logbook.meals.count + logbook.contexts.count + logbook.siteChanges.count))
         // A sideways swipe steps: right for the period before, left for the one after. Clearly
         // sideways only, so scrolling up and down never steps, and not from the screen's left
         // edge, which goes back.
