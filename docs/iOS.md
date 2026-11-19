@@ -91,6 +91,20 @@ The **Your Usual** Home Screen widget (medium) shows the same "Your usual" entri
 up to three. A tap opens the log sheet filled in from that entry, the same as tapping its tile there;
 nothing is logged until you tap Log, after the logged-twice check (docs/UsualEntries.md).
 
+### Copy or share the reading
+
+Long-press the big reading on Today for **Copy** and **Share…** (VoiceOver: the reading's "Copy
+Reading" and "Share Reading" actions). Both use one plain line from `ReadingCopy`
+(`Sources/Engine/ReadingCopy.swift`, tests `ReadingCopyTests`), in the unit on screen:
+"6.1 mmol/L, steady, 2 min ago". A stale reading drops its trend, as the screen does ("6.1 mmol/L,
+8 min ago"), and from 10 minutes it's the chart's gap words: "No readings for 12 min · last
+6.1 mmol/L at 2:40 pm". On a followed person's stage the line starts with their name ("Sam: …").
+Copy plays a light tap (`copied`), shows a "Copied" capsule over the reading for 1.4 s and says
+"Copied" to VoiceOver; Share… opens the system share sheet with the same line
+(`Sources/iOS/Views/PhoneReadingCopy.swift`). On the Mac, ⌘C in the popover (or Copy Reading in its
+right-click and toolbar menus) copies the same line and shows "Copied". It never includes a
+forecast, and nothing is sent anywhere until you pick where in the share sheet.
+
 ```
 LibreLinkUp ──► push relay (Supabase edge function, every minute) ──APNs──► iPhone: alerts + Lock Screen card
            └──► iPhone app (while it's open)
