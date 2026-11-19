@@ -8104,3 +8104,80 @@ every gain, 15 no worse, and the line still reaches the rises to 250+ that it re
 
 **Dosing.** Not touched: the insulin curve, insulin on board, sensitivity, carb ratios, the carb
 curve and the bolus calculator are unchanged. No app or relay code changed.
+
+## 104. Through an overnight compression low, does the line follow the dip back up, and do predicted lows fire? (20 Nov 2026)
+
+**Question.** A compression low is a sharp drop while asleep, usually from lying on the sensor,
+that comes back within about 30 minutes. §17 asked only whether a guard on low alerts could tell
+them from real lows (5.5 nights, no). This asks how the forecast line itself and the predicted-low
+alerts behave through them, now with 9 nights, and tries one held-out tweak. §79 compared night and
+day low alerts; §74 found single-reading spikes are only history twins.
+
+**Data.** `glucos.readings` 11–20 Nov 2026 (12,651 readings), with meal and dose times from the
+Logbook. The relay is replayed tick by tick exactly as §79 does (12,560 ticks, 9 nights,
+22:00–07:00 Perth). A compression low is a reading that is the lowest within 10 minutes, 20 or more
+under the highest of the 15 minutes before it, reached at 2 mg/dL a minute or faster, that comes
+back by at least two thirds of the drop within 30 minutes, with nothing logged from 3 hours before
+to 30 minutes after. Detection reads one reading a minute and prefers the live feed (§74). Every
+tick's line is scored at 15 and 30 minutes, drawn or unshown, as the relay ledger does, from the
+top of the drop to 30 minutes after the nadir. Script: `scripts/compression-low-forecasts.ts`
+(`DROP`, `RATE`, `LIST=1`, `LOGGED=1` to also count dips with something logged nearby).
+
+**20 compression lows on 5 of 9 nights, and none came near a low.** They fell 20–56 mg/dL at
+2.1–7.3 a minute and bottomed between 95 and 290, none under 80. Most were on 15, 17 and 18 Nov
+(5–6 each). Counting dips with something logged nearby adds 3: 12 Nov 23:41 (104 → 66, a real
+low, warned at 23:35 and 23:39) and 17 Nov 23:37 (150 → 76, 1.5 hours after a treated low).
+
+Relay replay overnight, bias = actual − line (positive = line ran low):
+
+| Ticks | 15 min n, MAE / bias | 30 min n, MAE / bias | 15 / 30 min no change |
+|---|---|---|---|
+| All overnight | 4,871, 15.5 / +0.0 | 736, 17.5 / +1.7 | 14.7 / 17.4 |
+| Through compression lows | 738, 25.0 / +2.4 | 99, 32.6 / +7.6 | 20.5 / 27.9 |
+| … once the fall is 20+ at 2+/min | 225, 33.0 / +20.5 | 37, 36.6 / +32.0 | 27.9 / 28.0 |
+| Other overnight | 4,133, 13.9 / −0.4 | 637, 15.1 / +0.7 | 13.6 / 15.7 |
+| Same fast fall, not a compression low | 224, 14.9 / −0.7 | 21, 12.1 / −4.5 | 14.4 / 10.5 |
+
+**The line follows the fall and misses the bounce.** Through a compression low the error is
+nearly twice the rest of the night and worse than "no change". Once the drop is under way the line
+keeps carrying the fall on and runs 20 low at 15 minutes and 32 low at 30, because glucose comes
+straight back. On the way back up the line turns late, which is why the whole window is only a
+little low on average. The same fast fall outside a compression low (224 ticks, mostly real
+falls and the start of the 16 Nov lows) is followed well, so the shape can't be told apart while
+it is still falling.
+
+**Predicted-low alerts.** None fired in any of the 20 compression lows; they all stayed too high
+for the line to reach 70. Overnight there were 14 predicted-low alerts, 5 false: 2 on the 17 Nov
+23:37 dip after the treated low (reading 84 and 76, nadir 76), 2 on 16 Nov at 03:52 and 05:39 (slow
+dips to 78, the second a fast drop that only came part of the way back), and 1 this morning at
+04:48 (a slow drift to 73). None is an unlogged compression low.
+
+**Held out: damp the line on a fast unlogged overnight drop.** Trend forecast only (nothing about
+insulin, carbs or doses): at night, with nothing logged for 3 hours, when the reading is 20 or
+more under the highest of the last 15 minutes at 2 a minute or faster, the line's move from the
+reading is scaled by w (1, 0.75, 0.5, 0.25 or 0). It only knows the drop so far. Leave one night
+out: pick the w with the lowest pooled 15/30-minute error on the other nights among those that
+warn no low later, then score the night left out.
+
+| w | Overnight MAE 15 / 30 | In dips, 30 min | Night alerts, false | Lows warned later |
+|---|---|---|---|---|
+| 1 (shipped) | 15.54 / 17.50 | 32.6 | 14, 5 | 0 |
+| 0.75 | 15.44 / 17.34 | 31.8 | 14, 5 | 1 (1 min) |
+| 0.5 | 15.36 / 17.20 | 30.9 | 12, 4 | 2 (3 min) |
+| 0 | 15.28 / 17.02 | 29.4 | 10, 4 | 2 (9 min) |
+
+Forced on, damping trims the overnight error a little and drops one false alarm, but it warns both
+real night lows (16 Nov 00:52 and 04:50) later, because both began with exactly this fast unlogged
+drop. Held out it chose w = 1 on 8 of 9 nights and 0.75 on 16 Nov, which warned that night's low a
+minute later: overnight error 15.79 against 15.80 shipped, false alarms 5 against 5. DROP 15 and 25
+give the same held-out result. It fails the bar.
+
+**Decision.** Ship nothing. Through a compression low the line runs well low once the fall is under
+way and turns back late, but the dips have all bottomed far above 70, so no alert has fired on one,
+and the only rule that knows to damp them also delays real lows that start the same way. This is
+§17's finding again from the forecast side. Retest on **10 Dec 2026**, sooner if an unlogged
+compression low reaches under 80 or sets off a predicted-low alert. Ship a damping only if held out
+it lowers overnight error on most nights and no low anywhere is warned later.
+
+**Dosing.** Not touched: the insulin curve, insulin on board, sensitivity, carb ratios, the carb
+curve and the bolus calculator are unchanged. No app or relay code changed.
