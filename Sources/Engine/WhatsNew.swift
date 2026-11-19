@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "clock",
                   title: "See when you've scrolled back to",
                   detail: "Panned back, the chart shows the day and time at its right edge. On the Mac, Option with an arrow moves an hour and Command-Right returns to now."),
+            .init(symbol: "chart.line.flattrend.xyaxis",
+                  title: "Forecasts on long high stretches",
+                  detail: "We checked forecasts when glucose stays high and level for 45 minutes or more and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.79.0", highlights: [
             .init(symbol: "waveform.path.ecg",
