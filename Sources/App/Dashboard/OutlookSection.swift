@@ -15,6 +15,17 @@ struct OutlookSection: View {
     /// of the way in about 0.3 s later.
     private static let forecastDelay: TimeInterval = 0.3
 
+    /// The chart's 3 hours, its lead past the left edge, and the day it can pan back (`ChartPan`).
+    private static let handedHours: Double = 3 + ChartPan.maxBackHours + ChartSpan.lead / 3600
+
+    /// Where the chart's right edge is while panned back (`ChartPanKey`), nil at now.
+    @State private var panEnd: Date?
+    /// Sideways trackpad swipes over the chart pan it back, as in the popover.
+    @State private var scrollPan = ChartScrollPanMonitor()
+    @State private var panScroll: ChartPanScroll?
+    /// ⌥← ⌥→ pan an hour, ⌘→ goes back to now, once the chart has been clicked.
+    @State private var panKey: ChartPanKeyPress?
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
             content(now: ctx.date)
@@ -27,7 +38,7 @@ struct OutlookSection: View {
     /// taken for one being deleted; the chart only draws what's in its window.
     private func markers(now: Date) -> [ChartLogMarker] {
         ChartLogMarker.logbook(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts,
-                               since: now.addingTimeInterval(-ChartHours.longestPlotted * 3600))
+                               since: now.addingTimeInterval(-max(ChartHours.longestPlotted, Self.handedHours) * 3600))
     }
 
     /// The Logbook page with this entry selected (`DashboardRequest`).
@@ -43,6 +54,9 @@ struct OutlookSection: View {
         let outlook = outlookStore.outlook
         let current = snapshot.currentOutlook(at: now)
         let recent = GlucoseAnalytics.slice(store.archive, from: now.addingTimeInterval(-3 * 3600), to: now.addingTimeInterval(60))
+        // What the chart is handed: enough to pan back a day.
+        let plotted = GlucoseAnalytics.slice(store.archive, from: now.addingTimeInterval(-Self.handedHours * 3600),
+                                             to: now.addingTimeInterval(60))
         let model = outlookStore.model
         DashboardPage { layout in
             VStack(alignment: .leading, spacing: DS.Space.lg) {
@@ -63,14 +77,35 @@ struct OutlookSection: View {
                     // card is most of the way in, and bends into each new forecast rather than
                     // jumping (as in the popover). Under Reduce Motion it just changes.
                     ForecastMotion(forecast: current?.forecast ?? [], drawInDelay: Self.forecastDelay) { forecast, reveal in
-                        GlucoseChart(readings: recent, unit: unit, lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl,
+                        GlucoseChart(readings: plotted, unit: unit, lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl,
                                      hours: 3, interactive: true, forecast: forecast, forecastReveal: reveal,
                                      events: markers(now: now), popsMarkers: true,
                                      yesterday: settings.showYesterdayLine
-                                        ? GlucoseAnalytics.slice(store.archive, from: now.addingTimeInterval(-29 * 3600), to: now)
+                                        ? GlucoseAnalytics.slice(store.archive,
+                                                                 from: now.addingTimeInterval(-YesterdayLine.hoursNeeded(forSpan: Self.handedHours) * 3600),
+                                                                 to: now)
                                         : [],
-                                     peeksMarkers: true, openInLogbook: openInLogbook, snapsScrub: true)
+                                     peeksMarkers: true, openInLogbook: openInLogbook, snapsScrub: true,
+                                     pansBack: true, panScroll: panScroll, panKey: panKey)
                     }
+                        .onPreferenceChange(ChartPanKey.self) { end in
+                            if end != panEnd { panEnd = end }
+                        }
+                        // Two fingers sideways on the trackpad pan the chart back; up and down still scroll the page.
+                        .onHover { scrollPan.over = $0 }
+                        .onAppear { scrollPan.start { panScroll = $0 } }
+                        .onDisappear { scrollPan.stop() }
+                        // Click the chart, then ⌥← ⌥→ for an hour earlier or later and ⌘→ for now.
+                        .focusable()
+                        .focusEffectDisabled()
+                        .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+                            guard let move = ChartPanKeys.move(left: press.key == .leftArrow, modifiers: press.modifiers),
+                                  let next = ChartPanKeys.press(move, after: panKey, pannedBack: panEnd != nil)
+                            else { return .ignored }
+                            panKey = next
+                            return .handled
+                        }
+                        .help("Swipe sideways or drag along the times for earlier hours. Click the chart, then ⌥← ⌥→ for an hour earlier or later, ⌘→ for now.")
                         .yesterdayLineMenu($settings.showYesterdayLine)
                         .frame(height: layout.chartHeight(reserving: 420, minimum: 220, maximum: 380))
                     legend(current)

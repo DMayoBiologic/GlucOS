@@ -170,6 +170,13 @@ enum ShortcutCatalog {
     static let showList = ShortcutRow(keys: "⌘?", action: "Show this list")
     /// ⌘L in the popover while its Log treatment button shows (docs/AlertActions.md).
     static let lowTreatment = ShortcutRow(keys: "⌘L during a low", action: "Log treatment, filled in from Treat a low")
+    /// Panning a focused chart back (`ChartPanKeys`): the popover chart, and the dashboard's Outlook chart.
+    static func chartPan(on chart: String) -> [ShortcutRow] {
+        [
+            ShortcutRow(keys: "⌥←  ⌥→ \(chart)", action: "Chart: an hour earlier or later"),
+            ShortcutRow(keys: "⌘→ \(chart)", action: "Chart: back to now"),
+        ]
+    }
 
     static func popover(globalKey: LogHotKey?) -> [ShortcutGroup] {
         [
@@ -182,6 +189,7 @@ enum ShortcutCatalog {
                 ShortcutRow(keys: "⌘1  ⌘2  ⌘3  ⌘4", action: "Chart: 3, 6, 12 or 24 hours"),
                 ShortcutRow(keys: "⌘+  ⌘−", action: "Chart: fewer or more hours"),
                 ShortcutRow(keys: "←  → on the chart", action: "Step through chart readings"),
+            ] + chartPan(on: "on the chart") + [
                 ShortcutRow(keys: "⌘I", action: "Show or hide details"),
                 ShortcutRow(keys: "⌘C", action: "Copy the reading"),
                 ShortcutRow(keys: "⌘,", action: "Settings"),
@@ -207,6 +215,7 @@ enum ShortcutCatalog {
                 ShortcutRow(keys: "⌘J", action: "Back to now (in the Logbook: jump to a date)"),
                 ShortcutRow(keys: "⌘=  ⌘−  ⌘0", action: "Zoom chart in, out, reset"),
                 ShortcutRow(keys: "⌥←  ⌥→", action: "Pan the zoomed chart"),
+            ] + chartPan(on: "on the Outlook chart") + [
                 ShortcutRow(keys: "Drag on chart", action: "Select a stretch to see its numbers"),
                 ShortcutRow(keys: "Esc", action: "Clear the chart selection"),
                 ShortcutRow(keys: "⌘L", action: "Log insulin, food or a moment"),
