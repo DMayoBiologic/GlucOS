@@ -37,6 +37,11 @@ enum HapticEvent: String, CaseIterable, Sendable {
     /// or Log Again Now would stay open for a tap (`LogbookSwipe.Tick`, round 95). A soft tick that
     /// follows the finger; it never logs or deletes by itself.
     case swipeThreshold
+    /// A row in a list you can reorder lifted under the finger (Settings › Your Insulins,
+    /// `RowReorderDrag`, round 97).
+    case rowPicked
+    /// The lifted row was let go and settled into its place.
+    case rowDropped
     /// A new reading, with the app open, crossed into a low.
     case enteredLow
     /// A new reading came back into range (follower card).
@@ -70,6 +75,8 @@ enum HapticEvent: String, CaseIterable, Sendable {
         case .scrubLogged: return .lightImpact(intensity: 0.6)
         case .scrubSnapped: return .lightImpact(intensity: 0.5)
         case .swipeThreshold: return .lightImpact(intensity: 0.4)
+        case .rowPicked: return .lightImpact(intensity: 0.6)
+        case .rowDropped: return .lightImpact(intensity: 0.5)
         case .spanPicked: return .lightImpact(intensity: 0.5)
         case .copied: return .lightImpact(intensity: 0.6)
         case .rangeCrossed: return .lightImpact(intensity: 0.7)
@@ -84,7 +91,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         case .enteredLow, .alertBanner, .followerNeedsHelp: return 3
         case .done, .logSaved, .backInRange, .rangeCrossed, .followerOkay: return 2
         case .choice, .undone, .deleted, .newData, .spanPicked, .copied: return 1
-        case .scrubRangeEdge, .scrubLogged, .scrubSnapped, .swipeThreshold: return 0
+        case .scrubRangeEdge, .scrubLogged, .scrubSnapped, .swipeThreshold, .rowPicked, .rowDropped: return 0
         }
     }
 
@@ -92,7 +99,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
     /// each one still plays.
     var isTick: Bool {
         switch self {
-        case .choice, .scrubRangeEdge, .scrubLogged, .scrubSnapped, .swipeThreshold: return true
+        case .choice, .scrubRangeEdge, .scrubLogged, .scrubSnapped, .swipeThreshold, .rowPicked, .rowDropped: return true
         default: return false
         }
     }

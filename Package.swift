@@ -62,6 +62,7 @@ let package = Package(
                 "Shared/ReadingRoll.swift",
                 "Shared/InsightsFigurePulse.swift",
                 "Shared/CardHoverLift.swift",
+                "Shared/RowReorderDrag.swift",
                 "Shared/UnitSwitch.swift",
                 "Shared/TypedAmountRoll.swift",
                 "Shared/RangeCrossing.swift",

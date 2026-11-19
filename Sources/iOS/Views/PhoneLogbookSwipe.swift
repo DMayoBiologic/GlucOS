@@ -22,6 +22,14 @@ extension View {
         modifier(PhoneLogbookSwipe(id: id, openID: openID, tint: tint, reduceMotion: reduceMotion,
                                    logAgain: logAgain, delete: delete))
     }
+
+    /// The same swipe with Delete only (left), for rows with nothing to log again, such as
+    /// Settings › Your Insulins (round 97). A right swipe doesn't move the row.
+    func phoneSwipeToDelete(_ id: UUID, openID: Binding<UUID?>, reduceMotion: Bool,
+                            delete: @escaping () -> Void) -> some View {
+        modifier(PhoneLogbookSwipe(id: id, openID: openID, tint: .clear, reduceMotion: reduceMotion,
+                                   logAgain: nil, delete: delete))
+    }
 }
 
 private struct PhoneLogbookSwipe: ViewModifier {
@@ -29,7 +37,8 @@ private struct PhoneLogbookSwipe: ViewModifier {
     @Binding var openID: UUID?
     let tint: Color
     let reduceMotion: Bool
-    let logAgain: () -> Void
+    /// Nil for a delete-only row: the row never slides right.
+    let logAgain: (() -> Void)?
     let delete: () -> Void
 
     /// Where the row sits now, in points (positive is slid right).
@@ -73,7 +82,7 @@ private struct PhoneLogbookSwipe: ViewModifier {
             switch edge {
             case .logAgain:
                 settle(.close)
-                logAgain()
+                logAgain?()
             case .delete:
                 settle(.delete)
             }
@@ -101,6 +110,7 @@ private struct PhoneLogbookSwipe: ViewModifier {
             if openID != id { openID = id }
         }
         offset = LogbookSwipe.offset(translation: translation, base: base, rowWidth: rowWidth)
+        if logAgain == nil { offset = min(offset, 0) }
         if tick.update(offset: offset, rowWidth: rowWidth) { Haptics.play(.swipeThreshold) }
     }
 

@@ -25,5 +25,23 @@ Set up once, picked with a tap whenever a dose is logged, on the Mac and the iPh
   sites first, within the body areas the user injects into), marks it as suggested, and notes when
   the site picked was used in the last three days. Rules: `Sources/App/Logbook/SiteRotation.swift`.
 
+## Reordering (round 97)
+
+The order is the one the log sheet's chips follow. To change it, rest a finger on an insulin for
+0.3 s on iPhone (or drag it a few points with the pointer on the Mac) and it lifts: it grows to
+1.03x with a soft shadow and follows the finger, and the rows it passes slide aside by its height,
+so the gap shows where it will land. It takes a row's place once its middle passes that row's
+middle. Letting go settles it into the gap and saves the order, which syncs like any edit. On
+iPhone a light tap plays at the pick-up (`HapticEvent.rowPicked`) and at the drop (`rowDropped`).
+
+- **Reduce Motion:** the row keeps its size and only the shadow shows; the other rows jump to their
+  places. **Increase Contrast:** no shadow, only the 1.03x lift.
+- **VoiceOver** and iPhone **Edit** mode keep the system rows, so VoiceOver's move actions and the
+  delete buttons work as before. A tap still opens the insulin. On iPhone, swipe left to delete as
+  before (the Logbook's swipe from round 95, Delete only, `phoneSwipeToDelete`). On the Mac,
+  right-click offers Edit and Delete.
+- Rules: `Sources/Shared/RowReorderDrag.swift` (tested by `RowReorderDragTests`); view:
+  `InsulinReorderRows` in `InsulinSettingsView.swift`.
+
 Code: `Sources/App/Logbook/InsulinLibrary.swift` (rules, tested by `InsulinLibraryTests`),
 `InsulinSettingsView.swift` (Settings), `LogbookStore` (storage and sync).
