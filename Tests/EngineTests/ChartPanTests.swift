@@ -158,4 +158,68 @@ final class ChartPanTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(ChartPan.hoursHanded,
                                     Double(ChartHours.choices.max()!) + ChartPan.maxBackHours + ChartSpan.lead / 3600)
     }
+
+    // MARK: Mac keys
+
+    func testOptionArrowsMoveAnHourAndCommandRightGoesHome() {
+        let r = readings(hours: 30)
+        let newest = r.last!.timestamp, oldest = r[0].timestamp
+        let back = ChartPan.keyed(nil, .earlier, newest: newest, oldest: oldest, hours: 3)
+        XCTAssertEqual(back, hoursBefore(1, newest))
+        let twice = ChartPan.keyed(back, .earlier, newest: newest, oldest: oldest, hours: 3)
+        XCTAssertEqual(twice, hoursBefore(2, newest))
+        XCTAssertEqual(ChartPan.keyed(twice, .later, newest: newest, oldest: oldest, hours: 3), back)
+        XCTAssertNil(ChartPan.keyed(back, .later, newest: newest, oldest: oldest, hours: 3))
+        XCTAssertNil(ChartPan.keyed(twice, .now, newest: newest, oldest: oldest, hours: 3))
+        // Later at now stays at now; never into the future.
+        XCTAssertNil(ChartPan.keyed(nil, .later, newest: newest, oldest: oldest, hours: 3))
+    }
+
+    func testOptionRightLandingNearNowSnapsHome() {
+        let r = readings(hours: 30)
+        let newest = r.last!.timestamp, oldest = r[0].timestamp
+        // 63 minutes back, an hour later is 3 minutes back: close enough to go home.
+        let near = newest.addingTimeInterval(-63 * 60)
+        XCTAssertNil(ChartPan.keyed(near, .later, newest: newest, oldest: oldest, hours: 3))
+        // 70 minutes back stays 10 minutes back.
+        let far = newest.addingTimeInterval(-70 * 60)
+        XCTAssertEqual(ChartPan.keyed(far, .later, newest: newest, oldest: oldest, hours: 3), newest.addingTimeInterval(-600))
+    }
+
+    func testOptionLeftStopsAtTheLimits() {
+        let r = readings(hours: 30)
+        let newest = r.last!.timestamp, oldest = r[0].timestamp
+        let earliest = hoursBefore(24, newest)
+        XCTAssertEqual(ChartPan.keyed(earliest, .earlier, newest: newest, oldest: oldest, hours: 3), earliest)
+        let short = readings(hours: 2)
+        XCTAssertNil(ChartPan.keyed(nil, .earlier, newest: short.last!.timestamp, oldest: short[0].timestamp, hours: 3))
+    }
+
+    // MARK: End-time label
+
+    private var utc: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }
+
+    func testEndLabelNamesTheWeekdayAndTime() throws {
+        let locale = Locale(identifier: "en_AU")
+        // 1_800_000_000 is a Friday, 8:00 am UTC.
+        let label = try XCTUnwrap(ChartPan.endLabel(start, calendar: utc, locale: locale))
+        XCTAssertEqual(label, "Fri " + ClockLabel.time(start, calendar: utc, locale: locale))
+        XCTAssertNil(ChartPan.endLabel(nil, calendar: utc, locale: locale))
+        let spoken = ChartPan.endSpoken(start, calendar: utc, locale: locale)
+        XCTAssertEqual(spoken, "Chart ends Friday " + ClockLabel.time(start, calendar: utc, locale: locale))
+    }
+
+    func testTheLabelIsReadOncePerNewEnd() {
+        let end = start
+        XCTAssertTrue(ChartPan.announces(settled: end, lastSpoken: nil))
+        XCTAssertFalse(ChartPan.announces(settled: end, lastSpoken: end))
+        XCTAssertFalse(ChartPan.announces(settled: end.addingTimeInterval(20), lastSpoken: end))
+        XCTAssertTrue(ChartPan.announces(settled: end.addingTimeInterval(-3600), lastSpoken: end))
+        // Back at now the label fades and nothing is said.
+        XCTAssertFalse(ChartPan.announces(settled: nil, lastSpoken: end))
+    }
 }

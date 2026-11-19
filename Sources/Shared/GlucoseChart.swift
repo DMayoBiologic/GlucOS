@@ -105,6 +105,9 @@ struct GlucoseChart: View {
     var pansBack: Bool = false
     /// Mac: sideways trackpad scrolling over the chart, from the popover's own monitor.
     var panScroll: ChartPanScroll? = nil
+    /// Mac: ⌥← ⌥→ and ⌘→ while the chart has the keyboard focus, from the screen around it
+    /// (`ChartPan.KeyMove`). Each new `id` moves the pan once, with the same glide as Now.
+    var panKey: ChartPanKeyPress? = nil
 
     /// The gap whose card is showing, after a tap (iPhone) or while the pointer is on it (Mac).
     @State private var openGap: Date?
@@ -193,6 +196,8 @@ struct GlucoseChart: View {
     /// plotted until the glide ends so the readings slide through.
     @State private var panTrail: ClosedRange<Date>?
     @State private var panGeneration = 0
+    /// The end VoiceOver last read the time label for (`ChartPan.announces`), so it's read once.
+    @State private var panSpokenEnd: Date?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
@@ -832,6 +837,7 @@ struct GlucoseChart: View {
         panEnd = nil
         panFrom = nil
         panTrail = nil
+        panSpokenEnd = nil
     }
 
     private func landed(_ flight: MarkerFlight) {
@@ -2807,6 +2813,34 @@ extension GlucoseChart {
         guard let b = panBounds else { return }
         let settled = ChartPan.released(shownPan, newest: b.newest)
         if settled != shownPan { glidePan(to: settled) }
+        announcePan(settled)
+    }
+
+    /// ⌥← ⌥→ or ⌘→ on the Mac: an hour either way, or straight home, gliding like Now.
+    private func panKeyed(_ move: ChartPan.KeyMove) {
+        guard pansBack, interactive, panFrom == nil, let b = panBounds else { return }
+        let target = ChartPan.keyed(shownPan, move, newest: b.newest, oldest: b.oldest, hours: b.hours)
+        guard target != shownPan else { return }
+        if callout != nil { closeCallout() }
+        closeForecast(animated: false)
+        withTransaction(Transaction(animation: nil)) {
+            hoverDate = nil
+            peeked = nil
+            openGap = nil
+        }
+        glidePan(to: target)
+        announcePan(target)
+    }
+
+    /// Reads the end-time label once when a pan settles on a new end (`ChartPan.announces`).
+    /// Back at now the label fades and the next pan is read again.
+    private func announcePan(_ settled: Date?) {
+        guard let settled else { panSpokenEnd = nil; return }
+        guard ChartPan.announces(settled: settled, lastSpoken: panSpokenEnd) else { return }
+        panSpokenEnd = settled
+        var spoken = AttributedString(ChartPan.endSpoken(settled))
+        spoken.accessibilitySpeechAnnouncementPriority = .low
+        AccessibilityNotification.Announcement(spoken).post()
     }
 
     /// One VoiceOver swipe on the time axis: down for earlier, up for later.
@@ -2855,13 +2889,14 @@ extension GlucoseChart {
                 if pansBack, interactive, let b {
                     ChartPanLayer(proxy: proxy, pan: pan,
                                   behind: pan.map { ChartPan.behindLabel($0, newest: b.newest) },
+                                  endLabel: ChartPan.endLabel(pan),
                                   spoken: ChartPan.spoken(end: pan, newest: b.newest, hours: b.hours,
                                                           clock: { ClockLabel.time($0) }),
                                   canPan: ChartPan.earliestEnd(newest: b.newest, oldest: b.oldest, hours: b.hours) != nil,
                                   reduceMotion: reduceMotion,
                                   moved: { panMoved(points: $0, secondsPerPoint: secondsPerPoint) },
                                   ended: { panEnded() },
-                                  now: { glidePan(to: nil) },
+                                  now: { glidePan(to: nil); announcePan(nil) },
                                   step: { panStepped(earlier: $0) })
                 }
             }
@@ -2871,6 +2906,10 @@ extension GlucoseChart {
                 // The last movement can arrive in the same update as the end, so it's applied first.
                 if !scroll.ended || panFrom != nil { panMoved(points: scroll.points, secondsPerPoint: secondsPerPoint) }
                 if scroll.ended { panEnded() }
+            }
+            .onChange(of: panKey) { _, press in
+                guard let press else { return }
+                panKeyed(press.move)
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background { withTransaction(Transaction(animation: nil)) { panEnd = nil; panFrom = nil } }
@@ -2887,6 +2926,13 @@ struct ChartPanScroll: Equatable {
     var ended = false
 }
 
+/// A pan key pressed on the Mac while the chart has the focus, passed to `GlucoseChart.panKey`.
+/// `id` changes with every press, so pressing the same key again is seen.
+struct ChartPanKeyPress: Equatable {
+    var id = 0
+    var move: ChartPan.KeyMove
+}
+
 /// Where a panned chart's right edge is (`GlucoseChart.pansBack`), nil while it shows now, so the
 /// screen around it can follow (the Mac popover's arrow keys step through what's on screen).
 struct ChartPanKey: PreferenceKey {
@@ -2900,6 +2946,8 @@ private struct ChartPanLayer: View {
     let proxy: ChartProxy
     let pan: Date?
     let behind: String?
+    /// "Tue 2:40 pm": the moment at the right edge, under the Now button while panned.
+    let endLabel: String?
     let spoken: String
     let canPan: Bool
     let reduceMotion: Bool
@@ -2940,13 +2988,19 @@ private struct ChartPanLayer: View {
                     #if os(macOS)
                     .help("Drag along the times, or swipe sideways on the trackpad, to see earlier hours")
                     #endif
-                ZStack(alignment: .topTrailing) {
+                VStack(alignment: .trailing, spacing: 3) {
                     if let behind, pan != nil {
                         nowButton(behind)
-                            .padding(6)
                             .transition(reduceMotion ? .opacity : .scale(scale: 0.85, anchor: .topTrailing).combined(with: .opacity))
                     }
+                    // Fades in as the chart leaves now and out as it comes back. VoiceOver hears
+                    // it once as a pan settles (`ChartPan.announces`), not here as well.
+                    if let endLabel, pan != nil {
+                        endTime(endLabel)
+                            .transition(.opacity)
+                    }
                 }
+                .padding(6)
                 .frame(width: plot.width, height: plot.height, alignment: .topTrailing)
                 .position(x: plot.midX, y: plot.midY)
                 .animation(reduceMotion ? GlucoseChart.spanFadeAnimation : DSMotion.quick.animation, value: pan != nil)
@@ -2967,6 +3021,21 @@ private struct ChartPanLayer: View {
                 sideways = nil
                 dragging = false
             }
+    }
+
+    private func endTime(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .contentTransition(reduceMotion ? .identity : .numericText())
+            .animation(reduceMotion ? nil : DSMotion.quick.animation, value: text)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.thinMaterial, in: Capsule())
+            .fixedSize()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private func nowButton(_ behind: String) -> some View {

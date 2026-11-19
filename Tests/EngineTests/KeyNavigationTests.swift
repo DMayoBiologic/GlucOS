@@ -190,4 +190,16 @@ final class KeyNavigationTests: XCTestCase {
         }
         XCTAssertFalse(all.first { $0.title == "Menu bar" }!.rows.contains(ShortcutCatalog.showList))
     }
+
+    func testSettingsListHasTheChartPanKeys() {
+        let all = ShortcutCatalog.all(momentCount: 6, globalKey: nil)
+        let menuBar = all.first { $0.title == "Menu bar" }!.rows.map(\.keys)
+        XCTAssertTrue(menuBar.contains("⌥←  ⌥→ on the chart"))
+        XCTAssertTrue(menuBar.contains("⌘→ on the chart"))
+        let dashboard = all.first { $0.title == "Dashboard" }!.rows.map(\.keys)
+        XCTAssertTrue(dashboard.contains("⌥←  ⌥→ on the Outlook chart"))
+        XCTAssertTrue(dashboard.contains("⌘→ on the Outlook chart"))
+        // The popover's ⌘? list has them too.
+        XCTAssertTrue(ShortcutCatalog.popover(globalKey: nil)[0].rows.contains(ShortcutCatalog.chartPan(on: "on the chart")[1]))
+    }
 }
