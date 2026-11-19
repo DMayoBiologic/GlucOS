@@ -7091,3 +7091,101 @@ from c order by c.t;
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged.
+
+## 94. When rapid insulin is logged 15+ minutes after a meal, does the line run high or low once it lands? (19 Nov 2026)
+
+**Question.** The engine draws a meal's carbs from the moment it's logged and rapid insulin from
+the moment it's logged. When insulin comes 15 minutes or more after eating, glucose is usually
+already climbing when it lands. From then on, does the line run high or low at 30 and 60 minutes,
+compared with meals where insulin was logged with the meal or before it?
+
+**Data.** Live readings 12–19 Nov 2026 (10,744), the Logbook's meals and rapid doses, and the
+accuracy log's clean shown points issued within 4 hours of a meal or dose. Double logs count once
+and low treatments (45 g or less with a hypo tag or under 70) are never scored. A meal's own
+insulin is the first rapid entry from 30 minutes before to 90 minutes after it; **logged late** =
+15 minutes or more after the meal, **with or before** = 5 minutes or less. Scoring starts when the
+insulin is logged (the meal, if insulin came first) and runs 3 hours or to the next entry. Replay:
+the engine's model forecast every 5 minutes (trend at the tuner's gain plus K × carbs − S × insulin,
+K 2.8, S 19.2), scored at 15, 30 and 60 minutes; points whose target falls after a later entry are
+dropped. Script: `scripts/late-meal-doses.py`.
+
+Two meals had insulin logged late: **16 Nov 10:53 pie, +22 min** (103 at the meal, 134 when
+insulin was logged) and **18 Nov 11:51 hamburger and chips, +65 min** (eaten at 55 after two low
+treatments, 166 when insulin was logged). Five meals with readings had it logged with the meal
+(12 Nov breakfast burger and sushi, 13 Nov eggs, 14 Nov hamburger, 16 Nov sausage roll); none
+were logged ahead, and the 11 Nov pre-meal entry has no readings.
+
+Replay, gain 0.45 (0.6 and 0.7 are the same shape), bias is actual − line (negative = line high):
+
+| Group, time since insulin logged | Meals (pts at 30) | 15 min MAE / bias | 30 min MAE / bias | 60 min MAE / bias | 30 min no change |
+|---|---|---|---|---|---|
+| Logged late, first hour | 2 (16) | 14.5 / −12.4 | 35.0 / −35.0 | 64.8 / −62.4 | 26.9 |
+| Logged late, 1–3 h | 2 (37) | 9.2 / −5.6 | 12.9 / −9.2 | 20.7 / −17.8 | 19.8 |
+| With or before, first hour | 5 (48) | 22.9 / −2.3 | 37.8 / −12.2 | 49.4 / −34.5 | 33.6 |
+| With or before, 1–3 h | 4 (87) | 11.7 / +2.5 | 20.4 / +6.6 | 42.2 / +22.7 | 23.2 |
+
+Each late meal's first hour: pie −30.6 at 30 and −16.6 at 60; hamburger −36.4 at 30 and −81.5 at
+60. Live accuracy log (the real engine): logged late, first hour −7.8 / −24.2 / −35.0 at 15/30/60
+(9 / 3 / 2 points, all inside the range); 1–3 h −5.1 / −8.0 (31 / 14 points); with or before, first
+hour +4.9 / −4.8 / −55.3 (16 / 12 / 8).
+
+**The line runs high after late insulin, mostly in its first hour.** In the hour after insulin is
+logged late the line sits about 35 mg/dL above where glucose ends up at 30 minutes and 60 above at
+60 minutes, roughly three times the 30-minute bias of meals with insulin logged on time (−12). Both
+late meals go the same way. Glucose was already well up when the insulin was logged, so the
+rising trend plus the carbs still to come by the 3-hour curve draw a further climb that mostly
+doesn't happen. From the second hour the line is close (−9 at 30). The range is wide enough that
+every live point still fell inside it.
+
+**Held out: a late-insulin tweak.** Forecast only (insulin on board, the insulin curve, carbs on
+board, carb ratios, sensitivity and the bolus calculator untouched): for `span` minutes after
+insulin logged late, scale the trend by g (fade 30 or 15 minutes) and move the late meal's carb
+clock `adv` minutes on, since part of its rise has already shown up. g 1/0.5/0, adv 0–60, span
+60/120/180, picked on one late meal and scored on the other (leave one meal out; it never touches
+other meals).
+
+| Gain | Pie 16 Nov held out, 15 / 30 / 60 | Hamburger 18 Nov held out, 15 / 30 / 60 |
+|---|---|---|
+| 0.45 | 10.1→9.0, 13.5→12.3, **14.3→16.6** | 11.1→10.7, 23.6→17.0, 53.4→29.5 |
+| 0.6 | 10.3→9.3, 14.1→12.7, **14.7→17.2** | **10.1→12.7**, 22.9→20.5, 53.0→38.8 |
+| 0.7 | 10.5→9.8, 14.6→12.7, **15.1→17.6** | **9.8→12.5**, 22.5→20.3, 52.6→38.7 |
+
+The fit always moves the carb clock on (30–60 minutes); damping the trend alone changes nothing
+(±1). It cuts the hamburger's 60-minute miss nearly in half, but on the pie it overshoots, the
+60-minute bias swinging −7 → +14, and at gains 0.6 and 0.7 it costs the hamburger at 15 minutes.
+The hamburger is also the odd case (eaten during a low straight after two treatments), so one meal
+is pulling the fit.
+
+**Decision.** Ship nothing. Insulin logged late does leave the line running high for the first
+hour after it (about −35 at 30 and −60 at 60, both late meals the same way), but with two such meals
+the carb-clock tweak fails the bar: worse at 60 minutes on the pie at every gain and worse at 15 on
+the hamburger at 0.6 and 0.7. Retest on **10 Dec 2026**, only with 5+ meals with insulin logged 15+
+minutes late on 3+ days: refit the clock move leave one meal out (also one that scales with how
+late the insulin was) and ship only if better at 30 and 60 on every held-out meal at every gain,
+15 no worse, with no new predicted-low crossings. If the first-hour miss holds and the clock move
+still fails, the remaining gap is in how fast insulin acts after a meal that's already absorbing,
+which is dosing maths and goes to Declan as a decision, not into a round.
+
+Live-log check, in the Supabase SQL editor (each meal's first rapid entry within 90 minutes and
+the 30-minute bias in the hour after it; it doesn't merge double logs or leave out low treatments,
+so 13 Nov 10:10 and 12 Nov 19:08 show too. On 19 Nov: 16 Nov pie +22 min, −23.6 on 2 points;
+18 Nov hamburger +65 min, −25.6 on 1):
+
+```sql
+with ml as (select (payload->>'timestamp')::float t, (payload->>'carbs')::float g
+  from glucos.logbook where not deleted and kind = 'meal'),
+dz as (select (payload->>'timestamp')::float t from glucos.logbook
+  where not deleted and kind = 'dose' and payload->>'kind' = 'rapid'),
+md as (select ml.t, ml.g, (select min(dz.t) from dz where dz.t between ml.t - 1800 and ml.t + 5400) d from ml),
+p as (select extract(epoch from c.issued_at) t, (e->>'mgdl')::float f, (e->>'actual')::float a
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int = 30)
+select to_char(to_timestamp(md.t) at time zone 'Australia/Perth', 'DD Mon HH24:MI') meal, md.g carbs,
+  round(((md.d - md.t) / 60)::numeric) insulin_lag_min, count(p.t) pts, round(avg(p.a - p.f)::numeric, 1) bias_30
+from md left join p on p.t between greatest(md.t, md.d) and greatest(md.t, md.d) + 3600
+where md.d is not null group by 1, 2, 3, md.t order by md.t;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged.
