@@ -222,6 +222,9 @@ struct PopoverSummaryCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .contentTransition(.numericText())
+                // Rolls to the new figure when a reading moves it, on the same spring as the
+                // in-range share above. Instant under Reduce Motion; VoiceOver reads the tile.
+                .dsAnimation(.arrival, value: value)
             Text(unit)
                 .dsFont(.caption)
                 .foregroundStyle(.tertiary)
