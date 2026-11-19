@@ -2,8 +2,8 @@ import SwiftUI
 import AppKit
 
 // The menu bar item's right-click menu (docs/MenuBarMenu.md, `MenuBarQuickMenu`). Right-click or
-// Control-click the reading for Your usual, Log Something…, Open Logbook and Settings…. A plain
-// click is left alone, so it still opens the popover.
+// Control-click the reading for Your usual, Log Something…, Open Logbook, Copy Reading and Settings….
+// A plain click is left alone, so it still opens the popover.
 //
 // MenuBarExtra owns the status item and gives no way to set its menu, so a local event monitor
 // watches for a right or Control click on GlucOS's own status bar button, swallows it, and pops a
@@ -22,11 +22,17 @@ final class MenuBarQuickMenuController: NSObject {
     private var monitor: Any?
     /// The usuals the open menu offered, by id, so a pick fills in exactly what was shown.
     private var offered: [String: UsualEntry] = [:]
+    /// The reading line the open menu offered to copy, so Copy Reading copies what its tooltip said.
+    private var copyLine: String?
+    /// Run once Copy Reading has put the line on the clipboard: the item says "Copied" briefly.
+    private let didCopy: () -> Void
 
-    init(store: GlucoseStore, settings: AppSettings, willOpen: @escaping () -> Void) {
+    init(store: GlucoseStore, settings: AppSettings, willOpen: @escaping () -> Void,
+         didCopy: @escaping () -> Void = {}) {
         self.store = store
         self.settings = settings
         self.willOpen = willOpen
+        self.didCopy = didCopy
         super.init()
     }
 
@@ -75,7 +81,8 @@ final class MenuBarQuickMenuController: NSObject {
 
         let menu = NSMenu(title: "GlucOS")
         menu.autoenablesItems = false
-        for row in MenuBarQuickMenu.rows(usuals: usuals) {
+        copyLine = store.readingCopyText()
+        for row in MenuBarQuickMenu.rows(usuals: usuals, copyLine: copyLine) {
             switch row {
             case .header(let title):
                 menu.addItem(NSMenuItem.sectionHeader(title: title))
@@ -116,10 +123,18 @@ final class MenuBarQuickMenuController: NSObject {
         case .openLogbook:
             DashboardRequest.shared.opensLogbook = true
             NotificationCenter.default.post(name: .glucosOpenDashboard, object: nil)
+        case .copyReading:
+            // The same line ⌘C copies in the popover, in the unit on screen. One "Copied" in the
+            // menu bar item and one VoiceOver announcement, as the popover's toast does.
+            guard let line = copyLine ?? store.readingCopyText() else { break }
+            ReadingClipboard.copy(line)
+            didCopy()
+            VoiceOver.announce(ReadingCopy.copiedToast)
         case .settings:
             NotificationCenter.default.post(name: .glucosOpenSettings, object: nil)
         }
         offered = [:]
+        copyLine = nil
     }
 
     /// `representedObject` takes an object; the action is a Swift enum.

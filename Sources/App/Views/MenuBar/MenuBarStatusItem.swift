@@ -38,6 +38,8 @@ final class MenuBarStatusModel: ObservableObject {
     /// The right-click menu (MenuBarQuickMenuController.swift). Does nothing until a right or
     /// Control click lands on the item.
     private var quickMenu: MenuBarQuickMenuController?
+    /// While set, the item shows "Copied" (after the menu's Copy Reading) instead of the reading.
+    private var copiedFlash: Task<Void, Never>?
 
     /// Frames per second for a value change. Low on purpose: it is an 8 pt slide in the menu bar.
     private static let framesPerSecond = 24.0
@@ -79,9 +81,11 @@ final class MenuBarStatusModel: ObservableObject {
         hover = MenuBarHoverController(store: store, settings: settings) { [weak self] now in
             self?.hoverPreview(now: now)
         }
-        quickMenu = MenuBarQuickMenuController(store: store, settings: settings) { [weak self] in
+        quickMenu = MenuBarQuickMenuController(store: store, settings: settings, willOpen: { [weak self] in
             self?.hover?.dismiss()
-        }
+        }, didCopy: { [weak self] in
+            self?.showCopied()
+        })
         quickMenu?.start()
         refresh()
     }
@@ -134,10 +138,30 @@ final class MenuBarStatusModel: ObservableObject {
         show(next, from: force ? nil : previous)
     }
 
+    // MARK: Copied
+
+    /// After Copy Reading in the right-click menu, the item says "Copied" with a checkmark for
+    /// `MenuBarQuickMenu.copiedDuration`, then the reading comes back as it is now. One sleep, no
+    /// tick; a new reading meanwhile is kept and drawn when the flash ends. The VoiceOver label is
+    /// left alone (the menu announces "Copied" once).
+    func showCopied() {
+        animation?.cancel()
+        copiedFlash?.cancel()
+        image = MenuBarImage.copied(accessibilityLabel: accessibilityLabel)
+        copiedFlash = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(MenuBarQuickMenu.copiedDuration * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            self.copiedFlash = nil
+            self.refresh(force: true)
+        }
+    }
+
     // MARK: Drawing
 
     private func show(_ new: MenuBarGlance, from old: MenuBarGlance?) {
         animation?.cancel()
+        // "Copied" is showing: the new glance is stored and drawn when the flash ends.
+        guard copiedFlash == nil else { return }
         let label = accessibilityLabel
         let change = MenuBarGlance.change(from: old, to: new)
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -275,6 +299,16 @@ enum StatusItemToolTip {
 // MARK: - Image
 
 enum MenuBarImage {
+    /// "✓ Copied" in the menu bar's own text colour, shown briefly after Copy Reading.
+    @MainActor
+    static func copied(accessibilityLabel: String) -> NSImage {
+        let highContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        return dualAppearance(accessibilityLabel: accessibilityLabel) { dark in
+            MenuBarCopiedView(colours: MenuBarColours(dark: dark, highContrast: highContrast))
+                .environment(\.colorScheme, dark ? .dark : .light)
+        }
+    }
+
     /// Draws `glance` (with `previous` rolling out, at `progress` 0...1) into an image that picks
     /// its light or dark rendering each time the menu bar draws it.
     @MainActor
@@ -296,18 +330,38 @@ enum MenuBarImage {
         guard let light = cg(dark: false), let dark = cg(dark: true) else {
             return NSImage(size: NSSize(width: 1, height: 1))
         }
+        return image(light: light, dark: dark, scale: scale, accessibilityLabel: accessibilityLabel)
+    }
+
+    /// Renders `content` once for a light and once for a dark menu bar.
+    @MainActor
+    private static func dualAppearance<V: View>(accessibilityLabel: String,
+                                                @ViewBuilder content: (Bool) -> V) -> NSImage {
+        let scale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
+        let lightRenderer = ImageRenderer(content: content(false))
+        lightRenderer.scale = scale
+        let darkRenderer = ImageRenderer(content: content(true))
+        darkRenderer.scale = scale
+        guard let light = lightRenderer.cgImage, let dark = darkRenderer.cgImage else {
+            return NSImage(size: NSSize(width: 1, height: 1))
+        }
+        return image(light: light, dark: dark, scale: scale, accessibilityLabel: accessibilityLabel)
+    }
+
+    /// One image holding both renderings, picking one each time the menu bar draws it.
+    private static func image(light: CGImage, dark: CGImage, scale: CGFloat, accessibilityLabel: String) -> NSImage {
         let size = NSSize(width: CGFloat(light.width) / scale, height: CGFloat(light.height) / scale)
-        let image = NSImage(size: size, flipped: false) { rect in
+        let out = NSImage(size: size, flipped: false) { rect in
             let isDark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
             ctx.draw(isDark ? dark : light, in: rect)
             return true
         }
-        image.isTemplate = false
+        out.isTemplate = false
         // Drawn fresh each time, so a change of menu bar appearance picks the other rendering.
-        image.cacheMode = .never
-        image.accessibilityDescription = accessibilityLabel
-        return image
+        out.cacheMode = .never
+        out.accessibilityDescription = accessibilityLabel
+        return out
     }
 }
 
@@ -357,6 +411,24 @@ struct MenuBarColours {
             out = color.usingColorSpace(.sRGB) ?? color
         }
         return Color(nsColor: out)
+    }
+}
+
+/// The menu bar item for a moment after Copy Reading: a checkmark and "Copied".
+struct MenuBarCopiedView: View {
+    let colours: MenuBarColours
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(colours.brand)
+            Text(ReadingCopy.copiedToast)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(colours.label)
+        }
+        .frame(height: 18)
+        .fixedSize()
     }
 }
 
