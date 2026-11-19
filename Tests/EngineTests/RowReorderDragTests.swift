@@ -72,7 +72,10 @@ final class RowReorderDragTests: XCTestCase {
                 var list = ["a", "b", "c", "d"]
                 let picked = list[from]
                 if let destination = RowReorderDrag.moveDestination(from: from, target: target) {
-                    list.move(fromOffsets: IndexSet(integer: from), toOffset: destination)
+                    // What SwiftUI's `move(fromOffsets:toOffset:)` does for one row (it isn't
+                    // available without SwiftUI): the destination counts the row still in place.
+                    let row = list.remove(at: from)
+                    list.insert(row, at: destination > from ? destination - 1 : destination)
                 }
                 XCTAssertEqual(list.firstIndex(of: picked), target, "from \(from) to \(target)")
             }
