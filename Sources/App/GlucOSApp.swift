@@ -101,6 +101,7 @@ struct MenuBarLabel: View {
     let store: GlucoseStore
     @StateObject private var status: MenuBarStatusModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     init(store: GlucoseStore) {
         self.store = store
@@ -132,6 +133,11 @@ struct MenuBarLabel: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .glucosOpenLogWindow)) { _ in
                 openWindow(id: LogWindow.id)
+                NSApp.activate()
+            }
+            // `LSUIElement` apps don't come forward on their own, so Settings would open behind.
+            .onReceive(NotificationCenter.default.publisher(for: .glucosOpenSettings)) { _ in
+                openSettings()
                 NSApp.activate()
             }
     }

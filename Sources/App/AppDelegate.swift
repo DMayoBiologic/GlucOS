@@ -148,6 +148,8 @@ extension Notification.Name {
     static let glucosOpenDashboard = Notification.Name("au.com.declanmayo.glucos.open-dashboard")
     /// Posted for "Log treatment" on an alert: open the quick-log window on `LogWindowRequest`.
     static let glucosOpenLogWindow = Notification.Name("au.com.declanmayo.glucos.open-log-window")
+    /// Settings… in the menu bar item's right-click menu; MenuBarLabel can reach openSettings.
+    static let glucosOpenSettings = Notification.Name("au.com.declanmayo.glucos.open-settings")
 }
 
 /// Opens the `MenuBarExtra` popover programmatically. SwiftUI has no API for this, so it clicks
