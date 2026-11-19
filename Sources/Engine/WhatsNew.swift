@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "magnifyingglass",
                   title: "Settings search that moves with you",
                   detail: "Results come in one after another as you type, the words you typed glint, and picking one springs that setting into view with a bounce of its section's icon."),
+            .init(symbol: "fork.knife",
+                  title: "Forecasts on meals logged early",
+                  detail: "We checked forecasts after meals logged before you start eating and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.81.0", highlights: [
             .init(symbol: "arrow.left.and.right",
