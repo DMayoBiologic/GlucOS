@@ -236,13 +236,13 @@ struct InsulinReorderRows<RowLabel: View>: View {
     }
 
     #if os(iOS)
-    private static let horizontalPadding: CGFloat = 20
-    private static let verticalPadding: CGFloat = 8
-    private static let dividerInset: CGFloat = 50
+    private static var horizontalPadding: CGFloat { 20 }
+    private static var verticalPadding: CGFloat { 8 }
+    private static var dividerInset: CGFloat { 50 }
     #else
-    private static let horizontalPadding: CGFloat = 10
-    private static let verticalPadding: CGFloat = 6
-    private static let dividerInset: CGFloat = 40
+    private static var horizontalPadding: CGFloat { 10 }
+    private static var verticalPadding: CGFloat { 6 }
+    private static var dividerInset: CGFloat { 40 }
     #endif
 
     #if os(iOS)
