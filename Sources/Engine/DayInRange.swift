@@ -77,20 +77,26 @@ struct DayInRange: Hashable {
 
     /// The three shares in the bar's order, each with how long it lasted: its share of the day's
     /// span, to the nearest 5 minutes (the bucket size), so a day of 15-minute LinkUp history reads
-    /// the same as one of 1-minute readings. Below and above are rounded and in range takes the
-    /// rest, so the three always add up to the span.
+    /// the same as one of 1-minute readings. A share that happened never rounds away to nothing,
+    /// one that didn't stays at zero, and any rounding left over goes to the largest share, so the
+    /// three always add up to the span.
     var parts: [DayInRangePart] {
-        let step = Double(Self.bucketMinutes)
-        func rounded(_ share: Double) -> Int {
-            // A share that happened never rounds away to nothing.
-            let m = Int(((share * Double(spanMinutes)) / step).rounded()) * Self.bucketMinutes
-            return share > 0 && m == 0 && spanMinutes > 0 ? Self.bucketMinutes : m
+        let step = Self.bucketMinutes
+        let shares = [below, inRange, above]
+        var mins = shares.map { share -> Int in
+            guard share > 0, spanMinutes > 0 else { return 0 }
+            let m = Int((share * Double(spanMinutes) / Double(step)).rounded()) * step
+            return max(step, m)
         }
-        let lo = rounded(below), hi = rounded(above)
-        let mid = inRange > 0 ? max(0, spanMinutes - lo - hi) : 0
-        return [DayInRangePart(band: .below, share: below, minutes: lo),
-                DayInRangePart(band: .inRange, share: inRange, minutes: mid),
-                DayInRangePart(band: .above, share: above, minutes: hi)]
+        // Below and above as rounded; in range takes the rest (at least 5 minutes if it happened).
+        if inRange > 0 { mins[1] = max(step, spanMinutes - mins[0] - mins[2]) }
+        let diff = spanMinutes - mins.reduce(0, +)
+        if diff != 0, let top = shares.indices.max(by: { shares[$0] < shares[$1] }) {
+            mins[top] = max(0, mins[top] + diff)
+        }
+        return [DayInRangePart(band: .below, share: below, minutes: mins[0]),
+                DayInRangePart(band: .inRange, share: inRange, minutes: mins[1]),
+                DayInRangePart(band: .above, share: above, minutes: mins[2])]
     }
 
     private static func isSorted(_ readings: [GlucoseReading]) -> Bool {
@@ -198,8 +204,7 @@ enum DayInRangeBreakdownText {
     }
 
     /// The shares for VoiceOver, in range first: "78% in range, 18 hours 40 minutes. 4% below, 1
-    /// hour. 18% above, 4 hours 20 minutes". Below and above are left out when they never happened,
-    /// as the day header does.
+    /// hour. 18% above, 4 hours 20 minutes". Below and above are left out when they never happened.
     static func spoken(_ f: DayInRange) -> String {
         let has = f.spanMinutes > 0
         func one(_ p: DayInRangePart, _ name: String) -> String {
@@ -207,8 +212,10 @@ enum DayInRangeBreakdownText {
         }
         let parts = f.parts
         var out = [one(parts[1], "in range")]
-        if f.below >= 0.005 { out.append(one(parts[0], "below")) }
-        if f.above >= 0.005 { out.append(one(parts[2], "above")) }
+        // With times, any share that happened is said, as the row shows it ("0% · 5 min").
+        let floor = has ? 0 : 0.005
+        if f.below > 0, f.below >= floor { out.append(one(parts[0], "below")) }
+        if f.above > 0, f.above >= floor { out.append(one(parts[2], "above")) }
         return out.joined(separator: ". ")
     }
 }

@@ -160,6 +160,26 @@ final class DayInRangeTests: XCTestCase {
         XCTAssertEqual(d.parts[2].minutes, 0)
     }
 
+    func testBreakdownKeepsASmallInRangeShare() {
+        // 01:00:30 today-style split: 6 below, 1 in range, 6 above over a 60-minute span.
+        let d = DayInRange(below: 6.0 / 13, inRange: 1.0 / 13, above: 6.0 / 13, spanMinutes: 60)
+        let m = d.parts.map(\.minutes)
+        XCTAssertGreaterThanOrEqual(m[1], 5)
+        XCTAssertEqual(m.reduce(0, +), 60)
+    }
+
+    func testBreakdownAddsUpWithNothingInRange() {
+        let d = DayInRange(below: 0.5, inRange: 0, above: 0.5, spanMinutes: 857)
+        let m = d.parts.map(\.minutes)
+        XCTAssertEqual(m[1], 0)
+        XCTAssertEqual(m.reduce(0, +), 857)
+    }
+
+    func testSpokenBreakdownSaysATinyShare() {
+        let d = DayInRange(below: 1.0 / 288, inRange: 287.0 / 288, above: 0, spanMinutes: 1440)
+        XCTAssertEqual(DayInRangeBreakdownText.spoken(d), "100% in range, 23 hours 55 minutes. 0% below, 5 minutes")
+    }
+
     func testBreakdownWords() {
         let d = DayInRange(below: 0.04, inRange: 0.78, above: 0.18, spanMinutes: 1440)
         // 57.6 → 60 min below, 259.2 → 260 min above, the rest in range.
