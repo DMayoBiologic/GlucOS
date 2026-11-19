@@ -378,7 +378,7 @@ struct MenuBarView: View {
         pending.releases = nil
         whatsNew = releases
         WhatsNewLaunch().markSeen(WhatsNewVersion.current)
-        VoiceOver.announce(WhatsNew.title(for: releases))
+        // VoiceOver: the card moves focus to its title itself (WhatsNewView).
     }
 
     private func toggleShortcutList() {

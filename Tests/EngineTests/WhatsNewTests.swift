@@ -119,6 +119,30 @@ final class WhatsNewTests: XCTestCase {
         for i in 0..<10 { XCTAssertEqual(WhatsNew.riseDelay(row: i, reduceMotion: true), 0) }
     }
 
+    func testSymbolsPlayAsEachRowSettlesAndNeverUnderReduceMotion() {
+        XCTAssertEqual(WhatsNew.symbolDelay(row: 0, reduceMotion: false)!, WhatsNew.symbolLead, accuracy: 1e-9)
+        for i in 0..<10 {
+            let symbol = WhatsNew.symbolDelay(row: i, reduceMotion: false)!
+            let rise = WhatsNew.riseDelay(row: i, reduceMotion: false)
+            XCTAssertGreaterThan(symbol, rise)
+            XCTAssertLessThan(symbol, rise + WhatsNew.riseDuration)
+            XCTAssertNil(WhatsNew.symbolDelay(row: i, reduceMotion: true))
+        }
+    }
+
+    func testContinueFadesInLastAndWithTheRowsUnderReduceMotion() {
+        for rows in 1...12 {
+            let continueAt = WhatsNew.continueDelay(rows: rows, reduceMotion: false)
+            let lastRowDone = WhatsNew.riseDelay(row: rows - 1, reduceMotion: false) + WhatsNew.riseDuration
+            XCTAssertGreaterThan(continueAt, lastRowDone)
+            XCTAssertGreaterThan(continueAt, WhatsNew.symbolDelay(row: rows - 1, reduceMotion: false)!)
+            XCTAssertLessThan(continueAt, 1.0, "a long list never keeps Continue waiting")
+            XCTAssertEqual(WhatsNew.continueDelay(rows: rows, reduceMotion: true), 0)
+        }
+        XCTAssertEqual(WhatsNew.continueDelay(rows: 0, reduceMotion: false), 0)
+        XCTAssertLessThan(WhatsNew.titleFocusDelay(reduceMotion: true), WhatsNew.titleFocusDelay(reduceMotion: false))
+    }
+
     func testHoldsDuringALow() {
         XCTAssertTrue(WhatsNew.holdsFor(.urgentLow))
         XCTAssertTrue(WhatsNew.holdsFor(.low))
