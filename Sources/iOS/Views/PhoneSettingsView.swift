@@ -172,6 +172,7 @@ struct PhoneSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(IslandSparkline.defaultsKey, store: SharedStore.defaults) private var islandSparkline = IslandSparkline.defaultOn
     @State private var notificationsAllowed: Bool?
     @State private var relaySecret = ""
     @State private var confirmsSignOut = false
@@ -299,6 +300,7 @@ struct PhoneSettingsView: View {
             return settings.alertsEnabled
         case .warnAhead:
             return settings.alertsEnabled && (settings.alertOnPredictedLow || settings.alertOnPredictedHigh)
+        case .islandSparkline: return services.liveActivityEnabled
         default: return true
         }
     }
@@ -563,7 +565,7 @@ struct PhoneSettingsView: View {
         Section {
             Toggle("Live Activity", isOn: $services.liveActivityEnabled.revealingRows(
                 shown: { services.liveActivityEnabled },
-                rows: { services.liveActivity.systemEnabled ? ["Live Activity status"] : ["Live Activity status", "Allow Live Activities in Settings"] },
+                rows: { services.liveActivity.systemEnabled ? ["Live Activity status", "Show the last hour in the island"] : ["Live Activity status", "Allow Live Activities in Settings", "Show the last hour in the island"] },
                 reduceMotion: reduceMotion))
                 .settingsAnchor(.liveActivity)
             if services.liveActivityEnabled {
@@ -574,13 +576,18 @@ struct PhoneSettingsView: View {
                             if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                         }
                     }
+                    Toggle("Show the last hour in the island", isOn: $islandSparkline)
+                        .settingsAnchor(.islandSparkline)
+                        .onChange(of: islandSparkline) {
+                            Task { await services.liveActivity.redraw() }
+                        }
                 }
                 .dependentRow()
             }
         } header: {
             Text("Lock Screen")
         } footer: {
-            Text("Your reading, trend, the last 3 hours and the forecast on the Lock Screen and in the Dynamic Island. iOS ends a Live Activity after 8 hours; the push relay starts a fresh one automatically. Without the relay it only updates while GlucOS is open.")
+            Text("Your reading, trend, the last 3 hours and the forecast on the Lock Screen and in the Dynamic Island. With the last hour on, a small line sits beside the trend arrow in the compact Dynamic Island, in place of the change since the last reading. iOS ends a Live Activity after 8 hours; the push relay starts a fresh one automatically. Without the relay it only updates while GlucOS is open.")
         }
     }
 

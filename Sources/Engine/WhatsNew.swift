@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "chart.line.downtrend.xyaxis",
                   title: "Forecasts on slow, steady drifts",
                   detail: "We checked forecasts when glucose eases gently up or down for an hour and kept them as they are for now."),
+            .init(symbol: "chart.xyaxis.line",
+                  title: "The last hour in the Dynamic Island",
+                  detail: "Turn it on in Settings › Lock Screen and a small line of the last hour sits beside the trend arrow, gliding along with each new reading."),
         ]),
         WhatsNewRelease(version: "1.80.0", highlights: [
             .init(symbol: "calendar",

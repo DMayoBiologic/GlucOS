@@ -21,7 +21,7 @@ enum SettingsAnchor: String, CaseIterable, Hashable, Sendable {
     case predictedLows, predictedHighs, warnAhead, alertRepeat, alertSound, testAlert, alertHistory
     case eveningRecap, sensorEndReminder
     // Lock Screen, sharing, relay
-    case liveActivity, shareLive, following, relay
+    case liveActivity, islandSparkline, shareLive, following, relay
     // Advanced
     case pollInterval, sensorLifetime, clientVersion, updates, whatsNew, diagnostics, dataFolder, version
 }
@@ -215,6 +215,8 @@ enum SettingsCatalog {
         .init(anchor: .eveningRecap, title: "Evening recap", place: "Daily recap", keywords: K.recap),
         .init(anchor: .sensorEndReminder, title: "Sensor change reminder", place: "Sensor", keywords: K.sensorReminder),
         .init(anchor: .liveActivity, title: "Live Activity", place: "Lock Screen", keywords: K.liveActivity),
+        .init(anchor: .islandSparkline, title: "Show the last hour in the island", place: "Lock Screen",
+              keywords: ["sparkline", "trend line", "mini chart", "graph", "compact"], parent: .liveActivity),
         .init(anchor: .shareLive, title: "Share live readings", place: "Sharing", keywords: K.share),
         .init(anchor: .following, title: "Following", place: "Following", keywords: K.following),
         .init(anchor: .relay, title: "Push relay", place: "Push relay", keywords: K.relay),

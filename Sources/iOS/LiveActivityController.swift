@@ -182,6 +182,14 @@ final class LiveActivityController: ObservableObject {
         }
     }
 
+    /// Draws every running card again as it is, after a setting the cards read for themselves
+    /// changed (the Dynamic Island's last-hour line). Followed people's cards too.
+    func redraw() async {
+        for activity in GlucoseActivity.activities where Self.isRunning(activity) {
+            await activity.update(activity.content)
+        }
+    }
+
     /// The check-in the owner's card shows now (the relay puts it there).
     var currentCheckIn: CheckInState? { current?.content.state.checkIn }
 
