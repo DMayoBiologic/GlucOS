@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "moon",
                   title: "A livelier Overnight card",
                   detail: "In Insights, the Overnight card's figures count up and a new bar of time below, in and above range fills in as the card comes into view. Pick another period and they glide to the new nights; with Reduce Motion on, the card simply fades."),
+            .init(symbol: "calendar",
+                  title: "Forecasts on weekends",
+                  detail: "We checked forecasts on weekends against weekdays at each time of day and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.85.0", highlights: [
             .init(symbol: "arrow.up.to.line",

@@ -7406,3 +7406,109 @@ group by 1, 2, 3, ml.t order by 1 desc, ml.t;
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged.
+
+## 97. Do forecasts miss more on weekends, and does it depend on the time of day? (19 Nov 2026)
+
+**Question.** §51 found the one weekend so far ran low and missed more, but a weekend-only shift
+didn't hold up. Does the gap sit at a particular time of day (Perth night 0–6, morning 6–12,
+afternoon 12–18, evening 18–24), at 15, 30 and 60 minutes, and would a shift and range width
+learnt per weekday/weekend × time of day do better on days it wasn't learnt from?
+
+**Data.** The accuracy log's clean shown points (nothing logged after, drawn) with a reading at 15
+(792), 30 (377) or 60 minutes (185), Mac, iPhone and relay, 12–19 Nov Perth. Still **one weekend**
+(Sat 14 and Sun 15 Nov, 326 points) against six weekdays. Bias is actual − line (positive = line
+low); "no change" is the reading the forecast started from. Script: `scripts/weekend-forecasts.py`
+(reads the export below).
+
+| 15 / 30 / 60 min | Points | Bias | Miss | No change | Inside | Width |
+|---|---|---|---|---|---|---|
+| Weekdays, 15 | 624 | −0.3 | 15.0 | 16.7 | 84.9% | 55 |
+| Weekend, 15 | 168 | +2.3 | 20.5 | 21.2 | 66.7% | 47 |
+| Weekdays, 30 | 265 | −0.7 | 24.8 | 29.3 | 80.4% | 93 |
+| Weekend, 30 | 112 | +7.7 | 32.5 | 35.1 | 70.5% | 76 |
+| Weekdays, 60 | 139 | +9.6 | 48.9 | 52.6 | 81.3% | 158 |
+| Weekend, 60 | 46 | +21.3 | 70.2 | 62.9 | 56.5% | 126 |
+
+By time of day at 30 minutes (bias / miss / no change / inside, points):
+
+| | Night | Morning | Afternoon | Evening |
+|---|---|---|---|---|
+| Weekdays | −5.8 / 46.3 / 33.2 / 33% (9) | −8.7 / 14.0 / 17.7 / 92% (26) | +10.6 / 23.5 / 30.1 / 84% (118) | −10.3 / 26.9 / 30.9 / 78% (112) |
+| Weekend | −1.3 / 26.9 / 36.7 / 72% (18) | +6.3 / 28.1 / 30.3 / 73% (11) | +7.5 / 41.6 / 43.2 / 55% (38) | +11.7 / 28.1 / 28.8 / 82% (45) |
+
+At 15 minutes the weekend is worst in the afternoon and evening (21.3 and 21.9 against 13.7 and
+14.7 on weekdays, 60% and 68% inside); at 60 minutes the weekend afternoon is one day's 20 points
+(Sunday, 94.4 miss, 35% inside). By Perth day, the weekend miss is Sunday (15 / 30 / 60: 24.0 /
+42.3 / 77.8); Saturday (13.8 / 20.7 / 34.3) was better than Thursday 12 or Monday 16, and Monday
+missed as much as Sunday at 30 and 60 (41.3 / 77.4).
+
+- **The weekend gap is mostly one Sunday and the range of the time.** Both weekend days came while
+  the range was still learning its width: weekend ranges were 47 / 76 / 126 wide against 60 / 113 /
+  221 on weekdays from 14 Nov on, so a good part of the inside-rate gap (67% vs 87% at 15) is the
+  narrower range, not a worse line. The line itself still beat no change on the weekend at 15 and
+  30 (20.5 vs 21.2, 32.5 vs 35.1), by less than on weekdays.
+- **Time of day looks different, but on one weekend.** On weekdays the 30-minute line runs low in
+  the afternoon (+10.6) and high in the evening (−10.3); on the weekend it runs low in both (+7.5,
+  +11.7). That's two days of meals, and weekday cells swing as much: the weekday 60-minute
+  afternoon bias is +31 overall but +45 on ranges from 14 Nov on (two days, 47 points).
+
+**Held out: a weekday/weekend × time-of-day correction.** Forecast only: each point's line and
+range moved by the shrunk mean miss (sum / (n + k), k 0 / 10 / 30, once there were 5) of the other
+days' points in the same side × time-of-day × horizon cell, and the range scaled about the line so
+those points would have been 80% inside (1× to 2.5×, as `ForecastLedger.rangeScale` does), leaving
+out the point's own Perth day. Against the same correction by time of day alone (one pool) and by
+weekday/weekend alone. Shipped: miss 16.2 / 27.1 / 54.2, inside 81.1% / 77.5% / 75.1%.
+
+| Version | 15 min | 30 min | 60 min | Days better (15 / 30 / 60), weekend days | Lows caught |
+|---|---|---|---|---|---|
+| Side × time, k 0 | +0.9% | +2.8% | −6.0% | 2/8, 2/8, 4/6; 1/2, 0/2, 2/2 | 49/53 |
+| Side × time, k 10 | +0.6% | +0.8% | −5.4% | 3/8, 3/8, 5/6; 1/2, 1/2, 2/2 | 49/53 |
+| Side × time, k 30 | +0.3% | −0.6% | −4.7% | 3/8, 5/8, 5/6; 1/2, 1/2, 2/2 | 49/53 |
+| Time only, k 0–30 | −0.1% | −0.5 to −0.8% | −3.6 to −4.1% | 3/8, 4–5/8, 3–4/6; 1/2, 1/2, 1/2 | 48–49/53 |
+| Weekday/weekend only, k 0–30 | +0.4 to +0.6% | +0.5 to +1.0% | −0.8 to −1.5% | 4/8, 2/8, 4–5/6; 1/2, 0/2, 2/2 | 49/53 |
+
+Coverage moves 81 → 82–84% at 15 and 78 → 80–83% at 30 and stays within a point at 60 for every
+version. The 60-minute gain is the same 60-minute lean §46 and §51 found, carried by Sunday's and
+Monday's misses. At 30 minutes the best split version is −0.6%, and splitting by weekday/weekend
+is no better than the time-of-day pool at 15 or 30 in any version.
+
+**Decision.** Ship nothing. No version clears the bar (shrunk held-out ≥3% better at 30 **and** 60,
+most weekend days better, low warnings unchanged): 30 minutes never gets past −0.8%, and the
+weekend side can only learn from one other day. Retest on **7 Dec 2026** with §51, once there are
+four weekends (14–15, 21–22, 28–29 Nov and 5–6 Dec): score only ranges from 14 Nov on, refit the
+side × time-of-day cells leaving one Perth day out, and ship only if it clears the bar and beats
+the time-of-day pool at 30 minutes.
+
+Live-log check, in the Supabase SQL editor (weekday/weekend × Perth time of day × horizon: points,
+days, bias, miss, no-change miss, inside rate and width. On 19 Nov it gives the tables above):
+
+```sql
+with p as (select c.issued_at at time zone 'Australia/Perth' lt, (e->>'minutes')::int m,
+    (e->>'mgdl')::float f, (e->>'actual')::float a, c.start_mgdl s,
+    (e->>'lower')::float lo, (e->>'upper')::float hi
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,60))
+select case when extract(isodow from lt) >= 6 then 'weekend' else 'weekday' end side,
+  case when extract(hour from lt) < 6 then '1 night' when extract(hour from lt) < 12 then '2 morning'
+       when extract(hour from lt) < 18 then '3 afternoon' else '4 evening' end time_of_day,
+  m minutes, count(*) pts, count(distinct lt::date) days, round(avg(a - f)::numeric, 1) bias,
+  round(avg(abs(a - f))::numeric, 1) miss, round(avg(abs(a - s))::numeric, 1) no_change,
+  round(100 * avg((a between lo and hi)::int)::numeric, 1) inside_pct, round(avg(hi - lo)::numeric) width
+from p group by rollup(1, 2), 3 order by 1, 2, 3;
+```
+
+Export for the script (save the `rows` value one point per line, `;` → newline):
+
+```sql
+select string_agg(concat_ws(',', extract(epoch from c.issued_at)::bigint, c.device, c.basis,
+    round(c.start_mgdl::numeric, 1), e->>'minutes', round((e->>'mgdl')::numeric, 1),
+    round((e->>'actual')::numeric, 1), round((e->>'lower')::numeric, 1),
+    round((e->>'upper')::numeric, 1)), ';' order by c.issued_at) rows
+from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+  and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,60);
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged. No app or relay code changed.
