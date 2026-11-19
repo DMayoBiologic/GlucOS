@@ -26,8 +26,9 @@ suggests a dose.
 
 ### Siri and Shortcuts
 
-Two more App Shortcuts (Siri, Spotlight, Shortcuts, the Action button), in
-`Sources/iOS/GlucoseIntents.swift`, with their phrases in `GlucOSAppShortcuts`:
+More App Shortcuts (Siri, Spotlight, Shortcuts, the Action button), in
+`Sources/iOS/GlucoseIntents.swift` and `Sources/App/DaySummaryIntent.swift`, with their phrases in
+`GlucOSAppShortcuts`:
 
 - **"What's my glucose in GlucOS"** (also "What's my GlucOS reading", "Check my glucose in GlucOS")
   answers out loud without opening the app: the reading, its range, trend, change and age, then the
@@ -41,6 +42,17 @@ Two more App Shortcuts (Siri, Spotlight, Shortcuts, the Action button), in
   low treatment sheet as the inline Log treatment button and the alert's button (`.treating(.low)`,
   docs/AlertActions.md), filled in from your "Treat a low" usual. **It never logs anything by
   itself**: you check it and tap Log.
+- **"How was my day in GlucOS"** (also "How's my day going in GlucOS", "My GlucOS day so far",
+  "GlucOS today so far") answers out loud and on screen without opening the app: "So far today,
+  midnight to 2:30 pm: 78% in range, average 7.4 mmol/L. 1 low and no highs." It's on the **Mac**
+  too (Siri, Spotlight and Shortcuts there, `GlucOSMacShortcuts` in `Sources/App/MacShortcuts.swift`).
+  The intent is `DaySummaryIntent` (`Sources/App/DaySummaryIntent.swift`, in both apps) and the words
+  are `SpokenDay` (tests `SpokenDayTests`), built on the evening recap's figures, which read the day
+  the way Today so far does: 5-minute buckets, lows and highs as runs of 15 minutes or more. It
+  names the hours it covers, so an old last reading reads as "midnight to 6 pm". If the saved
+  reading isn't fresh it asks for a new one and waits up to 8 seconds first. Before an hour of
+  readings since midnight it says there aren't enough yet. Observations only, never advice. It's
+  your own readings only, not a person you follow.
 
 ### Control Center controls
 
