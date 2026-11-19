@@ -20,7 +20,7 @@ struct AlertSnoozeChipView: View {
     let onResume: () -> Void
 
     var body: some View {
-        TimelineView(.explicit(snoozes.redrawDates(from: Date()))) { context in
+        TimelineView(.explicit(RedrawMoments.explicit(snoozes.redrawDates(from: Date()), now: Date()))) { context in
             AlertSnoozeChipContent(chip: AlertSnoozeChip(snoozes, now: context.date),
                                    ring: ring(at: context.date), error: error, onResume: onResume)
         }

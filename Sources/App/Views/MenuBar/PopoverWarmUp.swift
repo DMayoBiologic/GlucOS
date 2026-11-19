@@ -16,7 +16,7 @@ struct PopoverWarmUpCard: View {
     }
 
     var body: some View {
-        TimelineView(.explicit(warmUp.changeMoments(from: Date()))) { context in
+        TimelineView(.explicit(RedrawMoments.explicit(warmUp.changeMoments(from: Date()), now: Date()))) { context in
             card(now: context.date)
         }
     }

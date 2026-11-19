@@ -239,17 +239,9 @@ struct MenuBarView: View {
     }
 
     /// When the top card changes with no new data: a warm-up running out, or the sensor ending.
-    private var heroMoments: [Date] {
-        let now = Date()
-        var out = s.warmUp().map { [$0.endsAt.addingTimeInterval(SensorWarmUp.grace)] } ?? []
-        if let ends = s.sensor?.expires, ends > now { out.append(ends.addingTimeInterval(1)) }
-        // A last reading from after the nominal end goes stale: the sensor has now stopped.
-        if let cur = s.current, let ends = s.sensor?.expires, cur.timestamp >= ends {
-            let stale = cur.timestamp.addingTimeInterval(GlucoseSnapshot.staleAfter + 1)
-            if stale > now { out.append(stale) }
-        }
-        return out.sorted()
-    }
+    /// Starts with now: an explicit schedule draws its first date straight away, even a future one
+    /// (`RedrawMoments`), which once showed the sensor-ended card a day early.
+    private var heroMoments: [Date] { s.heroRedrawMoments() }
 
     /// The sections taking a turn in this opening's stagger.
     private func staggerSections(hasNotices: Bool, hasPrompts: Bool) -> Set<PopoverStagger.Section> {
