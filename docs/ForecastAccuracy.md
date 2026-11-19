@@ -7799,8 +7799,8 @@ Moderate falls on the live log: 78 / 77 / 63% inside at 15 / 30 / 60, bias +4.6 
 - **Low warnings arrive, but late.** 11 lows under 70 in the replay, 6 with a fast in-range fall
   in the 45 minutes before. All 11 were warned. Lows after a fast fall got a median 5 minutes'
   warning (mean 6.2) at gain 0.45, 6.5 at 0.6, 8 at 0.7; other lows a median 9–11. Warnings fired
-  on fast falls: 8 at gain 0.45, of which 4 had no reading under 70 in the next 45 minutes
-  (6 of 11 at 0.6, 8 of 13 at 0.7): the dips that bottom out are the same ones the line runs low on.
+  on fast falls: 8 at gain 0.45, of which 3 had no reading under 70 in the next 45 minutes
+  (5 of 11 at 0.6, 7 of 13 at 0.7; a warning without 45 minutes of readings after it isn't counted): the dips that bottom out are the same ones the line runs low on.
 
 **Held out: trend × w on fast in-range falls.** Leave one Perth day out, w from 0.5 to 2.0 fitted
 on the other days' 30 + 60-minute miss, every other forecast left alone.
@@ -7815,15 +7815,15 @@ Effect on lows of a fixed w (all 11 lows):
 
 | Gain | w = 0.8 (damp) | w = 1.2–1.5 (steepen) |
 |---|---|---|
-| 0.45 | 3 lows warned later, false alarms 4 → 3 | 1–3 earlier, false alarms 4 → 6 |
-| 0.6 | 2 later, 6 → 5 | 5–6 earlier, 6 → 10–15 |
-| 0.7 | 4 later, 8 → 6 | 6 earlier, 8 → 14–16 |
+| 0.45 | 3 lows warned later, false alarms 3 → 2 | 1–3 earlier, false alarms 3 → 5 |
+| 0.6 | 2 later, 5 → 4 | 5–6 earlier, 5 → 9–14 |
+| 0.7 | 4 later, 7 → 5 | 6 earlier, 7 → 13–15 |
 
 - **Damping helps the 15-minute line and little else.** Every fold picks damping, and 15 minutes
   wins on 8–9 of 9 days, but 30 minutes splits 5/4 at every gain and gets worse at 0.45 (the
   Mac / relay gain); overall the change is under half a percent.
 - **Damping makes low warnings later**, on 2–4 of 11 lows, for one or two fewer false alarms.
-  Steepening warns earlier but doubles the false alarms. Neither is a trade worth making while
+  Steepening warns earlier but roughly doubles the false alarms. Neither is a trade worth making while
   lows after fast falls get only 5–8 minutes' notice.
 
 **Decision.** Ship nothing. The tweak misses the bar (better held out at both 30 and 60 minutes

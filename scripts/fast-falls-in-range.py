@@ -21,8 +21,11 @@ and by a rapid dose in the 3 hours before.
 Predicted-low warning lead: for each low (first reading under 70, an hour apart), the first live
 reading in the 90 minutes before where the trend is <= -0.3 and the line (gain x trend, faded,
 carried to 30 minutes, as PredictiveAlerts reads lowLookahead) goes under 70. Lows whose run-in
-had a fast in-range fall in the 45 minutes before are reported apart. False alarms: warnings on
-fast falls with no reading under 70 in the next 45 minutes (one per 45-minute window).
+had a fast in-range fall in the 45 minutes before are reported apart; a low's search starts no
+earlier than the first reading back at 70+ after the low before it. False alarms: warnings on
+fast falls with no reading under 70 in the next 45 minutes (one per 45-minute window), counted
+only when those 45 minutes are observed (no gap over 10 minutes, readings to at least 40 min).
+Forecast values are clamped to the sensor limits 39-401 as the engine draws them.
 
 Tweak, fitted on all but one Perth day and scored on the left-out day (objective: miss at 30 +
 60 minutes on fast falls): the trend of fast in-range falls is scaled by w (1 = as ships).
@@ -62,7 +65,7 @@ def line(g, trend, gain, minutes=60):
         w = max(0, 1 - (u + 0.5) / FADE)
         g += w * gain * trend
         u += 1
-        out[u] = g
+        out[u] = min(401, max(39, g))
     return out
 
 
@@ -185,7 +188,13 @@ def warn(t, w, gain):
 
 
 def first_warning(low, w, gain):
-    for t in T[bisect.bisect_left(T, low - 90 * 60):bisect.bisect_right(T, low)]:
+    k = lows.index(low)
+    start = low - 90 * 60
+    if k > 0:
+        j = bisect.bisect_right(T, lows[k - 1])
+        while j < len(T) and G[T[j]] < 70: j += 1
+        if j < len(T): start = max(start, T[j])
+    for t in T[bisect.bisect_left(T, start):bisect.bisect_right(T, low)]:
         if G[t] >= 70 and warn(t, w, gain): return (low - t) / 60
     return 0.0
 
@@ -205,6 +214,8 @@ def false_alarms(w, gain):
         if tr is None or group(G[t], tr) != "fast" or not warn(t, w, gain): continue
         last = t
         nxt = T[bisect.bisect_left(T, t):bisect.bisect_right(T, t + 45 * 60)]
+        if nxt[-1] - t < 40 * 60 or any(b - a > 10 * 60 for a, b in zip(nxt, nxt[1:])):
+            if min(G[x] for x in nxt) >= 70: continue
         n += min(G[x] for x in nxt) >= 70
     return n
 
