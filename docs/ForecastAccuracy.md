@@ -8014,3 +8014,93 @@ worse. If small and large still share the first-hour shape, fold it into the §8
 
 **Dosing.** Not touched: the insulin curve, insulin on board, sensitivity, carb ratios, the carb
 curve and the bolus calculator are unchanged. No app or relay code changed.
+
+## 103. In the hour after a high alert, does the line show the come-down on time, and does the range cover it? (20 Nov 2026)
+
+**Question.** When a high or very high alert fires, how do the 30- and 60-minute forecasts do over
+the next hour: does the line show glucose turning and coming back down when it does, and does the
+drawn range hold the actual? Post-meal peaks (§26, §95) and sensor-day range (§17) are left out.
+§84 covered forecasts after alerts nobody acted on (both sides), §64 the predicted-high warning
+itself, and §91 long flat highs; this follows the hour after the high alert fires.
+
+**Data.** Alert History 15–19 Nov 2026 (high and veryHigh alerts; predicted-high warnings don't
+start an episode), live readings from 30 minutes before to 3.5 hours after each episode, the
+Logbook's meals and rapid doses, and the accuracy log's clean shown points issued in the hour
+after. An episode is the first high or very high alert with no other one in the 45 minutes before
+it, so the 15-minute repeats of the same high fold in: **25 episodes on 5 days**. Only 2 had a
+rapid dose logged from 15 minutes before to an hour after (both 18 Nov); 7 had a meal in the 3
+hours before; 6 were snoozed or dismissed. Replay: the engine's model forecast (as §101/§102),
+issued every 5 minutes for the hour and scored at 15, 30 and 60 minutes. The come-down is the first
+reading at least 10 minutes in that sits 20 or more under the highest reading since the alert and
+stays 15 under it for 10 minutes; the line calls it when a forecast issued from 30 minutes before
+the peak draws its 30-minute point 10 or more under its start. Script:
+`scripts/after-high-alert.py DIR` (export queries in its docstring).
+
+**Every episode came down within 3 hours**, half of them by 41 minutes after the alert. Most
+alerts fire near the top: in 14 of 25 the highest reading came within 10 minutes of the alert
+(from 180 to 316). The rest kept rising for 20 minutes to 2 hours (to 341 on 16 Nov 16:57 and 330
+on 17 Nov 16:38 and 17:44, all after a meal).
+
+Replay, gain 0.45 (0.6 and 0.7 are the same shape), bias is actual − line (negative = line high):
+
+| Group | Episodes, days | 15 min MAE / bias | 30 min MAE / bias | 60 min MAE / bias | 30 / 60 min no change |
+|---|---|---|---|---|---|
+| All | 25, 5 | 20.6 / −5.7 | 31.8 / −10.2 | 47.9 / −22.6 | 31.7 / 47.0 |
+| No dose logged | 23, 5 | 21.2 / −5.4 | 31.7 / −8.8 | 46.5 / −18.8 | 32.3 / 46.5 |
+| First 30 min after the alert | 25, 5 | 22.2 / −4.6 | 30.3 / −5.7 | 49.1 / −22.8 | 29.9 / 45.7 |
+| 30–60 min after | 25, 5 | 19.3 / −6.7 | 33.1 / −14.2 | 46.9 / −22.4 | 33.3 / 48.1 |
+| Rising when issued (> 0.5/min) | 22, 4 | 20.3 / −8.8 | 29.7 / −12.4 | 48.8 / −26.5 | 27.4 / 42.4 |
+| Flat | 21, 5 | 17.8 / −9.3 | 30.6 / −18.2 | 46.9 / −27.4 | 30.9 / 47.9 |
+| Falling (< −0.5/min) | 21, 5 | 22.7 / +0.3 | 35.0 / −2.8 | 47.3 / −14.9 | 37.6 / 52.2 |
+
+**The line runs high and calls the come-down a few minutes late.** Over the hour the line sits
+above where glucose ends up (−10 at 30 minutes, −23 at 60) and does no better than "no change" at
+30 or 60. The lean grows through the hour (−6 at 30 minutes in the first half, −14 in the second)
+and is largest from flat or rising starts, where glucose is about to turn. The replay line called
+20 of the 25 come-downs (22 at gain 0.6, 24 at 0.7), a median **6 minutes after** the fall had
+begun (16 late, 4 on time or early); the 5 it never called all peaked under 215.
+
+Live accuracy log (the real engine; the relay only scores 15 minutes here), split at each episode's
+peak:
+
+| Points | 15 min: n, inside, below | 30 min: n, bias, inside, below, width | 60 min: n, bias, inside, below |
+|---|---|---|---|
+| All | 139, 83%, 13% | 42 on 5 days, −5.8, 90%, 10%, 113 | 26 on 2 days, −12.0, 88%, 12% |
+| Before the peak | 58, 97%, 3% | 25, +13.4, 100%, 0%, 132 | 19, +13.8, 100%, 0% |
+| After the peak | 81, 74%, 20% | 17, −34.1, 76%, 24%, 85 | 7, −81.9, 57%, 43% |
+
+Nothing landed above the range at 30 or 60 minutes. Overall the range holds about 9 in 10, above
+the 8 in 10 target, because it is drawn wide while glucose is still rising. Once glucose has turned,
+it narrows and the misses are all below: about 1 in 4 at 30 minutes and 1 in 5 at 15. That is the
+same late call seen in the replay, showing up in the range.
+
+**Held out: damp a rising trend above 180 in the hour after a high alert.** Forecast only
+(insulin on board, the insulin curve, sensitivity, carb ratios, the carb curve and the bolus
+calculator untouched): for forecasts issued in the hour after a high alert, a rising trend while
+glucose is above 180 is scaled by w (0, 0.25, 0.5, 0.75 or 1), picked on the other days and scored
+on the held-out day (leave one Perth day out).
+
+| Gain | Days better / worse at 15, 30, 60 (of 5) | Largest held-out loss | Rises to 250+ in 30 min the line reached (no tweak → tweak) |
+|---|---|---|---|
+| 0.45 | 3/1, 2/2, 3/1 | 16 Nov 15 min 18.8 → 21.0 | 3 → 0 of 14 |
+| 0.6 | 3/1, 3/1, 3/1 | 16 Nov 30 min 34.2 → 36.8 | 5 → 0 of 14 |
+| 0.7 | 3/1, 3/1, 3/1 | 16 Nov 30 min 33.6 → 36.4 | 5 → 0 of 14 |
+
+Every fold picks w = 0 (no rising trend at all). It trims the 60-minute lean by 3–9 on 17–19 Nov,
+but loses on 16 Nov, the day with the long post-meal rises, at 15 and 30 minutes, and 15 Nov has no
+rising points to change. It also never moves the come-down call (still a median 6 minutes late),
+because the line is late turning down, not late leaving a rise. And it hides every rise that went
+on to 250 or more within 30 minutes, which is exactly what the very-high warning needs to see.
+It fails the bar.
+
+**Decision.** Ship nothing. After a high alert the line runs high and turns down a few minutes
+after glucose does, and once the turn has come the range misses below about 1 in 4 times at 30
+minutes; damping the rise doesn't fix the timing and hides real rises. This is the §45 / §71 peak
+shape (rises that stop), not something new to high alerts. Retest on **10 Dec 2026** with §91,
+only with 40+ episodes on 10+ days and 30+ live 60-minute points on 4+ days. Refit the same damping
+and also try the after-peak case on its own: a lower range edge widened only after the reading has
+turned down from above 180. Ship either only if it is better at 30 and 60 on most held-out days at
+every gain, 15 no worse, and the line still reaches the rises to 250+ that it reaches today.
+
+**Dosing.** Not touched: the insulin curve, insulin on board, sensitivity, carb ratios, the carb
+curve and the bolus calculator are unchanged. No app or relay code changed.

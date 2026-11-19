@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "tag",
                   title: "Amounts beside markers when zoomed",
                   detail: "Zoom the chart in on iPhone Today or in the Mac popover and each meal and insulin marker shows what you logged beside it, such as 45 g or 4 u. Where two would crowd, insulin stays and the other is left out. With Reduce Motion on, they appear without fading."),
+            .init(symbol: "arrow.down.forward",
+                  title: "Forecasts after high alerts",
+                  detail: "We checked how the forecast follows glucose in the hour after a high alert, including when it starts to come back down, and kept it as it is for now."),
         ]),
         WhatsNewRelease(version: "1.91.0", highlights: [
             .init(symbol: "arrow.up.arrow.down",
