@@ -323,6 +323,28 @@ enum UsualEntries {
     }
 }
 
+extension UsualEntries {
+    /// What a log sheet opened from a picked usual fills in. `shown` is the entry the menu, popover
+    /// row or chip displayed, `pickedID` the id a widget link carried, `offered` what the sheet
+    /// offers now.
+    ///
+    /// A meal or low treatment fills in exactly as it was shown, even if the time-of-day slot rolled
+    /// over between showing it and the pick (a breakfast shown at 10:59 and picked at 11:00 still
+    /// fills breakfast). A correction carries units, so it only fills while one is still offered now:
+    /// if glucose came down in the meantime, the sheet opens unfilled. An id alone matches only what
+    /// is offered now. Nothing here logs anything: the sheet still waits for Log and `RepeatCheck`.
+    static func startingFill(shown: UsualEntry?, pickedID: String?, offered: [UsualEntry]) -> UsualEntry? {
+        if let shown {
+            switch shown.kind {
+            case .meal, .lowTreatment: return shown
+            case .correction: return offered.contains { $0.kind == .correction } ? shown : nil
+            }
+        }
+        guard let pickedID else { return nil }
+        return offered.first { $0.id == pickedID }
+    }
+}
+
 // MARK: - Logged twice?
 
 /// The check every one-tap fill (a usual entry, a preset, "same as last") goes through before it's
