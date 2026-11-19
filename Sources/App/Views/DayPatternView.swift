@@ -9,6 +9,13 @@ import Accessibility
 /// glides each band and the glucose axis to the new period (`DayPatternMotion`). Both play once,
 /// never loop, and Reduce Motion shows the new picture at once. Callers give it their own card
 /// surface.
+///
+/// Scrub (`DayPatternScrub`, round 88): hold and drag along the chart on iPhone, or point at it on
+/// the Mac, and a cursor sits on one half-hour with a small card giving its middle reading and
+/// middle half, while the rest of the chart dims back. The cursor snaps onto the usual day's
+/// highest and lowest points; iPhone ticks `scrubSnapped` on landing and snapping and
+/// `scrubRangeEdge` when the middle line crosses the low or high line. VoiceOver steps the cursor
+/// an hour at a time with swipe up or down, and hears each stop once per touch.
 struct DayPatternView: View {
     let readings: [GlucoseReading]
     /// Insights stepped back to an earlier period (docs/InsightsPeriodStep.md).
@@ -21,6 +28,12 @@ struct DayPatternView: View {
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
     @State private var pattern: DayPattern?
     @State private var shownKey: DayPatternCache.Key?
+    /// The scrub cursor: the middle minute of the slot it sits on, or nil when it isn't showing.
+    @State private var cursor: Double?
+    /// Stops VoiceOver has already heard this touch.
+    @State private var spokenStops: Set<Double> = []
+    /// The plot's width in points, to turn the snap's points into minutes.
+    @State private var plotWidth: Double = 0
 
     private var window: DayPattern.Window { DayPattern.Window(rawValue: windowDays) ?? .fortnight }
     /// The readings up to where the period ends once Insights is stepped back; all of them on
@@ -51,8 +64,18 @@ struct DayPatternView: View {
             if let pattern {
                 DayPatternMotion(pattern: pattern, lowMgdl: lowMgdl, highMgdl: highMgdl) { drawn, tint, yDomain in
                     DayPatternChart(drawn: drawn, tint: tint, pattern: pattern, yDomainMgdl: yDomain,
-                                    unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
+                                    unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                                    cursor: shareSnapshot ? nil : cursor,
+                                    selection: scrubSelection(pattern), plotWidth: $plotWidth,
+                                    adjust: { by in
+                                        guard let next = DayPatternScrub.stepped(cursor, by: by, pattern: pattern) else { return }
+                                        // VoiceOver reads the new value itself, so it isn't announced as well.
+                                        cursor = next
+                                        spokenStops.insert(next)
+                                    })
                 }
+                // A new period is a new picture: the cursor goes rather than jumping.
+                .onChange(of: pattern.window) { cursor = nil; spokenStops = [] }
                 .frame(height: 190)
                 legend
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
@@ -84,6 +107,45 @@ struct DayPatternView: View {
             }
             shownKey = key
         }
+    }
+
+    // MARK: Scrub
+
+    /// What Charts' selection reads and writes: a hold-and-drag on iPhone, the pointer on the Mac.
+    /// The cursor settles on a slot (snapping onto the usual high and low), and goes when the
+    /// finger lifts or the pointer leaves.
+    private func scrubSelection(_ pattern: DayPattern) -> Binding<Double?> {
+        Binding(get: { cursor }, set: { finger in
+            guard let finger else {
+                cursor = nil
+                spokenStops = []
+                return
+            }
+            let minutesPerPoint = plotWidth > 0 ? 1440 / plotWidth : 0
+            moveCursor(to: DayPatternScrub.settle(finger: finger, pattern: pattern, current: cursor,
+                                                  minutesPerPoint: minutesPerPoint), pattern: pattern)
+        })
+    }
+
+    /// Moves the cursor from slot to slot at once (they're a few points apart, and a glide would
+    /// lag the finger). Ticks on iPhone, and tells VoiceOver each stop once per touch.
+    private func moveCursor(to next: Double?, pattern: DayPattern) {
+        guard next != cursor else { return }
+        #if os(iOS)
+        let tick = DayPatternScrubTick.tick(from: cursor, to: next, pattern: pattern, low: lowMgdl, high: highMgdl)
+        #endif
+        withTransaction(Transaction(animation: nil)) { cursor = next }
+        #if os(iOS)
+        switch tick {
+        case .snapped: Haptics.play(.scrubSnapped)
+        case .rangeEdge: Haptics.play(.scrubRangeEdge)
+        case nil: break
+        }
+        #endif
+        guard let next, !spokenStops.contains(next), let slot = DayPatternScrub.slot(at: next, in: pattern) else { return }
+        spokenStops.insert(next)
+        let spoken = DayPatternScrubText.spoken(slot, kind: DayPatternScrub.landmark(at: next, in: pattern), unit: unit)
+        AccessibilityNotification.Announcement(AttributedString(spoken)).post()
     }
 
     private var legend: some View {
@@ -214,8 +276,18 @@ private struct DayPatternChart: View {
     let unit: GlucoseUnit
     let lowMgdl: Double
     let highMgdl: Double
+    /// The scrub cursor's minute (a slot's middle), nil when it isn't showing.
+    let cursor: Double?
+    let selection: Binding<Double?>
+    @Binding var plotWidth: Double
+    /// VoiceOver's swipe up (1) or down (-1).
+    let adjust: (Int) -> Void
 
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The settled slot under the cursor.
+    private var cursorSlot: DayPattern.Slot? { cursor.flatMap { DayPatternScrub.slot(at: $0, in: pattern) } }
 
     /// A slot drawn at its middle, plus copies at midnight on both edges so the line meets the
     /// axis (the day wraps, so midnight is the average of the first and last slots).
@@ -260,6 +332,8 @@ private struct DayPatternChart: View {
         let line = gradient(f.map(\.p50).min(), f.map(\.p50).max())
         let yd = yDomainMgdl
         let settled = DayPatternMorph.yDomain(pattern, low: lowMgdl, high: highMgdl)
+        let picked = cursorSlot
+        let kind = picked.flatMap { DayPatternScrub.landmark(at: $0.midMinute, in: pattern) }
         Chart {
             RectangleMark(yStart: .value("Low", v(lowMgdl)), yEnd: .value("High", v(highMgdl)))
                 .foregroundStyle(GlucoseRange.inRange.tint.opacity(0.07))
@@ -297,6 +371,20 @@ private struct DayPatternChart: View {
                         .foregroundStyle(line)
                 }
             }
+
+            if let c = picked {
+                RuleMark(x: .value("Cursor", c.midMinute))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                    .foregroundStyle(Color.primary.opacity(0.35))
+                // The middle half at this time, as a short bar on the cursor.
+                RuleMark(x: .value("Cursor", c.midMinute),
+                         yStart: .value("25th", v(c.p25)), yEnd: .value("75th", v(c.p75)))
+                    .lineStyle(StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .foregroundStyle(GlucoseRange.classify(mgdl: c.p50, low: lowMgdl, high: highMgdl).tint.opacity(0.45))
+                PointMark(x: .value("Cursor", c.midMinute), y: .value("Middle", v(c.p50)))
+                    .symbolSize(56)
+                    .foregroundStyle(GlucoseRange.classify(mgdl: c.p50, low: lowMgdl, high: highMgdl).tint)
+            }
         }
         .chartXScale(domain: 0...1440)
         .chartYScale(domain: v(yd.lowerBound)...v(yd.upperBound))
@@ -311,9 +399,37 @@ private struct DayPatternChart: View {
         .chartYAxis {
             AxisMarks(position: .leading, values: .automatic(desiredCount: 4))
         }
+        .chartXSelection(value: selection)
+        // Away from the cursor the chart fades back, so its half-hour stands out.
+        .chartPlotStyle { plot in
+            plot.mask { DayPatternDim(strip: picked.map { Double($0.minute)...Double($0.minute + DayPattern.slotMinutes) }) }
+        }
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { plotWidth = proxy.plotSize.width }
+                    .onChange(of: proxy.plotSize.width) { _, w in plotWidth = w }
+                if let c = picked, let plot = proxy.plotFrame {
+                    DayPatternScrubCard(slot: c, kind: kind, unit: unit, range: GlucoseRange.classify(mgdl: c.p50, low: lowMgdl, high: highMgdl))
+                        .modifier(DayPatternCardPlacement(proxy: proxy, plot: geo[plot], slot: c, unit: unit))
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+        .animation(reduceMotion ? nil : DSMotion.quick.animation, value: picked == nil)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Usual day chart")
-        .accessibilityValue(DayPatternText.spoken(pattern, unit: unit, low: lowMgdl, high: highMgdl))
+        .accessibilityValue(picked.map { DayPatternScrubText.spoken($0, kind: kind, unit: unit) }
+                            ?? DayPatternText.spoken(pattern, unit: unit, low: lowMgdl, high: highMgdl))
+        .accessibilityHint(DayPatternScrubText.hint)
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: adjust(1)
+            case .decrement: adjust(-1)
+            @unknown default: break
+            }
+        }
         .accessibilityChartDescriptor(DayPatternAudioGraph(pattern: pattern, unit: unit, lowMgdl: lowMgdl,
                                                            highMgdl: highMgdl,
                                                            yDomain: v(settled.lowerBound)...v(settled.upperBound)))
@@ -357,6 +473,103 @@ private struct DayPatternAudioGraph: AXChartDescriptorRepresentable {
             summary: DayPatternText.spoken(pattern, unit: unit, low: lowMgdl, high: highMgdl),
             xAxis: x, yAxis: y, additionalAxes: [],
             series: [series("Middle reading", \.p50), series("Lowest tenth", \.p10), series("Highest tenth", \.p90)])
+    }
+}
+
+/// The scrub's mask over the plot: full strength in a strip round the cursor's half-hour, faded
+/// back everywhere else. With no cursor the whole plot is at full strength.
+private struct DayPatternDim: View {
+    /// The cursor's half-hour, in minutes of the day.
+    let strip: ClosedRange<Double>?
+    /// The strip is at least this wide, so the cursor's dot and bar are never cut.
+    static let minimumWidth: CGFloat = 18
+    static let overhang: CGFloat = 24
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            // Room for marks that overhang the plot (the line's round caps, the cursor's dot).
+            let overhang = Self.overhang
+            ZStack(alignment: .topLeading) {
+                Rectangle().opacity(strip == nil ? 1 : DayPatternScrub.dimmedOpacity)
+                if let strip {
+                    let x0 = CGFloat(strip.lowerBound / 1440) * w, x1 = CGFloat(strip.upperBound / 1440) * w
+                    let width = max(x1 - x0, Self.minimumWidth)
+                    Rectangle()
+                        .frame(width: width)
+                        .offset(x: overhang + (x0 + x1) / 2 - width / 2)
+                        .transaction { $0.animation = nil } // The strip follows the finger at once.
+                }
+            }
+            .frame(width: w + 2 * overhang, height: geo.size.height + 2 * overhang)
+            .offset(x: -overhang, y: -overhang)
+        }
+    }
+}
+
+/// The small card beside the cursor: the half-hour, its middle reading and its middle half.
+private struct DayPatternScrubCard: View {
+    let slot: DayPattern.Slot
+    let kind: ScrubSnap.Kind?
+    let unit: GlucoseUnit
+    let range: GlucoseRange
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(DayPatternScrubText.time(slot))
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
+                Circle().fill(range.tint).frame(width: 7, height: 7)
+                Text(unit.format(mgdl: slot.p50, withUnit: true))
+                    .fontWeight(.semibold)
+                    .dsFont(.callout)
+                Text(DayPatternText.legendMedian.lowercased())
+                    .dsFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text("\(DayPatternText.legendInner) \(DayPatternScrubText.middleHalf(slot, unit: unit))")
+                .dsFont(.caption)
+                .foregroundStyle(.secondary)
+            if let landmark = DayPatternScrubText.landmark(kind) {
+                Text(landmark)
+                    .dsFont(.caption)
+                    .fontWeight(.medium)
+            }
+        }
+        .monospacedDigit()
+        .lineLimit(1)
+        .fixedSize()
+        .padding(.horizontal, DS.Space.sm)
+        .padding(.vertical, DS.Space.xs)
+        .background { DSSurface(style: .standard, radius: DS.Radius.control) }
+        .dsShadow(.medium)
+    }
+}
+
+/// Places the scrub card above the cursor's 8-in-10 band when there's room, below it otherwise,
+/// and keeps it inside the plot side to side.
+private struct DayPatternCardPlacement: ViewModifier {
+    let proxy: ChartProxy
+    let plot: CGRect
+    let slot: DayPattern.Slot
+    let unit: GlucoseUnit
+    @State private var size: CGSize = .zero
+
+    func body(content: Content) -> some View {
+        let gap: CGFloat = 8
+        let x = (proxy.position(forX: slot.midMinute) ?? 0) + plot.minX
+        let top = (proxy.position(forY: unit.value(fromMgdl: slot.p90)) ?? 0) + plot.minY
+        let bottom = (proxy.position(forY: unit.value(fromMgdl: slot.p10)) ?? 0) + plot.minY
+        let half = size.width / 2
+        let cx = min(max(x, plot.minX + half), max(plot.maxX - half, plot.minX + half))
+        let above = top - gap - size.height >= plot.minY
+        let cy = above ? top - gap - size.height / 2
+            : min(bottom + gap + size.height / 2, plot.maxY - size.height / 2)
+        return content
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+            .position(x: cx, y: cy)
+            .opacity(size == .zero ? 0 : 1)
     }
 }
 
