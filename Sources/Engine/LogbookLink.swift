@@ -22,8 +22,8 @@ struct LogbookLink: Hashable, Sendable {
 
     /// The kind chip the Logbook opens on: none for a tag link, so every kind tagged shows, and none
     /// for an hour link, whose hour rides on the period chip ("7–8 am · Last 14 days"), and none for
-    /// the "while you were away" line, an alert history row or the Sensor coverage card's gap, whose period chip says it all.
-    var kindChip: LogbookFilter? { tag == nil && filter != .hourOfDay && filter != .whileAway && filter != .aroundAlert && filter != .aroundGap ? filter : nil }
+    /// the "while you were away" line, an alert history row, the Sensor coverage card's gap or a day of the last 7 days card, whose period chip says it all.
+    var kindChip: LogbookFilter? { tag == nil && filter != .hourOfDay && filter != .whileAway && filter != .aroundAlert && filter != .aroundGap && filter != .recentDay ? filter : nil }
 
     /// The Lows card's period, as the Logbook reads it. The card counts the `days` × 24 hours up to
     /// the newest reading (`LowsSummary.compute`), so the Logbook starts there too rather than at

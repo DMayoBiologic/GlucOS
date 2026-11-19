@@ -20,6 +20,11 @@ struct PopoverSummaryCard: View {
     var showsShortcuts: Bool
     var onToggleDetails: () -> Void
     var onOpenDashboard: () -> Void
+    /// A day picked on the last 7 days card: open the Logbook on it (docs/RecentDays.md).
+    var onOpenDay: (LogbookLink) -> Void = { _ in }
+
+    /// The last 7 days card, opened by a click on the time-in-range bar.
+    @State private var showsDays = false
 
     private var s: GlucoseSnapshot { store.snapshot }
     /// The period chosen in the menu, which the menu's label follows straight away.
@@ -61,15 +66,24 @@ struct PopoverSummaryCard: View {
     private func figures(_ st: GlucoseStats?, isExpanded: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             if let st {
-                VStack(alignment: .leading, spacing: 8) {
-                    TimeInRangeBar(stats: st, height: 8)
-                        .accessibilityHidden(true)   // the legend below says the same in words
-                    legend(st)
+                // A click opens the last 7 days card: each day's time in range as a mini bar.
+                Button { showsDays.toggle() } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TimeInRangeBar(stats: st, height: 8)
+                            .accessibilityHidden(true)   // the legend below says the same in words
+                        legend(st)
+                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .recentDaysPopover(isPresented: $showsDays, readings: store.archive,
+                                   lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, open: onOpenDay)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Time in range, \(window.spokenLabel)")
                 .accessibilityValue("\(Format.percent(st.timeInRange)) in range, \(Format.percent(st.timeBelowRange)) below, \(Format.percent(st.timeAboveRange)) above")
-                .help("Targets: over 70% in range, under 4% below, under 25% above")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(named: RecentDaysText.showAction) { showsDays = true }
+                .help("Click for the last 7 days. Targets: over 70% in range, under 4% below, under 25% above")
 
                 if isExpanded {
                     details(st)

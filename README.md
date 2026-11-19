@@ -71,6 +71,7 @@ right-click desktop → **Edit Widgets** → "GlucOS".
 - **Typing amounts**: in the log sheet, each digit you type rolls into place, so you can see the number change as you enter it (instant with Reduce Motion on).
 - **Insights explainers**: the ⓘ beside time in range, average, variability, time below and GMI on the Overview opens a short note on what the figure means and how it was worked out for the period shown.
 - **While you were away**: open the popover after 2 hours or more and a quiet line under the reading sums up the gap (lowest, highest, time in range and any alerts) for 10 seconds. Click it to see that time in the Logbook.
+- **Last 7 days**: click the time-in-range bar in the popover for each of the last 7 days as a mini bar, today last. Click a day to open it in the Logbook.
 - **Hourly range wave**: in Insights, the Time in range by hour card fills in left to right when it appears, and its cells cross-fade one after another to their new colours when you change the period (instant under Reduce Motion).
 - **Copy the reading**: press Command-C with the popover open to copy the current reading as one line, such as "6.1 mmol/L, steady, 2 min ago", in the unit on screen, ready to paste into a message.
 - **Search Settings as you type**: in Settings, results come in one after another as you type and the matched words are highlighted. Picking one scrolls straight to that setting. With Reduce Motion on, results appear at once.

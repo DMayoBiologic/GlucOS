@@ -263,7 +263,9 @@ struct PhoneHomeView: View {
                         .dsEntrance(4)
                     // Time in range, mornings and forecast accuracy live one tap away, so the
                     // logbook isn't pushed below three cards of statistics.
-                    PhoneInsightsRow()
+                    PhoneInsightsRow(isFollower: isFollower,
+                                     openInsights: { path.append(PhoneRoute.insights) },
+                                     openLink: { path.append(PhoneRoute.logbookLink($0)) })
                         .matchedTransitionSource(id: PhoneRoute.insights.zoomSource, in: routes)
                         .dsEntrance(5)
                     if let sensor = store.snapshot.sensor {
