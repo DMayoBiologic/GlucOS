@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.88.0", highlights: [
+            .init(symbol: "cursorarrow.motionlines",
+                  title: "Insights cards lift under the pointer",
+                  detail: "On the Mac, an Insights card rises a touch with a soft shadow while the pointer rests on it. With Reduce Motion on, only the shadow fades in."),
             .init(symbol: "chart.bar.doc.horizontal",
                   title: "Each day's time in range, in hours",
                   detail: "Open a Logbook day to see how long it spent below, in and above range. On the Mac, hover over the day to see it."),

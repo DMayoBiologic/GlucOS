@@ -1562,6 +1562,8 @@ struct InsightsSection: View {
     /// Cards that have risen in since the page opened, so a re-sort or the customise sheet never
     /// plays them again.
     @State private var reveals = CardReveals()
+    /// The card under the pointer, which lifts a touch (`CardHoverLift`).
+    @State private var hoveredCard: InsightsCard?
     /// Which card or control has the keyboard (docs/KeyboardNavigation.md).
     @FocusState private var keyFocus: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1630,7 +1632,14 @@ struct InsightsSection: View {
                         // tile or link (docs/KeyboardNavigation.md).
                         view(for: card)
                             .keyStop("insights.\(card.rawValue)", enabled: card != .forecastAccuracy)
+                            // Lifts a touch under the pointer (`CardHoverLift`). Inside the rise-in,
+                            // so its shadow never shows before the card does.
+                            .insightsHoverLift(hoveredCard == card) { inside in
+                                hoveredCard = CardHoverLift.hovered(hoveredCard, card: card, hovering: inside)
+                            }
                             .dsReveal(card, in: reveals, when: .appear, order: 5 + i)
+                            // The lifted card's shadow draws over its neighbours, not under them.
+                            .zIndex(hoveredCard == card ? 1 : 0)
                             .contextMenu { menu(card, index: i, count: visible.count) }
                             .accessibilityAction(named: "Share card") { sharing = card }
                     }

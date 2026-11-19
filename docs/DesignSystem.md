@@ -51,6 +51,8 @@ Contrast is checked against the backgrounds the colours actually sit on: white, 
 
 `.dsCard(_ style, padding:, radius:)` with `.standard`, `.inset`, `.tinted(Tone)` or `.hero(Tone)`. `DSSurface` is the same background without padding. Both switch to opaque fills under Reduce Transparency and to stronger borders, without shadows, under Increase Contrast. `glassCard()` is kept as `.dsCard(.standard)`.
 
+On Mac Insights a card lifts a touch while the pointer rests on it (`insightsHoverLift`, `CardHoverLift`): 1.01x with a soft shadow, over 0.15 s, settling back when the pointer leaves. It only follows the pointer, so nothing runs while it's still. The shadow is drawn around the card and cut out under it, so the surface and text look the same. The lift sits inside the card's rise-in, so a pointer resting there as the page opens shows nothing before the card does, and the count-ups and pulses inside are untouched. Under Reduce Motion the card keeps its size and only the shadow fades; under Increase Contrast there's no shadow.
+
 ## Components
 
 | Component | Use |
