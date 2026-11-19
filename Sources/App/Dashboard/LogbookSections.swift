@@ -17,6 +17,9 @@ struct LogbookSection: View {
     @Binding var reveal: UUID?
     /// Set by ⌘J while the Logbook is showing: open the jump-to-a-date calendar, then cleared.
     @Binding var jumpToDate: Bool
+    /// Set by the toolbar's Today button or ⌘T while the Logbook is showing: spring the table back
+    /// to its newest row (`LogbookToday`), then cleared.
+    @Binding var backToToday: Bool
     /// Moves the toolbar's period so it shows a whole day (a picked day outside the period).
     let showDay: (Date) -> Void
     /// While the Logbook was opened from an Insights card: back to that card.
@@ -27,7 +30,8 @@ struct LogbookSection: View {
 
     init(data: DashboardData, focusSearch: Binding<Bool> = .constant(false),
          link: Binding<LogbookLink?> = .constant(nil), reveal: Binding<UUID?> = .constant(nil),
-         jumpToDate: Binding<Bool> = .constant(false), showDay: @escaping (Date) -> Void = { _ in },
+         jumpToDate: Binding<Bool> = .constant(false), backToToday: Binding<Bool> = .constant(false),
+         showDay: @escaping (Date) -> Void = { _ in },
          backToInsights: (() -> Void)? = nil,
          backCardTitle: String = LogbookFilter.lows.title,
          open: @escaping (LogSheetTarget) -> Void) {
@@ -36,6 +40,7 @@ struct LogbookSection: View {
         self._link = link
         self._reveal = reveal
         self._jumpToDate = jumpToDate
+        self._backToToday = backToToday
         self.showDay = showDay
         self.backToInsights = backToInsights
         self.backCardTitle = backCardTitle
@@ -153,8 +158,10 @@ struct LogbookSection: View {
         let groupMap: [UUID: [UUID]] = Dictionary(uniqueKeysWithValues: lines.compactMap { $0.group.map { ($0.id, $0.ids) } })
         let terms = query.terms
         // The newest line of the day a jump is heading for, once the table lists it.
+        // Back to today goes to the table's newest line, whatever day that is.
         let jumpTarget: UUID? = pendingJump.flatMap { r in
-            lines.first { Calendar.autoupdatingCurrent.isDate($0.timestamp, inSameDayAs: r.day) }?.id
+            r.toTop ? lines.first?.id
+                    : lines.first { Calendar.autoupdatingCurrent.isDate($0.timestamp, inSameDayAs: r.day) }?.id
         }
         VStack(alignment: .leading, spacing: 0) {
             if settings.therapy == .notSet {
@@ -233,13 +240,14 @@ struct LogbookSection: View {
             // Folded days come back, except today, which never starts folded.
             folds = LogbookFolds(kept: LogbookCollapse.restored(foldedStored, now: Date()))
             foldedStored = folds.kept.stored
-            takeFocusRequest(); takeLink(); takeReveal(); takeJumpRequest()
+            takeFocusRequest(); takeLink(); takeReveal(); takeJumpRequest(); takeTodayRequest()
             takeLoggedElsewhere(logbook.entries.filter { data.domain.contains($0.timestamp) }.prefix(40).map(\.id))
         }
         .onChange(of: focusSearch) { _, _ in takeFocusRequest() }
         .onChange(of: link) { _, _ in takeLink() }
         .onChange(of: reveal) { _, _ in takeReveal() }
         .onChange(of: jumpToDate) { _, _ in takeJumpRequest() }
+        .onChange(of: backToToday) { _, _ in takeTodayRequest() }
         // After a delete: what went and Undo, rising from the bottom edge (`LogbookUndoToast`).
         .overlay(alignment: .bottom) { LogbookUndoToast() }
         // Entries that arrive (logged, undone, synced from the iPhone) light up once.
@@ -550,13 +558,31 @@ struct LogbookSection: View {
         }
     }
 
+    /// The Today button or ⌘T: once any period change has landed, the table springs to its newest
+    /// line (instantly under Reduce Motion), lights that day's entries and says which day it is.
+    private func takeTodayRequest() {
+        guard backToToday else { return }
+        backToToday = false
+        Task { @MainActor in
+            await Task.yield()
+            pendingJump = LogbookJumpRequest(day: Calendar.autoupdatingCurrent.startOfDay(for: Date()), toTop: true)
+        }
+    }
+
     /// The jump's day is listed: springs the table so the day's newest row is at the top (or dips
     /// it out and back under Reduce Motion), lights that day's entries once, and says where it is.
     private func land(on target: UUID?, rows: [LogbookTableRow], proxy: ScrollViewProxy) async {
         guard let target, let request = pendingJump else { return }
-        try? await Task.sleep(for: .milliseconds(reduceMotion ? 60 : 150))
+        if !request.toTop {
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 60 : 150))
+        }
         guard !Task.isCancelled else { return }
-        if reduceMotion {
+        let calendar = Calendar.autoupdatingCurrent
+        // Back to today names the day of the newest row (the table may not reach today).
+        let day = request.toTop ? rows.first.map { calendar.startOfDay(for: $0.timestamp) } ?? request.day : request.day
+        if request.toTop && reduceMotion {
+            proxy.scrollTo(target, anchor: .top)
+        } else if reduceMotion {
             withAnimation(.easeOut(duration: 0.15)) { tableFade = 0 }
             try? await Task.sleep(for: .milliseconds(160))
             proxy.scrollTo(target, anchor: .top)
@@ -564,9 +590,8 @@ struct LogbookSection: View {
         } else {
             withAnimation(DSMotion.emphasized.animation) { proxy.scrollTo(target, anchor: .top) }
         }
-        let calendar = Calendar.autoupdatingCurrent
-        markFresh(Set(rows.filter { !$0.isAlert && calendar.isDate($0.timestamp, inSameDayAs: request.day) }.map(\.id)))
-        LoggedElsewhere.announce(LogbookJump.announcement(request.day, now: Date()))
+        markFresh(Set(rows.filter { !$0.isAlert && calendar.isDate($0.timestamp, inSameDayAs: day) }.map(\.id)))
+        LoggedElsewhere.announce(LogbookJump.announcement(day, now: Date()))
         // Last, as clearing it ends this task.
         pendingJump = nil
     }

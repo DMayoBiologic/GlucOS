@@ -213,6 +213,7 @@ enum ShortcutCatalog {
                 ShortcutRow(keys: "⌃1 – ⌃8", action: "Pick a time range"),
                 ShortcutRow(keys: "⌘[  ⌘]", action: "Previous or next period"),
                 ShortcutRow(keys: "⌘J", action: "Back to now (in the Logbook: jump to a date)"),
+                ShortcutRow(keys: "⌘T", action: "In the Logbook: back to today"),
                 ShortcutRow(keys: "⌘=  ⌘−  ⌘0", action: "Zoom chart in, out, reset"),
                 ShortcutRow(keys: "⌥←  ⌥→", action: "Pan the zoomed chart"),
             ] + chartPan(on: "on the Outlook chart") + [

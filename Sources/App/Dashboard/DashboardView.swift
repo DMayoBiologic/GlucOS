@@ -53,6 +53,8 @@ struct DashboardView: View {
     @State private var revealEntry: UUID?
     /// ⌘J in the Logbook: it takes this as "open the jump-to-a-date calendar" and clears it.
     @State private var jumpToDate = false
+    /// The Logbook's Today button or ⌘T: the table springs back to its newest row (`LogbookToday`).
+    @State private var logbookToToday = false
     /// Insights was opened from the evening recap: its Today card goes on top until another
     /// section is picked (docs/EveningRecap.md).
     @State private var recapFiredAt: Date?
@@ -208,7 +210,7 @@ struct DashboardView: View {
         switch section {
         case .logbook:
             LogbookSection(data: data, focusSearch: $focusLogbookSearch, link: $logbookLink, reveal: $revealEntry,
-                           jumpToDate: $jumpToDate, showDay: { showLogbookDay($0) },
+                           jumpToDate: $jumpToDate, backToToday: $logbookToToday, showDay: { showLogbookDay($0) },
                            backToInsights: cameFromCard.map { card -> () -> Void in { backToInsights(card) } },
                            backCardTitle: cameFromCard.map(Self.cardTitle) ?? LogbookFilter.lows.title) { openFromLogbook($0) }
         case .outlook:
@@ -424,6 +426,17 @@ struct DashboardView: View {
                 Button("Latest") { stepInsightsToLatest() }
                     .keyboardShortcut("j", modifiers: .command)
                     .help("Jump back to the latest periods (⌘J)")
+            }
+
+            if section == .logbook {
+                // Back to today: the period moves to now if it was earlier, then the table springs
+                // to its newest row. One VoiceOver label, the same as the iPhone's pill.
+                Button(action: { logbookBackToToday(data) }) {
+                    Label("Today", systemImage: "arrow.up.to.line")
+                }
+                .keyboardShortcut("t", modifiers: .command)
+                .help(LogbookToday.macHelp)
+                .accessibilityLabel(LogbookToday.accessibilityLabel(target: nil, now: Date()))
             }
 
             if !data.isLive && section.usesRange {
@@ -709,6 +722,12 @@ struct DashboardView: View {
     }
 
     private func goToNow() { setPeriodEnd(nil) }
+
+    /// The Logbook's Today button (⌘T).
+    private func logbookBackToToday(_ data: DashboardData) {
+        if !data.isLive { goToNow() }
+        logbookToToday = true
+    }
 
     /// The Logbook's calendar picked a day outside the period: show a period ending with that day,
     /// a whole day at least, so its rows are listed at the top of the table.

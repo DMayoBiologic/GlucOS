@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.85.0", highlights: [
+            .init(symbol: "arrow.up.to.line",
+                  title: "Back to today in the Logbook",
+                  detail: "Scroll back through the Logbook and a Today button appears at the top of the list on iPhone; tap it to spring back to today. On the Mac, use the Today button in the toolbar or press Command-T."),
+        ]),
         WhatsNewRelease(version: "1.84.0", highlights: [
             .init(symbol: "tag",
                   title: "A livelier Tags card",
