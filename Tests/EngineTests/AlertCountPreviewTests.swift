@@ -185,4 +185,84 @@ final class AlertCountPreviewTests: XCTestCase {
         XCTAssertEqual(AlertCountLine.spoken(.high, days: 7, count: 0, was: 0),
                        "High alerts, last 7 days: this limit would not have alerted")
     }
+
+    // MARK: Repeat preview (round 98)
+
+    private func every(_ minutes: Int, _ base: AlertPreferences? = nil) -> AlertPreferences {
+        var p = base ?? prefs
+        p.cooldownMinutes = minutes
+        return p
+    }
+
+    func testTheRepeatCountFollowsTheRepeat() {
+        // 40 minutes at 65, readings every 5 minutes.
+        let p = preview(fixture(Array(repeating: 65, count: 8), tail: 4).readings)
+        XCTAssertEqual(p.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: every(5)), 8)
+        XCTAssertEqual(p.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: every(15)), 3)
+        XCTAssertEqual(p.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: every(30)), 2)
+        XCTAssertEqual(p.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: every(60)), 1)
+        // The same replay as the low line.
+        XCTAssertEqual(p.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: every(15)),
+                       p.counts(lowMgdl: 70, highMgdl: 180, prefs: every(15)).low)
+    }
+
+    func testUrgentLowsAreLeftOut() {
+        // Urgent lows keep their own 5-minute repeat whatever the setting.
+        let p = preview(fixture(Array(repeating: 50, count: 8), tail: 4).readings)
+        XCTAssertGreaterThan(p.counts(lowMgdl: 70, highMgdl: 180, prefs: prefs).low, 0)
+        for m in [5, 15, 60] {
+            XCTAssertEqual(p.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: every(m)), 0)
+        }
+    }
+
+    func testHighsAndVeryHighsCount() {
+        let high = preview(fixture(Array(repeating: 200, count: 8), tail: 4).readings)
+        XCTAssertEqual(high.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: every(15)), 3)
+        var off = every(15)
+        off.high = false
+        XCTAssertEqual(high.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: off), 0)
+        // Very high alerts whatever the high switch says.
+        let veryHigh = preview(fixture(Array(repeating: 300, count: 8), tail: 4).readings)
+        XCTAssertEqual(veryHigh.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: off), 3)
+    }
+
+    func testRapidChangeCountsOnlyWhenSwitchedOn() {
+        let lead = (0..<72).map { GlucoseReading(timestamp: at(Double($0) * 5), mgdl: 110, trend: .flat) }
+        let rising = (72..<80).map { GlucoseReading(timestamp: at(Double($0) * 5), mgdl: 120, trend: .risingQuickly) }
+        let p = preview(lead + rising)
+        XCTAssertEqual(p.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: every(15)), 3)
+        var off = every(15)
+        off.rapidChange = false
+        XCTAssertEqual(p.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: off), 0)
+        // The range lines never count rapid-change alerts.
+        XCTAssertEqual(p.counts(lowMgdl: 70, highMgdl: 180, prefs: every(15)), .init(low: 0, high: 0))
+    }
+
+    func testRepeatCountIsZeroWithAlertsOff() {
+        let p = preview(fixture(Array(repeating: 65, count: 8), tail: 4).readings)
+        var off = every(5)
+        off.enabled = false
+        XCTAssertEqual(p.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: off), 0)
+    }
+
+    func testSnoozeTapsQuietTheRepeatPreview() {
+        // An hour at 65; "Snooze 30 min" tapped on the first alert.
+        let (readings, s) = fixture(Array(repeating: 65, count: 12), tail: 2)
+        let tap = AlertRecord(kind: .low, firedAt: at(s), response: .snoozed, respondedAt: at(s + 1), snoozeMinutes: 30)
+        let quiet = preview(readings, records: [tap])
+        let loud = preview(readings)
+        XCTAssertLessThan(quiet.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: every(5)),
+                          loud.repeatCount(lowMgdl: 70, highMgdl: 180, prefs: every(5)))
+    }
+
+    func testTheRepeatLine() {
+        XCTAssertEqual(AlertRepeatLine.text(days: 7, count: 12, was: 20), "Last 7 days: this would have sent 12 alerts (was 20)")
+        XCTAssertEqual(AlertRepeatLine.text(days: 7, count: 12, was: 12), "Last 7 days: this would have sent 12 alerts")
+        XCTAssertEqual(AlertRepeatLine.text(days: 3, count: 1, was: nil), "Last 3 days: this would have sent 1 alert")
+        XCTAssertEqual(AlertRepeatLine.text(days: 1, count: 0, was: 4), "Last day: this would have sent no alerts (was 4)")
+        XCTAssertEqual(AlertRepeatLine.spoken(days: 7, count: 12, was: 20),
+                       "Repeated alerts, last 7 days: this setting would have sent 12 alerts, down from 20")
+        XCTAssertEqual(AlertRepeatLine.spoken(days: 7, count: 9, was: 3),
+                       "Repeated alerts, last 7 days: this setting would have sent 9 alerts, up from 3")
+    }
 }

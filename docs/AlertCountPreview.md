@@ -29,3 +29,20 @@ quiets its level from when it was tapped, for as long as it did then.
   runs again as a limit changes.
 
 Tests: Tests/EngineTests/AlertCountPreviewTests.swift (fixtures of 5-minute readings).
+
+## Repeat preview (round 98)
+
+Under "Repeat no more than every" (iPhone Settings › Alerts, Mac Settings › Alerts › Also Notify
+Me About) one line says how many alerts that repeat would have sent over the same window:
+
+> Last 7 days: this would have sent 12 alerts (was 20)
+
+It is the same replay (`AlertCountPreview.repeatCount`) with the range, switches and snooze taps
+as they are, counting low, high, very high and, when switched on, rapid-change alerts: the ones the
+repeat spaces out. Urgent lows are left out because they repeat every 5 minutes whatever the
+setting, as the section footer says. "Was" is the count for the repeat when Settings opened. The
+figure rolls (instant under Reduce Motion); VoiceOver hears "Repeated alerts, last 7 days: this
+setting would have sent 12 alerts, down from 20". Hidden under 6 hours of readings and with alerts
+off. View: `AlertRepeatPreviewLine` in Sources/App/Views/AlertCountPreviewLine.swift.
+
+GlucOS has no quiet-hours schedule, so round 98's quiet-hours preview became this repeat preview.
