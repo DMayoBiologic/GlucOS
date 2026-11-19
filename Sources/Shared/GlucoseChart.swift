@@ -108,6 +108,12 @@ struct GlucoseChart: View {
     /// Mac: ⌥← ⌥→ and ⌘→ while the chart has the keyboard focus, from the screen around it
     /// (`ChartPan.KeyMove`). Each new `id` moves the pan once, with the same glide as Now.
     var panKey: ChartPanKeyPress? = nil
+    /// Whether logged markers get a short label beside them ("45 g", "4 u") once the chart is
+    /// zoomed in far enough for them to have room (`MarkerLabels`). They fade in and out as the
+    /// hours change, static under Reduce Motion; a label that would cover another, or another
+    /// marker, is left out. Drawing only: VoiceOver and every touch are unchanged. iPhone Today and
+    /// the Mac popover; interactive charts only.
+    var labelsMarkers: Bool = false
 
     /// The gap whose card is showing, after a tap (iPhone) or while the pointer is on it (Mac).
     @State private var openGap: Date?
@@ -567,6 +573,17 @@ struct GlucoseChart: View {
                                       tint: glow.marker.tint, origin: glow.origin, delay: glow.delay) {
                 glows.removeAll { $0.id == glow.id }
             }
+        }
+    }
+
+    /// Short amounts beside the markers on screen once zoomed in (`MarkerLabels`). Markers still
+    /// popping in get theirs once they land.
+    private func markerLabels(proxy: ChartProxy, yd: ClosedRange<Double>, window: [GlucoseReading],
+                              domain: ClosedRange<Date>) -> some View {
+        MarkerLabelLayer(proxy: proxy, markers: peekable(window),
+                         spanHours: domain.upperBound.timeIntervalSince(domain.lowerBound) / 3600,
+                         hours: hours, newest: readings.last?.timestamp, reduceMotion: reduceMotion) { lane in
+            markerY(lane: lane, yd: yd)
         }
     }
 
@@ -1136,6 +1153,9 @@ struct GlucoseChart: View {
                 ReadingGapLayer(proxy: proxy, gaps: gaps, unit: unit, open: $openGap, check: gapCheck)
             }
             markerOverlays(proxy: proxy, yd: yd)
+            if interactive, labelsMarkers {
+                markerLabels(proxy: proxy, yd: yd, window: window, domain: domain)
+            }
             // Under the markers' layer, so a marker near "Now" still takes its own taps.
             if opensForecast(projection), forecastReveal >= 1 {
                 ForecastTapLayer(proxy: proxy, forecast: projection, unit: unit, yd: yd) { openForecast(at: $0) }
@@ -1377,6 +1397,8 @@ struct ChartLogMarker: Identifiable {
     var kind: MarkerPop.Kind? = nil
     /// What a tap on it shows (`MarkerCallout`). `nil`: it can still be peeked, but not opened.
     var callout: MarkerCallout.Content? = nil
+    /// The amount beside it when zoomed in (`MarkerLabels`): "45 g", "4 u". `nil`: no label.
+    var shortLabel: String? = nil
 }
 
 /// A marker logged from elsewhere, glowing once.
@@ -1571,6 +1593,95 @@ extension GlucoseChart {
                 .symbol { EventSymbol(event: e) }
                 .accessibilityLabel(e.label)
         }
+    }
+}
+
+/// The labels beside logged markers (`MarkerLabels`), placed with the chart's proxy. Drawing only:
+/// it takes no touches and VoiceOver skips it, since each marker already says what it was.
+private struct MarkerLabelLayer: View {
+    let proxy: ChartProxy
+    let markers: [ChartLogMarker]
+    /// The hours across the time axis right now, for whether there's room.
+    let spanHours: Double
+    /// The chosen hours and the newest reading: when either changes the axes move, and the labels
+    /// glide with them rather than jumping.
+    let hours: Double
+    let newest: Date?
+    let reduceMotion: Bool
+    let laneY: (Int) -> Double
+
+    /// The labels that could show, where each would sit, and which do.
+    private struct Item: Identifiable {
+        let label: MarkerLabels.Candidate
+        let tint: Color
+        var id: UUID { label.id }
+    }
+
+    private struct Layout {
+        var candidates: [Item] = []
+        var placed: [UUID: MarkerLabels.Placement] = [:]
+        var shown: Set<UUID> = []
+    }
+
+    private func layout() -> Layout {
+        let width = Double(proxy.plotSize.width)
+        var obstacles: [(x: Double, y: Double)] = []
+        var out = Layout()
+        for m in markers {
+            guard let px = proxy.position(forX: m.date), let py = proxy.position(forY: laneY(m.lane)) else { continue }
+            let x = Double(px), y = Double(py)
+            obstacles.append((x: x, y: y))
+            guard let text = m.shortLabel, let priority = MarkerLabels.priority(m.kind), x >= 0, x <= width else { continue }
+            out.candidates.append(Item(label: .init(id: m.id, x: x, y: y, text: text, priority: priority, date: m.date), tint: m.tint))
+        }
+        let labels = out.candidates.map(\.label)
+        out.placed = MarkerLabels.placements(labels, plotWidth: width)
+        out.shown = MarkerLabels.shown(labels, obstacles: obstacles, plotWidth: width, hours: spanHours)
+        return out
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            if let plot = proxy.plotFrame {
+                let origin = geo[plot].origin
+                let l = layout()
+                ForEach(l.candidates) { c in
+                    if let p = l.placed[c.label.id] {
+                        MarkerLabelText(text: c.label.text, tint: c.tint, shown: l.shown.contains(c.label.id),
+                                        reduceMotion: reduceMotion)
+                            .position(x: origin.x + p.centerX, y: origin.y + p.centerY)
+                    }
+                }
+                // Glide with the axes when the hours change or a new reading slides them along.
+                .animation(reduceMotion ? nil : DSMotion.emphasized.animation, value: hours)
+                .animation(reduceMotion ? nil : DSMotion.standard.animation, value: newest)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One label: the amount in the marker's colour on a soft backing, so it reads over the trace.
+private struct MarkerLabelText: View {
+    let text: String
+    let tint: Color
+    let shown: Bool
+    let reduceMotion: Bool
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 9, weight: .semibold))
+            .monospacedDigit()
+            .lineLimit(1)
+            .fixedSize()
+            .foregroundStyle(tint)
+            .padding(.horizontal, 2)
+            .background(Capsule().fill(.background.opacity(0.75)))
+            .opacity(shown ? 1 : 0)
+            .animation(reduceMotion ? nil
+                       : .easeInOut(duration: MarkerLabels.fadeDuration).delay(shown ? MarkerLabels.fadeInDelay : 0),
+                       value: shown)
     }
 }
 

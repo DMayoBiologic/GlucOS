@@ -17,7 +17,8 @@ extension ChartLogMarker {
                                       callout: .init(title: "Insulin",
                                                      amount: MarkerCallout.doseAmount(units: LogFormat.units(d.units),
                                                                                       name: d.displayName, viaPump: d.viaPump),
-                                                     note: d.note)))
+                                                     note: d.note),
+                                      shortLabel: LogFormat.units(d.units)))
         }
         for c in contexts where c.isWake && c.timestamp >= cutoff {
             out.append(ChartLogMarker(id: c.id, date: c.timestamp, systemImage: ContextTag.wokeUp.systemImage,
@@ -52,7 +53,8 @@ extension ChartLogMarker {
                                       callout: .init(title: treats ? "Treatment" : "Meal",
                                                      amount: MarkerCallout.mealAmount(grams: m.carbs > 0 ? LogFormat.grams(m.carbs) : nil,
                                                                                       food: m.food),
-                                                     note: m.note)))
+                                                     note: m.note),
+                                      shortLabel: m.carbs > 0 ? LogFormat.grams(m.carbs) : nil))
         }
         return out
     }

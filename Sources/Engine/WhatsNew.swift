@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.92.0", highlights: [
+            .init(symbol: "tag",
+                  title: "Amounts beside markers when zoomed",
+                  detail: "Zoom the chart in on iPhone Today or in the Mac popover and each meal and insulin marker shows what you logged beside it, such as 45 g or 4 u. Where two would crowd, insulin stays and the other is left out. With Reduce Motion on, they appear without fading."),
+        ]),
         WhatsNewRelease(version: "1.91.0", highlights: [
             .init(symbol: "arrow.up.arrow.down",
                   title: "Insulins lift as you reorder them",
