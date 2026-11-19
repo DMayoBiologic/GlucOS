@@ -98,11 +98,12 @@ for t, k, v, food, hypo in sorted(L, key=lambda x: (x[0], x[1])):
     meals.append(dict(t=t, g=v, food=food, treat=treat))
 entries = sorted([m["t"] for m in meals] + [x[0] for x in doses])
 
-def onset(m, R_=15, upto=None):
-    """Trough before the first R_ climb since 10 min before the log (only readings <= upto)."""
+def onset(m, R_=15, upto=None, start=None):
+    """Trough before the first R_ climb since `start` (default 10 min before the log; readings <= upto)."""
     end = m["t"] + 7200 if upto is None else min(upto, m["t"] + 7200)
+    begin = m["t"] - 600 if start is None else start
     lo = None
-    for x, g in window(m["t"] - 600, end):
+    for x, g in window(begin, end):
         if lo is None or g < lo[1]: lo = (x, g)
         if g - lo[1] >= R_: return lo[0]
     return None
@@ -127,7 +128,7 @@ def meal_time(m, t0, prm):
     """Effective log time for the forecaster at issue t0."""
     if prm is None or m["treat"]: return m["t"]
     R_, c, cap = prm
-    o = onset(m, R_, upto=t0)
+    o = onset(m, R_, upto=t0, start=m["t"])
     eff = (o - 600) if o is not None else (t0 - c * 60)
     return min(max(m["t"], eff), m["t"] + cap * 60)
 
@@ -162,12 +163,12 @@ for m in meals:
         if tr is None: continue
         act = {}
         for h in HS:
-            if t0 + h * 60 > m["end"] and any(t0 < e <= t0 + h * 60 for e in entries): continue
+            if any(t0 < e <= t0 + h * 60 for e in entries): continue
             a = at(t0 + h * 60)
             if a is not None: act[h] = a
         if not act: continue
         pts.append(dict(t0=t0, g0=g0, tr=tr, act=act, m=m, since=(t0 - m["t"]) / 60,
-                        pre=m["on"] is not None and t0 < m["on"], day=perth(m["t"]).strftime("%d")))
+                        pre=m["on"] is not None and t0 < m["on"], day=perth(m["t"]).date().isoformat()))
 days = sorted({p["day"] for p in pts})
 print(f"\nReplay: {len(pts)} forecasts in {len({id(p['m']) for p in pts})} meal windows on Perth days {days}")
 
@@ -211,7 +212,8 @@ for gain in GAINS[:1]:
     if sub:
         drawn = [line(p, gain)[30] - forecast(p["t0"], p["g0"], p["tr"], gain, (999, 0, 999))[30] for p in sub]
         for m in sorted({id(p["m"]): p["m"] for p in sub}.values(), key=lambda m: m["t"]):
-            q = [p for p in sub if p["m"] is m]
+            q = [p for p in sub if p["m"] is m and 30 in p["act"]]
+            if not q: continue
             print(f"  {lab(m['t'])} {m['food'][:24]:24s} pre-onset pts {len(q):2d} 30-min bias as ships "
                   f"{st.mean(p['act'][30] - line(p, gain)[30] for p in q if 30 in p['act']):+6.1f}, held to now "
                   f"{st.mean(p['act'][30] - forecast(p['t0'], p['g0'], p['tr'], gain, (999, 0, 999))[30] for p in q if 30 in p['act']):+6.1f}")
@@ -226,7 +228,7 @@ if os.path.exists(f"{d}/points.json"):
         c = [m for m in meals if not m["treat"] and m["t"] <= t < m["end"]]
         if not c: continue
         m = c[-1]
-        if (t + mins * 60) > m["end"] and any(t < e <= t + mins * 60 for e in entries): continue
+        if any(t < e <= t + mins * 60 for e in entries): continue
         phase = "0-60" if t - m["t"] <= 3600 else "60-180"
         g[(m["grp"], phase, mins)].append((a - f, a - s, lo is not None and lo <= a <= hi, basis, "freshLog" in (lim or "")))
     print("\nLive accuracy log in meal windows (bias = actual - line):")

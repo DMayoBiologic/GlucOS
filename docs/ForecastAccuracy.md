@@ -7030,9 +7030,9 @@ Replay, gain 0.45 (0.6 and 0.7 are the same shape), bias is actual − line (neg
 | Logged early, before the onset | 2 (14 pts) | 8.2 / −5.4 | 16.4 / −13.3 | 41.4 / −19.4 | 16.9 |
 | Logged early, first hour | 2 (24) | 11.3 / −5.6 | 22.7 / −8.9 | 49.2 / −10.7 | 22.8 |
 | Logged early, 1–3 h | 2 (46) | 9.4 / −1.5 | 18.6 / −4.0 | 35.4 / −6.0 | 21.7 |
-| Near the rise, first hour | 8 (73) | 26.6 / +11.6 | 43.4 / +9.5 | 51.8 / +5.3 | 43.3 |
+| Near the rise, first hour | 8 (72) | 26.6 / +11.4 | 43.4 / +9.5 | 52.3 / +2.4 | 43.3 |
 | Near the rise, 1–3 h | 6 (124) | 16.0 / +3.7 | 23.0 / +8.4 | 40.9 / +23.5 | 25.1 |
-| All meal windows | 10 (267) | 17.4 / +4.1 | 27.3 / +4.8 | 43.5 / +10.1 | 28.9 |
+| All meal windows | 10 (266) | 17.3 / +4.1 | 27.3 / +4.8 | 43.4 / +9.5 | 28.9 |
 
 Live accuracy log (the real engine; every point here was modelled, not cut to trend only):
 
@@ -7058,15 +7058,14 @@ on the held-out one (leave one day out over the 6 days with meal windows), by 15
 
 | Gain | Better held out, 15 / 30 / 60 | 12 Nov (early juice) 30 min | 18 Nov 30 min | Most-picked |
 |---|---|---|---|---|
-| 0.45 | 0/6, 0/6, 1/6 | 20.0 → 21.2 | 26.4 → 28.7 | R 20, c 10–20, cap 90 |
-| 0.6 | 0/6, 1/6, 1/6 | 19.9 → 20.5 | 25.2 → 27.4 | R 20, c 20, cap 90 |
-| 0.7 | 0/6, 1/6, 1/6 | 19.9 → 20.5 | 24.4 → 26.6 | R 20, c 20, cap 90 |
+| 0.45 | 1/6, 1/6, 2/6 | 20.0 → 21.2 | 26.4 → 28.7 | R 20, c 10–20, cap 90 |
+| 0.6 | 1/6, 2/6, 2/6 | 19.9 → 20.5 | 25.2 → 27.4 | R 20, c 20, cap 90 |
+| 0.7 | 1/6, 2/6, 2/6 | 19.9 → 20.5 | 24.4 → 26.6 | R 20, c 20, cap 90 |
 
 Before the onset the hold does what it should (the 30-minute line on the early meals' pre-onset
 points comes down 8.5 mg/dL, the juice's bias goes −6.7 → +4.5), but it can't tell a meal that
 hasn't started from one whose rise is hidden by a fall, so after the onset it moves the clock on
-meals logged near the rise too and costs more than it saves: worse on 12 and 18 Nov, within 0.1
-elsewhere, and on 13 Nov (the only other early meal) the fit picked no hold at all. With two early
+meals logged near the rise too and costs more than it saves: worse on 12 and 18 Nov, at most 0.2 better at 30 minutes elsewhere (14 Nov), and on 13 Nov (the only other early meal) the fit picked no hold at all. With two early
 meals there's nothing to fit a cleaner rule on.
 
 **Decision.** Ship nothing. Logging a meal ahead of eating does pull the line high before the rise
@@ -7086,7 +7085,7 @@ r as (select ml.t, ml.g, x.at, x.mgdl, min(x.mgdl) over (partition by ml.t order
   from ml join glucos.readings x on x.trend > 0 and x.at between ml.t - interval '10 min' and ml.t + interval '2 hours'),
 c as (select distinct on (t) t, g, at climb, lo from r where mgdl - lo >= 15 order by t, at)
 select to_char(c.t at time zone 'Australia/Perth', 'DD Mon HH24:MI') meal, c.g carbs,
-  round(extract(epoch from (select max(r.at) from r where r.t = c.t and r.at <= c.climb and r.mgdl = c.lo) - c.t) / 60) onset_lag_min
+  round(extract(epoch from (select min(r.at) from r where r.t = c.t and r.at <= c.climb and r.mgdl = c.lo) - c.t) / 60) onset_lag_min
 from c order by c.t;
 ```
 
