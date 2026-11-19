@@ -14,8 +14,9 @@ import SwiftUI
 /// Motion is the other cards': the overall figure counts up where `figuresCountUp` is on and rolls
 /// when the period changes. Where `figuresCountUp` is on the cells also fill in a left-to-right wave
 /// the first time the card rises in (`onEntrance`), and on a period change each cell cross-fades to
-/// its new colour a short step after the one to its left (`HourlyCellMotion`). Nothing loops, and
-/// Reduce Motion shows the new values at once. VoiceOver reads the summary, then each hour as its own
+/// its new colour a short step after the one to its left (`HourlyCellMotion`). Nothing loops. With
+/// Reduce Motion on, nothing moves: the cells fade in together on the first reveal and every cell
+/// cross-fades to its new colour at the same moment on a period change. VoiceOver reads the summary, then each hour as its own
 /// button ("7 am to 8 am, 54 percent in range, ..."). Callers give it their own card surface.
 struct HourlyInRangeCardView: View {
     let readings: [GlucoseReading]
@@ -32,14 +33,17 @@ struct HourlyInRangeCardView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
     @Environment(\.figuresCountUp) private var countsUp
-    /// The cells have filled in (first reveal). Only waited for where `waves` is on.
+    /// The cells have filled in (first reveal). Only waited for where `fills` is on.
     @State private var filled = false
     /// "Compare to previous period" (docs/InsightsCompare.md) and the period before, while it's on.
     @AppStorage(InsightsCompare.storageKey) private var compare = false
     @State private var previous: HourlyInRange?
 
-    /// The fill wave plays on Insights screens only: never in a shared picture or under Reduce Motion.
-    private var waves: Bool { countsUp && !reduceMotion && !shareSnapshot }
+    /// The cells fill in on Insights screens only, never in a shared picture: a wave normally, one
+    /// fade together under Reduce Motion.
+    private var fills: Bool { countsUp && !shareSnapshot }
+    /// The moving left-to-right wave, not under Reduce Motion.
+    private var waves: Bool { fills && !reduceMotion }
 
     private var period: HourlyInRange.Period { HourlyInRange.Period(rawValue: periodDays) ?? .fortnight }
     /// The readings up to where the period ends once Insights is stepped back; all of them on
@@ -174,7 +178,7 @@ struct HourlyInRangeCardView: View {
         .accessibilityLabel("Hours")
         .onEntrance {
             guard !filled else { return }
-            if waves {
+            if fills {
                 // Next frame, so the empty strip is drawn before it fills.
                 DispatchQueue.main.async { filled = true }
             } else {
@@ -223,17 +227,17 @@ struct HourlyInRangeCardView: View {
                         shape.strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
                     }
                 }
-                // A new period: this cell cross-fades a step after the one to its left.
-                .animation(reduceMotion ? nil : .easeInOut(duration: HourlyCellMotion.recolourDuration)
-                    .delay(HourlyCellMotion.recolourDelay(position: position, count: count)),
+                // A new period: this cell cross-fades a step after the one to its left, or with
+                // all the others at once under Reduce Motion.
+                .animation(.easeInOut(duration: HourlyCellMotion.recolourLength(reduceMotion: reduceMotion))
+                    .delay(HourlyCellMotion.recolourDelay(position: position, count: count, reduceMotion: reduceMotion)),
                            value: hour?.shade)
-                // First reveal: rises from the baseline and fades in, left to right. Only the
-                // drawing moves; the button, its frame and its VoiceOver element are there throughout.
-                .opacity(filled || !waves ? 1 : 0)
+                // First reveal: rises from the baseline and fades in, left to right; under Reduce
+                // Motion every cell fades in together without moving. Only the drawing changes; the
+                // button, its frame and its VoiceOver element are there throughout.
+                .opacity(filled || !fills ? 1 : 0)
                 .scaleEffect(x: 1, y: filled || !waves ? 1 : 0.35, anchor: .bottom)
-                .animation(waves ? DSMotion.arrival.animation
-                    .delay(HourlyCellMotion.fillDelay(position: position, count: count)) : nil,
-                           value: filled)
+                .animation(fillAnimation(position: position, count: count), value: filled)
                 .frame(minWidth: Self.minimumCellWidth, idealWidth: Self.minimumCellWidth, maxWidth: .infinity,
                        minHeight: Self.cellHeight, maxHeight: Self.cellHeight)
                 .contentShape(shape)
@@ -249,6 +253,17 @@ struct HourlyInRangeCardView: View {
                              delta?.spoken(label: "Time in range", previous: previousPhrase(s))]
             .compactMap { $0 }.joined(separator: " "))
         .accessibilityHint(openLogbook == nil ? "" : HourlyInRangeText.logbookHint(h, s.period))
+    }
+
+    /// The arrival spring a column's step after the left edge, a plain fade under Reduce Motion,
+    /// nothing where the cells don't fill.
+    private func fillAnimation(position: Int, count: Int) -> Animation? {
+        guard fills else { return nil }
+        if reduceMotion {
+            return .easeInOut(duration: HourlyCellMotion.reducedFade)
+                .delay(HourlyCellMotion.fillDelay(position: position, count: count, reduceMotion: true))
+        }
+        return DSMotion.arrival.animation.delay(HourlyCellMotion.fillDelay(position: position, count: count))
     }
 
     private func cellColor(_ hour: HourlyInRange.Hour?) -> Color {

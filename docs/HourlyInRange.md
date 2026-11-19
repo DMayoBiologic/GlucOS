@@ -35,8 +35,8 @@ Observational only: it never suggests a change to insulin, food or any setting.
 
 VoiceOver reads the summary as one stop, then each hour as its own button: "7 am to 8 am, 54 percent
 in range, 30 percent above, 16 percent below, over 12 days", with the hint that it opens the
-Logbook. The legend and ticks are hidden from VoiceOver. Colour changes cross-fade; Reduce Motion
-shows them at once.
+Logbook. The legend and ticks are hidden from VoiceOver. Colour changes cross-fade; with Reduce
+Motion on they cross-fade all at once instead of in a step from left to right.
 
 ## Motion
 
@@ -46,8 +46,10 @@ shows them at once.
   together, column by column, so both layouts take the same time (`HourlyCellMotion`).
 - Period change: each cell cross-fades to its new colour over 0.3 s, a step after the one to its
   left, 0.18 s from first to last. Cells whose colour doesn't change stay still.
-- Plays once per appearance and never loops. Never in a shared picture. Reduce Motion shows the
-  cells and new colours at once. Only the drawing moves: every hour's button, its order, label and
+- Reduce Motion: nothing moves or steps. On the first reveal every cell fades in together over
+  0.25 s after the same 0.12 s lead, and on a period change every changed cell cross-fades to its
+  new colour together over 0.25 s (`HourlyCellMotion.reducedFade`).
+- Plays once per appearance and never loops. Never in a shared picture. Only the drawing moves: every hour's button, its order, label and
   value are there for VoiceOver from the start.
 
 ## Works with
