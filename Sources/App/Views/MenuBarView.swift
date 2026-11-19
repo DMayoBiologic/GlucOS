@@ -393,9 +393,11 @@ struct MenuBarView: View {
     }
 
     private func copyReading() {
+        // ⌘C, the hero's right-click menu, the toolbar menu and VoiceOver's "Copy reading" all
+        // land here: one line in the unit on screen (`ReadingCopy`), a "Copied" toast, one announce.
         guard store.copyReadingToClipboard() else { return }
-        showToast("Reading copied")
-        VoiceOver.announce("Reading copied")
+        showToast(ReadingCopy.copiedToast)
+        VoiceOver.announce(ReadingCopy.copiedToast)
     }
 
     /// Shared by the Details button and ⌘I, so both animate and announce the same way. Does

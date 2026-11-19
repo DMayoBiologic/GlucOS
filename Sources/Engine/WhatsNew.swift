@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "sparkles",
                   title: "A livelier What's New",
                   detail: "Highlights now rise in one after another, each icon gives a little bounce, and Continue appears once you've seen them."),
+            .init(symbol: "doc.on.doc",
+                  title: "Copy or share your reading",
+                  detail: "Long-press the reading on iPhone for Copy and Share, or press Command-C on the Mac, to send it as one line of text."),
         ]),
         WhatsNewRelease(version: "1.77.0", highlights: [
             .init(symbol: "clock.arrow.circlepath",

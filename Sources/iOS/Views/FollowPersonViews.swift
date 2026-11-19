@@ -54,6 +54,9 @@ struct FollowStage: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     private let textScale = DSScaledValue()
     @State private var ripple = 0
+    /// Copy and Share… on a long-press, labelled with their name (round 84, `PhoneReadingCopy`).
+    @State private var copied = 0
+    @State private var sharing: SharedReadingText?
 
     var body: some View {
         let stale = card.isStale(at: now)
@@ -129,6 +132,16 @@ struct FollowStage: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibility(stale: stale))
         .accessibilityAddTraits(.updatesFrequently)
+        .accessibilityAction(named: "Copy Reading") { copyReading() }
+        .accessibilityAction(named: "Share Reading") { shareReading() }
+        // Long-press their reading: Copy and Share… one line with their name in front,
+        // "Sam: 6.1 mmol/L, steady, 2 min ago" ("Sam: No readings for 12 min · …" in a gap).
+        .contextMenu {
+            Button("Copy", systemImage: "doc.on.doc") { copyReading() }
+            Button("Share…", systemImage: "square.and.arrow.up") { shareReading() }
+        }
+        .copiedToast(trigger: copied)
+        .readingShareSheet($sharing)
         .onChange(of: card.readingAt) { old, new in
             guard old != new, !reduceMotion else { return }
             ripple += 1
@@ -141,6 +154,17 @@ struct FollowStage: View {
             case .high, .veryHigh: return nil
             }
         }
+    }
+
+    private var copyText: String { ReadingCopy.text(card, name: follow.label, at: Date()) }
+
+    private func copyReading() {
+        PhoneReadingCopy.copy(copyText)
+        copied += 1
+    }
+
+    private func shareReading() {
+        sharing = SharedReadingText(text: copyText)
     }
 
     /// When their readings last crossed into the range they're in now, from the readings this

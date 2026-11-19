@@ -482,6 +482,7 @@ refreshes, dismissing a card and plain navigation stay silent.
 | Picking a chip, tile, stepper value, chart hours, setup step | `choice` | selection | Log sheet, Logbook filters, chart hours, Setup, sharing |
 | Log sheet saved: the Log/Save button turns into a checkmark (round 49) | `logSaved` | light impact 0.7 | Log sheet `finishSaving()` |
 | Log Again Now (swipe right, menu), a question answered (low, dose), export ready, check-in sent, signed in | `done` | success | Logbook, low and dose questions, Export, Follow |
+| Copied the reading (long-press Copy on Today or a followed person's stage, VoiceOver "Copy Reading", round 84) | `copied` | light impact 0.6 | `PhoneReadingCopy.copy` |
 | Undo (deleted-entry toast, low and dose question cards) | `undone` | light impact 0.8 | `PhoneUndoToast`, question cards |
 | Deleted a Logbook entry (swipe left, menu, open entry); the Undo toast offers it back | `deleted` | light impact 0.8 | `PhoneLogbookView`, `PhoneLogbookCard` |
 | Pull to refresh brought new readings (nothing on no change or failure) | `newData` | light impact 0.8 | `phonePullToRefresh` (#124) |

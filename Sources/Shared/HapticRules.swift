@@ -15,6 +15,8 @@ enum HapticEvent: String, CaseIterable, Sendable {
     /// The log sheet's Save button turned into a checkmark: the entry is in. A light tap rather
     /// than `done`'s success buzz, so it sits under the tick instead of competing with it.
     case logSaved
+    /// The reading was copied (long-press Copy on Today or a followed person's stage, round 84).
+    case copied
     /// Undo put something back (or took it away again).
     case undone
     /// Deleted from the Logbook (a swipe, a menu, the open entry). Its Undo toast can bring it back.
@@ -64,6 +66,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         case .scrubLogged: return .lightImpact(intensity: 0.6)
         case .scrubSnapped: return .lightImpact(intensity: 0.5)
         case .spanPicked: return .lightImpact(intensity: 0.5)
+        case .copied: return .lightImpact(intensity: 0.6)
         case .rangeCrossed: return .lightImpact(intensity: 0.7)
         case .logSaved: return .lightImpact(intensity: 0.7)
         }
@@ -75,7 +78,7 @@ enum HapticEvent: String, CaseIterable, Sendable {
         switch self {
         case .enteredLow, .alertBanner, .followerNeedsHelp: return 3
         case .done, .logSaved, .backInRange, .rangeCrossed, .followerOkay: return 2
-        case .choice, .undone, .deleted, .newData, .spanPicked: return 1
+        case .choice, .undone, .deleted, .newData, .spanPicked, .copied: return 1
         case .scrubRangeEdge, .scrubLogged, .scrubSnapped: return 0
         }
     }
