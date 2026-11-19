@@ -103,7 +103,25 @@ sync in from the other device.
 - Nothing is announced for what was listed when it opened, for an alert more than 15 minutes old
   that syncs in late (it's listed quietly), or for the other device's copy of an alert already
   listed unless it brings a new outcome (`AlertHistory.changes` matches it as the same alert).
-- **Reduce Motion**: rows appear, chips and counts change instantly. Announcements are the same.
+- **Reduce Motion**: rows cross-fade in and out (see below), chips and counts change instantly.
+  Announcements are the same.
+
+## Rows coming and going
+
+`AlertHistoryRowMotion` (Sources/Engine/AlertHistoryRowMotion.swift) and `AlertHistoryContent`.
+
+- **A new alert** slides down into the top of its day and fades in; the rows below glide down on
+  the `.standard` curve.
+- **An alert ageing out** of the 7 days (the oldest day, at midnight) fades as it shrinks toward its
+  top edge (to 94%) and the rows close up; its day header goes with it. The list wakes once at that
+  midnight (`nextAgeOut`), only while it's open and only if the oldest day has alerts. No repeating
+  timer.
+- **The same alert from the other device** syncing in with an earlier time moves the merged item's
+  id, but its row keeps its key (`AlertHistoryRowMotion.keys`), so it doesn't leave and slide in
+  again; its chip just morphs if the outcome moved on.
+- **Chip switches** don't slide rows; they fade the list over as before.
+- **Reduce Motion**: rows cross-fade in and out in place over 0.25 s, nothing moves.
+- **VoiceOver**: unchanged. New alerts and outcomes are announced as above; ageing out is quiet.
 
 ## Filters
 
