@@ -598,8 +598,9 @@ struct PhoneChartCard: View {
     @Environment(\.phoneNavigator) private var navigator
 
     private static let choices = ChartHours.choices
-    /// What the chart is handed whatever span is picked, plus its lead past the left edge.
-    private static let longest = ChartHours.longestPlotted
+    /// What the chart is handed whatever span is picked: the longest span, its lead past the left
+    /// edge, and the day it can be panned back (`ChartPan`).
+    private static let longest = ChartPan.hoursHanded
     /// When the forecast starts drawing in: this card's `dsEntrance(2)` waits 0.11 s and is most of
     /// the way in about 0.3 s later.
     private static let forecastDelay: TimeInterval = 0.4
@@ -621,7 +622,8 @@ struct PhoneChartCard: View {
             // The chart gets the longest span's readings and markers and shows `hours` of them,
             // so switching 3h / 6h / 12h / 24h springs the axes (the chart animates it itself;
             // under Reduce Motion it cross-fades). Pinching the chart steps through the same spans,
-            // and the choice is remembered (`AppSettings.chartHours`).
+            // and the choice is remembered (`AppSettings.chartHours`). Dragging along the times
+            // under the chart pans back up to a day (`ChartPan`), with a Now button to spring back.
             // The forecast draws in from "Now" once the card has come in, and bends into each new
             // one rather than jumping (as in the Mac popover). Under Reduce Motion it just changes.
             ForecastMotion(forecast: outlook?.forecast ?? [], drawInDelay: Self.forecastDelay) { forecast, reveal in
@@ -634,7 +636,7 @@ struct PhoneChartCard: View {
                              snapsScrub: true,
                              markerActions: navigator.map { _ in { (action: MarkerActions.Action, id: UUID) in markerAction(action, id) } },
                              forecastDetails: details, gapContext: store.gapContext,
-                             gapCheck: store.gapCheckControl)
+                             gapCheck: store.gapCheckControl, pansBack: true)
             }
                 .frame(height: 260)
                 .chartHoursPinch($settings.chartHours)

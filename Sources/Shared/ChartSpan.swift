@@ -28,18 +28,31 @@ struct ChartSpan: Equatable {
     ///     range is changing.
     ///   - forecastEnd: the last forecast sample's time, which the axis reaches to.
     ///   - lead: readings kept past the left edge. 0 for charts that never animate (widgets).
+    ///   - pannedTo: the right edge while the chart is panned back (`ChartPan`); nil follows the
+    ///     newest reading. While panned the forecast is left out, and readings one `lead` past the
+    ///     right edge stay plotted too, so they slide in and out of that edge as well.
+    ///   - keepPlotted: a stretch that stays plotted as well, while the axis glides between two
+    ///     pans (or back to now), so the readings on the way slide through rather than popping.
     init?(readings: [GlucoseReading], domainHours: Double, dataHours: Double,
-          forecastEnd: Date? = nil, lead: TimeInterval = ChartSpan.lead) {
+          forecastEnd: Date? = nil, lead: TimeInterval = ChartSpan.lead, pannedTo: Date? = nil,
+          keepPlotted: ClosedRange<Date>? = nil) {
         guard let first = readings.first, let last = readings.last else { return nil }
-        let anchor = last.timestamp
+        let panned = pannedTo.map { min($0, last.timestamp) }
+        let anchor = panned ?? last.timestamp
         // Never earlier than the first reading, so a short history fills the width as it always has.
         let start = max(anchor.addingTimeInterval(-domainHours * 3600), first.timestamp)
-        let end = max(anchor, forecastEnd ?? anchor)
+        let end = panned ?? max(anchor, forecastEnd ?? anchor)
         domain = start...max(end, start.addingTimeInterval(60))
-        visible = readings[Self.firstIndex(in: readings, atOrAfter: start)...]
-        let plotStart = min(anchor.addingTimeInterval(-max(dataHours, domainHours) * 3600), start)
+        let visibleEnd = panned.map { PeriodSpan.firstIndex(in: readings, after: $0) } ?? readings.count
+        let plotUntil = panned.map { p in max(p, keepPlotted?.upperBound ?? p).addingTimeInterval(max(0, lead)) }
+        let plotEnd = plotUntil.map { PeriodSpan.firstIndex(in: readings, after: $0) } ?? readings.count
+        let lo = Self.firstIndex(in: readings, atOrAfter: start)
+        visible = readings[min(lo, visibleEnd)..<visibleEnd]
+        let plotStart = min(anchor.addingTimeInterval(-max(dataHours, domainHours) * 3600), start,
+                            keepPlotted?.lowerBound ?? start)
             .addingTimeInterval(-max(0, lead))
-        plotted = readings[Self.firstIndex(in: readings, atOrAfter: plotStart)...]
+        let plo = Self.firstIndex(in: readings, atOrAfter: plotStart)
+        plotted = readings[min(plo, plotEnd)..<plotEnd]
     }
 
     /// Binary search: readings are sorted by time.

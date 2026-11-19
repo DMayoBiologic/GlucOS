@@ -27,24 +27,34 @@ struct PopoverChartCard: View {
     @State private var pinHovered = 0
     /// Bumped by Return on the chart, to open the forecast details card (`ForecastDetails`).
     @State private var forecastKey = 0
+    /// Where the chart's right edge is while it's panned back (`ChartPanKey`), nil at now, so the
+    /// arrow keys, the header and VoiceOver follow what's on screen.
+    @State private var panEnd: Date?
+    /// Sideways trackpad swipes over the chart pan it back (`ChartPan`).
+    @State private var scrollPan = ChartScrollPanMonitor()
+    @State private var panScroll: ChartPanScroll?
 
     private var s: GlucoseSnapshot { store.snapshot }
 
-    /// What the chart is handed whatever span is picked: the longest (24 hours) and its lead, from
-    /// the archive as well as the live snapshot (LibreLinkUp only sends 12 hours), so switching
-    /// span glides rather than waiting on data.
-    private var plotted: [GlucoseReading] { store.readings(lastHours: ChartHours.longestPlotted) }
+    /// What the chart is handed whatever span is picked: the longest (24 hours), its lead and the
+    /// day it can pan back (`ChartPan`), from the archive as well as the live snapshot
+    /// (LibreLinkUp only sends 12 hours), so switching span glides rather than waiting on data.
+    private var plotted: [GlucoseReading] { store.readings(lastHours: ChartPan.hoursHanded) }
 
     /// Readings back to a day before the longest span, for yesterday's line, while it's on.
     private var yesterday: [GlucoseReading] {
-        settings.showYesterdayLine ? store.readings(lastHours: YesterdayLine.hoursNeeded(forSpan: ChartHours.longestPlotted)) : []
+        settings.showYesterdayLine ? store.readings(lastHours: YesterdayLine.hoursNeeded(forSpan: ChartPan.hoursHanded)) : []
     }
 
-    /// The readings the chart is showing, oldest → newest.
+    /// The readings the chart is showing, oldest → newest: back from the newest reading, or from
+    /// the right edge while the chart is panned back.
     private func window(in plotted: [GlucoseReading]) -> [GlucoseReading] {
         guard let last = plotted.last else { return [] }
-        let cutoff = last.timestamp.addingTimeInterval(-Double(settings.chartHours) * 3600)
-        return Array(plotted[ChartSpan.firstIndex(in: plotted, atOrAfter: cutoff)...])
+        let end = min(panEnd ?? last.timestamp, last.timestamp)
+        let cutoff = end.addingTimeInterval(-Double(settings.chartHours) * 3600)
+        let upper = PeriodSpan.firstIndex(in: plotted, after: end)
+        let lower = min(ChartSpan.firstIndex(in: plotted, atOrAfter: cutoff), upper)
+        return Array(plotted[lower..<upper])
     }
 
     var body: some View {
@@ -76,9 +86,20 @@ struct PopoverChartCard: View {
                              openInLogbook: openInLogbook, closesCallout: closeCallout, snapsScrub: true,
                              markerActions: markerAction, pinsHoveredMarker: pinHovered,
                              forecastDetails: details(outlook), opensForecastDetails: forecastKey,
-                             gapContext: store.gapContext, gapCheck: store.gapCheckControl)
+                             gapContext: store.gapContext, gapCheck: store.gapCheckControl,
+                             pansBack: true, panScroll: panScroll)
             }
                 .onPreferenceChange(MarkerCalloutOpenKey.self) { calloutOpen = $0 }
+                // Panned back: a pinned reading that's gone off screen is let go.
+                .onPreferenceChange(ChartPanKey.self) { end in
+                    guard end != panEnd else { return }
+                    panEnd = end
+                    pinned = nil
+                }
+                // Two fingers sideways on the trackpad pan the chart back; up and down still scroll.
+                .onHover { scrollPan.over = $0 }
+                .onAppear { scrollPan.start { panScroll = $0 } }
+                .onDisappear { scrollPan.stop() }
                 .onPreferenceChange(MarkerHoveredKey.self) { rightClicks.armed = $0 }
                 .onAppear { rightClicks.start { pinHovered += 1 } }
                 .onDisappear { rightClicks.stop() }
@@ -120,10 +141,11 @@ struct PopoverChartCard: View {
                 // Right-click for yesterday's faint line (also in Settings → Menu Bar); right-click a
                 // marker for its Edit / Log Again Now card instead.
                 .yesterdayLineMenu($settings.showYesterdayLine)
-                .help("Hover to see readings, click a marker for what was logged, right-click it to edit or log it again, click the forecast for its details, or click and use ← →")
+                .help("Hover to see readings, click a marker for what was logged, right-click it to edit or log it again, click the forecast for its details, swipe sideways for earlier hours, or click and use ← →")
                 // A group, so its name doesn't land on the marker buttons inside it.
                 .accessibilityElement(children: .contain)
-                .accessibilityLabel("Glucose chart, last \(settings.chartHours) hours")
+                .accessibilityLabel(panEnd == nil ? "Glucose chart, last \(settings.chartHours) hours"
+                                    : "Glucose chart, \(settings.chartHours) hours to \(ClockLabel.time(panEnd ?? Date()))")
                 .accessibilityValue(chartSummary(window))
                 .accessibilityHint("Use the left and right arrow keys to step through readings")
             // "Meal 1 h 40 m ago · 45 g": the last thing logged in 12 hours, opening in the Logbook.
@@ -149,7 +171,7 @@ struct PopoverChartCard: View {
     /// switching range doesn't count as markers arriving. Something just logged pops in.
     private var markers: [ChartLogMarker] {
         ChartLogMarker.logbook(doses: logbook.doses, meals: logbook.meals, contexts: logbook.contexts,
-                               since: Date().addingTimeInterval(-ChartHours.longestPlotted * 3600))
+                               since: Date().addingTimeInterval(-ChartPan.hoursHanded * 3600))
     }
 
     /// The dashboard, on the Logbook with this entry selected (`DashboardRequest`).
@@ -189,7 +211,10 @@ struct PopoverChartCard: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Eyebrow(title: "Last \(settings.chartHours) hours", systemImage: "waveform.path.ecg")
+            // Panned back, it says how far: "3 h earlier", with the Now button on the chart.
+            Eyebrow(title: panEnd.flatMap { end in plotted.last.map { ChartPan.behindLabel(end, newest: $0.timestamp) } }
+                        .map { "\(settings.chartHours) hours, \($0)" } ?? "Last \(settings.chartHours) hours",
+                    systemImage: "waveform.path.ecg")
                 .accessibilityAddTraits(.isHeader)
             SlidingSegments(selection: $settings.chartHours, options: ChartHours.choices) { "\($0)h" }
                 .fixedSize()
@@ -261,7 +286,7 @@ struct PopoverChartCard: View {
             return "\(store.shownUnit.format(mgdl: r.mgdl)) \(store.shownUnit.spokenLabel) at \(ClockLabel.time(r.timestamp)), \(range.spokenLabel)"
         }
         let outlook = settings.showForecast && !s.isStale() ? s.currentOutlook() : nil
-        let cutoff = (window.last?.timestamp ?? Date()).addingTimeInterval(-Double(settings.chartHours) * 3600)
+        let cutoff = (panEnd ?? window.last?.timestamp ?? Date()).addingTimeInterval(-Double(settings.chartHours) * 3600)
         let sentence = ChartSummary.sentence(.init(readings: window.filter { $0.timestamp >= cutoff }, lowMgdl: s.lowMgdl,
                                                    highMgdl: s.highMgdl, unit: store.shownUnit, hours: Double(settings.chartHours),
                                                    stale: s.isStale(), forecastEnd: outlook?.forecast.last))
@@ -339,5 +364,65 @@ enum VoiceOver {
         NSAccessibility.post(element: element, notification: .announcementRequested,
                              userInfo: [.announcement: text,
                                         .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
+}
+
+/// Sideways two-finger swipes on the trackpad over the popover's chart, passed to the chart as
+/// `ChartPanScroll` (`GlucoseChart.panScroll`) and taken, so they never scroll anything else. A
+/// swipe decides on its first movement: mostly sideways pans the chart, mostly up or down is left
+/// alone. Momentum after the fingers lift is taken too, but doesn't move the chart: it stays
+/// where the fingers left it. Mouse wheels (no scroll phases) are left alone.
+@MainActor
+final class ChartScrollPanMonitor {
+    /// Whether the pointer is over the chart.
+    var over = false
+    private var monitor: Any?
+    /// Decided on a swipe's first movement; kept through its momentum.
+    private var sideways: Bool?
+    private var total: Double = 0
+    private var id = 0
+
+    nonisolated init() {}
+
+    func start(_ send: @escaping (ChartPanScroll) -> Void) {
+        stop()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self else { return event }
+            return self.handle(event, send) ? nil : event
+        }
+    }
+
+    func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        sideways = nil
+        total = 0
+        over = false
+    }
+
+    /// True when the event was taken.
+    private func handle(_ e: NSEvent, _ send: (ChartPanScroll) -> Void) -> Bool {
+        if !e.momentumPhase.isEmpty { return sideways == true }
+        guard !e.phase.isEmpty else { return false }
+        if e.phase.contains(.mayBegin) || e.phase.contains(.began) {
+            sideways = nil
+            total = 0
+        }
+        if e.phase.contains(.ended) || e.phase.contains(.cancelled) {
+            guard sideways == true else { sideways = nil; return false }
+            id += 1
+            send(ChartPanScroll(id: id, points: total, ended: true))
+            return true
+        }
+        if sideways == nil {
+            let dx = e.scrollingDeltaX, dy = e.scrollingDeltaY
+            guard over, dx != 0 || dy != 0 else { return false }
+            sideways = abs(dx) > abs(dy)
+        }
+        guard sideways == true else { return false }
+        total += e.scrollingDeltaX
+        id += 1
+        send(ChartPanScroll(id: id, points: total))
+        return true
     }
 }
