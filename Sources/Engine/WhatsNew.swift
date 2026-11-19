@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "chart.bar.doc.horizontal",
                   title: "Each day's time in range, in hours",
                   detail: "Open a Logbook day to see how long it spent below, in and above range. On the Mac, hover over the day to see it."),
+            .init(symbol: "scope",
+                  title: "How often the range holds",
+                  detail: "We checked how often readings land inside the forecast's likely range from 5 minutes to an hour ahead, and kept it as it is for now."),
         ]),
         WhatsNewRelease(version: "1.87.0", highlights: [
             .init(symbol: "contextualmenu.and.cursorarrow",

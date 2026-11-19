@@ -7613,3 +7613,136 @@ Export for the script: the `string_agg` query in §97 (save the `rows` value one
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged. No app or relay code changed.
+
+## 99. Does the drawn range hold its 8 in 10 at 5, 10, 15, 30, 45 and 60 minutes? (19 Nov 2026)
+
+**Question.** The range aims for about 8 in 10 readings inside (`ForecastScorecard.rangeTarget`,
+the 0.8 quantile `ForecastLedger.rangeScale` learns). §53 checked 15–60 minutes on six days. With
+eight days now, and adding the short end of the range (5 and 10 minutes, the first two drawn
+samples), how often does the reading land inside, above and below the range at each horizon, and
+would one width factor per horizon (or one per side per horizon) do better on days it wasn't
+learnt from? (Sensor day is §29 / §77's.)
+
+**Data.** The accuracy log's clean shown points (nothing logged after, drawn), Mac, iPhone and
+relay, 12–19 Nov Perth: 804 at 15, 378 at 30, 261 at 45 and 185 at 60 minutes (relay 15 only).
+The log scores 15 minutes and beyond only, so **5 and 10 minutes are rebuilt** from each clean
+15-minute point: the line straight from the starting reading to the 15-minute line, each side of
+the range scaled by m / 15 (as `ForecastCalibration.interpolate` does below its first horizon,
+never under the 0.6 × default floor of 5.4 / 7.2 mg/dL a side), §40's low-start upper widening
+taken out at 15 and put back at 5 / 10, and the stored reading nearest 5 / 10 minutes after
+(within a minute): 754 and 758 points. Points whose 15-minute range touched the sensor limits are
+left out of the rebuild. Script: `scripts/range-coverage-horizons.py` (reads the export below).
+
+| Horizon | Points (days) | Inside (95% interval) | Above / below | Width | Day range | From 14 Nov on |
+|---|---|---|---|---|---|---|
+| 5 min (rebuilt) | 754 (8) | **71.0%** (67.6–74.1) | 15.4 / 13.7% | 17.7 | 50–84% | 71.6% |
+| 10 min (rebuilt) | 758 (8) | 77.2% (74.1–80.0) | 12.4 / 10.4% | 35.2 | 56–91% | 77.9% |
+| 15 min | 804 (8) | 81.1% (78.2–83.7) | 11.1 / 7.8% | 53.6 | 65–94% | 82.1% |
+| 30 min | 378 (8) | 77.5% (73.0–81.4) | 11.1 / 11.4% | 88.0 | 55–96% | 79.5% |
+| 45 min | 261 (6) | 77.4% (71.9–82.1) | 13.4 / 9.2% | 128.5 | 50–100% | 81.8% |
+| 60 min | 185 (6) | 75.1% (68.4–80.8) | 13.5 / 11.4% | 149.9 | 55–100% | 77.7% |
+
+The 95% interval treats points as independent; consecutive forecasts aren't, so the real
+uncertainty is wider (the day range shows it). "Day range" is over days with 10+ points.
+
+- **15 to 60 minutes hold close to 8 in 10.** Every interval from 15 to 60 minutes includes 80%,
+  and on ranges from 14 Nov on (once the learnt width had settled, §98) they read 82 / 80 / 82 /
+  78%. That's up from §53's 76 / 71 / 72 / 77% on 12–17 Nov, most likely the learnt range scale
+  (per horizon, fast trends, the last 12 hours) catching up as checks built up, not a change
+  shipped since.
+- **Misses lean slightly above** at 15, 45 and 60 minutes (11 / 13 / 14% above against 8 / 9 / 11%
+  below); from 14 Nov on, 45 and 60 minutes miss above 14% and 17% against 4% and 6% below.
+  That's §62's lean (falls that stop sooner than the line expects), on four days.
+- **The 5-minute range is short: 71% inside**, apps and relay alike (71 / 71%), 68% on fast
+  trends; 10 minutes sits at 77%. Its misses are small: half are within 5 mg/dL of the edge
+  (median 4.7 mg/dL out), against a range about 18 mg/dL wide. At 5 minutes the line (6.9 mg/dL
+  miss, no change 7.7) is roughly as far off as one reading is from the next (§66: 2.4 mg/dL a
+  reading on the line, mostly the reading itself), so the range there is narrower than the
+  sensor's own reading-to-reading wobble.
+- **Fast trends** (1.5 mg/dL a minute or more) hold 68 / 70 / 75 / 74% at 5 / 10 / 15 / 30 minutes
+  despite `fastTrend` widening, a few points under the rest at every horizon.
+- **Lows are covered.** Readings under 70 with the range bottom already under 70: 11/11, 12/12,
+  36/36, 11/13, 7/7 and 2/4 at 5 / 10 / 15 / 30 / 45 / 60 minutes.
+
+**Held out: one factor per horizon.** Leave one Perth day out: the range's two sides scaled about
+the line by the 80th percentile of the other days' miss ratios (miss ÷ drawn half-width on that
+side), clamped 0.7–2.5; and a per-side version (each side's 90th percentile, so the two tails add
+to 20%). Judged on the 80% interval score (width + 10 × how far outside, lower is better), since
+a factor can't move the line. "Days better" counts held-out days whose score improved.
+
+| Horizon | Shipped: inside / width / score | One factor held out | Score | Days better | Per side: score, days |
+|---|---|---|---|---|---|
+| 5 min | 71.0% / 17.7 / 36.8 | 80.0% / 23.3 / 36.9 | +0.1% | 5/8 | +0.1%, 5/8 |
+| 10 min | 77.2% / 35.2 / 62.5 | 79.7% / 39.6 / 63.7 | +1.9% | 5/8 | +2.3%, 4/8 |
+| 15 min | 81.1% / 53.6 / 83.3 | 79.9% / 53.4 / 84.8 | +1.8% | 1/8 | +2.0%, 2/8 |
+| 30 min | 77.5% / 88.0 / 144.5 | 79.1% / 95.9 / 151.2 | +4.7% | 2/8 | +6.9%, 0/8 |
+| 45 min | 77.4% / 128.5 / 200.6 | 77.4% / 148.8 / 222.7 | +11.0% | 1/6 | +11.3%, 3/6 |
+| 60 min | 75.1% / 149.9 / 243.0 | 77.3% / 181.0 / 266.1 | +9.5% | 1/6 | +11.2%, 0/6 |
+
+On ranges from 14 Nov on it's worse again (30 / 60 minutes +8.7 / +20.9% one factor, 1/6 and 0/4
+days better). Low coverage doesn't change under any version.
+
+- **A factor gets the count right and the range no better.** At 5 minutes it lifts coverage from
+  71% to 80% by drawing the range 32% wider, for an interval score that doesn't move (+0.1%). At
+  30–60 minutes the misses that are left are big ones (§53: miss ratios heavy-tailed), so the
+  extra width costs more than the misses it saves on most days. Day-to-day coverage swings
+  (50–100%) dwarf the gap any one factor could close.
+- **Per side is no better** anywhere, as in §62.
+
+**Decision.** Ship nothing. No version clears the bar (held-out interval score better at 30
+**and** 60 minutes on most days, low coverage unchanged): the best at 30 minutes is +4.7%, 2 of 8
+days. The 5-minute shortfall is real but small and costs nothing measurable; a 5-minute floor
+tied to reading noise (say 4–5 mg/dL a side) is the lever worth trying, not a width factor, and
+only once 5- and 10-minute points are scored directly rather than rebuilt. Retest on **3 Dec
+2026** with §53 / §60 and §62: score only ranges from 14 Nov on, and ship a per-horizon factor
+only if it wins the interval score held out on most days at 30 and 60 minutes; at 5 minutes, try
+a reading-noise floor against the same score.
+
+Live-log check, in the Supabase SQL editor (horizon: points, days, inside / above / below rates
+and width against the 80% target, 5 and 10 minutes rebuilt as above; on 19 Nov it gives the first
+table within a tenth of a point):
+
+```sql
+with p as (select c.issued_at t, c.start_mgdl s, (e->>'minutes')::int m, (e->>'mgdl')::float f,
+    (e->>'actual')::float a, (e->>'lower')::float lo, (e->>'upper')::float hi
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,45,60)),
+short as (select p.t, k.mm m, p.s + (p.f - p.s) * k.mm / 15.0 f, r.mgdl a,
+    greatest(0.6 * (6 + 0.6 * k.mm), (p.f - p.lo) * k.mm / 15.0) dn,
+    greatest(0.6 * (6 + 0.6 * k.mm), (p.hi - p.f) * k.mm / 15.0
+      * case when p.s < 80 then (1 + 1.8 * k.mm / 15.0) / 2.8 else 1 end) up
+  from p cross join (values (5), (10)) k(mm)
+  cross join lateral (select mgdl from glucos.readings r where r.at between p.t + make_interval(mins => k.mm - 1)
+      and p.t + make_interval(mins => k.mm + 1) order by abs(extract(epoch from r.at - p.t) - 60 * k.mm) limit 1) r
+  where p.m = 15 and p.lo > 40 and p.hi < 400),
+allp as (select t, m, f, a, f - dn lo, f + up hi from short union all select t, m, f, a, lo, hi from p)
+select m minutes, count(*) pts, count(distinct (t at time zone 'Australia/Perth')::date) days,
+  round(100 * avg((a between lo and hi)::int)::numeric, 1) inside_pct,
+  round(100 * avg((a > hi)::int)::numeric, 1) above_pct, round(100 * avg((a < lo)::int)::numeric, 1) below_pct,
+  round(avg(hi - lo)::numeric, 1) width, 80 target_pct
+from allp group by 1 order by 1;
+```
+
+Export for the script (save the `rows` value one point per line, `;` → newline):
+
+```sql
+with p as (select c.issued_at t, c.device, c.basis, c.start_mgdl s, c.trend_per_minute tr, (e->>'minutes')::int m,
+    (e->>'mgdl')::float f, (e->>'actual')::float a, (e->>'lower')::float lo, (e->>'upper')::float hi
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,45,60))
+select string_agg(concat_ws(',', extract(epoch from p.t)::bigint, p.device, p.basis, round(p.s::numeric,1), p.m,
+  round(p.f::numeric,1), round(p.a::numeric,1), round(p.lo::numeric,1), round(p.hi::numeric,1),
+  round(coalesce(p.tr,0)::numeric,2),
+  coalesce((select round(r.mgdl::numeric,1)::text from glucos.readings r where p.m=15
+    and r.at between p.t + interval '4 min' and p.t + interval '6 min'
+    order by abs(extract(epoch from r.at - (p.t + interval '5 min'))) limit 1),''),
+  coalesce((select round(r.mgdl::numeric,1)::text from glucos.readings r where p.m=15
+    and r.at between p.t + interval '9 min' and p.t + interval '11 min'
+    order by abs(extract(epoch from r.at - (p.t + interval '10 min'))) limit 1),'')
+ ), ';' order by p.t, p.m) rows from p;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged. No app or relay code changed.
