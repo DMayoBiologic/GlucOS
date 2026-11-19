@@ -81,3 +81,10 @@ time in range, lows that started overnight, and the average change from the firs
 the last. It stops at 6 am, about where a wake-up and the post-wake rise above take over, and uses
 fixed hours rather than logged bedtimes and wake-ups. Like Mornings, it is observational only and
 never feeds the bolus calculator or any dose maths.
+
+Motion (`Sources/Engine/OvernightCardMotion.swift`, since round 92): on iPhone and Mac Insights the
+figures count up and a thin bar of the nights' time below, in and above range fills in from the
+leading edge as the card rises in (`onEntrance`, 0.2 s after the rise starts). A new period rolls
+the figures, glides the bar's shares to their new widths and cross-fades the sentences. Under
+Reduce Motion nothing moves: the card fades in with its reveal and a new period cross-fades the
+whole card in 0.2 s. Nothing loops; shared pictures and VoiceOver get the finished card.

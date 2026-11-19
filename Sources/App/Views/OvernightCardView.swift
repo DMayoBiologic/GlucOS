@@ -5,10 +5,12 @@ import SwiftUI
 /// glucose usually moved across the night (`OvernightSummary`). Worked out off the main thread once
 /// per data change (`OvernightSummaryCache`).
 ///
-/// Motion is the Lows and Highs cards': the figures count up where `figuresCountUp` is on (iPhone
-/// and Mac Insights) and roll to new values when the period changes; the sentences cross-fade.
-/// Nothing loops, and Reduce Motion shows the new values at once. Callers give it their own card
-/// surface.
+/// Motion (`OvernightCardMotion`): where `figuresCountUp` is on (iPhone and Mac Insights) the
+/// figures count up and the nights' range bar (below, in range, above) fills in from the leading
+/// edge as the card rises in (`onEntrance`). A new period rolls the figures, glides the bar's
+/// shares to their new widths and cross-fades the sentences. Under Reduce Motion nothing moves:
+/// the card fades in with its reveal, and a new period cross-fades the whole card in 0.2 s.
+/// Nothing loops, and a shared picture is drawn complete. Callers give it their own card surface.
 ///
 /// With `openLogbook`, tapping the card (or its "See these nights in the Logbook" row) opens the
 /// Logbook on the Overnight chip over the same days (`LogbookLink.overnight`): everything logged
@@ -63,7 +65,10 @@ struct OvernightCardView: View {
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.
             if let value {
+                // Under Reduce Motion a new period replaces the old picture with a cross-fade.
                 content(value)
+                    .id(reduceMotion ? AnyHashable(value) : AnyHashable("overnight"))
+                    .transition(.opacity)
             } else if shownKey == key {
                 emptyNote(key)
             } else {
@@ -79,9 +84,14 @@ struct OvernightCardView: View {
             } else {
                 new = await OvernightSummaryCache.shared.value(for: key, readings: shown)
             }
-            // The figures roll by themselves; the sentences and tile colours cross-fade alongside.
+            // The figures roll by themselves and the bar glides; the sentences and tile colours
+            // cross-fade alongside. Under Reduce Motion the whole card cross-fades instead.
             if value == nil || new == nil {
                 value = new
+            } else if reduceMotion {
+                if OvernightCardMotion.crossFades(from: value, to: new) {
+                    withAnimation(.easeInOut(duration: OvernightCardMotion.reducedFade)) { value = new }
+                }
             } else {
                 DS.animate(.standard, reduceMotion: reduceMotion) { value = new }
             }
@@ -134,6 +144,7 @@ struct OvernightCardView: View {
                 }
             }
             .monospacedDigit()
+            OvernightRangeBar(shares: OvernightCardMotion.shares(s))
             InsightsSparklineView(series: InsightsSparkline.overnight(s), tint: GlucoseRange.inRange.tint,
                                   label: OvernightSummaryText.sparklineLabel)
             if let line = OvernightSummaryText.movementLine(s, unit: unit) {
@@ -184,6 +195,59 @@ struct OvernightCardView: View {
     private func open(_ s: OvernightSummary) {
         guard let openLogbook else { return }
         openLogbook(.overnight(s.period, newestReading: s.end, now: Date()))
+    }
+}
+
+/// The nights' time below, in and above range as one thin bar, in that order every time, so a share
+/// that grows from nothing widens into place. Fills in from the leading edge as the card rises in
+/// (where `figuresCountUp` is on), then glides to new shares on `.emphasized` when the period or
+/// the data changes. Drawn complete under Reduce Motion (the card's own fade carries it), in a
+/// shared picture and anywhere figures don't count up. Hidden from VoiceOver: the card's summary
+/// says the same in words.
+private struct OvernightRangeBar: View {
+    let shares: OvernightCardMotion.Shares
+
+    @Environment(\.figuresCountUp) private var countsUp
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.insightsShareSnapshot) private var shareSnapshot
+    @State private var filled = false
+
+    private var fills: Bool { countsUp && !reduceMotion && !shareSnapshot }
+
+    var body: some View {
+        let colors = [GlucoseRange.low.tint, GlucoseRange.inRange.tint, GlucoseRange.high.tint]
+        GeometryReader { geo in
+            let all = shares.all
+            let shown = all.map(OvernightCardMotion.shows)
+            let lastShown = shown.lastIndex(of: true)
+            let gaps = CGFloat(max(0, shown.filter { $0 }.count - 1)) * 2
+            HStack(spacing: 0) {
+                ForEach(all.indices, id: \.self) { i in
+                    // Each tint at full strength, as a graphic needs; the figures above are the text.
+                    Rectangle()
+                        .fill(colors[i])
+                        .frame(width: shown[i] ? max(2, (geo.size.width - gaps) * all[i]) : 0)
+                        // The 2-point gap after every shown share but the last.
+                        .padding(.trailing, shown[i] && i != lastShown ? 2 : 0)
+                }
+            }
+            .frame(width: geo.size.width, alignment: .leading)
+            .dsAnimation(.emphasized, value: all)
+            .scaleEffect(x: !fills || filled ? 1 : 0.001, anchor: .leading)
+            .animation(fills ? .spring(response: OvernightCardMotion.fillResponse,
+                                       dampingFraction: OvernightCardMotion.fillDamping)
+                                   .delay(OvernightCardMotion.fillDelay) : nil,
+                       value: filled)
+        }
+        .frame(height: 6)
+        .background(Color.primary.opacity(0.06), in: Capsule())
+        .clipShape(Capsule())
+        .accessibilityHidden(true)
+        .onEntrance {
+            guard fills, !filled else { return }
+            // Next frame, so the bar is laid out empty first.
+            DispatchQueue.main.async { filled = true }
+        }
     }
 }
 
