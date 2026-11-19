@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.92.0", highlights: [
+            .init(symbol: "bell.badge",
+                  title: "See what the repeat setting means",
+                  detail: "Under the alert repeat in Settings, one line says how many alerts the last 7 days would have sent at the time picked, and the number rolls as you change it. Urgent lows always repeat every 5 minutes."),
             .init(symbol: "arrow.down.forward",
                   title: "Forecasts after high alerts",
                   detail: "We checked how the forecast follows glucose in the hour after a high alert, including when it starts to come back down, and kept it as it is for now."),

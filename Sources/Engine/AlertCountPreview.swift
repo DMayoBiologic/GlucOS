@@ -72,16 +72,35 @@ struct AlertCountPreview: Equatable {
     /// The low and high alerts the readings would have set off with `low`/`high` as the range and
     /// `prefs` as the alert switches, replayed one reading at a time at the reading's own time.
     func counts(lowMgdl: Double, highMgdl: Double, prefs: AlertPreferences) -> Counts {
-        guard prefs.enabled else { return Counts() }
-        // Only the alerts on the reading itself: the rest don't depend on the range.
+        let fired = tally(lowMgdl: lowMgdl, highMgdl: highMgdl, prefs: prefs, rapid: false)
+        return Counts(low: Self.lowKinds.reduce(0) { $0 + fired[$1, default: 0] },
+                      high: Self.highKinds.reduce(0) { $0 + fired[$1, default: 0] })
+    }
+
+    /// The kinds "Repeat no more than every" spaces out (round 98, under that picker). Urgent lows
+    /// keep their own fixed 5-minute repeat whatever it is set to, so they are left out.
+    static let repeatKinds: Set<AlertNotice.Kind> = [.low, .high, .veryHigh, .rapidChange]
+
+    /// How many low, high, very high and (when switched on) rapid-change alerts the readings would
+    /// have set off with `prefs.cooldownMinutes` as the repeat, everything else as set.
+    func repeatCount(lowMgdl: Double, highMgdl: Double, prefs: AlertPreferences) -> Int {
+        let fired = tally(lowMgdl: lowMgdl, highMgdl: highMgdl, prefs: prefs, rapid: prefs.rapidChange)
+        return Self.repeatKinds.reduce(0) { $0 + fired[$1, default: 0] }
+    }
+
+    /// Every alert on the reading itself, by kind. Stale, sensor and connection alerts are off:
+    /// they don't depend on the range or the repeat, and a replay has no fetch to go stale.
+    private func tally(lowMgdl: Double, highMgdl: Double, prefs: AlertPreferences,
+                       rapid: Bool) -> [AlertNotice.Kind: Int] {
+        guard prefs.enabled else { return [:] }
         var p = prefs
-        p.rapidChange = false
+        p.rapidChange = rapid
         p.stale = false
         p.sensorExpiry = false
         var planner = AlertPlanner()
         var quiet = AlertSnoozes()
         var next = 0
-        var out = Counts()
+        var out: [AlertNotice.Kind: Int] = [:]
         var snapshot = GlucoseSnapshot()
         snapshot.lowMgdl = lowMgdl
         snapshot.highMgdl = highMgdl
@@ -95,12 +114,36 @@ struct AlertCountPreview: Equatable {
             snapshot.current = r
             snapshot.fetchedAt = now
             let due = planner.evaluate(snapshot, prefs: p, now: now)
-            for n in planner.unsnoozed(due, snoozes: quiet, now: now) {
-                if Self.lowKinds.contains(n.kind) { out.low += 1 }
-                if Self.highKinds.contains(n.kind) { out.high += 1 }
-            }
+            for n in planner.unsnoozed(due, snoozes: quiet, now: now) { out[n.kind, default: 0] += 1 }
         }
         return out
+    }
+}
+
+/// The words for the line under "Repeat no more than every".
+enum AlertRepeatLine {
+    /// "12 alerts", "1 alert", "no alerts".
+    static func alerts(_ n: Int) -> String {
+        switch n {
+        case 0: return "no alerts"
+        case 1: return "1 alert"
+        default: return "\(n) alerts"
+        }
+    }
+
+    /// "Last 7 days: this would have sent 12 alerts (was 20)". The "(was …)" only while the count
+    /// differs from the one for the repeat as it was when Settings opened.
+    static func text(days: Int, count: Int, was: Int?) -> String {
+        var s = "\(AlertCountLine.period(days: days)): this would have sent \(alerts(count))"
+        if let was, was != count { s += " (was \(was))" }
+        return s
+    }
+
+    /// "Repeated alerts, last 7 days: this setting would have sent 12 alerts, down from 20".
+    static func spoken(days: Int, count: Int, was: Int?) -> String {
+        var s = "Repeated alerts, \(AlertCountLine.period(days: days).lowercased()): this setting would have sent \(alerts(count))"
+        if let was, was != count { s += ", \(count < was ? "down" : "up") from \(was)" }
+        return s
     }
 }
 
