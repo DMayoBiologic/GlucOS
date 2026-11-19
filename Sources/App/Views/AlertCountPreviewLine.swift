@@ -100,10 +100,12 @@ struct AlertRepeatPreviewLine: View {
     let prefs: AlertPreferences
     let lowMgdl: Double
     let highMgdl: Double
+    /// The repeat when Settings opened: what "was" counts against. Settings holds it, so the line
+    /// coming and going (alerts off and on, a search) keeps it. Nil: the repeat as first shown.
+    var startMinutes: Int? = nil
 
     @State private var preview: AlertCountPreview?
-    /// The repeat when the line appeared: what "was" counts against.
-    @State private var startMinutes: Int?
+    @State private var firstShown: Int?
     @State private var shown: (now: Int, was: Int?)?
     @State private var generation = 0
 
@@ -112,6 +114,7 @@ struct AlertRepeatPreviewLine: View {
         let low: Double
         let high: Double
         let prefs: AlertPreferences
+        let start: Int?
     }
 
     var body: some View {
@@ -134,7 +137,7 @@ struct AlertRepeatPreviewLine: View {
                 .accessibilityLabel(AlertRepeatLine.spoken(days: preview.days, count: shown.now, was: shown.was))
             }
         }
-        .onAppear { if startMinutes == nil { startMinutes = prefs.cooldownMinutes } }
+        .onAppear { if firstShown == nil { firstShown = prefs.cooldownMinutes } }
         .task(id: AlertPreviewSourceKey(readings: readings, records: records)) {
             let r = readings, a = records
             let gathered = await Task.detached(priority: .userInitiated) {
@@ -144,11 +147,11 @@ struct AlertRepeatPreviewLine: View {
             preview = gathered
             generation += 1
         }
-        .task(id: CountKey(generation: generation, low: lowMgdl, high: highMgdl, prefs: prefs)) {
+        .task(id: CountKey(generation: generation, low: lowMgdl, high: highMgdl, prefs: prefs, start: startMinutes)) {
             guard let preview else { shown = nil; return }
             let l = lowMgdl, h = highMgdl, p = prefs
             var before = p
-            before.cooldownMinutes = startMinutes ?? p.cooldownMinutes
+            before.cooldownMinutes = startMinutes ?? firstShown ?? p.cooldownMinutes
             let changed = before.cooldownMinutes != p.cooldownMinutes
             let counts = await Task.detached(priority: .userInitiated) {
                 (now: preview.repeatCount(lowMgdl: l, highMgdl: h, prefs: p),

@@ -184,6 +184,9 @@ struct PhoneSettingsView: View {
     /// `alertHistory` scrolls to Alerts and then opens Alert History (the Insights Alerts card).
     enum Jump: Hashable { case alerts, relay, alertHistory }
     @State private var opensAlertHistory = false
+    /// The alert repeat when Settings opened, for the repeat preview's "was". Held here, not in the
+    /// line, so turning alerts off and on or searching Settings never resets it.
+    @State private var openingRepeat: Int?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -232,6 +235,7 @@ struct PhoneSettingsView: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        .onAppear { if openingRepeat == nil { openingRepeat = settings.alertCooldownMinutes } }
         .task {
             relaySecret = relay.secret
             notificationsAllowed = await AlertManager.notificationsAllowed()
@@ -502,7 +506,8 @@ struct PhoneSettingsView: View {
                     .settingsAnchor(.alertRepeat)
                     AlertRepeatPreviewLine(readings: store.archive, records: logbook.alerts,
                                            prefs: settings.alertPreferences,
-                                           lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl)
+                                           lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl,
+                                           startMinutes: openingRepeat)
                     AlertSoundPickerLink()
                         .settingsAnchor(.alertSound)
                     TestAlertButton(requestsAuthorization: true)

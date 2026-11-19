@@ -452,6 +452,9 @@ private struct AlertSettingsTab: View {
     @State private var notificationsAllowed: Bool?
     @State private var permissionChecked = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The alert repeat when the tab opened, for the repeat preview's "was" (kept across alerts
+    /// being switched off and on).
+    @State private var openingRepeat: Int?
 
     private static let cooldownChoices = [5, 10, 15, 20, 30, 45, 60, 90, 120]
 
@@ -582,7 +585,8 @@ private struct AlertSettingsTab: View {
                 .settingsAnchor(.alertRepeat)
                 AlertRepeatPreviewLine(readings: store.archive, records: logbook.alerts,
                                        prefs: settings.alertPreferences,
-                                       lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl)
+                                       lowMgdl: settings.lowMgdl, highMgdl: settings.highMgdl,
+                                       startMinutes: openingRepeat)
             } header: {
                 SettingsSectionHeader("Also Notify Me About", systemImage: "bell")
             } footer: {
@@ -656,6 +660,7 @@ private struct AlertSettingsTab: View {
             if AlertHistoryOpenRequest.shared.take() { showsHistory = true }
         }
         .task { await refreshNotificationStatus() }
+        .onAppear { if openingRepeat == nil { openingRepeat = settings.alertCooldownMinutes } }
         // Pick up a change made in System Settings when the user comes back.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await refreshNotificationStatus() }
