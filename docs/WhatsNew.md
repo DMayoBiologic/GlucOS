@@ -7,17 +7,23 @@ release's highlights once.
 ## Where it shows
 
 - **iPhone**: a sheet, about a second after the app comes to the foreground. Sensor wearers and
-  followers both get it. Done or a swipe down closes it.
+  followers both get it. Continue or a swipe down closes it.
 - **Mac**: a card over the menu bar popover, the next time the popover opens. Sparkle relaunches
   the app by itself after an update, often while nobody is looking, so nothing opens on its own.
-  Done, Return or Esc closes it; closing the popover does too.
+  Continue, Return or Esc closes it; closing the popover does too.
 - **Settings › About › What's New** (iPhone, follower Settings too) and **Settings › Advanced ›
   Updates › What's New…** (Mac) open every release's highlights up to this version, any time.
   Settings search (Mac, and iPhone Settings for sensor wearers) finds it ("what's new", "changelog",
   "release notes"). Follower Settings has the row but no search.
 
-The rows rise in one after another (0.06 s apart, 0.35 s each, capped at 8 steps). Under Reduce
-Motion they are simply there. Each row reads as one VoiceOver element; the Mac announces the title.
+The rows rise in one after another (0.06 s apart, 0.35 s each, capped at 8 steps). Each row's
+symbol, and the sparkles over the title, plays one SF Symbols bounce as it settles (0.2 s into its
+rise), never repeating. Continue fades in last, 0.1 s after the last row lands (under a second
+however long the list); Return, Esc and VoiceOver reach it before then. Under Reduce Motion the
+rows and Continue simply fade in together (0.25 s), with no movement and no symbol effects. Each
+row reads as one VoiceOver element, and VoiceOver focus starts on the title (0.55 s after opening,
+0.25 s under Reduce Motion) on both iPhone and Mac. Timings: `WhatsNew.symbolDelay`,
+`continueDelay`, `titleFocusDelay`, tested in `WhatsNewTests`.
 
 ## When it shows
 

@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// What's New (docs/WhatsNew.md): a release's highlights, each row rising in once as the sheet
-/// opens (instant under Reduce Motion), and a Done button. A sheet on iPhone; a card over the menu
+/// opens with its symbol playing a one-shot effect as it lands, then a Continue button fading in
+/// last. Under Reduce Motion everything simply fades in together. VoiceOver starts on the title. A sheet on iPhone; a card over the menu
 /// bar popover, or a sheet in Settings, on the Mac. The rules live in `WhatsNew` (Engine).
 struct WhatsNewView: View {
     let releases: [WhatsNewRelease]
@@ -12,6 +13,7 @@ struct WhatsNewView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Flips once when the view appears; every row animates off it with its own delay.
     @State private var risen = false
+    @AccessibilityFocusState private var titleFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,15 +29,21 @@ struct WhatsNewView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollBounceBehavior(.basedOnSize)
-            doneButton
+            continueButton
         }
-        .onAppear { risen = true }
+        .onAppear {
+            risen = true
+            let delay = WhatsNew.titleFocusDelay(reduceMotion: reduceMotion)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { titleFocused = true }
+        }
         #if os(macOS)
         .frame(minWidth: compact ? nil : 420, minHeight: compact ? nil : 360)
-        // Esc closes it like Done: the card over the popover, or the sheet in Settings.
+        // Esc closes it like Continue: the card over the popover, or the sheet in Settings.
         .closesOnEscape(onDone)
         #endif
     }
+
+    private var rowCount: Int { releases.reduce(0) { $0 + $1.highlights.count } }
 
     /// Each release with the index of its first row, so the rise staggers across releases.
     private var sections: [WhatsNewSection] {
@@ -51,10 +59,12 @@ struct WhatsNewView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: compact ? 26 : 34, weight: .semibold))
                 .foregroundStyle(Palette.brandGradient)
+                .modifier(WhatsNewSymbolPlay(delay: reduceMotion ? nil : 0))
                 .accessibilityHidden(true)
             Text(WhatsNew.title(for: releases))
                 .dsFont(.title)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($titleFocused)
             Text("Highlights from recent updates.")
                 .dsFont(.callout)
                 .foregroundStyle(.secondary)
@@ -71,7 +81,7 @@ struct WhatsNewView: View {
                     .accessibilityAddTraits(.isHeader)
             }
             ForEach(section.release.highlights.indices, id: \.self) { offset in
-                row(section.release.highlights[offset])
+                row(section.release.highlights[offset], index: section.firstRow + offset)
                     .modifier(WhatsNewRise(shown: risen, reduceMotion: reduceMotion,
                                            delay: WhatsNew.riseDelay(row: section.firstRow + offset,
                                                                      reduceMotion: reduceMotion)))
@@ -79,11 +89,12 @@ struct WhatsNewView: View {
         }
     }
 
-    private func row(_ highlight: WhatsNewHighlight) -> some View {
+    private func row(_ highlight: WhatsNewHighlight, index: Int) -> some View {
         HStack(alignment: .top, spacing: DS.Space.md) {
             Image(systemName: highlight.symbol)
                 .font(.system(size: compact ? 18 : 22, weight: .semibold))
                 .foregroundStyle(Palette.brandGradient)
+                .modifier(WhatsNewSymbolPlay(delay: WhatsNew.symbolDelay(row: index, reduceMotion: reduceMotion)))
                 .frame(width: compact ? 26 : 32)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DS.Space.xs) {
@@ -98,13 +109,14 @@ struct WhatsNewView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var doneButton: some View {
+    /// Fades in last, once the rows have risen. Return, Esc and VoiceOver reach it straight away.
+    private var continueButton: some View {
         HStack {
             #if os(macOS)
             Spacer()
             #endif
             Button(action: onDone) {
-                Text("Done")
+                Text("Continue")
                     #if os(iOS)
                     .frame(maxWidth: .infinity)
                     #endif
@@ -114,6 +126,10 @@ struct WhatsNewView: View {
         }
         .padding(.horizontal, compact ? DS.Space.lg : DS.Space.xxl)
         .padding(.vertical, compact ? DS.Space.md : DS.Space.lg)
+        .opacity(risen ? 1 : 0)
+        .animation(.easeOut(duration: reduceMotion ? WhatsNew.reduceMotionFade : WhatsNew.continueFade)
+                    .delay(WhatsNew.continueDelay(rows: rowCount, reduceMotion: reduceMotion)),
+                   value: risen)
     }
 }
 
@@ -125,18 +141,40 @@ private struct WhatsNewSection: Identifiable {
 }
 
 /// A row's one-time rise: up from `WhatsNew.riseDistance` below while fading in, after its
-/// stagger delay. Under Reduce Motion the row is simply there.
+/// stagger delay. Under Reduce Motion the row only fades in, with the others, without moving.
 private struct WhatsNewRise: ViewModifier {
     let shown: Bool
     let reduceMotion: Bool
     let delay: TimeInterval
 
     func body(content: Content) -> some View {
-        let visible = shown || reduceMotion
         content
-            .opacity(visible ? 1 : 0)
-            .offset(y: visible ? 0 : WhatsNew.riseDistance)
-            .animation(reduceMotion ? nil : .easeOut(duration: WhatsNew.riseDuration).delay(delay), value: shown)
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown || reduceMotion ? 0 : WhatsNew.riseDistance)
+            .animation(reduceMotion
+                       ? .easeOut(duration: WhatsNew.reduceMotionFade)
+                       : .easeOut(duration: WhatsNew.riseDuration).delay(delay),
+                       value: shown)
+    }
+}
+
+/// A symbol's one-shot bounce, `delay` after appearing (nil: never, as under Reduce Motion).
+/// Never repeats; the sheet or card plays it again only when it opens again.
+private struct WhatsNewSymbolPlay: ViewModifier {
+    let delay: TimeInterval?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var plays = 0
+
+    func body(content: Content) -> some View {
+        content
+            .symbolEffect(.bounce, options: .nonRepeating, value: plays)
+            .symbolEffectsRemoved(reduceMotion)
+            .task {
+                guard let delay, plays == 0 else { return }
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                plays = 1
+            }
     }
 }
 
