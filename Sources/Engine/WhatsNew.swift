@@ -186,6 +186,9 @@ enum WhatsNewCatalog {
             .init(symbol: "sensor.tag.radiowaves.forward",
                   title: "New sensors in your Logbook",
                   detail: "When you start a new sensor, GlucOS adds Sensor started to your Logbook and chart at the time it began."),
+            .init(symbol: "sunrise",
+                  title: "Forecasts on early-morning rises",
+                  detail: "We checked forecasts when glucose climbs before 8 am with nothing logged and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.76.0", highlights: [
             .init(symbol: "chart.line.downtrend.xyaxis",

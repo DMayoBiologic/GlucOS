@@ -6434,3 +6434,103 @@ raise it with Declan as a decision card instead of shipping anything.
 
 **Dosing.** Not touched: the insulin curve, insulin on board, sensitivity and the bolus calculator
 are unchanged.
+
+## 88. Does the forecast lag dawn rises, and is the range right there? (19 Nov 2026)
+
+**Question.** Between 03:00 and 08:00 glucose often climbs with nothing logged (the dawn rise). Does
+the line lag those climbs, and does the range cover them as well as it covers daytime climbs with
+nothing logged (§65)? Would a time-of-day trend tweak help on mornings it wasn't fitted on? §49
+(a fixed dawn allowance) and §63 (a flat dawn offset over all dawn forecasts) both lost held out;
+this looks only at forecasts issued while glucose is rising.
+
+**Data.** Live readings 11–19 Nov 2026 (10,425) and the Logbook's meals and rapid doses. The
+accuracy log has no clean dawn points at 30 or 60 minutes yet, so 30/60 come from a replay of the
+engine's trend forecast every 5 minutes (20-minute slope clamped at ±4, 30-minute fade, gains 0.45,
+0.6 and 0.7), as in §65. A **dawn rise** is a forecast issued 03:00–07:59 Perth with an engine trend
+of +0.5 mg/dL a minute or more and no meal or rapid dose logged in the 4 hours before; a **day
+rise** is the same from 09:00 to 21:59. Points with a meal logged in the next hour are left out of
+both (a late-logged meal). The replay's range is the line plus the 10th–90th percentile of all
+replayed errors at that horizon on the other Perth days (leave one day out, so no point sets its own
+band). That is retrospective: the other days include later ones, while the app calibrates from past
+errors only, so this checks the band's shape, not the exact range the app drew that morning. Dawn and day points with a meal
+logged in the next hour are left out of the fit and the held-out scores too. Script:
+`scripts/dawn-rises.py`.
+
+Gain 0.45 (Mac and relay); bias is actual − line, so negative means the line ran high.
+
+| Horizon | Group | Points (mornings/days) | MAE | No change | Bias | Inside | Below | Above |
+|---|---|---|---|---|---|---|---|---|
+| 15 min | dawn rise | 127 (8) | 18.0 | 15.4 | −10.5 | 78% | 20% | 2% |
+| 15 min | day rise | 77 (6) | 16.1 | 19.0 | +0.6 | 78% | 10% | 12% |
+| 30 min | dawn rise | 127 (8) | 21.4 | 19.1 | −7.2 | 83% | 10% | 6% |
+| 30 min | day rise | 77 (6) | 23.0 | 25.4 | −0.6 | 86% | 4% | 10% |
+| 60 min | dawn rise | 127 (8) | 25.7 | 24.0 | −6.7 | 94% | 3% | 3% |
+| 60 min | day rise | 77 (6) | 41.0 | 39.4 | −19.6 | 82% | 14% | 4% |
+
+The line **doesn't lag dawn rises; it runs ahead of them.** Dawn rises are slower than daytime ones
+(trend 1.38 against 1.56) and mostly stall: the reading 30 minutes later is below the reading at
+issue on 65 of 127, and the median dawn rise delivers none of the rise the line draws over 30
+minutes (−0.10 of it, against 0.48 for day rises). "No change" beats the line at every horizon at
+dawn, and the line beats it during the day at 15 and 30 minutes. Higher gains make it worse (0.7:
+bias −14.3/−12.4/−11.9). By morning at 30 minutes the line ran high on 12, 15, 16, 17 and 18 Nov
+(−8 to −30) and low on 13 and 14 Nov (+4, +5); 19 Nov (partial) was even. The live accuracy log
+agrees where it has points: 16 clean 15-minute dawn-rise points on 16–19 Nov, bias −17.2, 88%
+inside, 13% below.
+
+The **range is as well calibrated at dawn as during the day at 30 minutes** (83% against 86%, close
+to the 80% it aims for) and wider than it needs to be at 60 (94%). Its misses at dawn are all on the
+lower side, because the line sits high; during the day they are on the upper side at 15 and 30
+minutes and the lower side at 60.
+
+**Held out.** For dawn rises only, the trend's gain is scaled by k in the first 30 minutes (k from
+0 to 0.85 damps, 1.2 to 2 boosts) with an optional carry-on past the fade (share b of the trend, 0
+to 0.5). k and b were picked on the other mornings and scored on the held-out one (leave one Perth
+morning out over 8 mornings), every other forecast untouched. The fit picked **k = 0, no trend at
+all on dawn rises**, on 7 of 8 mornings at gain 0.45 (k = 0.25 on 18 Nov) and on all 8 at 0.6 and
+0.7; no boost was ever picked.
+
+| Gain | Better held out, all points 30 / 60 min | Dawn rises 30 / 60 min | All-point MAE 30 / 60 | Predicted-high crossings (reached 250) |
+|---|---|---|---|---|
+| 0.45 | 6/8, 5/8 | 6/8, 5/8 | 24.76 → 24.62, 39.66 → 39.56 | 27 (20) → 23 (17) |
+| 0.6 | 6/8, 6/8 | 6/8, 6/8 | | 34 (25) → 29 (21) |
+| 0.7 | 6/8, 6/8 | 6/8, 6/8 | | 43 (33) → 38 (29) |
+
+It wins on most mornings, but by 0.1–0.15 mg/dL over all points, it lands on the end of the grid
+(switch the trend off), it is worse on 13 and 14 Nov (the two mornings that did keep rising, and 15 Nov at 60 minutes at gain 0.45), and
+it removes **three correct predicted-high crossings** (the 30-minute line crossing 250 when the
+reading then reached 250 within 45 minutes: 14 Nov 04:59 and 05:04 from 247–249 to a peak of 261,
+15 Nov 04:29 from 243 to 293) to drop one false one. These are forecast crossings, not delivered
+alerts; the two on 14 Nov are five minutes apart and could be one alert. Milder fixed scales (k
+0.55–0.85) keep every crossing and are better on 6–7 of 8 mornings, but choosing one after seeing the held-out
+scores is fitting on the test, so they don't count. Applying k = 0 to day rises as well loses: it
+moves day rises from −0.6 to +9.9 bias at 30 minutes and from 86% to 81% inside.
+
+**Decision.** Ship nothing. The dawn line runs high because most dawn "rises" are bumps that turn
+within half an hour, which is the turning-point lever §45 owns (§71 folded its trough/peak damping
+into §45's retest), not a separate clock rule; a dawn-only switch would also make the forecaster
+time-of-day aware in three places (Mac, iPhone, relay) for a 0.1 mg/dL gain and cost correct
+predicted highs. Retest on **8 Dec 2026** alongside §65's and §45's reruns, with three weeks of mornings:
+refit k leave-one-morning-out with §45's turning-point easing in the base, and ship a dawn scale
+only if it is better at 30 and 60 minutes on most held-out mornings at every gain, the fit isn't at
+k = 0, and it removes no predicted-high crossing that came true (checked with an alert replay). If the relay ledger logs 30/60 by
+then, check the live dawn-rise bias first.
+
+Live-log check (15 minutes), in the Supabase SQL editor:
+
+```sql
+with logs as (select to_timestamp((payload->>'timestamp')::float) ts from glucos.logbook
+  where not deleted and payload->>'timestamp' is not null and (kind='meal' or (kind='dose' and payload->>'kind'='rapid'))),
+raw as (select c.issued_at t, extract(hour from c.issued_at at time zone 'Australia/Perth')::int hr,
+  (e->>'minutes')::int m, (e->>'mgdl')::float f, (e->>'lower')::float lo, (e->>'upper')::float hi, (e->>'actual')::float a
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,60) and c.trend_per_minute >= 0.5),
+g as (select *, case when hr between 3 and 7 then 'dawn' when hr between 9 and 21 then 'day' end grp from raw
+  where not exists (select 1 from logs where ts between raw.t - interval '4 hours' and raw.t + interval '1 hour'))
+select m, grp, count(*) n, round(avg(a-f)::numeric,1) bias, round(avg(abs(a-f))::numeric,1) mae,
+  round(100*avg((a between lo and hi)::int)) inside, round(100*avg((a<lo)::int)) below
+from g where grp is not null group by 1,2 order by 1,2;
+```
+
+**Dosing.** Not touched: the insulin curve, insulin on board, sensitivity and the bolus calculator
+are unchanged.
