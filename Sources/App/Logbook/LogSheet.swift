@@ -299,6 +299,7 @@ struct LogSheet: View {
                 .frame(minHeight: 220, idealHeight: editing == nil ? 520 : 360, maxHeight: .infinity)
                 .allowsHitTesting(!saved)
                 Divider()
+                similarLine
                 footer
             }
         }
@@ -1197,6 +1198,30 @@ struct LogSheet: View {
     }
 
     // MARK: Footer
+
+    /// "You logged a similar meal 3 min ago · View" above the buttons, for a new meal or dose that
+    /// looks like one logged in the last 10 minutes (`SimilarEntry`). Only a note: Log is unchanged.
+    @ViewBuilder private var similarLine: some View {
+        if isNew && !saved {
+            SimilarEntryLine(drafts: similarDrafts, entries: logbook.entries,
+                             isFollower: !settings.hasCredentials,
+                             padding: EdgeInsets(top: 12, leading: 16, bottom: 0, trailing: 16))
+        }
+    }
+
+    /// The meal and dose as Log would save them now, for `SimilarEntry`.
+    private var similarDrafts: [LogEntry] {
+        var drafts: [LogEntry] = []
+        if includes(.insulin), let units {
+            drafts.append(.dose(InsulinDose(id: doseID, timestamp: time, units: units, kind: kind,
+                                            name: insulinName.trimmingCharacters(in: .whitespacesAndNewlines))))
+        }
+        if includes(.food), let carbs {
+            let described = foodText.isEmpty ? mealItems.map(\.name).joined(separator: ", ") : foodText
+            drafts.append(.meal(MealEntry(id: mealID, timestamp: time, carbs: carbs, food: described)))
+        }
+        return drafts
+    }
 
     private var footer: some View {
         HStack(spacing: 10) {
