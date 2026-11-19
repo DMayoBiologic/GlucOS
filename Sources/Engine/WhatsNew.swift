@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "arrow.left.and.right",
                   title: "One cursor across compared days",
                   detail: "When comparing two days, drag across the chart or point at it on the Mac to see both days at the same time and how far apart they are."),
+            .init(symbol: "chart.line.downtrend.xyaxis",
+                  title: "Forecasts on slow, steady drifts",
+                  detail: "We checked forecasts when glucose eases gently up or down for an hour and kept them as they are for now."),
         ]),
         WhatsNewRelease(version: "1.80.0", highlights: [
             .init(symbol: "calendar",
