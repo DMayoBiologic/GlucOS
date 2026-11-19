@@ -6661,3 +6661,109 @@ group by 1,2 order by 1,2;
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged.
+
+## 90. After a low, does the forecast run low and miss the rebound high? (19 Nov 2026)
+
+**Question.** Lows are often followed by a climb well past the range, from the treatment, from
+the body's own counter-regulation, or both. In the 2 hours after a reading climbs back out of
+<70 (treated or not), does the forecast run low and miss the rebound, compared with forecasts that
+start at the same glucose and trend away from any low? §37 (treated lows as fast carbs) and §78
+looked only at treatments, and §40 at range tops from low starts.
+
+**Data.** Live readings 11–19 Nov 2026 (10,556), the Logbook's meals, rapid doses and hypo
+treatments, and the accuracy log's clean shown points. A **low** is a run of readings under 70; it
+ends at the first reading at 70 or more that holds for 10 minutes (a dip back under inside 10
+minutes is the same low). It is **treated** if food was logged from 30 minutes before it started to
+20 minutes after it ended. The **rebound window** is forecasts issued 0–120 minutes after the end,
+and a **rebound high** is a reading over 180 in that window. **Matched starts**: every other
+forecast issued 3+ hours after any reading under 70, matched to each rebound point by start (±15
+mg/dL), trend (±0.5 mg/dL a minute) and whether anything was logged in the 2 hours before; each
+rebound point is compared with the mean of its 5 nearest matches. Replay: the engine's trend
+forecast every 5 minutes (as §88 and §89), which leaves out carbs and insulin, so it can't see
+§37's treatment curve; the live log is shown first for that reason. Script:
+`scripts/rebound-highs.py` (same export as §89).
+
+Twelve lows, 8 treated. **Eight of 12 rebounded over 180 within 2 hours** (5 treated, 3
+untreated), peaking at 185–309; 11 Nov 14:51 (untreated, nadir 59) reached 309.
+
+Live accuracy log (the real engine, §37's treatment curve included), bias is actual − line:
+
+| Horizon | Group | Points (lows) | MAE | No change | Bias | Inside | Above | Matched bias, rebound vs other | Matched inside |
+|---|---|---|---|---|---|---|---|---|---|
+| 15 min | rebound window | 118 (11) | 19.6 | 20.3 | +1.4 | 73% | 15% | +0.1 vs +2.8 | 72% vs 81% |
+| 30 min | rebound window | 54 (9) | 32.9 | 34.2 | +12.0 | 78% | 11% | +15.5 vs −0.9 | 81% vs 85% |
+| 30 min | treated lows | 42 (6) | 29.9 | 32.5 | +11.9 | 76% | 12% | +16.3 vs −3.2 | 83% vs 85% |
+| 60 min | rebound window | 29 (4) | 46.0 | 48.2 | +24.4 | 90% | 3% | +25.0 vs +0.7 | 92% vs 58% |
+
+Replay, gain 0.45 (0.6 and 0.7 are the same shape):
+
+| Horizon | Group | Points (lows) | MAE | No change | Bias | Inside | Above | Matched bias, rebound vs other |
+|---|---|---|---|---|---|---|---|---|
+| 30 min | rebound window, all | 212 (12) | 28.3 | 29.6 | +4.3 | 75% | 15% | +4.2 vs +3.9 |
+| 30 min | first hour after the low | 101 (11) | 33.6 | 35.2 | +13.3 | 62% | 26% | +14.6 vs +12.0 |
+| 30 min | second hour | 111 (12) | 23.5 | 24.6 | −3.8 | 86% | 5% | −2.9 vs −1.6 |
+| 60 min | rebound window, all | 212 (12) | 42.7 | 44.6 | +4.4 | 77% | 11% | +2.5 vs +8.1 |
+| 60 min | first hour after the low | 101 (11) | 45.4 | 49.3 | +26.6 | 73% | 23% | +27.8 vs +18.9 |
+| 60 min | second hour | 111 (12) | 40.3 | 40.3 | −15.9 | 80% | 0% | −14.9 vs +0.7 |
+| 30 min | all other (3 h+ from a low) | 1,490 | 22.4 | | −1.2 | | | |
+
+**Yes, in the first hour, but mostly for the reason it runs low on any steep climb.** The live line
+ran 12 mg/dL under the reading at 30 minutes and 24 at 60 through the rebound window, where matched
+starts ran about even, and that holds after treated lows even with §37's fast curve in the line.
+The replay splits it: in the first hour after a low the trend line runs low (+13 at 30, +27 at 60,
+26% of 30-minute readings above the range), but matched climbs from the same start and trend run
+nearly as low (+12, +19), so most of it is the momentum fade every steep rise sees. In the second
+hour the rebound peaks and turns, and the line runs **high** at 60 minutes (−16 against +0.7
+matched), so a longer climb would hurt there. The range mostly holds (78% and 90% inside live, few
+misses above at 60). The live 30-minute gap against matched starts (+15.5 vs −0.9) is on 9 lows and
+32 matched points, so it needs more lows before it counts.
+
+Per low (replay, 30-minute bias): six lows ran low (+6 to +27, the biggest rebounds) and five ran
+high (−10 to −30, rebounds that stalled), with one about even, so the error swaps sign from low to low.
+
+**Held out.** In the first hour after a low, on points with trend ≥ 0, the trend's gain is scaled
+by k (0.5 to 2.0) in the first 30 minutes and carries on past the fade at share b (0 to 0.5),
+picked on the other Perth days and scored on the held-out one (leave one day out over the 7 days
+with lows), by 30- plus 60-minute MAE over all points:
+
+| Gain | Better held out, all points 30 / 60 | Rebound first hour 30 / 60 | Most-picked | All-point MAE 30 / 60 | Predicted-high crossings |
+|---|---|---|---|---|---|
+| 0.45 | 2/7, 3/7 | 2/7, 3/7 | k 1.25, b 0.1 | 24.00 → 23.96, 37.92 → 37.85 | 27 → 27 |
+| 0.6 | 3/7, 2/7 | 3/7, 2/7 | k 1, b 0.1 | 24.14 → 24.13, 38.14 → 38.11 | 34 → 34 |
+| 0.7 | 1/7, 1/7 | 1/7, 1/7 | k 0.75, b 0.1 | 24.34 → 24.35, 38.37 → 38.35 | 41 → 41 |
+
+The fit boosts on some days and damps on others (11 Nov picks k 0.5, the rest 1.0–1.5), wins on at
+most 3 of 7 held-out days at any gain, and makes 15 and 16 Nov's rebounds much worse at 60 minutes
+(26.5 → 40.9, 40.4 → 55.4). A whole-window version (both hours, trend ≥ 0) did worse: 0–1 of 7 at
+0.45.
+
+**Decision.** Ship nothing. Rebound highs are common (8 of 12 lows), and the live line does run
+low through them, but in the replay that is mostly the same momentum fade that every steep climb
+sees, the second hour runs the other way, and no rebound boost wins held out. A rebound-specific
+treatment size (how much the logged food lifts glucose out of a low) would be carb maths. Retest
+on **10 Dec 2026**, only with 25+ lows on 10+ days: rerun the matched live comparison (ship only if
+the live 30-minute gap against matched starts holds on most days), refit k and b leave one day
+out, and try a first-hour range top widening beside §40 if readings keep landing above the range
+in the first hour. Re-check §37 on the same run.
+
+Live-log check, in the Supabase SQL editor (forecasts issued within 2 hours of a reading climbing
+back out of <70, against all others; simpler than the script's episode rule and unmatched. On 19
+Nov: 30-minute rebound 54 points, bias +12.1, against +0.0 for the rest):
+
+```sql
+with r as (select at, mgdl, lag(mgdl) over (order by at) prev from glucos.readings where trend > 0),
+ex as (select at from r where prev < 70 and mgdl >= 70),
+p as (select c.issued_at, (e->>'minutes')::int m, (e->>'mgdl')::float f, (e->>'lower')::float lo,
+  (e->>'upper')::float hi, (e->>'actual')::float a, c.start_mgdl s
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,60))
+select m, exists (select 1 from ex where ex.at between p.issued_at - interval '2 hours' and p.issued_at) rebound,
+  count(*) n, round(avg(a-f)::numeric,1) bias, round(avg(abs(a-f))::numeric,1) mae,
+  round(avg(abs(a-s))::numeric,1) nochange, round(100*avg((a between lo and hi)::int)) inside,
+  round(100*avg((a > hi)::int)) above
+from p group by 1,2 order by 1,2;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, §37's treatment curve, the insulin curve,
+insulin on board, sensitivity and the bolus calculator are unchanged.
