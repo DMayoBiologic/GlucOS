@@ -10,6 +10,9 @@ import Foundation
 //    midnight to now and needs an hour gone.
 // 3. A day needs readings in half of its 15-minute slots, otherwise it gets no bar: a day with a
 //    sensor gap shows nothing rather than a share of a few hours dressed up as the day.
+//    The breakdown's hours spread the shares over the whole day, so below 90% of the slots they
+//    are shown as estimates ("≈18 h 40 min", VoiceOver "about") and below 50% not at all
+//    (`times`).
 // 4. Each bucket counts as below (under the low threshold), in range, or above (over the high one),
 //    the classification the popover and Insights use.
 //
@@ -24,6 +27,29 @@ struct DayInRange: Hashable {
     /// midnight to now for today. The breakdown spreads it by the shares to say how long each
     /// lasted (`parts`). 0 when only the shares are known.
     var spanMinutes: Int = 0
+    /// The share of the day's 15-minute slots that had a reading, 0...1. The hours in `parts` are
+    /// the shares spread over the whole span, so on a day with gaps they are an extrapolation.
+    var coverage: Double = 1
+
+    /// How the breakdown shows the hours each share lasted.
+    enum Times: Hashable {
+        /// Readings cover at least `exactCoverage` of the day: "18 h 40 min".
+        case exact
+        /// Readings cover `estimateCoverage` up to `exactCoverage`: "≈18 h 40 min", "about".
+        case estimated
+        /// No span, or too little of the day covered: only the percents.
+        case hidden
+    }
+
+    /// From this share of 15-minute slots up the hours read as measured.
+    static let exactCoverage = 0.9
+    /// Below this share the hours are left out: the shares stand, the hours would be mostly guess.
+    static let estimateCoverage = 0.5
+
+    var times: Times {
+        guard spanMinutes > 0, coverage >= Self.estimateCoverage else { return .hidden }
+        return coverage >= Self.exactCoverage ? .exact : .estimated
+    }
 
     static let bucketMinutes = TodaySoFar.bucketMinutes
     static let coverageMinutes = TodaySoFar.coverageMinutes
@@ -72,7 +98,8 @@ struct DayInRange: Hashable {
         }
         let n = Double(buckets.count)
         return DayInRange(below: Double(below) / n, inRange: Double(inside) / n, above: Double(above) / n,
-                          spanMinutes: Int((span / 60).rounded(.down)))
+                          spanMinutes: Int((span / 60).rounded(.down)),
+                          coverage: min(1, Double(filled) / Double(possible)))
     }
 
     /// The three shares in the bar's order, each with how long it lasted: its share of the day's
@@ -185,30 +212,53 @@ enum DayInRangeBreakdownText {
         return m % 60 == 0 ? h : "\(h) \(mins(m % 60))"
     }
 
-    /// "4% · 1 h", the figure under a share's name. Without bucket counts just the percent.
+    /// "4% · 1 h", the figure under a share's name; "4% · ≈1 h" when the hours are estimates, just
+    /// "4%" when they're hidden.
+    static func figure(_ part: DayInRangePart, times: DayInRange.Times) -> String {
+        switch times {
+        case .exact: return "\(Format.percent(part.share)) · \(duration(part.minutes))"
+        case .estimated: return "\(Format.percent(part.share)) · ≈\(duration(part.minutes))"
+        case .hidden: return Format.percent(part.share)
+        }
+    }
+
     static func figure(_ part: DayInRangePart, hasTimes: Bool) -> String {
-        hasTimes ? "\(Format.percent(part.share)) · \(duration(part.minutes))" : Format.percent(part.share)
+        figure(part, times: hasTimes ? .exact : .hidden)
+    }
+
+    /// "Hours estimated from readings over 72% of the day.", under the row and at the end of the
+    /// tooltip and VoiceOver label when the hours are estimates; nil otherwise.
+    static func estimateNote(_ f: DayInRange) -> String? {
+        guard f.times == .estimated else { return nil }
+        return "Hours estimated from readings over \(Format.percent(f.coverage)) of the day."
     }
 
     /// The Mac Day cell's tooltip: "In range 78% · 18 h 40 min, below 4% · 1 h, above 18% · 4 h 20 min.
     /// Click to show the day's chart."
     static func help(_ f: DayInRange) -> String {
-        let has = f.spanMinutes > 0
+        let times = f.times
         let order: [DayInRangePart.Band] = [.inRange, .below, .above]
         let parts = order.compactMap { band in f.parts.first { $0.band == band } }
         let lines = parts.enumerated().map { i, p in
             let name = i == 0 ? label(p.band) : label(p.band).lowercased()
-            return "\(name) \(figure(p, hasTimes: has))"
+            return "\(name) \(figure(p, times: times))"
         }
-        return lines.joined(separator: ", ") + ". Click to show the day's chart."
+        let note = estimateNote(f).map { " " + $0 } ?? ""
+        return lines.joined(separator: ", ") + "." + note + " Click to show the day's chart."
     }
 
     /// The shares for VoiceOver, in range first: "78% in range, 18 hours 40 minutes. 4% below, 1
     /// hour. 18% above, 4 hours 20 minutes". Below and above are left out when they never happened.
+    /// Estimated hours say "about" and end with `estimateNote`; hidden hours leave just the shares.
     static func spoken(_ f: DayInRange) -> String {
-        let has = f.spanMinutes > 0
+        let times = f.times
+        let has = times != .hidden
         func one(_ p: DayInRangePart, _ name: String) -> String {
-            has ? "\(Format.percent(p.share)) \(name), \(spokenDuration(p.minutes))" : "\(Format.percent(p.share)) \(name)"
+            switch times {
+            case .exact: return "\(Format.percent(p.share)) \(name), \(spokenDuration(p.minutes))"
+            case .estimated: return "\(Format.percent(p.share)) \(name), about \(spokenDuration(p.minutes))"
+            case .hidden: return "\(Format.percent(p.share)) \(name)"
+            }
         }
         let parts = f.parts
         var out = [one(parts[1], "in range")]
@@ -216,6 +266,7 @@ enum DayInRangeBreakdownText {
         let floor = has ? 0 : 0.005
         if f.below > 0, f.below >= floor { out.append(one(parts[0], "below")) }
         if f.above > 0, f.above >= floor { out.append(one(parts[2], "above")) }
+        if let note = estimateNote(f) { return out.joined(separator: ". ") + ". " + String(note.dropLast()) }
         return out.joined(separator: ". ")
     }
 }

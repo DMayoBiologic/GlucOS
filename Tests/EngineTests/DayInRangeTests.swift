@@ -197,4 +197,75 @@ final class DayInRangeTests: XCTestCase {
         XCTAssertEqual(DayInRangeBreakdownText.spoken(bare), "100% in range")
         XCTAssertEqual(DayInRangeBreakdownText.figure(bare.parts[1], hasTimes: false), "100%")
     }
+
+    // MARK: Days with gaps (round 95)
+
+    func testCoverageSetsHowHoursShow() throws {
+        let full = try XCTUnwrap(compute(readings(from: yesterday, to: today) { _ in 120 }, days: [yesterday])[yesterday])
+        XCTAssertEqual(full.coverage, 1, accuracy: 0.0001)
+        XCTAssertEqual(full.times, .exact)
+        // LinkUp's 15-minute history fills every slot.
+        let linkUp = try XCTUnwrap(compute(readings(from: yesterday, to: today, step: 15) { _ in 120 }, days: [yesterday])[yesterday])
+        XCTAssertEqual(linkUp.times, .exact)
+        // Readings until 10 pm: 88 of 96 slots, 91.7%, still measured.
+        let late = try XCTUnwrap(compute(readings(from: yesterday, to: yesterday.addingTimeInterval(22 * 3600)) { _ in 120 },
+                                         days: [yesterday])[yesterday])
+        XCTAssertEqual(late.coverage, 88.0 / 96, accuracy: 0.0001)
+        XCTAssertEqual(late.times, .exact)
+        // Readings until 2 pm: 56 of 96 slots, 58%, so the hours are estimates.
+        let half = try XCTUnwrap(compute(readings(from: yesterday, to: yesterday.addingTimeInterval(14 * 3600)) { _ in 120 },
+                                         days: [yesterday])[yesterday])
+        XCTAssertEqual(half.coverage, 56.0 / 96, accuracy: 0.0001)
+        XCTAssertEqual(half.times, .estimated)
+        XCTAssertEqual(half.spanMinutes, 1440)
+    }
+
+    func testTodaysCoverageCountsUpToNow() throws {
+        // Midnight to 2 pm with a 3-hour gap from 6 to 9 am: 44 of 56 slots, 78.6%.
+        let r = readings(from: today, to: referenceNow) { m in (360..<540).contains(m) ? nil : 120 }
+        let d = try XCTUnwrap(compute(r, days: [today])[today])
+        XCTAssertEqual(d.coverage, 44.0 / 56, accuracy: 0.0001)
+        XCTAssertEqual(d.times, .estimated)
+    }
+
+    func testTimesThresholds() {
+        func times(_ c: Double, span: Int = 1440) -> DayInRange.Times {
+            DayInRange(below: 0, inRange: 1, above: 0, spanMinutes: span, coverage: c).times
+        }
+        XCTAssertEqual(times(1), .exact)
+        XCTAssertEqual(times(0.9), .exact)
+        XCTAssertEqual(times(0.899), .estimated)
+        XCTAssertEqual(times(0.5), .estimated)
+        XCTAssertEqual(times(0.499), .hidden)
+        XCTAssertEqual(times(1, span: 0), .hidden)
+    }
+
+    func testEstimatedHoursWords() {
+        let d = DayInRange(below: 0.04, inRange: 0.78, above: 0.18, spanMinutes: 1440, coverage: 0.72)
+        XCTAssertEqual(d.times, .estimated)
+        XCTAssertEqual(DayInRangeBreakdownText.figure(d.parts[0], times: d.times), "4% · ≈1 h")
+        XCTAssertEqual(DayInRangeBreakdownText.figure(d.parts[1], times: d.times), "78% · ≈18 h 40 min")
+        XCTAssertEqual(DayInRangeBreakdownText.estimateNote(d), "Hours estimated from readings over 72% of the day.")
+        XCTAssertEqual(DayInRangeBreakdownText.help(d),
+                       "In range 78% · ≈18 h 40 min, below 4% · ≈1 h, above 18% · ≈4 h 20 min."
+                       + " Hours estimated from readings over 72% of the day. Click to show the day's chart.")
+        XCTAssertEqual(DayInRangeBreakdownText.spoken(d),
+                       "78% in range, about 18 hours 40 minutes. 4% below, about 1 hour. 18% above, about 4 hours 20 minutes."
+                       + " Hours estimated from readings over 72% of the day")
+    }
+
+    func testHiddenHoursWords() {
+        let d = DayInRange(below: 0.04, inRange: 0.78, above: 0.18, spanMinutes: 1440, coverage: 0.4)
+        XCTAssertEqual(d.times, .hidden)
+        XCTAssertEqual(DayInRangeBreakdownText.figure(d.parts[1], times: d.times), "78%")
+        XCTAssertNil(DayInRangeBreakdownText.estimateNote(d))
+        XCTAssertEqual(DayInRangeBreakdownText.help(d), "In range 78%, below 4%, above 18%. Click to show the day's chart.")
+        XCTAssertEqual(DayInRangeBreakdownText.spoken(d), "78% in range. 4% below. 18% above")
+    }
+
+    func testFullDayWordsUnchanged() {
+        let d = DayInRange(below: 0.04, inRange: 0.78, above: 0.18, spanMinutes: 1440, coverage: 0.95)
+        XCTAssertNil(DayInRangeBreakdownText.estimateNote(d))
+        XCTAssertEqual(DayInRangeBreakdownText.figure(d.parts[1], times: d.times), "78% · 18 h 40 min")
+    }
 }
