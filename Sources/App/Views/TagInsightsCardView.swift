@@ -6,9 +6,13 @@ import SwiftUI
 /// thread once per data change (`TagInsightsCache`). The screens leave it out entirely until
 /// something in the Logbook carries a tag (`TagInsightsCardView.shows`).
 ///
-/// Motion is the other Insights cards': the figures count up where `figuresCountUp` is on and roll
-/// to new values when the period changes; the rest cross-fades. Nothing loops, and Reduce Motion
-/// shows the new values at once. Callers give it their own card surface.
+/// Motion (`TagsCardMotion`, docs/LogbookTags.md "Motion"): as the card rises in, each tag's
+/// in-range bar grows from the leading edge, one after another, while the figures count up. When
+/// the period or the data changes, the tiles spring to their new places, the figures roll, the
+/// bars glide, and a tag that's newly listed slides in. Under Reduce Motion the old picture
+/// cross-fades to the new one and nothing slides. VoiceOver hears one line per change
+/// (`TagsCardMotion.announcement`), never for new readings that only nudge the figures. Nothing
+/// loops. Callers give it their own card surface.
 ///
 /// With `openLogbook`, each tag is a button that opens the Logbook on that tag's chip over the same
 /// days (`LogbookLink.tag`). The iPhone zooms the card into it; the Mac cross-fades to its Logbook
@@ -28,6 +32,8 @@ struct TagInsightsCardView: View {
     @AppStorage("insights.tagsDays") private var periodDays = TagInsights.Period.fortnight.rawValue
     @State private var value: TagInsights?
     @State private var shownKey: TagInsightsCache.Key?
+    /// The bars have grown in (once, as the card rises in).
+    @State private var grown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.insightsShareSnapshot) private var shareSnapshot
 
@@ -62,7 +68,10 @@ struct TagInsightsCardView: View {
             // While another period is worked out the last one stays up, so its figures roll to the
             // new ones rather than blanking.
             if let value, !value.rows.isEmpty {
+                // Under Reduce Motion a new picture replaces the old one with a cross-fade.
                 content(value)
+                    .id(reduceMotion ? AnyHashable(value) : AnyHashable("tags"))
+                    .transition(.opacity)
             } else if value != nil || shownKey == key {
                 emptyNote(key)
             } else {
@@ -80,13 +89,25 @@ struct TagInsightsCardView: View {
             }
             // A newer period or data change took over while this one was worked out: drop it.
             guard !Task.isCancelled else { return }
-            if value == nil || new == nil {
+            let old = value
+            if old == nil || new == nil {
                 value = new
             } else {
-                DS.animate(.standard, reduceMotion: reduceMotion) { value = new }
+                // Tiles spring to their new places and figures roll; a cross-fade under Reduce Motion.
+                withAnimation(reduceMotion ? .easeInOut(duration: TagsCardMotion.reducedFade)
+                                           : DSMotion.emphasized.animation) { value = new }
             }
             shownKey = key
+            announce(from: old, to: new)
         }
+    }
+
+    /// A newly listed tag slides in from the trailing side; one that's gone fades. Fades only under
+    /// Reduce Motion, where the whole card cross-fades anyway.
+    private var tileTransition: AnyTransition {
+        reduceMotion ? .opacity
+            : .asymmetric(insertion: .offset(x: TagsCardMotion.slideDistance).combined(with: .opacity),
+                          removal: .opacity.combined(with: .scale(scale: 0.96)))
     }
 
     @ViewBuilder
@@ -101,9 +122,15 @@ struct TagInsightsCardView: View {
                       alignment: .leading, spacing: DS.Space.md) {
                 ForEach(Array(t.rows.enumerated()), id: \.element.id) { i, row in
                     tagButton(row, in: t, order: i)
+                        .transition(tileTransition)
                 }
             }
             .monospacedDigit()
+            .onEntrance {
+                guard !grown else { return }
+                // A frame later, so the bars are laid out empty first.
+                DispatchQueue.main.async { grown = true }
+            }
             Text(TagInsightsText.footnote)
                 .dsFont(.caption)
                 .foregroundStyle(.secondary)
@@ -138,6 +165,11 @@ struct TagInsightsCardView: View {
             }
             .dsFont(.caption)
             .padding(.top, DS.Space.xxs)
+            if let after {
+                TagRangeBar(share: after.timeInRange, overall: t.overall.timeInRange,
+                            grown: grown || shareSnapshot, delay: TagsCardMotion.growDelay(order: order))
+                    .padding(.top, DS.Space.xxs)
+            }
         }
         return Button { open(row, t) } label: { tile.contentShape(Rectangle()) }
             .buttonStyle(.plain)
@@ -147,6 +179,18 @@ struct TagInsightsCardView: View {
             .accessibilityLabel(row.tag)
             .accessibilityValue(TagInsightsText.spoken(row, in: t, unit: unit))
             .accessibilityHint(openLogbook == nil ? "" : TagInsightsText.logbookHint(row.tag))
+    }
+
+    /// One line for VoiceOver when the listed tags or the period changed; quiet on first load, in a
+    /// shared picture, and when new readings only nudge the figures.
+    private func announce(from old: TagInsights?, to new: TagInsights?) {
+        guard let old, let new, !shareSnapshot else { return }
+        guard let line = TagsCardMotion.announcement(oldNames: old.rows.map(\.tag), newNames: new.rows.map(\.tag),
+                                                     periodChanged: old.period != new.period,
+                                                     periodSpoken: new.period.spoken) else { return }
+        var spoken = AttributedString(line)
+        spoken.accessibilitySpeechAnnouncementPriority = .low
+        AccessibilityNotification.Announcement(spoken).post()
     }
 
     /// That tag's chip over the days the card counted, up to its newest reading.
@@ -182,5 +226,59 @@ extension TagInsightsCardView {
             case .log: log?()
             }
         })
+    }
+}
+
+/// Time in range in the 4 hours after a tag as a thin bar, with an upright mark where every
+/// reading's time in range sits, so the gap reads at a glance. Grows in from the leading edge
+/// after `delay` as the card rises in, then glides to new shares (the card's spring). Fades in
+/// where it is under Reduce Motion. Hidden from VoiceOver: the tile says the same in words.
+private struct TagRangeBar: View {
+    let share: Double
+    let overall: Double
+    let grown: Bool
+    let delay: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.06))
+                // The in-range hue at full strength, as a graphic needs; the figure above is the text.
+                Capsule()
+                    .fill(GlucoseRange.inRange.tint)
+                    .frame(width: w * TagsCardMotion.fraction(share))
+                    .modifier(TagBarEntrance(grown: grown, delay: delay, reduceMotion: reduceMotion))
+                Capsule()
+                    .fill(Color.primary.opacity(0.55))
+                    .frame(width: 2, height: 10)
+                    .offset(x: max(0, w * TagsCardMotion.fraction(overall) - 1))
+                    .opacity(grown ? 1 : 0)
+                    .animation(.easeInOut(duration: TagsCardMotion.reducedFade).delay(reduceMotion ? 0 : delay),
+                               value: grown)
+            }
+        }
+        .frame(height: 6)
+        .accessibilityHidden(true)
+    }
+}
+
+/// A tag bar's first appearance: grows from the leading edge, or fades in under Reduce Motion.
+private struct TagBarEntrance: ViewModifier {
+    let grown: Bool
+    let delay: Double
+    let reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+                .opacity(grown ? 1 : 0)
+                .animation(.easeInOut(duration: TagsCardMotion.reducedFade), value: grown)
+        } else {
+            content
+                .scaleEffect(x: grown ? 1 : 0.001, anchor: .leading)
+                .animation(.spring(response: 0.6, dampingFraction: 0.82).delay(delay), value: grown)
+        }
     }
 }
