@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.94.0", highlights: [
+            .init(symbol: "person.2",
+                  title: "Followed readings roll in",
+                  detail: "When someone you follow gets a new reading, their number now rolls to it and their trend arrow turns to the new direction, as on your own Today. With Reduce Motion on it simply changes, and VoiceOver says a new trend once, with their name."),
             .init(symbol: "arrow.up.and.down",
                   title: "Forecasts when the arrow disagrees",
                   detail: "We checked how the forecast does in the rare moments the trend arrow points one way while glucose has moved the other way over the last 15 minutes, and kept it as it is for now."),
