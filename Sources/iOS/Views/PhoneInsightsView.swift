@@ -273,6 +273,9 @@ struct PhoneInsightsView: View {
         case .alerts: return AlertsSummary.shows(logbook.alerts)
         case .sensorCoverage:
             return SensorCoverageCache.shared.shows(readings: store.archive, context: store.gapContext, back: step.back)
+        case .longestInRange:
+            return LongestInRangeCache.shared.shows(readings: store.archive, low: store.snapshot.lowMgdl,
+                                                    high: store.snapshot.highMgdl, back: step.back)
         default: return true
         }
     }
@@ -293,6 +296,7 @@ struct PhoneInsightsView: View {
         case .tags: PhoneTagInsightsCard()
         case .dayPattern: PhoneDayPatternCard()
         case .hourlyInRange: PhoneHourlyInRangeCard()
+        case .longestInRange: PhoneLongestInRangeCard()
         case .mornings: PhoneMorningCard(outlook: store.outlook)
         case .forecastAccuracy: PhoneForecastAccuracyCard(outlook: store.outlook)
         case .sensorCoverage: PhoneSensorCoverageCard()
@@ -661,6 +665,26 @@ struct PhoneHourlyInRangeCard: View {
             .dsCard(.standard, padding: DS.Space.lg)
         if let navigator {
             card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .hourOfDay)), in: navigator.zoom)
+        } else {
+            card
+        }
+    }
+}
+
+/// The longest unbroken stretch in range over the last 7, 14 or 30 days, and when it was
+/// (`LongestInRangeCardView`). Shown only with readings over half the period. Tapping it zooms the
+/// card into the Logbook over that stretch; Back shrinks it home.
+struct PhoneLongestInRangeCard: View {
+    @EnvironmentObject var store: GlucoseStore
+    @Environment(\.phoneNavigator) private var navigator
+
+    var body: some View {
+        let card = LongestInRangeCardView(readings: store.archive, unit: store.shownUnit,
+                                          lowMgdl: store.snapshot.lowMgdl, highMgdl: store.snapshot.highMgdl,
+                                          openLogbook: navigator.map { nav in { (link: LogbookLink) in nav.push(.logbookLink(link)) } })
+            .dsCard(.standard, padding: DS.Space.lg)
+        if let navigator {
+            card.matchedTransitionSource(id: AnyHashable(LogbookLink.sourceID(for: .inRangeStretch)), in: navigator.zoom)
         } else {
             card
         }

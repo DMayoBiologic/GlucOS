@@ -37,6 +37,9 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
     /// How much of the period has readings, and the longest gaps with their reasons. Shows only
     /// while some of the period is missing.
     case sensorCoverage
+    /// The longest unbroken stretch in range over the period, and when it was; tapping it opens
+    /// the Logbook over that stretch. Shows only with readings over half the period.
+    case longestInRange
 
     var id: String { rawValue }
 
@@ -59,6 +62,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         case .mornings: return "Mornings"
         case .forecastAccuracy: return "Forecast accuracy"
         case .sensorCoverage: return "Sensor coverage"
+        case .longestInRange: return "Longest in range"
         }
     }
 
@@ -81,13 +85,14 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
         case .mornings: return "sunrise"
         case .forecastAccuracy: return "scope"
         case .sensorCoverage: return "dot.radiowaves.left.and.right"
+        case .longestInRange: return "timer"
         }
     }
 
     /// The iPhone Insights screen's cards, in the order they ship.
     static let phoneDefault: [InsightsCard] = [
         .glance, .days, .weekInReview, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .streaks,
-        .bestDays, .tags, .dayPattern, .hourlyInRange, .mornings, .forecastAccuracy, .sensorCoverage,
+        .bestDays, .tags, .dayPattern, .hourlyInRange, .longestInRange, .mornings, .forecastAccuracy, .sensorCoverage,
     ]
 
     /// The Mac Dashboard Insights page's movable cards, in the order they ship. The logging cards
@@ -95,7 +100,7 @@ enum InsightsCard: String, CaseIterable, Codable, Hashable, Sendable, Identifiab
     /// read as one block.
     static let macDefault: [InsightsCard] = [
         .weekInReview, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags,
-        .dayPattern, .hourlyInRange, .forecastAccuracy, .sensorCoverage,
+        .dayPattern, .hourlyInRange, .longestInRange, .forecastAccuracy, .sensorCoverage,
     ]
 }
 

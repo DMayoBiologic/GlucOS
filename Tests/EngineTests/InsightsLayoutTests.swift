@@ -17,7 +17,7 @@ final class InsightsLayoutTests: XCTestCase {
         var layout = InsightsLayout.standard
         // Drag Lows (index 1) to the top.
         layout.moveVisible(fromOffsets: IndexSet(integer: 1), toOffset: 0, defaults: mac)
-        XCTAssertEqual(layout.visible(mac), [.lows, .weekInReview, .highs, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .dayPattern, .hourlyInRange, .forecastAccuracy, .sensorCoverage])
+        XCTAssertEqual(layout.visible(mac), [.lows, .weekInReview, .highs, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .dayPattern, .hourlyInRange, .longestInRange, .forecastAccuracy, .sensorCoverage])
         // Drag Week in review (now index 1) to the end: onMove reports the count as the destination.
         layout.moveVisible(fromOffsets: IndexSet(integer: 1), toOffset: mac.count, defaults: mac)
         XCTAssertEqual(layout.visible(mac).last, .weekInReview)
@@ -70,10 +70,10 @@ final class InsightsLayoutTests: XCTestCase {
         let layout = InsightsLayout(order: ["dayPattern", "weekInReview", "lows", "highs", "forecastAccuracy"],
                                     hidden: ["highs"])
         XCTAssertEqual(layout.arranged(mac),
-                       [.dayPattern, .hourlyInRange, .weekInReview, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy, .sensorCoverage])
+                       [.dayPattern, .hourlyInRange, .longestInRange, .weekInReview, .lows, .highs, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy, .sensorCoverage])
         // New cards are never hidden.
         XCTAssertEqual(layout.visible(mac),
-                       [.dayPattern, .hourlyInRange, .weekInReview, .lows, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy, .sensorCoverage])
+                       [.dayPattern, .hourlyInRange, .longestInRange, .weekInReview, .lows, .alerts, .overnight, .weekdayWeekend, .streaks, .bestDays, .tags, .forecastAccuracy, .sensorCoverage])
     }
 
     func testStreaksArriveAfterWeekdaysAndWeekendsInASavedLayout() {
@@ -139,8 +139,8 @@ final class InsightsLayoutTests: XCTestCase {
         let onScreen: (InsightsCard) -> Bool = { $0 != .tags }
         layout.move(.dayPattern, by: -1, defaults: mac, onScreen: onScreen)
         let shown = layout.visible(mac).filter(onScreen)
-        XCTAssertEqual(Array(shown.suffix(6)), [.streaks, .dayPattern, .bestDays, .hourlyInRange, .forecastAccuracy, .sensorCoverage])
-        XCTAssertEqual(Array(layout.visible(mac).suffix(6)), [.dayPattern, .bestDays, .tags, .hourlyInRange, .forecastAccuracy, .sensorCoverage])
+        XCTAssertEqual(Array(shown.suffix(7)), [.streaks, .dayPattern, .bestDays, .hourlyInRange, .longestInRange, .forecastAccuracy, .sensorCoverage])
+        XCTAssertEqual(Array(layout.visible(mac).suffix(7)), [.dayPattern, .bestDays, .tags, .hourlyInRange, .longestInRange, .forecastAccuracy, .sensorCoverage])
         // And back down past the hidden slot.
         layout.move(.dayPattern, by: 1, defaults: mac, onScreen: onScreen)
         XCTAssertEqual(layout.visible(mac).filter(onScreen), mac.filter(onScreen))
