@@ -17,26 +17,28 @@ struct SettingsView: View {
     @AppStorage(SettingsView.tabKey) private var tab: Tab = .general
     @StateObject private var search = SettingsSearchModel(catalog: SettingsCatalog.mac)
 
+    @StateObject private var fitter = SettingsWindowFitter()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
+        // The toolbar tabs come from the TabView; the tab itself is drawn over it, so a switch can
+        // cross-fade the outgoing and incoming tab while the window glides to fit the new one
+        // (docs/SettingsTabs.md). Instant under Reduce Motion.
         TabView(selection: $tab) {
-            GeneralSettingsTab()
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(Tab.general)
-            AccountSettingsTab()
-                .tabItem { Label("Account", systemImage: "person.crop.circle") }
-                .tag(Tab.account)
-            GlucoseSettingsTab()
-                .tabItem { Label("Glucose", systemImage: "target") }
-                .tag(Tab.glucose)
-            AlertSettingsTab(openGlucoseTab: { tab = .glucose })
-                .tabItem { Label("Alerts", systemImage: "bell.badge") }
-                .tag(Tab.alerts)
-            LoggingSettingsTab()
-                .tabItem { Label("Logging", systemImage: "syringe") }
-                .tag(Tab.logging)
-            AdvancedSettingsTab()
-                .tabItem { Label("Advanced", systemImage: "gearshape.2") }
-                .tag(Tab.advanced)
+            ForEach(Self.tabs) { item in
+                Color.clear
+                    .tabItem { Label(item.title, systemImage: item.symbol) }
+                    .tag(item.tab)
+            }
+        }
+        .overlay {
+            ZStack {
+                page(tab)
+                    .id(tab)
+                    .transition(.opacity)
+            }
+            // Not while opening: a switch to Account for a broken connection simply shows it.
+            .animation(reduceMotion || !fitter.settled ? nil : DSMotion.standard.animation, value: tab)
         }
         // Resizable: the window opens at a comfortable size, can grow for long lists (presets,
         // alerts) and shrink to a laptop-friendly minimum without clipping a Form.
@@ -44,12 +46,46 @@ struct SettingsView: View {
         // Search (docs/SettingsSearch.md): every tab has the field; a result on another tab switches
         // to it, then that tab scrolls to the row.
         .environment(\.settingsSearch, search)
+        .environment(\.settingsWindowFitter, fitter)
+        .settingsWindowReader { fitter.window = $0 }
         .onChange(of: search.pendingJump) { _, item in
             if let item, let target = item.tab.flatMap(Tab.init(rawValue:)), target != tab { tab = target }
         }
+        .onChange(of: tab) { _, new in fitter.switched(to: new.rawValue) }
         .onAppear {
-            // Send someone with a broken connection straight to where they can fix it.
+            // Send someone with a broken connection straight to where they can fix it. The window
+            // isn't settled yet, so this keeps the size it opened at.
             if !settings.hasCredentials || store.connectionProblem != nil { tab = .account }
+            fitter.opened()
+        }
+        .onDisappear { fitter.closed() }
+    }
+
+    private struct TabItem: Identifiable {
+        let tab: Tab
+        let title: String
+        let symbol: String
+        var id: Tab { tab }
+    }
+
+    private static let tabs: [TabItem] = [
+        TabItem(tab: .general, title: "General", symbol: "gearshape"),
+        TabItem(tab: .account, title: "Account", symbol: "person.crop.circle"),
+        TabItem(tab: .glucose, title: "Glucose", symbol: "target"),
+        TabItem(tab: .alerts, title: "Alerts", symbol: "bell.badge"),
+        TabItem(tab: .logging, title: "Logging", symbol: "syringe"),
+        TabItem(tab: .advanced, title: "Advanced", symbol: "gearshape.2"),
+    ]
+
+    @ViewBuilder
+    private func page(_ tab: Tab) -> some View {
+        switch tab {
+        case .general: GeneralSettingsTab()
+        case .account: AccountSettingsTab()
+        case .glucose: GlucoseSettingsTab()
+        case .alerts: AlertSettingsTab(openGlucoseTab: { self.tab = .glucose })
+        case .logging: LoggingSettingsTab()
+        case .advanced: AdvancedSettingsTab()
         }
     }
 }
@@ -1194,6 +1230,7 @@ private struct SettingsSearchPageBody: ViewModifier {
     func body(content: Content) -> some View {
         ScrollViewReader { proxy in
             content
+                .settingsTabMeasure(tab.rawValue)
                 .overlay {
                     if search.isSearching {
                         results

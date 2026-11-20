@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.96.0", highlights: [
+            .init(symbol: "gearshape",
+                  title: "Smoother Settings tabs on Mac",
+                  detail: "Switching tabs in Settings on the Mac now cross-fades to the new tab while the window grows or shrinks to fit it, keeping the title bar where it was. With Reduce Motion on the new tab and size are simply there."),
+        ]),
         WhatsNewRelease(version: "1.95.0", highlights: [
             .init(symbol: "trash",
                   title: "Deleted insulins slide away and back",
