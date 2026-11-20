@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.97.0", highlights: [
+            .init(symbol: "arrow.up.arrow.down",
+                  title: "Days compared with your usual",
+                  detail: "A Logbook day whose time in range was 10 or more points above or below your usual now says so under its name, on iPhone and Mac. Your usual is the middle of the 14 days before it, and a tap shows how it was worked out. Days with readings over less than half the day are left out."),
             .init(symbol: "chart.line.uptrend.xyaxis",
                   title: "Forecast range fades with Reduce Motion",
                   detail: "When a new reading narrows or widens the forecast range on iPhone Today or the Mac popover, it changes shape smoothly. With Reduce Motion on, the new forecast and its range now fade in over the old ones instead of jumping."),

@@ -198,6 +198,32 @@ tested in DayInRangeTests; drawn by `DayRangeBreakdown`).
   (`DayChartText.spoken(breakdown: true)`). The row itself is hidden.
 - **Motion.** None. It arrives with the chart (cross-fade) and its figures change at once.
 
+## Compared with your usual
+
+Round 103 says when a day stood out against the person's own recent days (`DayVsUsual`,
+`DayVsUsualText`, Engine, tested in DayVsUsualTests; drawn by `DayVsUsualNote`).
+
+- **Where.** On iPhone, one quiet line under the day's name (and its note, if any): an arrow and
+  "+12 vs your usual" or "−15 vs your usual". On the Mac the same note follows the Day cell's
+  totals, with the sentence as its tooltip. Secondary text, never the low or high colours: a day
+  below its usual is information, not an alarm.
+- **What it compares.** The day's time in range, the bar's own figure, against the median of the
+  14 days before it that have a figure. Days with readings over less than half their 15-minute
+  slots have none, so they are neither compared nor counted, and at least 7 of the 14 must have
+  one. The note shows when the rounded percents differ by 10 or more points, so it agrees with
+  the figures on screen. Today isn't compared until it's over. Both platforms read the whole
+  archive (up to 90 days), so the Mac's toolbar period never cuts the usual short.
+- **Tap or click.** Opens a small popover: what the usual is ("the middle time in range of the 14
+  days before this one, counting the 12 that had enough readings: 68%"), the day against it, and
+  when a note shows.
+- **VoiceOver.** Said once, in the day header's value on iPhone and the Day cell's value on the
+  Mac ("12 points above your usual time in range of 68%"). The note itself is hidden; the day
+  offers "How Your Usual Is Worked Out", which opens the same popover.
+- **Motion.** The note fades in and out with the day's figures (`dsAnimation`), at once under
+  Reduce Motion. Nothing loops.
+- **Work.** One `DayInRangeCache` per Logbook holds the listed days and the 14 before each, worked
+  out once per data change or 5-minute clock tick.
+
 ## Jump to a date
 
 Round 44 adds a compact month calendar to the Logbook, on iPhone and Mac (`LogbookCalendar` and

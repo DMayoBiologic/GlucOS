@@ -161,6 +161,7 @@ targets:
       - path: Sources/App/Logbook/AlertLogStyle.swift
       - path: Sources/App/Logbook/DayRangeBar.swift
       - path: Sources/App/Logbook/DayRangeBreakdown.swift
+      - path: Sources/App/Logbook/DayVsUsualNote.swift
       - path: Sources/App/Logbook/DayTotalsLabel.swift
       - path: Sources/App/Logbook/ChartLogMarkers.swift
       - path: Sources/App/Logbook/DayMiniChart.swift
