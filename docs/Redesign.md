@@ -450,7 +450,8 @@ old, last 6.2." Follower: prefixed with the person's name.
   hours change (§4.1). The forecast draws in from "Now" once the card has come in (0.4 s,
   `PhoneChartCard.forecastDelay`) and bends into each new forecast, with the same `ForecastMotion`
   as the Mac popover (§8.2): `.sweep` draw-in, `.ambient` morph, once per appearance or forecast,
-  never looping. Under Reduce Motion it just changes. Widgets and follower cards are unchanged.
+  never looping. Under Reduce Motion a new forecast cross-fades in over the old one (round 103).
+  Widgets and follower cards are unchanged.
 - **Last logged line** (round 38, `LastLogged`): under the chart's legend, "Meal 1 h 40 m ago · 45 g"
   or "Dose 25 m ago · 4 u", the newest entry logged in the last 12 hours, hidden when there isn't
   one. It says only what was logged, never insulin or carbs on board. It redraws once a minute, on
@@ -582,7 +583,12 @@ on hover", on by default.
   grow. A new forecast bends and slides from the old shape into the new one (`.ambient`), points
   paired by how far ahead they are (`ForecastMorph`), a longer horizon reaching out from the old end
   and a shorter one pulling back. One movement per opening or per forecast, never looping (§4.6).
-  Under Reduce Motion, or once it's gone, the forecast just changes.
+  The likely range morphs with it, so a range that narrows or widens after a reading changes shape
+  rather than jumping. Under Reduce Motion (round 103) the new forecast and its range cross-fade in
+  over the old ones instead, in place, over 0.25 s (`ForecastMorph.crossFadeDuration`): the old one
+  is drawn underneath at the opposite opacity (`ForecastCrossFade`, read by `GlucoseChart` from the
+  environment) and clamped to the axes, which only make room for the new one. A forecast that
+  appears or goes just changes.
 
 - The same **last logged line** as the iPhone (§7.1) sits under the chart. Clicking it opens the
   dashboard on the Logbook with that entry selected and lit once; the period goes back to now and
@@ -598,7 +604,7 @@ on hover", on by default.
   new range on the same stretch of time instead of wiping (§4.1). The Outlook chart's forecast draws
   in from the newest reading each time the page opens, once its card is most of the way in (0.3 s,
   `OutlookSection.forecastDelay`), and bends into each new forecast, with the same `ForecastMotion`
-  as the popover (§8.2). Under Reduce Motion it just changes.
+  as the popover (§8.2). Under Reduce Motion it cross-fades in, as in the popover.
 
 ### 8.4 Onboarding, Settings, Log sheet, Quick log
 

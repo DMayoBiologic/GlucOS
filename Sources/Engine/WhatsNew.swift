@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.97.0", highlights: [
+            .init(symbol: "chart.line.uptrend.xyaxis",
+                  title: "Forecast range fades with Reduce Motion",
+                  detail: "When a new reading narrows or widens the forecast range on iPhone Today or the Mac popover, it changes shape smoothly. With Reduce Motion on, the new forecast and its range now fade in over the old ones instead of jumping."),
+        ]),
         WhatsNewRelease(version: "1.96.0", highlights: [
             .init(symbol: "eye.slash",
                   title: "Hide an Insights card, then undo it",
