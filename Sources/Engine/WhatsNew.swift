@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.93.0", highlights: [
+            .init(symbol: "clock",
+                  title: "Hourly cells fade gently",
+                  detail: "With Reduce Motion on, the cells of Time in range by hour in Insights now fade in together when the card appears, and fade to their new colours together when you pick another period, instead of changing all at once."),
             .init(symbol: "bed.double",
                   title: "Forecasts through overnight dips",
                   detail: "We checked how the forecast and low warnings behave through short overnight dips that come straight back up, often from lying on the sensor, and kept them as they are for now."),
