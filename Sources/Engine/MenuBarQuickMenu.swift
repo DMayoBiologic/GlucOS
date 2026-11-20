@@ -2,7 +2,8 @@ import Foundation
 
 // The menu bar item's own menu (docs/MenuBarMenu.md). Right-click or Control-click the reading and
 // a small menu drops down with Your usual (the same up to three repeats the popover row offers),
-// then Log Something…, Open Logbook and Settings…. A plain click still opens the popover.
+// then Log Something…, Open Logbook, Copy Reading (while there is a reading) and Settings…. A plain
+// click still opens the popover.
 //
 // Picking a usual opens the log window filled in from it. Nothing is ever logged from the menu:
 // the entry is logged with Log in that window, after `RepeatCheck` ("Already logged?") and, for a
@@ -31,6 +32,8 @@ enum MenuBarQuickMenu {
         case newEntry
         /// Opens the dashboard on the Logbook.
         case openLogbook
+        /// Copies the current reading as one line (`ReadingCopy`), as ⌘C does in the popover.
+        case copyReading
         case settings
     }
 
@@ -61,9 +64,18 @@ enum MenuBarQuickMenu {
     /// the menu as wide as the screen.
     static let maxTitleLength = 44
 
+    static let copyTitle = "Copy Reading"
+
+    /// How long the menu bar item shows "Copied" after Copy Reading, before the reading comes back.
+    static let copiedDuration: TimeInterval = 1.2
+
+    /// Copy Reading's tooltip: the line it puts on the clipboard, so it can be checked first.
+    static func copyToolTip(_ line: String) -> String { "Copies \u{201C}\(line)\u{201D}" }
+
     /// The menu, top to bottom. `usuals` are what the popover row offers now (already empty
-    /// before the therapy type is set); only the first `usualLimit` are shown.
-    static func rows(usuals: [UsualEntry], usualLimit: Int = 3) -> [Row] {
+    /// before the therapy type is set); only the first `usualLimit` are shown. `copyLine` is the
+    /// current reading as `ReadingCopy` writes it; Copy Reading is left out when it is nil.
+    static func rows(usuals: [UsualEntry], copyLine: String? = nil, usualLimit: Int = 3) -> [Row] {
         var rows: [Row] = []
         let shown = usuals.prefix(max(0, usualLimit))
         if !shown.isEmpty {
@@ -78,6 +90,10 @@ enum MenuBarQuickMenu {
                                key: nil, withOption: false, toolTip: "Opens the log window on a new entry.")))
         rows.append(.item(Item(action: .openLogbook, title: "Open Logbook", symbol: "book.closed",
                                key: nil, withOption: false, toolTip: nil)))
+        if let copyLine, !copyLine.isEmpty {
+            rows.append(.item(Item(action: .copyReading, title: copyTitle, symbol: "doc.on.doc",
+                                   key: "c", withOption: false, toolTip: copyToolTip(copyLine))))
+        }
         rows.append(.separator)
         rows.append(.item(Item(action: .settings, title: "Settings…", symbol: "gearshape",
                                key: ",", withOption: false, toolTip: nil)))

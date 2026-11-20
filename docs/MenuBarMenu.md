@@ -6,6 +6,10 @@ Right-click or Control-click the reading in the menu bar for a small menu:
   this time of day, the usual correction while high, what you take for a low), with ⌥⌘1–⌥⌘3.
 - **Log Something…**: the log window on a new entry.
 - **Open Logbook**: the dashboard on the Logbook, as you last left it.
+- **Copy Reading** (⌘C): the current reading as one line in the unit on screen, the same line ⌘C
+  copies in the popover (`ReadingCopy`), such as "6.1 mmol/L, steady, 2 min ago". Its tooltip shows
+  the line first. The item says "✓ Copied" for 1.2 s, then the reading comes back, and VoiceOver
+  announces "Copied" once. Left out while there is no reading to copy.
 - **Settings…** (⌘,).
 
 A plain click still opens the popover, and the hover preview closes when the menu opens.
