@@ -544,6 +544,48 @@ struct LogbookAddUndo: Equatable {
     }
 }
 
+/// A saved insulin deleted in Settings › Your Insulins, which the undo toast can still put back
+/// ("Deleted NovoRapid · Undo"). It holds the insulin exactly as it was and where it sat in the
+/// list; Undo puts it back there under the same id, so it syncs like any other change. Only the
+/// list changes: no logged dose, preset or amount is touched.
+struct LogbookInsulinUndo: Equatable {
+    /// Fresh for every delete, so a second delete restarts the toast's countdown.
+    let token: UUID
+    /// The insulin as it was saved.
+    let insulin: SavedInsulin
+    /// Its place in the list when it was deleted.
+    let index: Int
+    /// The delete's time, as pushed (`LogbookPendingChange.modified`), so the server echoing the
+    /// tombstone back keeps Undo, and only a newer change made elsewhere ends it.
+    var deletedAt: Double?
+
+    init(insulin: SavedInsulin, index: Int, deletedAt: Double?, token: UUID = UUID()) {
+        self.token = token
+        self.insulin = insulin
+        self.index = index
+        self.deletedAt = deletedAt
+    }
+
+    /// The list with the insulin back in its old place (or at the end, if the list has got
+    /// shorter since). Nil when it's there already: the same id, or the same name saved again.
+    func restoring(into list: [SavedInsulin]) -> [SavedInsulin]? {
+        guard !list.contains(where: { $0.id == insulin.id || $0.key == insulin.key }) else { return nil }
+        var out = list
+        out.insert(insulin, at: min(max(index, 0), list.count))
+        return out
+    }
+
+    /// True when `remote` holds a change to this insulin made after the delete (saved again on
+    /// another device). This device's own tombstone coming back from the server doesn't count.
+    func superseded(by remote: [LogbookRecord]) -> Bool {
+        guard let deletedAt else { return false }
+        return remote.contains { $0.id == insulin.id && $0.modified > deletedAt + LogbookUndo.echoTolerance }
+    }
+
+    /// "Deleted NovoRapid".
+    var title: String { "Deleted \(insulin.name)" }
+}
+
 /// New meals or doses that look like a second copy of ones logged a few minutes before
 /// (`DoubleLog`), offered on the undo toast as "Logged twice? 4 u NovoRapid · Undo". Nothing is
 /// taken off unless the user taps Undo, which deletes only the new entries, on every device, and
@@ -702,6 +744,8 @@ enum LogbookUndoOffer: Equatable {
     case added(LogbookAddUndo)
     /// A meal or dose that looks logged twice (`DoubleLog`).
     case repeated(LogbookRepeatUndo)
+    /// A saved insulin deleted in Settings.
+    case insulinDeleted(LogbookInsulinUndo)
 
     /// The toast's text.
     var title: String {
@@ -711,6 +755,7 @@ enum LogbookUndoOffer: Equatable {
         case .batch(let b): return b.title
         case .added(let a): return a.title
         case .repeated(let r): return r.title
+        case .insulinDeleted(let i): return i.title
         }
     }
 
@@ -722,6 +767,7 @@ enum LogbookUndoOffer: Equatable {
         case .batch(let b): return [b.token]
         case .added(let a): return [a.token]
         case .repeated(let r): return [r.token]
+        case .insulinDeleted(let i): return [i.token]
         }
     }
 
@@ -733,6 +779,7 @@ enum LogbookUndoOffer: Equatable {
         case .batch: return "tag"
         case .added(let a): return a.isSensorStart ? ContextTag.sensorStarted.systemImage : "square.and.pencil"
         case .repeated: return "square.on.square"
+        case .insulinDeleted: return "trash"
         }
     }
 
@@ -744,6 +791,7 @@ enum LogbookUndoOffer: Equatable {
         case .batch: return "Puts back the entries as they were before, on all your devices"
         case .added(let a): return "Takes the \(a.entry.kindNoun) off again, on all your devices"
         case .repeated(let r): return r.hint
+        case .insulinDeleted(let i): return "Puts \(i.insulin.name) back in Your Insulins, on all your devices"
         }
     }
 
@@ -769,6 +817,7 @@ enum LogbookUndoOffer: Equatable {
         case .batch(let b): return b.count
         case .added: return 1
         case .repeated(let r): return r.pairs.count
+        case .insulinDeleted: return 1
         }
     }
 }
