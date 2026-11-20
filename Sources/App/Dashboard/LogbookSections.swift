@@ -1734,6 +1734,8 @@ struct InsightsSection: View {
         case .alerts: return AlertsSummary.shows(logbook.alerts)
         case .sensorCoverage:
             return SensorCoverageCache.shared.shows(readings: readings, context: store.gapContext, back: step.back)
+        case .longestInRange:
+            return LongestInRangeCache.shared.shows(readings: readings, low: lowMgdl, high: highMgdl, back: step.back)
         default: return true
         }
     }
@@ -1802,6 +1804,11 @@ struct InsightsSection: View {
                                   openLogbook: openLogbook)
                 .dashboardCard()
                 .id(Self.cardID(.hourOfDay))
+        case .longestInRange:
+            LongestInRangeCardView(readings: readings, unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl,
+                                   openLogbook: openLogbook)
+                .dashboardCard()
+                .id(Self.cardID(.inRangeStretch))
         case .forecastAccuracy:
             ForecastScorecardCard(outlook: outlookStore)
         case .sensorCoverage:

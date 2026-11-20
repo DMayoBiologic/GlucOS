@@ -2,7 +2,7 @@ import Foundation
 
 // Opening the Logbook from somewhere else with a chip and a stretch of time already picked
 // (docs/LogbookSearch.md, "From the Insights cards"). Today that's the Insights Lows, Highs,
-// Overnight, Weekdays and weekends, Week in review, In-range streaks, Best and toughest days, Tags and Time in range by hour cards: tapping one shows its chip over the
+// Overnight, Weekdays and weekends, Week in review, In-range streaks, Best and toughest days, Tags, Time in range by hour and Longest in range cards: tapping one shows its chip over the
 // same days the card counted.
 
 /// The chip and period the Logbook opens with. Nothing is typed into the search field: the period
@@ -22,8 +22,8 @@ struct LogbookLink: Hashable, Sendable {
 
     /// The kind chip the Logbook opens on: none for a tag link, so every kind tagged shows, and none
     /// for an hour link, whose hour rides on the period chip ("7–8 am · Last 14 days"), and none for
-    /// the "while you were away" line, an alert history row, the Sensor coverage card's gap or a day of the last 7 days card, whose period chip says it all.
-    var kindChip: LogbookFilter? { tag == nil && filter != .hourOfDay && filter != .whileAway && filter != .aroundAlert && filter != .aroundGap && filter != .recentDay ? filter : nil }
+    /// the "while you were away" line, an alert history row, the Sensor coverage card's gap, the Longest in range card's stretch or a day of the last 7 days card, whose period chip says it all.
+    var kindChip: LogbookFilter? { tag == nil && filter != .hourOfDay && filter != .whileAway && filter != .aroundAlert && filter != .aroundGap && filter != .inRangeStretch && filter != .recentDay ? filter : nil }
 
     /// The Lows card's period, as the Logbook reads it. The card counts the `days` × 24 hours up to
     /// the newest reading (`LowsSummary.compute`), so the Logbook starts there too rather than at
