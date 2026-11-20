@@ -8196,7 +8196,8 @@ each tick the arrow is the latest live reading's (within 5 minutes), and the 15-
 (reading now − reading 15 minutes ago) / 15, one reading a minute, live preferred (§74). They
 disagree when the arrow is rising and the slope is 0.3 mg/dL a minute or more downward, or the arrow
 is falling and the slope is 0.3 or more upward. Every tick's line is scored at 15, 30 and 60
-minutes (the trend fades out by 30, so 60 is where it settles). A predicted low is false when
+minutes from a replay of the same trend line worked out to 60 minutes. The relay draws only 30, so
+the 15 and 30-minute points are what it shows; the 60-minute point is where the faded line settles. A predicted low is false when
 nothing goes under 70 in the next 45 minutes; a predicted high when nothing goes over 180 (250 for
 very high) in the next hour. Script: `scripts/arrow-slope-disagree.ts` (`SLOPE`, `AGAINST=line` to
 compare the arrow with the line's own trend instead, `LIST=1`, `GAIN=1`).
@@ -8237,8 +8238,9 @@ the other days among those that warn no low or high later, then score the day le
 picked w = 0 (a flat line), and no alert moved, but the gain is 0.01–0.03% at each horizon
 (26.583 against 26.587 pooled), better on 2 of 10 days and the same on the rest, because there are
 only 10 such ticks. With `SLOPE=0` or `AGAINST=line` it is −0.02%, false alarms 26 against 26. On
-the disagreement ticks alone a flat line takes the 15-minute error from 27.4 to 22.6, which is just
-"no change". It is nowhere near the 3% bar.
+the disagreement ticks alone a flat line takes the 15-minute error from 27.4 to 22.6 (17.5% lower,
+which is just "no change"), but that is 10 ticks, far short of the 100 the rule would need, and
+overall the held-out gain is 0.01–0.03%, nowhere near the 3% bar.
 
 **Decision.** Ship nothing. The arrow and the slope disagree on about one tick in a thousand, briefly,
 and no alert has fired on one. Where they do, the line runs low because the 20-minute slope lags a
