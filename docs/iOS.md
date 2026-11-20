@@ -313,6 +313,7 @@ LibreLinkUp follower account, and allow notifications. Settings → Push relay s
 - **See what the alert repeat means.** Under the alert repeat in Settings › Alerts, a line says how many alerts the last 7 days would have sent at the time you pick, and the number rolls as you change it. Urgent lows always repeat every 5 minutes. The line appears once there are 6 hours of readings. Zoom the chart in on Today and meal and insulin markers show their amounts beside them, such as 45 g or 4 u.
 - **Copy or share from the reading details.** Tap the reading on Today for its details card, which now has Copy and Share for the same one line, in your unit. Readings for someone you follow now roll in, and the trend arrow turns to the new direction, the same as on your own Today screen. With Reduce Motion on, they simply change.
 - **Undo a deleted insulin.** Delete a saved insulin in Settings and its row shrinks away while the rows below slide up. Tap Undo on the toast and it comes back in the same place. With Reduce Motion on, it fades instead.
+- **Undo hiding an Insights card.** Touch and hold an Insights card to hide it or move it up or down. After you hide one, Undo on the toast brings it back in the same place, and VoiceOver offers the same actions on each card.
 - **Alerts don't bypass the silent switch.** That needs Apple's Critical Alerts entitlement,
   which you request at <https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>.
   Once granted, add the entitlement to the app and set the `APNS_CRITICAL_ALERTS=true` secret.
