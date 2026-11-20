@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.95.0", highlights: [
+            .init(symbol: "cursorarrow.rays",
+                  title: "Notes when you hover a marker",
+                  detail: "Hover something you logged on the Mac popover chart and its card now shows any note you wrote, under what was logged and when. Click for details as before, or ⌘-click to open the entry in the Logbook, which VoiceOver also offers on each marker."),
+        ]),
         WhatsNewRelease(version: "1.94.0", highlights: [
             .init(symbol: "person.2",
                   title: "Followed readings roll in",
