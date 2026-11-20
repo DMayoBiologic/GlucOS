@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "chart.bar.fill",
                   title: "Day bars grow in as you scroll",
                   detail: "Each Logbook day's time in range bar now grows in once as the day scrolls into view on iPhone, or as the Logbook opens on Mac, and stays put when readings refresh. With Reduce Motion on it fades in instead."),
+            .init(symbol: "moon.stars",
+                  title: "Forecasts across midnight",
+                  detail: "We checked forecasts made just before and after midnight, when the day changes over, found they're worked out and scored the same as at any other hour, and kept them as they are."),
         ]),
         WhatsNewRelease(version: "1.97.0", highlights: [
             .init(symbol: "arrow.up.arrow.down",
