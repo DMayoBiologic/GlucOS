@@ -8513,3 +8513,67 @@ changed.
 
 Script inputs: `readings.json` = `[[unix, mgdl], ...]` from `glucos.readings where trend > 0`, and
 `logs.json` = `[[unix, "meal" | "dose"], ...]` for non-deleted meals and rapid doses, as §82.
+
+## 109. Do forecasts whose horizon crosses midnight miss more, or get worked out or scored wrongly? (20 Nov 2026)
+
+**Question.** A forecast made between 11 pm and 1 am looks ahead across the change of day. Does
+anything in the engine, the range, the accuracy log or the scorecard treat the day boundary (or a
+daylight-saving change) differently, and are those forecasts worse than at other hours? **No: the
+forecast path never looks at the calendar, the stored scores across midnight match the readings,
+and the late-evening forecasts miss more only because glucose moves more then; nothing ships.**
+(Post-meal peaks and sensor-day ranges are left out here.)
+
+**Code.** Everything from the reading to the score runs on absolute time:
+
+- `GlucoseForecaster`, the range (`ForecastLedger.rangeScale`, 14 days / 12 hours), the live
+  horizon (7 days), the scorecard (rolling 7 days), the tuner and `ForecastBacktest` use
+  `TimeInterval` windows, never `Calendar`, `startOfDay` or an hour of the day. Targets are
+  `issuedAt + minutes × 60` and are scored against the reading series at that instant
+  (`ForecastLedger.score`), so a 60-minute target at 00:20 is found the same way as one at 15:20,
+  and a daylight-saving jump can't stretch or shrink a horizon.
+- The relay (`relay/core.ts`, `engine.ts`) is the same: Unix seconds throughout. LibreLinkUp's
+  `FactoryTimestamp` is parsed as UTC on both sides (`LibreLinkUpClient.factoryDate`,
+  `libre.ts parseFactoryTimestamp`), with 12 AM → hour 0 and 12 PM → hour 12, so readings either
+  side of midnight keep their order.
+- The morning adjustment (`MorningPattern`) is keyed to time since the logged wake-up, not the
+  clock. `EffectProfileLearner.block` (6-hour drift blocks by `Calendar.current`) is the only
+  hour-of-day use, and its drift isn't read by the forecaster.
+
+Perth has no daylight saving, so the live data can't exercise a DST jump; the code above has no
+place for one to act.
+
+**Live log** (`scripts/midnight-forecasts.sql` query 1, clean shown points, 12–20 Nov Perth):
+
+| Device | Horizon | Crosses midnight: n / MAE / no change / bias / inside | 23:00–00:59, no cross | 21–23 and 01–03 | Other hours |
+|---|---|---|---|---|---|
+| Mac + iPhone | 15 min | 4 (3 days) / 26.8 / 26.4 / +9.0 / 75% | 34 / 20.0 / 19.6 / +3.0 / 59% | 83 / 17.0 / 16.0 / 76% | 326 / 14.7 / 17.4 / +0.5 / 84% |
+| Mac + iPhone | 30 min | 5 (2) / 35.4 / 32.9 / +33.8 / 40% | 24 / 32.5 / 30.7 / −5.4 / 71% | 71 / 21.5 / 25.3 / 77% | 283 / 27.6 / 32.1 / +1.9 / 79% |
+| Mac + iPhone | 60 min | 5 (3) / 32.6 / 26.6 / +18.5 / 60% | 7 / 67.3 / 59.3 / −51.7 / 71% | 24 / 57.9 / 55.7 / 50% | 151 / 53.6 / 55.8 / +17.4 / 80% |
+| Relay | 15 min | 5 (5) / 19.0 / 14.9 / −4.1 / 60% | 34 / 17.1 / 16.4 / +1.5 / 74% | 76 / 17.9 / 18.0 / 80% | 309 / 15.6 / 17.0 / +0.1 / 84% |
+
+(Bias = actual − line, so plus means the line ran low.)
+
+- Only **14 app points and 5 relay points cross midnight** in 9 days: Macs and the iPhone are
+  mostly asleep or closed then, and the points that exist come from 12, 14 and 15 Nov.
+- The 23:00–00:59 hours do miss more at 15 minutes (20.0 against 14.7, 59% inside), but **no
+  change misses as much there** (19.6 against 17.4): glucose moves more late in the evening (§96's
+  snacks, §107's app opens). The relay, on the same readings, is 17.1 against 15.6 there.
+- Crossing points aren't worse than the hours around them once that's allowed for; with 4–5
+  points a horizon nothing more can be read from them.
+
+**Scoring check** (query 2, each stored `actual` against the stored readings interpolated at the
+target): crossing points differ by 2.4 mg/dL on current iPhone builds (2 points) against 1.5 at
+other hours, and 2.2 on the Mac (10 points, all before version stamping) against 1.6; the 0.6–0.9
+extra is within the minute-to-minute spread. The larger
+old-iPhone figure (7.8 on 8 crossing points) is one point (15 Nov 23:21, 60 minutes: 158 scored
+against 183 stored), and old iPhone builds disagree as often at other hours (11 points over 10
+mg/dL, mean 3.0): that was the 15-minute history fill (§72), fixed before version stamping. The
+relay matches its readings to 0.1 everywhere.
+
+**Decision.** Ship nothing. There is no day-boundary or daylight-saving handling to fix, and too
+few crossing points to test a change. Retest on **10 Dec 2026** (with §96) once 30+ app points
+cross midnight; if the app ever forecasts by clock time (a time-of-day range or drift), add a
+test that runs it under `Australia/Sydney` across the October and April changes first.
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged. No app or relay code changed.
