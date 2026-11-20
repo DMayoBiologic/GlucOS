@@ -833,8 +833,9 @@ struct PhoneLogbookView: View {
                 .filter { !$0.isEmpty }.joined(separator: ", ")
             : [LogbookCollapseText.spokenState(folded: false), totals].filter { !$0.isEmpty }.joined(separator: ", ")
         // The "vs your usual" note is said once, here, right after the day's own figures.
-        let spokenValue = [vsUsual.map(DayVsUsualText.spoken) ?? "", note.map(DayNoteText.spoken) ?? "", spokenTotals]
-            .filter { !$0.isEmpty }.joined(separator: ", ")
+        let spokenUsual: String = vsUsual.map(DayVsUsualText.spoken) ?? ""
+        let spokenNote: String = note.map(DayNoteText.spoken) ?? ""
+        let spokenValue: String = [spokenUsual, spokenNote, spokenTotals].filter { !$0.isEmpty }.joined(separator: ", ")
         return VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(alignment: .firstTextBaseline) {
                 // Folds the day: points down while open, right while folded.
@@ -891,10 +892,7 @@ struct PhoneLogbookView: View {
             }
             // "+12 vs your usual" on a day well above or below its usual; a tap explains it.
             if let vsUsual {
-                DayVsUsualNote(comparison: vsUsual, spokenDay: DayInRangeText.spokenDay(spokenDay),
-                               explaining: Binding(get: { explainingUsual == day.id },
-                                                   set: { if $0 { explainingUsual = day.id } else if explainingUsual == day.id { explainingUsual = nil } }))
-                    .transition(.opacity)
+                usualNote(vsUsual, dayID: day.id, spokenDay: DayInRangeText.spokenDay(spokenDay))
             }
             if let range {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
@@ -976,6 +974,17 @@ struct PhoneLogbookView: View {
                 Button(DayVsUsualText.actionName) { explainingUsual = day.id }
             }
         }
+    }
+
+    /// "+12 vs your usual" under a day's name (`DayVsUsualNote`); a tap opens how it's worked out.
+    private func usualNote(_ comparison: DayVsUsual, dayID: String, spokenDay: String) -> some View {
+        let explaining = Binding<Bool>(
+            get: { explainingUsual == dayID },
+            set: { open in
+                if open { explainingUsual = dayID } else if explainingUsual == dayID { explainingUsual = nil }
+            })
+        return DayVsUsualNote(comparison: comparison, spokenDay: spokenDay, explaining: explaining)
+            .transition(.opacity)
     }
 
     /// The day's note under its name: a small note icon and one line, the search's words lit.

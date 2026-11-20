@@ -1281,10 +1281,7 @@ struct LogbookSection: View {
             dayName(start, range: range, day: day, totals: totals, vsUsual: vsUsual)
             // "+12 vs your usual" on a day well above or below its usual; a click explains it.
             if let vsUsual {
-                DayVsUsualNote(comparison: vsUsual, spokenDay: DayInRangeText.spokenDay(day),
-                               explaining: Binding(get: { explainingUsual == start },
-                                                   set: { if $0 { explainingUsual = start } else if explainingUsual == start { explainingUsual = nil } }))
-                    .transition(.opacity)
+                usualNote(vsUsual, start: start, spokenDay: DayInRangeText.spokenDay(day))
             }
             if let note {
                 Button { editNote(start) } label: {
@@ -1310,6 +1307,17 @@ struct LogbookSection: View {
         }
         .dsAnimation(.standard, value: note)
         .dsAnimation(.standard, value: vsUsual)
+    }
+
+    /// "+12 vs your usual" after the Day cell's totals (`DayVsUsualNote`); a click explains it.
+    private func usualNote(_ comparison: DayVsUsual, start: Date, spokenDay: String) -> some View {
+        let explaining = Binding<Bool>(
+            get: { explainingUsual == start },
+            set: { open in
+                if open { explainingUsual = start } else if explainingUsual == start { explainingUsual = nil }
+            })
+        return DayVsUsualNote(comparison: comparison, spokenDay: spokenDay, explaining: explaining)
+            .transition(.opacity)
     }
 
     private var noteTitle: String {
@@ -1352,8 +1360,9 @@ struct LogbookSection: View {
                          vsUsual: DayVsUsual? = nil) -> some View {
         let id = "\(Int(start.timeIntervalSince1970))"
         // The "vs your usual" note is said once, here, before the totals.
-        let spokenTotals = [vsUsual.map(DayVsUsualText.spoken) ?? "", totals.map { DayTotalsText.summary($0) } ?? ""]
-            .filter { !$0.isEmpty }.joined(separator: ", ")
+        let spokenUsual: String = vsUsual.map(DayVsUsualText.spoken) ?? ""
+        let spokenSums: String = totals.map { DayTotalsText.summary($0) } ?? ""
+        let spokenTotals: String = [spokenUsual, spokenSums].filter { !$0.isEmpty }.joined(separator: ", ")
         let content = HStack(spacing: DS.Space.sm) {
             Text(ClockLabel.dayTitle(day))
                 .fontWeight(.semibold)
