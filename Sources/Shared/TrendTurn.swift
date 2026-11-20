@@ -4,7 +4,7 @@ import Foundation
 /// one glyph turned to `Trend.needleAngle`, so a new trend swings it round on one short spring
 /// (the `.arrival` spring, about 0.7 s, no repeat). Under Reduce Motion it doesn't travel: the old
 /// direction fades out as the new one fades in. VoiceOver hears the new trend once, from one place
-/// per device: the iPhone Today hero, and the Mac menu bar item (always running, so the popover
+/// per device: the iPhone Today hero (and a followed person's stage, with their name), and the Mac menu bar item (always running, so the popover
 /// doesn't say it a second time).
 ///
 /// SwiftUI screens use `.trendTurn(_:)` (Signal.swift) for the motion. The Mac menu bar item is
@@ -37,9 +37,14 @@ enum TrendTurn: Equatable {
 
     /// What VoiceOver says once when the trend turns, such as "Trend now rising quickly". Nil when
     /// nothing turned, so a new reading with the same trend, or a reading going stale, says nothing.
-    static func announcement(from old: Trend?, to new: Trend?) -> String? {
+    /// On a follower's stage `name` leads it, such as "Sam's trend now falling", so it can't be
+    /// taken for the follower's own glucose.
+    static func announcement(from old: Trend?, to new: Trend?, name: String? = nil) -> String? {
         guard between(old, new, reduceMotion: false) == .turn, let new else { return nil }
-        return "Trend now \(new.description.lowercased())"
+        let direction = new.description.lowercased()
+        let who = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !who.isEmpty else { return "Trend now \(direction)" }
+        return "\(who)\(who.hasSuffix("s") ? "'" : "'s") trend now \(direction)"
     }
 
     /// How far through the turn the arrow is `t` seconds in: the step response of an underdamped
