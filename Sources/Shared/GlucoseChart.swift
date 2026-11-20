@@ -1,6 +1,9 @@
 import SwiftUI
 import Charts
 import Accessibility
+#if os(macOS)
+import AppKit
+#endif
 
 /// Line chart of readings with the target band shaded. Compiled into both the app and the widget.
 struct GlucoseChart: View {
@@ -614,14 +617,26 @@ struct GlucoseChart: View {
         MarkerPeekLayer(proxy: proxy, markers: placed,
                         pressing: { pressingMarker = $0 }, peek: setPeek,
                         tap: opensCallouts ? { tapMarker($0) } : nil,
+                        open: opensCallouts ? { openCalloutEntry($0) } : nil,
                         pin: opensActionCards ? { pinMarker($0) } : nil,
                         hovering: { if hoveredMarker != $0 { hoveredMarker = $0 } })
         if peeksMarkers, let id = peeked, let marker = markers.first(where: { $0.id == id }) {
             MarkerPeekCard(proxy: proxy, marker: marker, value: markerY(lane: marker.lane, yd: yd),
-                           detail: MarkerPeek.detail(date: marker.date, now: Date(), readings: window, unit: unit))
+                           detail: MarkerPeek.detail(date: marker.date, now: Date(), readings: window, unit: unit),
+                           note: MarkerPeek.note(marker.callout), hint: peekHint)
                 .id(id)
                 .transition(MarkerPeekCard.transition(reduceMotion: reduceMotion))
         }
+    }
+
+    /// The Mac peek's last line, saying a click opens the details and ⌘-click the Logbook. Only
+    /// where clicks open callouts; never on iPhone, where a tap does.
+    private var peekHint: String? {
+        #if os(macOS)
+        return opensCallouts ? MarkerPeek.macHint : nil
+        #else
+        return nil
+        #endif
     }
 
     /// A peek starts or ends. Starting one clears the scrub readout; on iPhone it ticks once.
@@ -754,7 +769,8 @@ struct GlucoseChart: View {
                         if let p = point(m), let content = m.callout {
                             MarkerVoiceOverButton(label: MarkerCallout.spoken(content, date: m.date),
                                                   open: callout == m.id, opensDetails: opensCallouts,
-                                                  showActions: opensActionCards ? { pinMarker(m.id) } : nil) {
+                                                  showActions: opensActionCards ? { pinMarker(m.id) } : nil,
+                                                  openInLogbook: opensCallouts ? { openCalloutEntry(m.id) } : nil) {
                                 if opensCallouts { tapMarker(m.id) } else { pinMarker(m.id) }
                             }
                                 .position(p)
@@ -1922,6 +1938,8 @@ private struct MarkerPeekLayer: View {
     let peek: (UUID?) -> Void
     /// A tap (iPhone) or click (Mac) on a marker, when callouts are on (`MarkerCallout`).
     var tap: ((UUID) -> Void)? = nil
+    /// A ⌘-click (Mac) on a marker: straight to its entry in the Logbook, no callout.
+    var open: ((UUID) -> Void)? = nil
     /// A hold past the peek (iPhone), when peek cards are on (`MarkerActions`).
     var pin: ((UUID) -> Void)? = nil
     /// The marker under the pointer (Mac), or nil, as it changes, for a right-click.
@@ -2022,11 +2040,15 @@ private struct MarkerPeekLayer: View {
         }
     }
 
-    /// A click on a marker opens its callout.
+    /// A click on a marker opens its callout; a ⌘-click opens its entry in the Logbook.
     fileprivate func clicked(_ p: CGPoint, spots: [MarkerPeek.Spot]) {
         guard let tap, let id = MarkerPeek.hit(x: Double(p.x), y: Double(p.y), in: spots) else { return }
         peek(nil)
-        tap(id)
+        if let open, NSEvent.modifierFlags.contains(.command) {
+            open(id)
+        } else {
+            tap(id)
+        }
     }
     #endif
 }
@@ -2072,6 +2094,10 @@ private struct MarkerPeekCard: View {
     let marker: ChartLogMarker
     let value: Double
     let detail: String
+    /// The note, one line or two (`MarkerPeek.note`). Nil: none.
+    var note: String? = nil
+    /// The Mac's "Click for details · ⌘-click opens Logbook" line. Nil: none.
+    var hint: String? = nil
 
     static let width: CGFloat = 196
 
@@ -2128,6 +2154,21 @@ private struct MarkerPeekCard: View {
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
+                if let note {
+                    Text(note)
+                        .dsFont(.caption)
+                        .italic()
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let hint {
+                    Text(hint)
+                        .dsFont(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.top, 1)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -2194,6 +2235,8 @@ private struct MarkerVoiceOverButton: View {
     var opensDetails = true
     /// The "Edit or Log Again" action, opening the peek card (`MarkerActions`). Nil: not offered.
     var showActions: (() -> Void)? = nil
+    /// Straight to the entry in the Logbook, as ⌘-click does on the Mac. Nil: not offered.
+    var openInLogbook: (() -> Void)? = nil
     let action: () -> Void
 
     var body: some View {
@@ -2208,6 +2251,9 @@ private struct MarkerVoiceOverButton: View {
             .accessibilityActions {
                 if let showActions {
                     Button(MarkerActions.voiceOverActionName, action: showActions)
+                }
+                if let openInLogbook {
+                    Button(MarkerPeek.openInLogbookActionName, action: openInLogbook)
                 }
             }
     }

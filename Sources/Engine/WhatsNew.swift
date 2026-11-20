@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "trash",
                   title: "Deleted insulins slide away and back",
                   detail: "Deleting a saved insulin in Settings now shrinks its row away while the rows below slide up, and Undo on the toast brings it back in the same place, on iPhone and Mac. With Reduce Motion on the row simply fades out and back in."),
+            .init(symbol: "cursorarrow.rays",
+                  title: "Notes when you hover a marker",
+                  detail: "Hover something you logged on the Mac popover chart and its card now shows any note you wrote, under what was logged and when. Click for details as before, or ⌘-click to open the entry in the Logbook, which VoiceOver also offers on each marker."),
         ]),
         WhatsNewRelease(version: "1.94.0", highlights: [
             .init(symbol: "person.2",

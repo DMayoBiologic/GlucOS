@@ -61,3 +61,37 @@ final class MarkerPeekTests: XCTestCase {
         XCTAssertEqual(MarkerPeek.detail(date: logged, now: now, readings: far, unit: .mmol), "1 h ago")
     }
 }
+
+/// The note line in the peek card and the Mac's click hint.
+final class MarkerPeekNoteTests: XCTestCase {
+    func testNoteFoldsLinesAndTrims() {
+        let c = MarkerCallout.Content(title: "Meal", note: "  Toast\n\n  with jam ")
+        XCTAssertEqual(MarkerPeek.note(c), "Toast with jam")
+    }
+
+    func testNoNoteNoLine() {
+        XCTAssertNil(MarkerPeek.note(nil))
+        XCTAssertNil(MarkerPeek.note(MarkerCallout.Content(title: "Insulin")))
+        XCTAssertNil(MarkerPeek.note(MarkerCallout.Content(title: "Meal", note: "  \n ")))
+    }
+
+    func testPlainNoteIsNotRepeated() {
+        // A plain note's title already is the note.
+        XCTAssertNil(MarkerPeek.note(MarkerCallout.Content(title: "Note", note: "Felt shaky", readsNote: true)))
+    }
+
+    func testLongNoteIsCutWithAnEllipsis() {
+        let long = String(repeating: "a", count: 200)
+        let cut = MarkerPeek.note(MarkerCallout.Content(title: "Meal", note: long))!
+        XCTAssertEqual(cut.count, MarkerPeek.noteLimit)
+        XCTAssertTrue(cut.hasSuffix("\u{2026}"))
+        let exact = String(repeating: "b", count: MarkerPeek.noteLimit)
+        XCTAssertEqual(MarkerPeek.note(MarkerCallout.Content(title: "Meal", note: exact)), exact)
+    }
+
+    func testMacHintNamesBothClicks() {
+        XCTAssertTrue(MarkerPeek.macHint.contains("Click"))
+        XCTAssertTrue(MarkerPeek.macHint.contains("\u{2318}-click"))
+        XCTAssertTrue(MarkerPeek.macHint.contains("Logbook"))
+    }
+}
