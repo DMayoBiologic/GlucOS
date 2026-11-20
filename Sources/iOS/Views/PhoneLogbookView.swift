@@ -911,7 +911,7 @@ struct PhoneLogbookView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .transition(.opacity)
                         } else {
-                            DayRangeBar(id: day.id, figures: range, drawn: drawnBars)
+                            DayRangeBar(id: day.id, figures: range, drawn: drawnBars, waitsForScroll: true)
                                 .frame(maxWidth: .infinity)
                                 .dayChartMatch(day.id, in: dayChartSpace, enabled: !reduceMotion)
                                 .transition(.opacity)

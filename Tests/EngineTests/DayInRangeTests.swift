@@ -119,6 +119,27 @@ final class DayInRangeTests: XCTestCase {
         XCTAssertTrue(drawn.first("b"))
     }
 
+    func testBarEntranceGrowsOrFadesOnlyTheFirstTime() {
+        let drawn = DrawnOnce()
+        XCTAssertEqual(DayBarEntrance.on(firstTime: drawn.first("a"), reduceMotion: false), .grow)
+        // Scrolled back, or the list rebuilt on a new reading: no replay.
+        XCTAssertEqual(DayBarEntrance.on(firstTime: drawn.first("a"), reduceMotion: false), .none)
+        XCTAssertEqual(DayBarEntrance.on(firstTime: drawn.first("b"), reduceMotion: true), .fade)
+        XCTAssertEqual(DayBarEntrance.on(firstTime: drawn.first("b"), reduceMotion: true), .none)
+    }
+
+    func testBarChangeGlidesOrCrossFades() {
+        let a = DayInRange(below: 0.1, inRange: 0.8, above: 0.1)
+        let b = DayInRange(below: 0.05, inRange: 0.85, above: 0.1)
+        XCTAssertEqual(DayBarEntrance.change(from: a, to: a, reduceMotion: false), .none)
+        XCTAssertEqual(DayBarEntrance.change(from: a, to: a, reduceMotion: true), .none)
+        XCTAssertEqual(DayBarEntrance.change(from: a, to: b, reduceMotion: false), .glide)
+        XCTAssertEqual(DayBarEntrance.change(from: a, to: b, reduceMotion: true), .crossFade)
+        XCTAssertGreaterThan(DayBarEntrance.visibleThreshold, 0)
+        XCTAssertLessThanOrEqual(DayBarEntrance.visibleThreshold, 1)
+        XCTAssertLessThan(DayBarEntrance.fadeSeconds, 0.5)
+    }
+
     func testFirstRowsPerDay() {
         let ids = (0..<5).map { _ in UUID() }
         let times = [referenceNow, referenceNow.addingTimeInterval(-3600),

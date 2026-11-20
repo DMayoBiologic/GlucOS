@@ -326,6 +326,48 @@ final class DrawnOnce {
     func remember(_ id: String, _ f: DayInRange) { figures[id] = f }
 }
 
+// MARK: - How a bar arrives
+
+/// How a day bar comes on screen (round 104). The first time its day is seen it grows in from the
+/// left, or fades in under Reduce Motion; every later copy (scrolled back, list rebuilt after a
+/// reading or an entry, Logbook period changed) is simply there, so nothing replays on a refresh.
+/// A split that changes afterwards glides, or cross-fades under Reduce Motion.
+enum DayBarEntrance: Equatable, Sendable {
+    /// Already drawn: show the bar in full at once.
+    case none
+    /// Grow from the left on the draw-in spring.
+    case grow
+    /// Reduce Motion: fade the full bar in, nothing moves.
+    case fade
+
+    /// Seconds the Reduce Motion fade takes, for the first show and for a changed split.
+    static let fadeSeconds = 0.25
+
+    /// On iPhone the header waits until this much of it is inside the list, so a row the list
+    /// prepares just off screen doesn't spend its draw-in where nobody sees it.
+    static let visibleThreshold = 0.5
+
+    /// If the list never reports the header on screen (it isn't in a scroll view, say), draw in
+    /// after this long anyway rather than leave an empty track.
+    static let visibilityFallbackSeconds = 1.2
+
+    /// What to play when a bar's day comes on screen. `firstTime` is `DrawnOnce.first(id)`, which
+    /// is true once per day per open Logbook.
+    static func on(firstTime: Bool, reduceMotion: Bool) -> DayBarEntrance {
+        guard firstTime else { return .none }
+        return reduceMotion ? .fade : .grow
+    }
+
+    /// How a changed split moves: a glide normally, a cross-fade under Reduce Motion, nothing when
+    /// it didn't change.
+    enum Change: Equatable, Sendable { case none, glide, crossFade }
+
+    static func change(from old: DayInRange, to new: DayInRange, reduceMotion: Bool) -> Change {
+        guard old != new else { return .none }
+        return reduceMotion ? .crossFade : .glide
+    }
+}
+
 // MARK: - Days in a list
 
 enum LogbookDays {

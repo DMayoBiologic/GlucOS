@@ -110,7 +110,12 @@ tested in DayInRangeTests).
   the colours never carry it alone.
 - **Motion.** A bar grows from the left once, the first time its day comes on screen, then simply
   sits there when it scrolls back into view (`DrawnOnce`). Today's bar glides to its new shares as
-  readings arrive. Nothing loops (§4.6 Power). Instant under Reduce Motion.
+  readings arrive. Nothing loops (§4.6 Power). Round 104 (`DayBarEntrance`, DayInRangeTests): on
+  iPhone the grow waits until half the header is inside the list, so a header prepared just off
+  screen doesn't spend it unseen (if the list never reports it, it draws after 1.2 s); the Mac
+  grows each bar as the Logbook opens. A refresh, a rebuilt header or a period change never
+  replays it. Under Reduce Motion the bar fades in over 0.25 s instead, and a changed split
+  cross-fades rather than jumping.
 - **VoiceOver.** The iPhone header is one heading: "Tuesday 12 November, 78% in range, 4% below,
   18% above", then the day's totals. The Mac Day cell says the same; each Time cell reads its day
   and time.
