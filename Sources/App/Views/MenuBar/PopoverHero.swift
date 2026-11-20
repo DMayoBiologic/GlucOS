@@ -77,7 +77,11 @@ struct PopoverHero: View {
             // the rate per minute and when the next one is due (round 56).
             .readingDetailsPopover(isPresented: $showDetails, snapshot: s, unit: store.shownUnit,
                                    lastCheck: store.lastAttempt,
-                                   checkEvery: TimeInterval(settings.pollIntervalSeconds))
+                                   checkEvery: TimeInterval(settings.pollIntervalSeconds)) {
+                // Copy and Share under the details (round 100). Copy is the same as ⌘C: one
+                // line, the "Copied" toast and one announce.
+                AnyView(ReadingCopyButtons(line: store.readingCopyText(), onCopy: onCopy))
+            }
             .help(s.current == nil ? "" : "Click for reading details")
             if let cur = s.current {
                 RangeRail(mgdl: cur.mgdl, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl, stale: stale,

@@ -3,12 +3,26 @@ import SwiftUI
 /// The small card that opens from the current reading (improvement round 56): tapping the reading
 /// on iPhone Today, or clicking it in the Mac popover. When it was taken, where it came from, the
 /// trend as a rate per minute and when the next one is due (`ReadingDetails`). It ticks on its own
-/// 5-second clock only while it's open, and VoiceOver reads it as one element.
+/// 5-second clock only while it's open, and VoiceOver reads it as one element. Under it, the app
+/// can put Copy and Share for the reading (round 100, `ReadingCopyButtons`), which VoiceOver reaches
+/// as their own buttons.
 struct ReadingDetailsCard: View {
     let details: ReadingDetails
     let unit: GlucoseUnit
+    /// Buttons under the details. Nil (widgets, tests) shows the details alone.
+    var actions: AnyView? = nil
 
     var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            info
+            if let actions { actions }
+        }
+        .padding(DS.Space.lg)
+        .frame(minWidth: 240, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var info: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Text("This reading")
                 .dsFont(.eyebrow)
@@ -23,9 +37,6 @@ struct ReadingDetailsCard: View {
                 value: details.nextDueText(), caption: nil,
                 warning: details.stale)
         }
-        .padding(DS.Space.lg)
-        .frame(minWidth: 240, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(details.spoken(unit: unit))
     }
@@ -68,6 +79,8 @@ struct ReadingDetailsPopover: ViewModifier {
     let unit: GlucoseUnit
     let lastCheck: Date?
     let checkEvery: TimeInterval
+    /// Built again on each 5-second tick, so Copy and Share carry the line as it reads now.
+    var actions: (() -> AnyView)? = nil
 
     func body(content: Content) -> some View {
         content
@@ -77,7 +90,7 @@ struct ReadingDetailsPopover: ViewModifier {
                 TimelineView(.periodic(from: .now, by: 5)) { context in
                     if let details = ReadingDetails(snapshot: snapshot, lastCheck: lastCheck,
                                                     checkEvery: checkEvery, now: context.date) {
-                        ReadingDetailsCard(details: details, unit: unit)
+                        ReadingDetailsCard(details: details, unit: unit, actions: actions?())
                     }
                 }
                 .presentationCompactAdaptation(.popover)
@@ -89,8 +102,9 @@ struct ReadingDetailsPopover: ViewModifier {
 
 extension View {
     func readingDetailsPopover(isPresented: Binding<Bool>, snapshot: GlucoseSnapshot, unit: GlucoseUnit,
-                               lastCheck: Date?, checkEvery: TimeInterval) -> some View {
+                               lastCheck: Date?, checkEvery: TimeInterval,
+                               actions: (() -> AnyView)? = nil) -> some View {
         modifier(ReadingDetailsPopover(isPresented: isPresented, snapshot: snapshot, unit: unit,
-                                       lastCheck: lastCheck, checkEvery: checkEvery))
+                                       lastCheck: lastCheck, checkEvery: checkEvery, actions: actions))
     }
 }
