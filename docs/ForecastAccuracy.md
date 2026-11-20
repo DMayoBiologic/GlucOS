@@ -8562,8 +8562,9 @@ place for one to act.
   points a horizon nothing more can be read from them.
 
 **Scoring check** (query 2, each stored `actual` against the stored readings interpolated at the
-target): crossing points differ by 2.4 mg/dL (iPhone) and 2.2 (Mac) on current versions against
-1.5 / 1.3 at other hours; the 0.4–0.7 extra is within the minute-to-minute spread. The larger
+target): crossing points differ by 2.4 mg/dL on current iPhone builds (2 points) against 1.5 at
+other hours, and 2.2 on the Mac (10 points, all before version stamping) against 1.6; the 0.6–0.9
+extra is within the minute-to-minute spread. The larger
 old-iPhone figure (7.8 on 8 crossing points) is one point (15 Nov 23:21, 60 minutes: 158 scored
 against 183 stored), and old iPhone builds disagree as often at other hours (11 points over 10
 mg/dL, mean 3.0): that was the 15-minute history fill (§72), fixed before version stamping. The
