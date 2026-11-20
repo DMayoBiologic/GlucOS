@@ -586,6 +586,46 @@ struct LogbookInsulinUndo: Equatable {
     var title: String { "Deleted \(insulin.name)" }
 }
 
+/// An Insights card hidden from its touch-and-hold menu (or the VoiceOver action), which the undo
+/// toast can still bring back ("Hid Lows · Undo"). Hidden cards keep their slot in the order, so
+/// Undo only takes the card off the hidden list and it returns exactly where it was. Only the
+/// layout changes; nothing logged is touched.
+struct InsightsHideUndo: Equatable {
+    /// Fresh for every hide, so a second hide restarts the toast's countdown.
+    let token: UUID
+    let card: InsightsCard
+    let screen: InsightsScreen
+    /// The hide's time, as pushed (`LogbookPendingChange.modified`), so the server echoing the
+    /// layout back keeps Undo, and only a newer layout from another device ends it.
+    var hiddenAt: Double?
+
+    init(card: InsightsCard, screen: InsightsScreen, hiddenAt: Double?, token: UUID = UUID()) {
+        self.token = token
+        self.card = card
+        self.screen = screen
+        self.hiddenAt = hiddenAt
+    }
+
+    /// The layout with the card showing again in its old slot. Nil when it's showing already
+    /// (brought back from the edit list, or the layout was reset).
+    func restoring(into layout: InsightsLayout) -> InsightsLayout? {
+        guard layout.isHidden(card) else { return nil }
+        var out = layout
+        out.restore(card, defaults: screen.defaults)
+        return out
+    }
+
+    /// True when `remote` holds a newer layout for this screen than the hide (changed on another
+    /// device). This device's own layout coming back from the server doesn't count.
+    func superseded(by remote: [LogbookRecord]) -> Bool {
+        guard let hiddenAt else { return false }
+        return remote.contains { $0.id == screen.recordID && $0.modified > hiddenAt + LogbookUndo.echoTolerance }
+    }
+
+    /// "Hid Lows".
+    var title: String { "Hid \(card.title)" }
+}
+
 /// New meals or doses that look like a second copy of ones logged a few minutes before
 /// (`DoubleLog`), offered on the undo toast as "Logged twice? 4 u NovoRapid · Undo". Nothing is
 /// taken off unless the user taps Undo, which deletes only the new entries, on every device, and
@@ -746,6 +786,8 @@ enum LogbookUndoOffer: Equatable {
     case repeated(LogbookRepeatUndo)
     /// A saved insulin deleted in Settings.
     case insulinDeleted(LogbookInsulinUndo)
+    /// An Insights card hidden from its menu.
+    case cardHidden(InsightsHideUndo)
 
     /// The toast's text.
     var title: String {
@@ -756,6 +798,7 @@ enum LogbookUndoOffer: Equatable {
         case .added(let a): return a.title
         case .repeated(let r): return r.title
         case .insulinDeleted(let i): return i.title
+        case .cardHidden(let c): return c.title
         }
     }
 
@@ -768,6 +811,7 @@ enum LogbookUndoOffer: Equatable {
         case .added(let a): return [a.token]
         case .repeated(let r): return [r.token]
         case .insulinDeleted(let i): return [i.token]
+        case .cardHidden(let c): return [c.token]
         }
     }
 
@@ -780,6 +824,7 @@ enum LogbookUndoOffer: Equatable {
         case .added(let a): return a.isSensorStart ? ContextTag.sensorStarted.systemImage : "square.and.pencil"
         case .repeated: return "square.on.square"
         case .insulinDeleted: return "trash"
+        case .cardHidden: return "eye.slash"
         }
     }
 
@@ -792,6 +837,7 @@ enum LogbookUndoOffer: Equatable {
         case .added(let a): return "Takes the \(a.entry.kindNoun) off again, on all your devices"
         case .repeated(let r): return r.hint
         case .insulinDeleted(let i): return "Puts \(i.insulin.name) back in Your Insulins, on all your devices"
+        case .cardHidden(let c): return "Shows the \(c.card.title) card again in its old place"
         }
     }
 
@@ -818,6 +864,7 @@ enum LogbookUndoOffer: Equatable {
         case .added: return 1
         case .repeated(let r): return r.pairs.count
         case .insulinDeleted: return 1
+        case .cardHidden: return 1
         }
     }
 }
