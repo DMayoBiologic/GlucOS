@@ -85,4 +85,33 @@ final class ForecastMorphTests: XCTestCase {
         let one = forecast(from: start, count: 1)
         XCTAssertEqual(ForecastMorph.revealed(one, progress: 0), one)
     }
+
+    // MARK: Reduce Motion cross-fade
+
+    func testCrossFadesOnlyBetweenTwoDifferentForecasts() {
+        let a = forecast(from: start, count: 13)
+        let b = forecast(from: start.addingTimeInterval(300), count: 13, base: 124)
+        XCTAssertTrue(ForecastMorph.crossFades(from: a, to: b))
+        XCTAssertFalse(ForecastMorph.crossFades(from: a, to: a))
+        XCTAssertFalse(ForecastMorph.crossFades(from: [], to: b))   // appearing: just there
+        XCTAssertFalse(ForecastMorph.crossFades(from: a, to: []))   // going: just gone
+    }
+
+    func testCrossFadeOpacitiesAlwaysAddUpToOne() {
+        for p in stride(from: -0.5, through: 1.5, by: 0.1) {
+            let o = ForecastMorph.crossFadeOpacities(p)
+            XCTAssertEqual(o.previous + o.current, 1, accuracy: 1e-9)
+            XCTAssertTrue((0...1).contains(o.previous) && (0...1).contains(o.current))
+        }
+        XCTAssertEqual(ForecastMorph.crossFadeOpacities(0).previous, 1)
+        XCTAssertEqual(ForecastMorph.crossFadeOpacities(1).current, 1)
+    }
+
+    func testCrossFadeIsShortAndNoneIsInactive() {
+        XCTAssertLessThanOrEqual(ForecastMorph.crossFadeDuration, 0.3)
+        XCTAssertFalse(ForecastCrossFade.none.isActive)
+        let a = forecast(from: start, count: 13)
+        XCTAssertTrue(ForecastCrossFade(previous: a, progress: 0.4).isActive)
+        XCTAssertFalse(ForecastCrossFade(previous: a, progress: 1).isActive)
+    }
 }

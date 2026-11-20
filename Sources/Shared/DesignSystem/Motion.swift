@@ -473,12 +473,20 @@ struct ForecastMotion<Content: View>: View {
     /// Counts changes, so a draw-in or morph that's still being set up never overrides a newer one.
     @State private var generation = 0
     @State private var onScreen = false
+    /// Under Reduce Motion: the forecast fading out under the new one, and how far the new one has
+    /// faded in (1 = done, nothing fading).
+    @State private var fadeFrom: [ForecastSample] = []
+    @State private var fade: Double = 1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var animates: Bool { enabled && !reduceMotion && onScreen }
+    /// Reduce Motion: nothing slides or bends, but a new forecast still fades in over the old one,
+    /// so a range that narrows or widens doesn't jump.
+    private var crossFades: Bool { enabled && reduceMotion && onScreen }
 
     var body: some View {
-        ForecastFrame(from: from, to: to ?? forecast, phase: phase, reveal: reveal, content: content)
+        ForecastFrame(from: from, to: to ?? forecast, phase: phase, reveal: reveal,
+                      fadeFrom: fadeFrom, fade: fade, content: content)
             .onAppear {
                 onScreen = true
                 settle(on: forecast)
@@ -499,6 +507,8 @@ struct ForecastMotion<Content: View>: View {
             to = forecast
             phase = 1
             reveal = 1
+            fadeFrom = []
+            fade = 1
         }
     }
 
@@ -516,6 +526,7 @@ struct ForecastMotion<Content: View>: View {
 
     private func change(to new: [ForecastSample]) {
         let shown = to ?? []
+        if crossFades, reveal == 1, ForecastMorph.crossFades(from: shown, to: new) { crossFade(from: shown, to: new); return }
         guard animates, !new.isEmpty else { settle(on: new); return }
         // Nothing drawn before (switched on, or the first forecast): draw it in.
         guard !shown.isEmpty, reveal == 1 else { settle(on: new); drawIn(); return }
@@ -531,6 +542,24 @@ struct ForecastMotion<Content: View>: View {
             withAnimation(DSMotion.ambient.animation) { phase = 1 }
         }
     }
+
+    /// Reduce Motion: the old forecast stays where it was and fades out while the new one fades in
+    /// in its own place, once, over a quarter of a second. Nothing moves.
+    private func crossFade(from old: [ForecastSample], to new: [ForecastSample]) {
+        generation += 1
+        let generation = self.generation
+        withTransaction(Transaction(animation: nil)) {
+            from = new
+            to = new
+            phase = 1
+            fadeFrom = old
+            fade = 0
+        }
+        DispatchQueue.main.async {
+            guard generation == self.generation else { return }
+            withAnimation(.easeInOut(duration: ForecastMorph.crossFadeDuration)) { fade = 1 }
+        }
+    }
 }
 
 /// One frame of `ForecastMotion`: SwiftUI steps `phase` and `reveal` through every frame of the
@@ -540,15 +569,32 @@ private struct ForecastFrame<Content: View>: View, Animatable {
     let to: [ForecastSample]
     var phase: Double
     var reveal: Double
+    let fadeFrom: [ForecastSample]
+    var fade: Double
     let content: (_ forecast: [ForecastSample], _ reveal: Double) -> Content
 
-    var animatableData: AnimatablePair<Double, Double> {
-        get { AnimatablePair(phase, reveal) }
-        set { phase = newValue.first; reveal = newValue.second }
+    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, Double> {
+        get { AnimatablePair(AnimatablePair(phase, reveal), fade) }
+        set { phase = newValue.first.first; reveal = newValue.first.second; fade = newValue.second }
     }
 
     var body: some View {
         content(ForecastMorph.blend(from: from, to: to, t: phase), reveal)
+            // The chart reads this to draw the old forecast fading under the new one.
+            .environment(\.forecastCrossFade,
+                         fade < 1 && !fadeFrom.isEmpty ? ForecastCrossFade(previous: fadeFrom, progress: fade) : .none)
+    }
+}
+
+private struct ForecastCrossFadeKey: EnvironmentKey {
+    static let defaultValue = ForecastCrossFade.none
+}
+
+extension EnvironmentValues {
+    /// The forecast fading out under the current one (`ForecastMotion`, Reduce Motion only).
+    var forecastCrossFade: ForecastCrossFade {
+        get { self[ForecastCrossFadeKey.self] }
+        set { self[ForecastCrossFadeKey.self] = newValue }
     }
 }
 

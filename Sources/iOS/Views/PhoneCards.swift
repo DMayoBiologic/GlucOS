@@ -631,7 +631,8 @@ struct PhoneChartCard: View {
             // and the choice is remembered (`AppSettings.chartHours`). Dragging along the times
             // under the chart pans back up to a day (`ChartPan`), with a Now button to spring back.
             // The forecast draws in from "Now" once the card has come in, and bends into each new
-            // one rather than jumping (as in the Mac popover). Under Reduce Motion it just changes.
+            // one rather than jumping, its range narrowing or widening with it (as in the Mac popover).
+            // Under Reduce Motion the new one cross-fades in over the old one instead.
             ForecastMotion(forecast: outlook?.forecast ?? [], drawInDelay: Self.forecastDelay) { forecast, reveal in
                 GlucoseChart(readings: store.readings(lastHours: Self.longest), unit: store.shownUnit, lowMgdl: s.lowMgdl,
                              highMgdl: s.highMgdl, hours: hours, showAxes: true, interactive: true,
