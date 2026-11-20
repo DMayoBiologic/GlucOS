@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "timer",
                   title: "Your longest time in range",
                   detail: "A new Insights card on iPhone and Mac shows your longest unbroken stretch in range over the last 7, 14 or 30 days, how long it lasted and when. Tap it to see that stretch in the Logbook. It shows once half of the days have readings."),
+            .init(symbol: "moon.stars",
+                  title: "Forecasts across midnight",
+                  detail: "We checked forecasts made just before and after midnight, when the day changes over, found they're worked out and scored the same as at any other hour, and kept them as they are."),
         ]),
         WhatsNewRelease(version: "1.97.0", highlights: [
             .init(symbol: "arrow.up.arrow.down",
