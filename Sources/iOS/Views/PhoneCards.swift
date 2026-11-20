@@ -106,7 +106,11 @@ struct PhoneHeroCard: View {
                     // from, the rate per minute and when the next one is due (round 56).
                     .readingDetailsPopover(isPresented: $showDetails, snapshot: s, unit: store.shownUnit,
                                            lastCheck: store.lastAttempt,
-                                           checkEvery: TimeInterval(settings.pollIntervalSeconds))
+                                           checkEvery: TimeInterval(settings.pollIntervalSeconds)) {
+                        // Copy and Share under the details too (round 100): the same line, light
+                        // tap and one "Copied" for VoiceOver as the long-press menu.
+                        AnyView(ReadingCopyButtons(line: store.readingCopyText()) { copyReading() })
+                    }
                     // Scrolling down shrinks the figure into the bar's title and fades it; scrolling
                     // back grows it again (round 46, `HeaderCollapse`). Only fades under Reduce Motion.
                     .todayStageCollapse()

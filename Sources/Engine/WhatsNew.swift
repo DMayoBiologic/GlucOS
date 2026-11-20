@@ -201,6 +201,11 @@ struct WhatsNewLaunch {
 /// three things people will notice, in plain words, no dosing advice.
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
+        WhatsNewRelease(version: "1.94.0", highlights: [
+            .init(symbol: "doc.on.doc",
+                  title: "Copy and share from reading details",
+                  detail: "Tap the reading on iPhone Today, or click it in the Mac popover, and the details card now has Copy and Share under it for the same one line in your unit. Copy says Copied for a moment, with a light tap on iPhone and one VoiceOver confirmation."),
+        ]),
         WhatsNewRelease(version: "1.93.0", highlights: [
             .init(symbol: "doc.on.doc",
                   title: "Copy the reading from the menu bar",
