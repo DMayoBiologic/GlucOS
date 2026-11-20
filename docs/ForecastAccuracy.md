@@ -8208,7 +8208,7 @@ around 180–270 mg/dL. Never the other way round. Loosening the rule to any opp
 finds 18 ticks; comparing the arrow with the line's own 20-minute trend (`AGAINST=line`) finds 20
 (17 rising arrows on a falling line, 3 falling arrows on a rising line). When the arrow moves, the
 slope nearly always goes the same way: arrow steady 9,873 ticks, arrow and slope moving together
-2,704, arrow moving with a flat slope 43.
+2,697, arrow moving with a flat slope 50.
 
 Relay replay, bias = actual − line (positive = line ran low):
 
@@ -8217,7 +8217,7 @@ Relay replay, bias = actual − line (positive = line ran low):
 | All | 12,630 | 15.5 / −0.0 | 24.7 / −0.1 | 39.6 / −0.1 | 16.0 / 25.3 / 39.6 |
 | Arrow and 15-min slope disagree | 10 | 27.4 / +21.8 | 22.3 / +6.6 | 30.3 / +30.3 | 22.6 / 17.7 / 25.0 |
 | Arrow and line's trend disagree | 20 | 27.2 / +14.0 | 30.6 / +7.8 | 42.8 / +14.2 | 25.5 / 26.4 / 38.0 |
-| Arrow and slope agree, moving | 2,704 | 19.2 / −1.8 | 31.6 / −2.3 | 50.9 / −1.5 | 22.1 / 34.9 / 51.2 |
+| Arrow and slope agree, moving | 2,697 | 19.2 / −1.8 | 31.6 / −2.3 | 50.9 / −1.5 | 22.1 / 34.9 / 51.1 |
 | Arrow steady | 9,873 | 14.4 / +0.4 | 22.7 / +0.5 | 36.4 / +0.2 | 14.3 / 22.6 / 36.3 |
 
 **On those few ticks the arrow was the better guide, and the line ran low.** The line went with

@@ -102,9 +102,9 @@ const ticks: Tick[] = [];
     const long = core.forecast(recent, calibration, now, 3600, tuning);
     const line = long.ok ? long.forecast : null;
     const arrow = arrowAt(now);
-    // Only readings up to now: Series.value bridges gaps up to 20 min, so it could reach past `now`.
-    const known = rs.upTo(now);
-    const back = known.value(now - 15 * 60), cur = known.last?.mgdl ?? readings[i].mgdl;
+    // Only readings up to now: Series.value bridges gaps up to 20 min, so it could reach past `now`,
+    // and the per-minute pick could swap the tick's own reading for a later one in the same minute.
+    const back = rs.upTo(now).value(now - 15 * 60), cur = readings[i].mgdl;
     const s15 = AGAINST_LINE ? (line?.trendPerMinute ?? NaN) : back === null ? NaN : (cur - back) / 15;
     let kind: Kind = "none";
     if (arrow && !Number.isNaN(s15)) {
