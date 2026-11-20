@@ -111,8 +111,8 @@ tested in DayInRangeTests).
 - **Motion.** A bar grows from the left once, the first time its day comes on screen, then simply
   sits there when it scrolls back into view (`DrawnOnce`). Today's bar glides to its new shares as
   readings arrive. Nothing loops (§4.6 Power). Round 104 (`DayBarEntrance`, DayInRangeTests): on
-  iPhone the grow waits until half the header is inside the list, so a header prepared just off
-  screen doesn't spend it unseen (if the list never reports it, it draws after 1.2 s); the Mac
+  iPhone the grow waits until the bar itself is half inside the list, so a header prepared just
+  off screen doesn't spend it unseen (if the list never reports it, it draws after 1.2 s); the Mac
   grows each bar as the Logbook opens. A refresh, a rebuilt header or a period change never
   replays it. Under Reduce Motion the bar fades in over 0.25 s instead, and a changed split
   cross-fades rather than jumping.

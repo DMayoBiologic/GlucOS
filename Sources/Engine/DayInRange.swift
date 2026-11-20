@@ -343,8 +343,9 @@ enum DayBarEntrance: Equatable, Sendable {
     /// Seconds the Reduce Motion fade takes, for the first show and for a changed split.
     static let fadeSeconds = 0.25
 
-    /// On iPhone the header waits until this much of it is inside the list, so a row the list
-    /// prepares just off screen doesn't spend its draw-in where nobody sees it.
+    /// On iPhone the bar waits until this much of it is inside the list (it sits at the bottom of
+    /// its header, so the header is in view by then), so a row the list prepares just off screen
+    /// doesn't spend its draw-in where nobody sees it.
     static let visibleThreshold = 0.5
 
     /// If the list never reports the header on screen (it isn't in a scroll view, say), draw in

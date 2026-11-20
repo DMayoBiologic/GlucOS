@@ -10,8 +10,9 @@ import SwiftUI
 /// `DayBarEntrance`), then just sits there; a share that changes (today's new readings, or a header
 /// the list rebuilt after an entry was added, edited, deleted or undone) glides to its new split
 /// from the one last shown (`DrawnOnce.lastFigures`). Nothing loops and nothing replays on a
-/// refresh. On iPhone (`waitsForScroll`) the grow waits until half the header is inside the list,
-/// so a header the list prepares just off screen doesn't spend it unseen; the Mac grows it as the
+/// refresh. On iPhone (`waitsForScroll`) the grow waits until the bar itself is half inside the
+/// list (it sits at the bottom of its header, so the header is in view by then), so a header the
+/// list prepares just off screen doesn't spend it unseen; the Mac grows it as the
 /// Logbook opens. Under Reduce Motion the bar fades in instead, and a changed split cross-fades.
 /// Hidden from VoiceOver: the header it sits in says the figures.
 struct DayRangeBar: View {
@@ -91,8 +92,10 @@ struct DayRangeBar: View {
         }
         .task {
             guard waitsForScroll else { return }
-            try? await Task.sleep(for: .seconds(DayBarEntrance.visibilityFallbackSeconds))
-            if !heardVisibility { start() }
+            // Cancelled (the header left before the wait ended): leave the draw-in for a copy
+            // that is seen, rather than spending this day's first time here.
+            do { try await Task.sleep(for: .seconds(DayBarEntrance.visibilityFallbackSeconds)) } catch { return }
+            if !Task.isCancelled, !heardVisibility { start() }
         }
         #endif
         .accessibilityHidden(true)
