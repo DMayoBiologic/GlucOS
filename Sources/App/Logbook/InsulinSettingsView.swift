@@ -130,6 +130,10 @@ struct InsulinRowLabel: View {
 /// to 1.03x with a soft shadow and follows the finger or pointer, and the rows it passes slide
 /// aside to show where it will land. Under Reduce Motion only the shadow shows and the rows jump.
 /// Nothing animates until a row is picked up.
+///
+/// Deleting a row (iPhone swipe, Mac right-click) shrinks it away while the rows below slide up,
+/// and Undo on the toast grows it back in its place (`RowRemoval`, round 101). Under Reduce Motion
+/// the row fades out and back in where it is, and the other rows jump.
 struct InsulinReorderRows<RowLabel: View>: View {
     let insulins: [SavedInsulin]
     let onTap: (SavedInsulin) -> Void
@@ -151,6 +155,11 @@ struct InsulinReorderRows<RowLabel: View>: View {
     @State private var heights: [UUID: Double] = [:]
     /// The one row whose Delete is swiped open (iPhone).
     @State private var swipeOpen: UUID?
+    /// Under Reduce Motion, the row fading out before it's deleted.
+    @State private var leaving: UUID?
+    /// The rows already shown, so under Reduce Motion a row that comes back (Undo, another device)
+    /// starts clear and fades in. Nil until the list first appears: everything shows then.
+    @State private var shown: Set<UUID>?
 
     private var rowHeights: [Double] { insulins.map { heights[$0.id] ?? 44 } }
 
@@ -160,14 +169,48 @@ struct InsulinReorderRows<RowLabel: View>: View {
         reduceMotion ? nil : .snappy(duration: RowReorderDrag.duration)
     }
 
+    /// A row going or coming back: the shrink and the slide of the rows below. None under Reduce
+    /// Motion, where the rows jump and only the row itself fades.
+    private var removal: Animation? {
+        reduceMotion ? nil : .smooth(duration: RowRemoval.duration)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(insulins.enumerated()), id: \.element.id) { index, insulin in
                 row(insulin, at: index)
+                    .opacity(hidden(insulin.id) ? 0 : 1)
+                    .transition(reduceMotion ? .identity : .rowCollapse)
             }
+        }
+        // Only when a row goes or comes: a reorder keeps the drag's own settle.
+        .animation(removal, value: Set(insulins.map(\.id)))
+        .onAppear { shown = Set(insulins.map(\.id)) }
+        .onChange(of: insulins.map(\.id)) { old, new in
+            let arrivals = RowRemoval.arrivals(from: old, to: new)
+            guard !arrivals.isEmpty, reduceMotion else { shown = Set(new); return }
+            withAnimation(.easeInOut(duration: RowRemoval.fadeDuration)) { shown = Set(new) }
         }
         .onChange(of: holding) { _, now in
             if !now { drop() }
+        }
+    }
+
+    /// Clear while it fades out to be deleted, or before it fades back in (Reduce Motion only).
+    private func hidden(_ id: UUID) -> Bool {
+        guard reduceMotion else { return false }
+        return leaving == id || shown.map { !$0.contains(id) } ?? false
+    }
+
+    /// Shrinks the row away as the list deletes it; under Reduce Motion it fades out first, then
+    /// goes, and the rows below jump.
+    private func remove(_ insulin: SavedInsulin) {
+        guard reduceMotion else { onDelete(insulin); return }
+        withAnimation(.easeInOut(duration: RowRemoval.fadeDuration)) { leaving = insulin.id }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(RowRemoval.fadeDuration))
+            onDelete(insulin)
+            leaving = nil
         }
     }
 
@@ -213,7 +256,7 @@ struct InsulinReorderRows<RowLabel: View>: View {
         #if os(macOS)
         .contextMenu {
             Button("Edit…") { onTap(insulin) }
-            Button("Delete", role: .destructive) { onDelete(insulin) }
+            Button("Delete", role: .destructive) { remove(insulin) }
         }
         #endif
         .accessibilityElement(children: .combine)
@@ -229,7 +272,7 @@ struct InsulinReorderRows<RowLabel: View>: View {
         #if os(iOS)
         content()
             .background(Palette.controlBackground)
-            .phoneSwipeToDelete(insulin.id, openID: $swipeOpen, reduceMotion: reduceMotion) { onDelete(insulin) }
+            .phoneSwipeToDelete(insulin.id, openID: $swipeOpen, reduceMotion: reduceMotion) { remove(insulin) }
         #else
         content()
         #endif
@@ -312,6 +355,61 @@ struct InsulinReorderRows<RowLabel: View>: View {
         #if os(iOS)
         Haptics.play(.rowDropped)
         #endif
+    }
+}
+
+/// A row shrinking away from its bottom edge up (and the reverse when it's inserted): its height,
+/// opacity and a little of its scale go to nothing together, so the rows below slide up with it
+/// rather than under it (`RowRemoval`).
+private struct RowCollapse: ViewModifier, Animatable {
+    /// How much of the row's height is left, 0 to 1.
+    var fraction: Double
+
+    var animatableData: Double {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        RowCollapseLayout(fraction: fraction) { content }
+            // Only clipped while it's shrinking, so a lifted row's shadow and drag still show.
+            .clipShape(RowCollapseClip(clips: fraction < 1))
+            .opacity(RowRemoval.opacity(fraction: fraction))
+            .scaleEffect(RowRemoval.scale(fraction: fraction), anchor: .top)
+    }
+}
+
+/// Lays the row out at its full height, top edge fixed, and reports only `fraction` of it.
+private struct RowCollapseLayout: Layout {
+    var fraction: Double
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let row = subviews.first else { return .zero }
+        let size = row.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: proposal.width ?? size.width, height: size.height * min(max(fraction, 0), 1))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let row = subviews.first else { return }
+        let size = row.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+        row.place(at: bounds.origin, anchor: .topLeading,
+                  proposal: ProposedViewSize(width: bounds.width, height: size.height))
+    }
+}
+
+/// The row's own bounds while it shrinks; nothing clipped otherwise.
+private struct RowCollapseClip: Shape {
+    var clips: Bool
+
+    func path(in rect: CGRect) -> Path {
+        Path(clips ? rect : rect.insetBy(dx: -10_000, dy: -10_000))
+    }
+}
+
+private extension AnyTransition {
+    /// Shrinks the row away when it's removed, and grows it in when it's inserted.
+    static var rowCollapse: AnyTransition {
+        .modifier(active: RowCollapse(fraction: 0), identity: RowCollapse(fraction: 1))
     }
 }
 
@@ -438,6 +536,8 @@ struct InsulinEditor: View {
 struct PhoneInsulinsScreen: View {
     var body: some View {
         Form { InsulinListSection() }
+            // "Deleted NovoRapid · Undo" after a delete here.
+            .overlay(alignment: .bottom) { PhoneUndoToast() }
             .navigationTitle("Your Insulins")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { EditButton() }

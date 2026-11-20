@@ -920,6 +920,8 @@ private struct LoggingSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        // "Deleted NovoRapid · Undo" (⌘Z) after deleting a saved insulin here.
+        .overlay(alignment: .bottom) { LogbookUndoToast() }
         .settingsSearchPage(.logging) { anchor in
             anchor == .insulins || anchor == .bolus ? settings.therapy.logsInsulin : true
         }
