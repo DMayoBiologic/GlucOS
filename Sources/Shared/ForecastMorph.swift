@@ -52,6 +52,24 @@ enum ForecastMorph {
         return out
     }
 
+    /// How long a new forecast takes to fade in over the old one under Reduce Motion, matching
+    /// `DSMotion.ambient.reducedAnimation`: a short opacity change that moves nothing.
+    static let crossFadeDuration: TimeInterval = 0.25
+
+    /// Whether a new forecast should cross-fade in over the one drawn (Reduce Motion): only when
+    /// both exist and they differ. A forecast appearing or going just changes.
+    static func crossFades(from: [ForecastSample], to: [ForecastSample]) -> Bool {
+        !from.isEmpty && !to.isEmpty && from != to
+    }
+
+    /// How opaque the old and new forecast are `progress` of the way through a cross-fade
+    /// (0 = only the old one, 1 = only the new one, clamped). They always add up to one, so the
+    /// band never looks doubled or briefly empty.
+    static func crossFadeOpacities(_ progress: Double) -> (previous: Double, current: Double) {
+        let t = min(max(progress, 0), 1)
+        return (1 - t, t)
+    }
+
     private static func mix(_ a: ForecastSample, _ b: ForecastSample, _ t: Double) -> ForecastSample {
         func lerp(_ x: Double, _ y: Double) -> Double { x + (y - x) * t }
         return ForecastSample(
@@ -60,4 +78,16 @@ enum ForecastMorph {
             lowerMgdl: lerp(a.lowerMgdl, b.lowerMgdl),
             upperMgdl: lerp(a.upperMgdl, b.upperMgdl))
     }
+}
+
+/// A forecast fading out under the one now drawn, while Reduce Motion is on (`ForecastMotion`):
+/// `previous` at `1 - progress` opacity, the current forecast at `progress`. `.none` when nothing
+/// is fading, which is every chart outside that quarter of a second.
+struct ForecastCrossFade: Equatable {
+    var previous: [ForecastSample]
+    var progress: Double
+
+    static let none = ForecastCrossFade(previous: [], progress: 1)
+
+    var isActive: Bool { !previous.isEmpty && progress < 1 }
 }

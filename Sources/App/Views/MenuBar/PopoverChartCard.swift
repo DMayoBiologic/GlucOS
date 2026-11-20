@@ -78,7 +78,7 @@ struct PopoverChartCard: View {
             .animation(PopoverMotion.quick(reduceMotion), value: pinned)
             let outlook = s.currentOutlook()
             // The forecast draws in as the popover opens, once its card is most of the way in, and
-            // bends into each new one.
+            // bends into each new one, its range narrowing or widening with it (cross-fading under Reduce Motion).
             ForecastMotion(forecast: settings.showForecast ? (outlook?.forecast ?? []) : [],
                            drawInDelay: forecastDelay) { forecast, reveal in
                 GlucoseChart(readings: plotted, unit: store.shownUnit, lowMgdl: s.lowMgdl, highMgdl: s.highMgdl,

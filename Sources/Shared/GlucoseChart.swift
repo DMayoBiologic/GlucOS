@@ -209,6 +209,8 @@ struct GlucoseChart: View {
     @State private var panSpokenEnd: Date?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    /// Under Reduce Motion, the forecast fading out under a new one (`ForecastMotion`).
+    @Environment(\.forecastCrossFade) private var forecastCrossFade
 
     /// The real reading nearest the pointer. Only actual readings are ever shown, never an
     /// interpolated value between two of them. Over a gap in the data (sensor warm-up, phone out
@@ -987,6 +989,9 @@ struct GlucoseChart: View {
         // What's drawn of it so far. Indexed rather than keyed by time, so the marks keep their
         // identity while a new forecast slides and bends into place (`ForecastMotion`).
         let drawn = Array(ForecastMorph.revealed(projection, progress: forecastReveal).enumerated())
+        // Reduce Motion: the forecast it replaced, fading out in its own place while this one fades in.
+        let fading = !projection.isEmpty && forecastCrossFade.isActive ? Array(forecastCrossFade.previous.enumerated()) : []
+        let fadeOpacity = fading.isEmpty ? (previous: 0.0, current: 1.0) : ForecastMorph.crossFadeOpacities(forecastCrossFade.progress)
         // What VoiceOver reads for the chart: a picked span, or the summary with yesterday and gaps.
         let spokenValue: String = panSpoken(pan) + (voiceOverSpanSentence(window: window)
             ?? chartSummary(window: window, stale: stale, forecastEnd: projection.last) + yesterdaySpoken(newest: window.last) + gapSpoken)
@@ -1021,6 +1026,34 @@ struct GlucoseChart: View {
             // The trace, its glow and its out-of-range fills, one stretch per unbroken run of readings.
             traceMarks(segments, styles: lineStyles, floor: floor, tint: currentTint)
 
+            // The forecast it replaced, under Reduce Motion: the same band and line, fading out.
+            // Clamped to the axes, which make room for the new forecast only, so they hold still.
+            ForEach(fading, id: \.offset) { _, p in
+                AreaMark(
+                    x: .value("Time", p.date),
+                    yStart: .value("Forecast low", min(max(unit.value(fromMgdl: p.lowerMgdl), yd.lowerBound), yd.upperBound)),
+                    yEnd: .value("Forecast high", min(max(unit.value(fromMgdl: p.upperMgdl), yd.lowerBound), yd.upperBound)),
+                    series: .value("Series", "Previous forecast range")
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(
+                    LinearGradient(colors: [Palette.stale.opacity(0.30), Palette.stale.opacity(0.08)],
+                                   startPoint: .leading, endPoint: .trailing)
+                )
+                .opacity(fadeOpacity.previous)
+            }
+            ForEach(fading, id: \.offset) { _, p in
+                LineMark(
+                    x: .value("Time", p.date),
+                    y: .value("Forecast", min(max(unit.value(fromMgdl: p.mgdl), yd.lowerBound), yd.upperBound)),
+                    series: .value("Series", "Previous forecast")
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(Palette.stale)
+                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 3]))
+                .opacity(fadeOpacity.previous)
+            }
+
             // The forecast: a neutral band and dashed line, so it can't be mistaken for readings.
             ForEach(drawn, id: \.offset) { _, p in
                 AreaMark(
@@ -1035,6 +1068,7 @@ struct GlucoseChart: View {
                     LinearGradient(colors: [Palette.stale.opacity(0.30), Palette.stale.opacity(0.08)],
                                    startPoint: .leading, endPoint: .trailing)
                 )
+                .opacity(fadeOpacity.current)
             }
             ForEach(drawn, id: \.offset) { _, p in
                 LineMark(
@@ -1045,6 +1079,7 @@ struct GlucoseChart: View {
                 .interpolationMethod(.monotone)
                 .foregroundStyle(Palette.stale)
                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 3]))
+                .opacity(fadeOpacity.current)
             }
 
             nowMark(last: projection.isEmpty ? nil : window.last)
