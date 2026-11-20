@@ -8443,3 +8443,73 @@ from c, jsonb_array_elements(c.points) e where (e->>'minutes')::int in (15,30,60
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged. No app or relay code changed.
+
+## 108. In the 2 hours after exercise or an active spell, does the forecast miss more? (20 Nov 2026)
+
+**Question.** Is the forecast worse in the 2 hours after exercise, and would a held-out change
+there help? **Exercise itself still can't be measured: no Logbook entry is tagged Exercise and the
+app stores no HealthKit steps or workouts. Using glucose alone as a stand-in ("activity-like
+falls"), the line runs a little low afterwards and the range already covers it. Damping the trend
+helps only at 60 minutes and delays low warnings, so nothing ships; no app or relay code changed.**
+(§57 asked the exercise-tag version with a 3-hour window; §82 / §100 cover falls from above range
+and fast falls. Post-meal peaks and sensor-day ranges are left out here.)
+
+**The count** (§57's query, 20 Nov 12:50 Perth): 0 of 347 Logbook rows carry a tag, and the
+15 context events are only woke-up, bedtime, sensor-started and hypo-treatment. The only text hits
+are the same two "Sports drink" meals. There is no steps table: `glucos` holds readings, forecast
+checks, the Logbook, diagnostics and relay tables only, and no app target reads HealthKit.
+
+**Stand-in.** An **activity-like fall** is a live reading, judged only from what the app has at
+issue time: Perth 06:00–22:00, 80–180 mg/dL, no reading above 180 in the hour before, engine trend
+−1 mg/dL a minute or steeper, no rapid dose in the 3 hours before and no meal in the 2 hours
+before (glucose falling with nothing logged to explain it). Forecasts issued in the 2 hours after
+one are the **after** group. 219 such readings in 24 episodes on 8 days, 11–20 Nov; 4 of the
+12 lows under 70 fall inside an after window (12 Nov 18:45, 13 Nov 19:05, 18 Nov 10:22,
+20 Nov 12:01). Unlogged food and unlogged insulin look the same as activity here, so this is a
+proxy, not exercise.
+
+**Replay** (`scripts/activity-falls.py`, the engine's trend forecast every 5 minutes on 12,044 live
+readings, 2,328 points). Miss as no change / ships, bias = actual − ships (+ = the line ran low):
+
+| Gain 0.45 | Points | 15 min | 30 min | 60 min |
+|---|---|---|---|---|
+| After (8 days) | 363 | 15.9 / 15.1 (+3.4) | 25.9 / 25.6 (+7.2) | 40.7 / 41.8 (**+15.8**) |
+| … during the fall | 39 | 18.5 / 18.7 (+6.4) | 25.8 / 25.0 (+4.7) | 34.2 / 37.9 (+25.8) |
+| Awake rest | 1,180 | 16.8 / 15.6 (−0.8) | 27.6 / 25.9 (−1.9) | 44.1 / 43.3 (−4.4) |
+
+Gains 0.6 / 0.7 look the same (after +6.8 / +6.6 at 30, +15.4 / +15.2 at 60). Error after an
+active spell is no larger than the awake rest; the lean is that glucose levels off sooner than the
+line, so at 60 minutes no change beats the line (40.7 vs 41.8). By day the lean is +13 / +29 at
+30 / 60 on 12, 13, 14 and 19 Nov, near zero on 16 and 17 Nov, and −5 / 0 on 18 Nov, the day that
+fall carried on to 54.
+
+**Live log** (`scripts/activity-falls.sql`, the app's clean shown points, Mac, iPhone and relay):
+
+| Horizon | After: n / inside / score | Awake rest: n / inside / score |
+|---|---|---|
+| 15 | 130 / 84% / 72.3 | 508 / 82% / 80.5 |
+| 30 | 32 / 75% / 110.5 | 275 / 79% / 149.1 |
+| 60 | 8 (2 days) / 88% / 103.6 | 147 / 78% / 255.2 |
+
+The range holds about its 8 in 10 after active spells and scores better than the rest, so §57's
+range-only candidate (a wider range in the window) has nothing to fix.
+
+**Held out** (leave one Perth day out, trend × w on the after group, w 0.5–1.5): every fold picks
+w = 0.5 at every gain. 60 minutes improves 1.8–3.6% on the after group, 7 of 8 days; 30 minutes
+moves −0.1 to −1.5%, 4 days better and 4 worse; 15 minutes is +1.6% to −0.4%. It fails the bar
+(better at 30 AND 60 on most days). Damping also makes low warnings later on the 4 lows inside
+an after window: at gain 0.45, w = 0.8 cuts leads from 5 / 9 / 5 / 9 to 5 / 7 / 4 / 8 minutes.
+
+**Decision.** Ship nothing. Retest the exercise question when §57's count reaches 8 Exercise
+entries on 4 days (check **1 Dec 2026** with §69); if HealthKit steps or workouts are ever stored,
+split by them instead of the stand-in. Rerun the stand-in on **10 Dec 2026** with §100 / §103;
+ship only a change that wins held out at 30 AND 60 on most days without making any low warning
+later. A change to the line for real exercise would act through insulin sensitivity, which needs
+Declan's approval first.
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity, the bolus calculator and its exercise reduction are unchanged. No app or relay code
+changed.
+
+Script inputs: `readings.json` = `[[unix, mgdl], ...]` from `glucos.readings where trend > 0`, and
+`logs.json` = `[[unix, "meal" | "dose"], ...]` for non-deleted meals and rapid doses, as §82.
