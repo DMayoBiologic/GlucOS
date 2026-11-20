@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "cursorarrow.rays",
                   title: "Notes when you hover a marker",
                   detail: "Hover something you logged on the Mac popover chart and its card now shows any note you wrote, under what was logged and when. Click for details as before, or ⌘-click to open the entry in the Logbook, which VoiceOver also offers on each marker."),
+            .init(symbol: "speedometer",
+                  title: "Forecast range by speed of change",
+                  detail: "We checked how often glucose lands inside the forecast range when it was steady, moving slowly or moving fast, and kept the range as it is for now."),
         ]),
         WhatsNewRelease(version: "1.94.0", highlights: [
             .init(symbol: "person.2",
