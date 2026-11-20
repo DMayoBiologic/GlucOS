@@ -126,6 +126,8 @@ struct PhoneInsightsView: View {
             }
         }
         .background { PhoneBackdrop(tone: .neutral) }
+        // After Hide: "Hid Lows · Undo" brings the card back where it was.
+        .overlay(alignment: .bottom) { PhoneUndoToast() }
         .navigationTitle(editing ? "Edit Insights" : "Insights")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -184,7 +186,13 @@ struct PhoneInsightsView: View {
                         .dsReveal(card, in: reveals, when: .scrolledIntoView, order: i + (recapFiredAt == nil ? 0 : 1))
                         .insightsShareLift(lifted == card)
                         .contextMenu { menu(card, index: i, count: visible.count) }
-                        .accessibilityAction(named: "Share card") { share(card) }
+                        // The menu's actions for VoiceOver, which can't touch and hold.
+                        .accessibilityActions {
+                            Button("Share card") { share(card) }
+                            if i > 0 { Button("Move up") { move(card, by: -1, announce: true) } }
+                            if i < visible.count - 1 { Button("Move down") { move(card, by: 1, announce: true) } }
+                            Button("Hide card") { hide(card) }
+                        }
                 }
                 if visible.contains(.mornings) || visible.contains(.forecastAccuracy) {
                     Text("Mornings and forecast accuracy appear once GlucOS has enough wake-ups and forecasts to report on.")
@@ -308,28 +316,42 @@ struct PhoneInsightsView: View {
         withAnimation(InsightsShareLiftMotion.animation(reduceMotion: reduceMotion)) { lifted = nil }
     }
 
-    /// Touch and hold a card: share it as a picture, move it a place, hide it, or open the full
-    /// edit list.
+    /// Touch and hold a card: share it as a picture, move it a place, hide it (with Undo on the
+    /// toast), or open the full edit list.
     @ViewBuilder
     private func menu(_ card: InsightsCard, index: Int, count: Int) -> some View {
         Button { share(card) } label: {
             Label("Share Card…", systemImage: "square.and.arrow.up")
         }
         Divider()
-        Button { change { $0.move(card, by: -1, defaults: defaults, onScreen: onScreen) } } label: {
+        Button { move(card, by: -1) } label: {
             Label("Move Up", systemImage: "arrow.up")
         }
         .disabled(index == 0)
-        Button { change { $0.move(card, by: 1, defaults: defaults, onScreen: onScreen) } } label: {
+        Button { move(card, by: 1) } label: {
             Label("Move Down", systemImage: "arrow.down")
         }
         .disabled(index >= count - 1)
-        Button { change { $0.hide(card, defaults: defaults) } } label: {
-            Label("Hide \(card.title)", systemImage: "eye.slash")
+        Button { hide(card) } label: {
+            Label("Hide This Card", systemImage: "eye.slash")
         }
         Divider()
         Button { setEditing(true) } label: {
             Label("Edit Cards…", systemImage: "slider.horizontal.3")
+        }
+    }
+
+    /// One place up or down among the cards on screen. VoiceOver hears where it went.
+    private func move(_ card: InsightsCard, by step: Int, announce: Bool = false) {
+        change { $0.move(card, by: step, defaults: defaults, onScreen: onScreen) }
+        guard announce else { return }
+        AccessibilityNotification.Announcement("\(card.title) moved \(step < 0 ? "up" : "down")").post()
+    }
+
+    /// Hides the card in its slot, springing the others up, and offers Undo on the toast.
+    private func hide(_ card: InsightsCard) {
+        withAnimation(InsightsMotion.reorder(reduceMotion: reduceMotion)) {
+            logbook.hideInsightsCard(card, for: .phone)
         }
     }
 

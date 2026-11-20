@@ -202,6 +202,9 @@ struct WhatsNewLaunch {
 enum WhatsNewCatalog {
     static let releases: [WhatsNewRelease] = [
         WhatsNewRelease(version: "1.96.0", highlights: [
+            .init(symbol: "eye.slash",
+                  title: "Hide an Insights card, then undo it",
+                  detail: "Touch and hold an Insights card on iPhone and choose Hide This Card, and Undo on the toast brings it back in the same place. VoiceOver now offers Move up, Move down and Hide card on each card too."),
             .init(symbol: "gearshape",
                   title: "Smoother Settings tabs on Mac",
                   detail: "Switching tabs in Settings on the Mac now cross-fades to the new tab while the window grows or shrinks to fit it, keeping the title bar where it was. With Reduce Motion on the new tab and size are simply there."),
