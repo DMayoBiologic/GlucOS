@@ -98,4 +98,30 @@ final class MenuBarQuickMenuTests: XCTestCase {
     func testAMealLoggedAsCarbsOnlyStillReads() {
         XCTAssertEqual(MenuBarQuickMenu.title(for: meal("", carbs: 30)), "Usual breakfast: 30 g")
     }
+
+    // MARK: Copy Reading
+
+    func testCopyReadingSitsBeforeSettingsWithCommandC() {
+        let line = "6.1 mmol/L, steady, 2 min ago"
+        let rows = MenuBarQuickMenu.rows(usuals: [low()], copyLine: line)
+        let list = items(rows)
+        XCTAssertEqual(list.map(\.action), [.usual(id: "low"), .newEntry, .openLogbook, .copyReading, .settings])
+        let copy = list[3]
+        XCTAssertEqual(copy.title, "Copy Reading")
+        XCTAssertEqual(copy.key, "c")
+        XCTAssertFalse(copy.withOption)
+        XCTAssertEqual(copy.toolTip, "Copies \u{201C}\(line)\u{201D}")
+        // Settings stays on its own after a separator.
+        XCTAssertEqual(rows[rows.count - 2], .separator)
+    }
+
+    func testNoCopyReadingWithoutAReading() {
+        XCTAssertFalse(items(MenuBarQuickMenu.rows(usuals: [], copyLine: nil)).contains { $0.action == .copyReading })
+        XCTAssertFalse(items(MenuBarQuickMenu.rows(usuals: [], copyLine: "")).contains { $0.action == .copyReading })
+    }
+
+    func testCopiedShowsBriefly() {
+        XCTAssertGreaterThanOrEqual(MenuBarQuickMenu.copiedDuration, 0.8)
+        XCTAssertLessThanOrEqual(MenuBarQuickMenu.copiedDuration, 2)
+    }
 }
