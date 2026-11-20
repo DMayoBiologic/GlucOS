@@ -23,6 +23,9 @@ struct FollowPersonView: View {
                     FollowEndedCard(follow: follow)
                 } else if let card {
                     FollowStage(follow: follow, card: card, history: detail?.history, now: now)
+                        // Picking another person starts their stage fresh: no roll from the last
+                        // person's number, no "trend now…" for a trend that didn't turn.
+                        .id(follow.id)
                         .dsEntrance(0)
                     FollowCheckInCard(follow: follow, card: card, now: now)
                         .dsEntrance(1)
@@ -44,7 +47,10 @@ struct FollowPersonView: View {
 
 /// Their reading the way the owner's stage shows it: range pill and how long they've been in it,
 /// the value with its needle, the rail with the forecast's ghost marker, the forecast note and
-/// the freshness meter. A new reading rolls the value and sends one ripple out of the needle.
+/// the freshness meter. A new reading rolls the value (`readingChange`, as on the owner's Today),
+/// turns the trend arrow and needle to the new direction on one spring (`TrendArrow`, `TrendDial`)
+/// and sends one ripple out of the needle. Under Reduce Motion the number just changes and the
+/// arrow cross-fades. VoiceOver hears a turned trend once, with their name.
 struct FollowStage: View {
     let follow: Follow
     let card: GlucoseActivityState
@@ -84,8 +90,11 @@ struct FollowStage: View {
                             .font(.system(size: (96 * (1 + (min(textScale.scale, 1.5) - 1) * 0.4)).rounded(), weight: .bold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(stale ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(tone.color))
+                            // A new reading rolls the digits over to it, up or down with the change,
+                            // once; a range change moves figure and colour together. Under Reduce
+                            // Motion the number just changes. VoiceOver reads the stage's label.
+                            .readingChange(mgdl: card.mgdl, tone: tone, instantUnderReduceMotion: true)
                             .staleStrike(stale)
-                            .contentTransition(.numericText(value: card.mgdl))
                             .lineLimit(1)
                             .minimumScaleFactor(0.5)
                         Text(unit.label).dsFont(.callout).fontWeight(.semibold).foregroundStyle(.secondary)
@@ -95,8 +104,14 @@ struct FollowStage: View {
                             Text("Trend unavailable").foregroundStyle(.secondary)
                         } else {
                             HStack(spacing: DS.Space.sm) {
-                                TrendSymbol(trend: card.glucoseTrend)
+                                // One arrow that turns to the new direction (a cross-fade under
+                                // Reduce Motion), rather than one glyph swapped for another.
+                                TrendArrow(trend: card.glucoseTrend)
+                                    .fontWeight(.bold)
+                                    .accessibilityHidden(true)
                                 Text(card.glucoseTrend.description)
+                                    .contentTransition(.opacity)
+                                    .dsAnimation(.sweep, value: card.glucoseTrend)
                             }
                             if let delta = card.deltaText {
                                 Text(delta).monospacedDigit().foregroundStyle(.secondary)
@@ -145,6 +160,13 @@ struct FollowStage: View {
         .onChange(of: card.readingAt) { old, new in
             guard old != new, !reduceMotion else { return }
             ripple += 1
+        }
+        // VoiceOver hears a new trend once, here only ("Sam's trend now falling"). The same trend
+        // again, a reading going stale, or one already stale when it arrives says nothing.
+        .onChange(of: card.glucoseTrend) { old, new in
+            guard !card.isStale(at: Date()),
+                  let text = TrendTurn.announcement(from: old, to: new, name: follow.label) else { return }
+            AccessibilityNotification.Announcement(text).post()
         }
         .haptic(trigger: card.range) { old, new in
             guard old != new else { return nil }

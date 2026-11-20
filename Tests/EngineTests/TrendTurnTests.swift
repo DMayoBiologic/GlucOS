@@ -31,6 +31,15 @@ final class TrendTurnTests: XCTestCase {
         XCTAssertNil(TrendTurn.announcement(from: .unknown, to: .falling))
     }
 
+    func testFollowerHearsTheTurnWithTheirName() {
+        XCTAssertEqual(TrendTurn.announcement(from: .flat, to: .falling, name: "Sam"), "Sam's trend now falling")
+        XCTAssertEqual(TrendTurn.announcement(from: .flat, to: .rising, name: "James"), "James' trend now rising")
+        // A blank name falls back to the owner's wording; no turn, no announcement.
+        XCTAssertEqual(TrendTurn.announcement(from: .flat, to: .rising, name: "  "), "Trend now rising")
+        XCTAssertNil(TrendTurn.announcement(from: .rising, to: .rising, name: "Sam"))
+        XCTAssertNil(TrendTurn.announcement(from: nil, to: .rising, name: "Sam"))
+    }
+
     func testSpringIsOneShortSettle() {
         XCTAssertEqual(TrendTurn.springProgress(at: 0), 0)
         XCTAssertEqual(TrendTurn.springProgress(at: -1), 0)
