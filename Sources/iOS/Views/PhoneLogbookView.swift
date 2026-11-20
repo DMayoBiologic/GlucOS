@@ -836,7 +836,7 @@ struct PhoneLogbookView: View {
         let spokenUsual: String = vsUsual.map(DayVsUsualText.spoken) ?? ""
         let spokenNote: String = note.map(DayNoteText.spoken) ?? ""
         let spokenValue: String = [spokenUsual, spokenNote, spokenTotals].filter { !$0.isEmpty }.joined(separator: ", ")
-        return VStack(alignment: .leading, spacing: DS.Space.xs) {
+        let header = VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(alignment: .firstTextBaseline) {
                 // Folds the day: points down while open, right while folded.
                 Button { toggleFold(day, now: now) } label: {
@@ -885,15 +885,8 @@ struct PhoneLogbookView: View {
                 }
                 .presentationCompactAdaptation(.popover)
             }
-            if let note {
-                noteLine(note, terms: terms)
-                    .onTapGesture { editNote(day.start) }
-                    .transition(DS.Transition.banner(reduceMotion: reduceMotion))
-            }
-            // "+12 vs your usual" on a day well above or below its usual; a tap explains it.
-            if let vsUsual {
-                usualNote(vsUsual, dayID: day.id, spokenDay: DayInRangeText.spokenDay(spokenDay))
-            }
+            // The day's note, then "+12 vs your usual" on a day well above or below its usual.
+            dayLines(day, note: note, terms: terms, vsUsual: vsUsual, spokenDay: DayInRangeText.spokenDay(spokenDay))
             if let range {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     if open {
@@ -936,7 +929,6 @@ struct PhoneLogbookView: View {
             }
         }
         .textCase(nil)
-        .dsAnimation(.standard, value: vsUsual)
         .contextMenu {
             Button { editNote(day.start) } label: {
                 Label(DayNoteText.actionName(hasNote: note != nil), systemImage: "note.text")
@@ -969,10 +961,26 @@ struct PhoneLogbookView: View {
         .accessibilityAction(named: "Jump to a Date") { openCalendar(day.id) }
         .accessibilityAction(named: DayCompareText.menuName) { openCalendar(day.id, comparing: true) }
         .accessibilityAction(named: DayNoteText.actionName(hasNote: note != nil)) { editNote(day.start) }
-        .accessibilityActions {
-            if vsUsual != nil {
-                Button(DayVsUsualText.actionName) { explainingUsual = day.id }
+        return header
+            .dsAnimation(.standard, value: vsUsual)
+            .accessibilityActions {
+                if vsUsual != nil {
+                    Button(DayVsUsualText.actionName) { explainingUsual = day.id }
+                }
             }
+    }
+
+    /// Under the day's name: its note (tap edits it), then the "vs your usual" note (tap explains it).
+    @ViewBuilder
+    private func dayLines(_ day: PhoneLogbookDay, note: String?, terms: [String], vsUsual: DayVsUsual?,
+                          spokenDay: String) -> some View {
+        if let note {
+            noteLine(note, terms: terms)
+                .onTapGesture { editNote(day.start) }
+                .transition(DS.Transition.banner(reduceMotion: reduceMotion))
+        }
+        if let vsUsual {
+            usualNote(vsUsual, dayID: day.id, spokenDay: spokenDay)
         }
     }
 
