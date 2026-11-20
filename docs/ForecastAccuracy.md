@@ -8181,3 +8181,73 @@ it lowers overnight error on most nights and no low anywhere is warned later.
 
 **Dosing.** Not touched: the insulin curve, insulin on board, sensitivity, carb ratios, the carb
 curve and the bolus calculator are unchanged. No app or relay code changed.
+
+## 105. When the trend arrow and the 15-minute slope point opposite ways, how does the line do? (20 Nov 2026)
+
+**Question.** The arrow on every screen is LibreLinkUp's, passed through (§32). The line follows
+GlucOS's own trend, a 20-minute regression slope. When the arrow says rising while glucose is lower
+than 15 minutes ago, or falling while it is higher, which one is right, how far off is the line,
+and do predicted-low and predicted-high alerts misbehave? §59 (reversals) and §71 (turns) looked at
+the line changing direction; this looks at the arrow and the slope arguing at the same moment.
+
+**Data.** `glucos.readings` 11–20 Nov 2026 (12,739 readings, 10 Perth days), with meal and dose
+times from the Logbook. The relay is replayed tick by tick as §79 and §104 do (12,648 ticks). At
+each tick the arrow is the latest live reading's (within 5 minutes), and the 15-minute slope is
+(reading now − reading 15 minutes ago) / 15, one reading a minute, live preferred (§74). They
+disagree when the arrow is rising and the slope is 0.3 mg/dL a minute or more downward, or the arrow
+is falling and the slope is 0.3 or more upward. Every tick's line is scored at 15, 30 and 60
+minutes from a replay of the same trend line worked out to 60 minutes. The relay draws only 30, so
+the 15 and 30-minute points are what it shows; the 60-minute point is where the faded line settles. A predicted low is false when
+nothing goes under 70 in the next 45 minutes; a predicted high when nothing goes over 180 (250 for
+very high) in the next hour. Script: `scripts/arrow-slope-disagree.ts` (`SLOPE`, `AGAINST=line` to
+compare the arrow with the line's own trend instead, `LIST=1`, `GAIN=1`).
+
+**They almost never disagree.** 10 of 12,648 ticks (0.1%), in 5 short episodes (median 1 minute,
+longest 4) on 3 days, all with the arrow rising and glucose a little lower than 15 minutes before,
+around 180–270 mg/dL. Never the other way round. Loosening the rule to any opposite sign (`SLOPE=0`)
+finds 18 ticks; comparing the arrow with the line's own 20-minute trend (`AGAINST=line`) finds 20
+(17 rising arrows on a falling line, 3 falling arrows on a rising line). When the arrow moves, the
+slope nearly always goes the same way: arrow steady 9,873 ticks, arrow and slope moving together
+2,697, arrow moving with a flat slope 50.
+
+Relay replay, bias = actual − line (positive = line ran low):
+
+| Ticks | n | 15 min MAE / bias | 30 min MAE / bias | 60 min MAE / bias | No change 15 / 30 / 60 |
+|---|---|---|---|---|---|
+| All | 12,630 | 15.5 / −0.0 | 24.7 / −0.1 | 39.6 / −0.1 | 16.0 / 25.3 / 39.6 |
+| Arrow and 15-min slope disagree | 10 | 27.4 / +21.8 | 22.3 / +6.6 | 30.3 / +30.3 | 22.6 / 17.7 / 25.0 |
+| Arrow and line's trend disagree | 20 | 27.2 / +14.0 | 30.6 / +7.8 | 42.8 / +14.2 | 25.5 / 26.4 / 38.0 |
+| Arrow and slope agree, moving | 2,697 | 19.2 / −1.8 | 31.6 / −2.3 | 50.9 / −1.5 | 22.1 / 34.9 / 51.1 |
+| Arrow steady | 9,873 | 14.4 / +0.4 | 22.7 / +0.5 | 36.4 / +0.2 | 14.3 / 22.6 / 36.3 |
+
+**On those few ticks the arrow was the better guide, and the line ran low.** The line went with
+the slope on 9 of the 10 and glucose went the arrow's way over the next 15 minutes on 8 of 10 (5 of
+10 at 30). So the line, already pointing down, ran 22 mg/dL low at 15 minutes and was worse than "no
+change" at every horizon. That is the same picture as §71's troughs and §59's reversals: the
+regression slope still carries a dip that has just ended. At the app's fitted gain of 0.45 it is a
+little smaller (24.7 / 19.6 / 27.4) and still worse than no change.
+
+**Alerts.** None of the 109 scorable predicted alerts (44 lows, 10 false; 65 highs, 16 false) fired
+on a disagreement tick, under either comparison. All 11 lows and 32 of the 37 highs were warned,
+none of them on a disagreement.
+
+**Held out: damp the line when they disagree.** Trend forecast only (nothing about insulin,
+carbs or doses): on a disagreement tick the line's move from the reading is scaled by w (1, 0.75,
+0.5, 0.25 or 0). Leave one Perth day out: pick the w with the lowest pooled 15/30/60-minute error on
+the other days among those that warn no low or high later, then score the day left out. Every fold
+picked w = 0 (a flat line), and no alert moved, but the gain is 0.01–0.03% at each horizon
+(26.583 against 26.587 pooled), better on 2 of 10 days and the same on the rest, because there are
+only 10 such ticks. With `SLOPE=0` or `AGAINST=line` it is −0.02%, false alarms 26 against 26. On
+the disagreement ticks alone a flat line takes the 15-minute error from 27.4 to 22.6 (17.5% lower,
+which is just "no change"), but that is 10 ticks, far short of the 100 the rule would need, and
+overall the held-out gain is 0.01–0.03%, nowhere near the 3% bar.
+
+**Decision.** Ship nothing. The arrow and the slope disagree on about one tick in a thousand, briefly,
+and no alert has fired on one. Where they do, the line runs low because the 20-minute slope lags a
+dip that has already turned, which is §45's and §71's lag, so it belongs in the §45 retest rather
+than a separate rule. Retest on **10 Dec 2026** with the §45 and §71 reruns, sooner if
+disagreement reaches 1% of ticks or a predicted alert fires on one. Ship a rule only if held out it
+clears 3% on the disagreement ticks with 100 or more of them and warns no low or high later.
+
+**Dosing.** Not touched: the insulin curve, insulin on board, sensitivity, carb ratios, the carb
+curve and the bolus calculator are unchanged. No app or relay code changed.

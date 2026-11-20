@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "doc.on.doc",
                   title: "Copy and share from reading details",
                   detail: "Tap the reading on iPhone Today, or click it in the Mac popover, and the details card now has Copy and Share under it for the same one line in your unit. Copy says Copied for a moment, with a light tap on iPhone and one VoiceOver confirmation."),
+            .init(symbol: "arrow.up.and.down",
+                  title: "Forecasts when the arrow disagrees",
+                  detail: "We checked how the forecast does in the rare moments the trend arrow points one way while glucose has moved the other way over the last 15 minutes, and kept it as it is for now."),
         ]),
         WhatsNewRelease(version: "1.93.0", highlights: [
             .init(symbol: "doc.on.doc",
