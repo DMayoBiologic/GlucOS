@@ -76,4 +76,29 @@ enum MarkerPeek {
         guard let r = reading(near: date, in: readings) else { return when }
         return "\(when) · \(unit.format(mgdl: r.mgdl, withUnit: true)) then"
     }
+
+    /// The note shown in the peek, longest first cut: one paragraph, at most this many characters.
+    /// The whole note is in the callout a click opens, and in the Logbook.
+    static let noteLimit = 80
+
+    /// The note on the peek's third line: newlines folded to spaces, trimmed, capped at `noteLimit`
+    /// with an ellipsis. Nil for no note, and for a plain note (`readsNote`), whose title already
+    /// is the note.
+    static func note(_ content: MarkerCallout.Content?) -> String? {
+        guard let content, !content.readsNote, let raw = content.note else { return nil }
+        let text = raw.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !text.isEmpty else { return nil }
+        guard text.count > noteLimit else { return text }
+        return text.prefix(noteLimit - 1).trimmingCharacters(in: .whitespaces) + "\u{2026}"
+    }
+
+    /// The Mac peek's last line, when a click opens the callout: ⌘-click goes straight to the
+    /// Logbook instead.
+    static let macHint = "Click for details \u{00B7} \u{2318}-click opens Logbook"
+
+    /// VoiceOver's name for going straight to the entry, on each marker's button.
+    static let openInLogbookActionName = "Open in Logbook"
 }
