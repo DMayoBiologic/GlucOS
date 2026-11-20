@@ -55,3 +55,17 @@ cards back. The later edit wins. Followers never see these records.
 Adding a card: add a case to `InsightsCard` (title, symbol), put it in `phoneDefault` and/or
 `macDefault` where it ships, and add it to the switch in `PhoneInsightsView.view(for:)` and/or
 `InsightsSection.view(for:)`. Raw values never change once shipped.
+
+## Hide with Undo (round 102)
+
+On iPhone, touch and hold a card for Share Card…, Move Up, Move Down, Hide This Card and Edit
+Cards…. Hide This Card hides the card in its slot and the toast says "Hid Lows · Undo"
+(`LogbookStore.hideInsightsCard`, `InsightsHideUndo`, `LogbookUndoOffer.cardHidden`). Undo takes
+the card off the hidden list, so it springs back exactly where it was (a cross-fade under Reduce
+Motion), and the layout syncs like any other change. Undo does nothing if the card is already
+showing again, and ends when a newer iPhone layout arrives from another device. It is one Undo at
+a time, like every toast offer. The edit list's own hide and show buttons don't offer Undo, since
+the Hidden section is right there.
+
+VoiceOver gets the same actions on each card: Share card, Move up, Move down (each said back, for
+example "Lows moved up") and Hide card. Card taps that open the Logbook are unchanged.
