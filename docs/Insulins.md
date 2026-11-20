@@ -43,5 +43,25 @@ iPhone a light tap plays at the pick-up (`HapticEvent.rowPicked`) and at the dro
 - Rules: `Sources/Shared/RowReorderDrag.swift` (tested by `RowReorderDragTests`); view:
   `InsulinReorderRows` in `InsulinSettingsView.swift`.
 
+## Deleting and Undo (round 101)
+
+Deleting a saved insulin (swipe left on iPhone, right-click › Delete on the Mac, the editor's
+Delete Insulin, or the system rows under VoiceOver and Edit mode) offers Undo on the toast:
+"Deleted NovoRapid · Undo", with ⌘Z on the Mac. Undo puts the insulin back exactly as it was
+saved, under the same id and in its old place (at the end if the list has got shorter), and
+pushes the whole list's order so every device shows it there. Saving the same name again, or a
+newer change to it from another device, ends the Undo. Logged doses never change.
+
+- **Motion:** the row shrinks away from its bottom edge up (height, opacity and a little scale to
+  0.96x, 0.3 s) while the rows below slide up with it; Undo grows it back the same way. Only a
+  row going or coming animates this way: a reorder keeps the drag's own settle. The row is only
+  clipped while it shrinks, so a lifted row's shadow still shows.
+- **Reduce Motion:** the row fades out where it is (0.2 s), then goes and the rows below jump;
+  on Undo it comes back clear and fades in.
+- Rules: `LogbookInsulinUndo` in `LogbookSync.swift` and `Sources/Engine/RowRemoval.swift`
+  (tested by `InsulinDeleteUndoTests`); store: `LogbookStore.deleteInsulin` /
+  `undoInsulinDelete`; view: `RowCollapse` in `InsulinSettingsView.swift`. The toast shows on
+  iPhone's Your Insulins screen and the Mac's Logging settings tab.
+
 Code: `Sources/App/Logbook/InsulinLibrary.swift` (rules, tested by `InsulinLibraryTests`),
 `InsulinSettingsView.swift` (Settings), `LogbookStore` (storage and sync).

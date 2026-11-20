@@ -51,6 +51,9 @@ final class LogbookStore: ObservableObject {
     /// New meals or doses that look logged twice ("Logged twice?", `DoubleLog`), kept so the new
     /// copies can be taken back. Also one Undo at a time.
     @Published private(set) var lastRepeat: LogbookRepeatUndo?
+    /// The last saved insulin deleted in Settings, kept so it can be put back in its place
+    /// (`LogbookInsulinUndo`). Also one Undo at a time.
+    @Published private(set) var lastInsulinDelete: LogbookInsulinUndo?
     /// Copies "Logged twice?" Undo took off in the last hour, in memory, so one can be put back if
     /// its earlier twin turns out to have been deleted on another device (`LogbookRepeatUndo.restorations`).
     private var undoneRepeats: [(pair: LogbookRepeatUndo.Pair, at: Date)] = []
@@ -61,6 +64,7 @@ final class LogbookStore: ObservableObject {
         if let lastBatch { return .batch(lastBatch) }
         if let lastAdd { return .added(lastAdd) }
         if let lastRepeat { return .repeated(lastRepeat) }
+        if let lastInsulinDelete { return .insulinDeleted(lastInsulinDelete) }
         return lastDeleted.isEmpty ? nil : .deleted(lastDeleted)
     }
 
@@ -274,6 +278,7 @@ final class LogbookStore: ObservableObject {
         lastBatch = nil
         lastAdd = nil
         lastRepeat = nil
+        lastInsulinDelete = nil
         // Accumulate while the undo banner is up, so Undo restores every delete since.
         lastDeleted += removed
         doses.removeAll { ids.contains($0.id) }
@@ -310,6 +315,7 @@ final class LogbookStore: ObservableObject {
         lastBatch = nil
         lastAdd = nil
         lastRepeat = nil
+        lastInsulinDelete = nil
     }
 
     /// After a log sheet saves an edit: offers Undo for it, if the entry changed. `before` is the
@@ -324,6 +330,7 @@ final class LogbookStore: ObservableObject {
         lastBatch = nil
         lastAdd = nil
         lastRepeat = nil
+        lastInsulinDelete = nil
         lastEdit = offer
     }
 
@@ -364,6 +371,7 @@ final class LogbookStore: ObservableObject {
             lastEdit = nil
             lastAdd = nil
             lastRepeat = nil
+            lastInsulinDelete = nil
             lastBatch = offer
         }
         return changed.count
@@ -388,7 +396,7 @@ final class LogbookStore: ObservableObject {
     /// that looked logged twice, or the last delete.
     func undo() {
         if lastEdit != nil { undoEdit() } else if lastBatch != nil { undoBatch() } else if lastAdd != nil { undoAdd() }
-        else if lastRepeat != nil { undoRepeat() } else { undoDelete() }
+        else if lastRepeat != nil { undoRepeat() } else if lastInsulinDelete != nil { undoInsulinDelete() } else { undoDelete() }
     }
 
     /// Takes the last added note off again, on every device (a delete with no Undo of its own).
@@ -422,6 +430,7 @@ final class LogbookStore: ObservableObject {
         lastEdit = nil
         lastBatch = nil
         lastAdd = nil
+        lastInsulinDelete = nil
         lastRepeat = offer
     }
 
@@ -485,6 +494,7 @@ final class LogbookStore: ObservableObject {
             lastEdit = nil
             lastBatch = nil
             lastRepeat = nil
+            lastInsulinDelete = nil
             lastAdd = LogbookAddUndo(entry: .context(event), addedAt: modified)
         }
     }
@@ -517,6 +527,7 @@ final class LogbookStore: ObservableObject {
                 lastEdit = nil
                 lastBatch = nil
                 lastRepeat = nil
+                lastInsulinDelete = nil
                 lastAdd = LogbookAddUndo(entry: .context(note), addedAt: syncState.pending[note.id]?.modified)
             }
             return note.id
@@ -548,6 +559,8 @@ final class LogbookStore: ObservableObject {
         i.name = i.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !i.name.isEmpty else { return }
         if let at = insulins.firstIndex(where: { $0.id == i.id }) { insulins[at] = i } else { insulins.append(i) }
+        // Saved again by hand: the deleted one's Undo has nothing left to put back.
+        if let u = lastInsulinDelete, u.insulin.id == i.id || u.insulin.key == i.key { lastInsulinDelete = nil }
         UserDefaults.standard.set(true, forKey: Self.insulinsSetUpKey)
         touch(i.id, kind: .insulin)
         persistInsulins()
@@ -555,10 +568,34 @@ final class LogbookStore: ObservableObject {
         localChanges.send()
     }
 
+    /// Deletes the saved insulin and offers Undo for it ("Deleted NovoRapid · Undo"), replacing
+    /// any other pending Undo. Logged doses keep their insulin name.
     func deleteInsulin(id: UUID) {
-        guard insulins.contains(where: { $0.id == id }) else { return }
-        insulins.removeAll { $0.id == id }
+        guard let at = insulins.firstIndex(where: { $0.id == id }) else { return }
+        let removed = insulins.remove(at: at)
         touch(id, kind: .insulin, deleted: true)
+        persistInsulins()
+        persistSyncState()
+        localChanges.send()
+        lastDeleted = []
+        deletedAt = [:]
+        lastEdit = nil
+        lastBatch = nil
+        lastAdd = nil
+        lastRepeat = nil
+        lastInsulinDelete = LogbookInsulinUndo(insulin: removed, index: at,
+                                               deletedAt: syncState.pending[id]?.modified)
+    }
+
+    /// Puts the last deleted insulin back where it was, exactly as it was saved, with fresh edit
+    /// times so every device takes it back in the same place. Does nothing if it's back already.
+    func undoInsulinDelete() {
+        guard let undo = lastInsulinDelete else { return }
+        lastInsulinDelete = nil
+        guard let list = undo.restoring(into: insulins) else { return }
+        insulins = list
+        // Order is kept by position in the list, so push them all (as a move does).
+        for i in insulins { touch(i.id, kind: .insulin) }
         persistInsulins()
         persistSyncState()
         localChanges.send()
@@ -862,6 +899,7 @@ final class LogbookStore: ObservableObject {
         if let batch = lastBatch { lastBatch = batch.dropping(batch.superseded(by: records)) }
         if let add = lastAdd, add.superseded(by: records) { lastAdd = nil }
         if let r = lastRepeat, r.superseded(by: records) { lastRepeat = nil }
+        if let i = lastInsulinDelete, i.superseded(by: records) { lastInsulinDelete = nil }
         // A copy Undo took off whose earlier twin was deleted on another device meanwhile comes
         // back, with a fresh edit time so every device takes it back too.
         let back = LogbookRepeatUndo.restorations(undone: undoneRepeats.map(\.pair), remote: records,
