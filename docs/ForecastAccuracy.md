@@ -8367,3 +8367,79 @@ select string_agg(concat_ws(',', extract(epoch from p.t)::bigint, p.device, p.ba
 
 **Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
 sensitivity and the bolus calculator are unchanged. No app or relay code changed.
+
+## 107. Just after the Mac wakes or the iPhone app opens, is the first forecast worse? (20 Nov 2026)
+
+**Question.** The Mac and iPhone only make forecasts while they are awake: the Mac sleeps, and the
+iPhone keeps its accuracy log only while the app runs. So the first forecast after a wake or a
+return to the foreground follows a gap in that device's checks. Is it worse at 15, 30 and 60
+minutes than forecasts made in steady running, and if so, is that the wake itself (a stale reading,
+a trend worked out from history fill, a cold tuner) or the moment the person chose to look? §86
+asked the same about gaps in *readings*; this one is about gaps in *ticks* while readings kept
+arriving on the server.
+
+**Data.** The accuracy log's clean shown points (nothing logged after, drawn), 12–20 Nov Perth.
+A device check is **first** when the same device's previous check was 30 or more minutes earlier
+(normal spacing is 5 or 15 minutes, §35), **early** when it falls within 30 minutes after a first
+one, and **steady** otherwise. 34 Mac and 74 iPhone first checks; their gaps run 30 minutes to
+22 hours (median about an hour). Control: the relay, which runs 24/7 on the same readings, matched to
+the device check within 5 minutes (relay logs 15 minutes only). Script:
+`scripts/wake-forecasts.py` (reads the export below; pass 20 or 60 to move the gap cut).
+
+| Device | Horizon | First: pts (days) / MAE / no change / bias / inside | Early | Steady |
+|---|---|---|---|---|
+| Mac | 15 min | 33 (8) / 8.5 / 14.1 / +0.1 / 94% | 13 / 10.1 / 100% | 262 / 15.6 / 18.2 / −0.2 / 82% |
+| Mac | 30 min | 28 (7) / 14.5 / 21.3 / −4.2 / 89% | 11 / 9.8 / 100% | 243 / 28.7 / 32.4 / +1.6 / 78% |
+| Mac | 60 min | 2 (2) | 5 | 149 / 57.0 / 58.9 / +13.6 / 79% |
+| iPhone | 15 min | 53 (7) / 20.3 / 16.6 / +2.4 / **68%** | 30 / 18.1 / 63% | 54 / 16.0 / 17.3 / −1.8 / 83% |
+| iPhone | 30 min | 41 (6) / 30.5 / 30.1 / +13.6 / 71% | 21 / 36.6 / 62% | 37 / 20.9 / 27.7 / −9.1 / 76% |
+| iPhone | 60 min | 12 (4) / 52.1 / 37.1 / +32.5 / 50% | 5 / 48.8 / 60% | 12 / 41.1 / 41.1 / −12.9 / 58% |
+
+(Bias = actual − line, so plus means the line ran low.)
+
+- **The Mac's first forecast after waking is its best one**, not its worst: 8.5 against 15.6 at
+  15 minutes and 14.5 against 28.7 at 30, 94 / 89% inside. Mac wakes cluster 9 am–6 pm on quiet
+  stretches, and the relay at the same moments also did well (12.1 at 15 minutes).
+- **The iPhone's first forecast after opening the app is worse**: 20.3 against 16.0 at 15 minutes,
+  worse than no change (16.6), 68% inside against 83%, and at 30 minutes 30.5 against 20.9 with the
+  line running 14 low. It holds at a 20 or 60-minute gap cut (15 minutes: 19.7 / 17.4 first).
+- **But it is the moment, not the wake.** At the same moments the relay, which never slept, did
+  almost as badly: 26.2 against the iPhone's 30.5 at 15 minutes (16 matched points over 4 days),
+  69% inside against 75%. The iPhone line and the relay line differ by 5.6 mg/dL at first checks
+  against 8.4 in steady running, and their start readings agree within 7 mg/dL (median 0). So no
+  stale reading and no different trend at wake; the app is opened when glucose is doing something
+  (alerts, after meals, late evening: half the iPhone first checks are 9 pm–1 am).
+- **15 Nov carries most of the iPhone gap.** Without that day (the unlogged-treatment afternoon of
+  §31, §85 and §86) first checks are 17.0 against 16.7 at 15 minutes and 22.9 against 21.0 at 30;
+  the 60-minute bias of +32 is 5 of its 12 points on 15 Nov (+80 there).
+- Every device check carries the same basis mix and speed as steady ones (|trend| 1.16 against
+  1.20 mg/dL a minute); post-wake forecasts aren't flatter or more trend-only.
+
+**Held out: a post-open range factor and line offset, iPhone first checks.** Leave one Perth day
+out: scale the range about its centre by the 80th percentile of the other days' miss ratios
+(clamped 1.0–2.5), or move the line by the other days' median bias. Width: interval score better
+on 4 of 7 days at 15 minutes but 1 of 6 at 30 (13 Nov 86 → 97, 18 Nov 206 → 313). Offset: MAE
+better on 0 of 7 days at 15, 3 of 6 at 30, with no day improved by more than 1.4. Both fail.
+
+**Decision.** Ship nothing. There's no wake-specific error to fix: the Mac does better after a
+wake, and the iPhone's worse first forecasts are matched by the always-on relay at the same
+moments. Retest on **16 Dec 2026** with §86, once the relay ledger logs 30 and 60 minutes so the
+matched control covers them; ship a post-open change only if the iPhone's first checks beat the
+relay at the same moments by 3+ mg/dL at 30 minutes on 4+ days without 15 Nov, and a held-out fix
+wins at 15 and 30 on most days.
+
+Export for the script (saves one string; the points are `;`-separated):
+
+```sql
+with c as (select *, extract(epoch from issued_at - lag(issued_at) over (partition by device order by issued_at))/60 gap
+  from glucos.forecast_checks)
+select string_agg(concat_ws(',', left(c.device,1), extract(epoch from issued_at)::bigint, round(coalesce(gap,-1)::numeric,1),
+  (e->>'minutes'), round((e->>'mgdl')::numeric,1), round((e->>'lower')::numeric,1), round((e->>'upper')::numeric,1),
+  round((e->>'actual')::numeric,1), round(start_mgdl::numeric,1), round(coalesce(trend_per_minute,0)::numeric,2),
+  (not coalesce((e->>'after_log')::boolean,false))::int, (coalesce(e->>'shown','true')='true')::int,
+  coalesce(extra,false)::int, basis, coalesce(app_version,'')), ';' order by c.device, issued_at)
+from c, jsonb_array_elements(c.points) e where (e->>'minutes')::int in (15,30,60) and e->>'actual' is not null;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged. No app or relay code changed.

@@ -208,6 +208,9 @@ enum WhatsNewCatalog {
             .init(symbol: "gearshape",
                   title: "Smoother Settings tabs on Mac",
                   detail: "Switching tabs in Settings on the Mac now cross-fades to the new tab while the window grows or shrinks to fit it, keeping the title bar where it was. With Reduce Motion on the new tab and size are simply there."),
+            .init(symbol: "sunrise",
+                  title: "Forecasts right after waking",
+                  detail: "We checked whether the first forecast after your Mac wakes or you open the iPhone app is less accurate than the rest, found it isn't once you allow for when you look, and kept it as it is for now."),
         ]),
         WhatsNewRelease(version: "1.95.0", highlights: [
             .init(symbol: "trash",
