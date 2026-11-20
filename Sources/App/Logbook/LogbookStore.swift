@@ -54,6 +54,9 @@ final class LogbookStore: ObservableObject {
     /// The last saved insulin deleted in Settings, kept so it can be put back in its place
     /// (`LogbookInsulinUndo`). Also one Undo at a time.
     @Published private(set) var lastInsulinDelete: LogbookInsulinUndo?
+    /// The last Insights card hidden from its menu, kept so Undo can show it again
+    /// (`InsightsHideUndo`). Also one Undo at a time.
+    @Published private(set) var lastCardHide: InsightsHideUndo?
     /// Copies "Logged twice?" Undo took off in the last hour, in memory, so one can be put back if
     /// its earlier twin turns out to have been deleted on another device (`LogbookRepeatUndo.restorations`).
     private var undoneRepeats: [(pair: LogbookRepeatUndo.Pair, at: Date)] = []
@@ -65,6 +68,7 @@ final class LogbookStore: ObservableObject {
         if let lastAdd { return .added(lastAdd) }
         if let lastRepeat { return .repeated(lastRepeat) }
         if let lastInsulinDelete { return .insulinDeleted(lastInsulinDelete) }
+        if let lastCardHide { return .cardHidden(lastCardHide) }
         return lastDeleted.isEmpty ? nil : .deleted(lastDeleted)
     }
 
@@ -279,6 +283,7 @@ final class LogbookStore: ObservableObject {
         lastAdd = nil
         lastRepeat = nil
         lastInsulinDelete = nil
+        lastCardHide = nil
         // Accumulate while the undo banner is up, so Undo restores every delete since.
         lastDeleted += removed
         doses.removeAll { ids.contains($0.id) }
@@ -316,6 +321,7 @@ final class LogbookStore: ObservableObject {
         lastAdd = nil
         lastRepeat = nil
         lastInsulinDelete = nil
+        lastCardHide = nil
     }
 
     /// After a log sheet saves an edit: offers Undo for it, if the entry changed. `before` is the
@@ -331,6 +337,7 @@ final class LogbookStore: ObservableObject {
         lastAdd = nil
         lastRepeat = nil
         lastInsulinDelete = nil
+        lastCardHide = nil
         lastEdit = offer
     }
 
@@ -372,6 +379,7 @@ final class LogbookStore: ObservableObject {
             lastAdd = nil
             lastRepeat = nil
             lastInsulinDelete = nil
+            lastCardHide = nil
             lastBatch = offer
         }
         return changed.count
@@ -396,7 +404,8 @@ final class LogbookStore: ObservableObject {
     /// that looked logged twice, or the last delete.
     func undo() {
         if lastEdit != nil { undoEdit() } else if lastBatch != nil { undoBatch() } else if lastAdd != nil { undoAdd() }
-        else if lastRepeat != nil { undoRepeat() } else if lastInsulinDelete != nil { undoInsulinDelete() } else { undoDelete() }
+        else if lastRepeat != nil { undoRepeat() } else if lastInsulinDelete != nil { undoInsulinDelete() }
+        else if lastCardHide != nil { undoCardHide() } else { undoDelete() }
     }
 
     /// Takes the last added note off again, on every device (a delete with no Undo of its own).
@@ -431,6 +440,7 @@ final class LogbookStore: ObservableObject {
         lastBatch = nil
         lastAdd = nil
         lastInsulinDelete = nil
+        lastCardHide = nil
         lastRepeat = offer
     }
 
@@ -495,6 +505,7 @@ final class LogbookStore: ObservableObject {
             lastBatch = nil
             lastRepeat = nil
             lastInsulinDelete = nil
+            lastCardHide = nil
             lastAdd = LogbookAddUndo(entry: .context(event), addedAt: modified)
         }
     }
@@ -528,6 +539,7 @@ final class LogbookStore: ObservableObject {
                 lastBatch = nil
                 lastRepeat = nil
                 lastInsulinDelete = nil
+                lastCardHide = nil
                 lastAdd = LogbookAddUndo(entry: .context(note), addedAt: syncState.pending[note.id]?.modified)
             }
             return note.id
@@ -583,6 +595,7 @@ final class LogbookStore: ObservableObject {
         lastBatch = nil
         lastAdd = nil
         lastRepeat = nil
+        lastCardHide = nil
         lastInsulinDelete = LogbookInsulinUndo(insulin: removed, index: at,
                                                deletedAt: syncState.pending[id]?.modified)
     }
@@ -592,6 +605,7 @@ final class LogbookStore: ObservableObject {
     func undoInsulinDelete() {
         guard let undo = lastInsulinDelete else { return }
         lastInsulinDelete = nil
+        lastCardHide = nil
         guard let list = undo.restoring(into: insulins) else { return }
         insulins = list
         // Order is kept by position in the list, so push them all (as a move does).
@@ -803,6 +817,32 @@ final class LogbookStore: ObservableObject {
         persist()
     }
 
+    /// Hides the card from its touch-and-hold menu or VoiceOver action and offers Undo for it
+    /// ("Hid Lows · Undo"), replacing any other pending Undo. The card keeps its slot.
+    func hideInsightsCard(_ card: InsightsCard, for screen: InsightsScreen) {
+        var next = insightsLayout(for: screen)
+        guard !next.isHidden(card) else { return }
+        next.hide(card, defaults: screen.defaults)
+        saveInsightsLayout(next, for: screen)
+        lastDeleted = []
+        deletedAt = [:]
+        lastEdit = nil
+        lastBatch = nil
+        lastAdd = nil
+        lastRepeat = nil
+        lastInsulinDelete = nil
+        lastCardHide = InsightsHideUndo(card: card, screen: screen,
+                                        hiddenAt: syncState.pending[screen.recordID]?.modified)
+    }
+
+    /// Shows the last hidden card again where it was. Does nothing if it's showing already.
+    func undoCardHide() {
+        guard let undo = lastCardHide else { return }
+        lastCardHide = nil
+        guard let layout = undo.restoring(into: insightsLayout(for: undo.screen)) else { return }
+        saveInsightsLayout(layout, for: undo.screen)
+    }
+
     /// Builds before syncing kept each screen's layout in this device's UserDefaults. Moves it into
     /// the logbook once, as older than anything on the server, so a layout another device already
     /// synced wins and this one only fills a gap.
@@ -900,6 +940,7 @@ final class LogbookStore: ObservableObject {
         if let add = lastAdd, add.superseded(by: records) { lastAdd = nil }
         if let r = lastRepeat, r.superseded(by: records) { lastRepeat = nil }
         if let i = lastInsulinDelete, i.superseded(by: records) { lastInsulinDelete = nil }
+        if let c = lastCardHide, c.superseded(by: records) { lastCardHide = nil }
         // A copy Undo took off whose earlier twin was deleted on another device meanwhile comes
         // back, with a fresh edit time so every device takes it back too.
         let back = LogbookRepeatUndo.restorations(undone: undoneRepeats.map(\.pair), remote: records,
