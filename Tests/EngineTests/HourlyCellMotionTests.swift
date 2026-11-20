@@ -32,4 +32,23 @@ final class HourlyCellMotionTests: XCTestCase {
                        HourlyCellMotion.fillDelay(position: 23, count: 24))
         XCTAssertEqual(HourlyCellMotion.recolourDelay(position: 0, count: 1), 0)
     }
+
+    func testReduceMotionFadesEveryCellTogether() {
+        let fills = Set((0..<24).map { HourlyCellMotion.fillDelay(position: $0, count: 24, reduceMotion: true) })
+        XCTAssertEqual(fills, [HourlyCellMotion.fillLead])
+        let recolours = Set((0..<12).map { HourlyCellMotion.recolourDelay(position: $0, count: 12, reduceMotion: true) })
+        XCTAssertEqual(recolours, [0])
+        XCTAssertEqual(HourlyCellMotion.recolourLength(reduceMotion: true), HourlyCellMotion.reducedFade)
+        XCTAssertLessThanOrEqual(HourlyCellMotion.reducedFade, 0.3)
+    }
+
+    func testWithoutReduceMotionTheWaveIsUnchanged() {
+        for p in 0..<24 {
+            XCTAssertEqual(HourlyCellMotion.fillDelay(position: p, count: 24, reduceMotion: false),
+                           HourlyCellMotion.fillDelay(position: p, count: 24))
+            XCTAssertEqual(HourlyCellMotion.recolourDelay(position: p, count: 24, reduceMotion: false),
+                           HourlyCellMotion.recolourDelay(position: p, count: 24))
+        }
+        XCTAssertEqual(HourlyCellMotion.recolourLength(reduceMotion: false), HourlyCellMotion.recolourDuration)
+    }
 }

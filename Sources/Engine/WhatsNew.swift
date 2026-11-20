@@ -205,6 +205,9 @@ enum WhatsNewCatalog {
             .init(symbol: "doc.on.doc",
                   title: "Copy the reading from the menu bar",
                   detail: "Right-click the reading in the Mac menu bar and choose Copy Reading, or press ⌘C while the menu is open, to copy it as one line in your unit, such as 6.1 mmol/L, steady, 2 min ago. The menu bar says Copied for a moment, and VoiceOver says it once."),
+            .init(symbol: "clock",
+                  title: "Hourly cells fade gently",
+                  detail: "With Reduce Motion on, the cells of Time in range by hour in Insights now fade in together when the card appears, and fade to their new colours together when you pick another period, instead of changing all at once."),
         ]),
         WhatsNewRelease(version: "1.92.0", highlights: [
             .init(symbol: "bell.badge",

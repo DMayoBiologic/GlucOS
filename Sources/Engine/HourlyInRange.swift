@@ -355,6 +355,25 @@ enum HourlyCellMotion {
         step(position, count, recolourSpread)
     }
 
+    /// Reduce Motion: how long the cells take to fade in together, and to cross-fade to new
+    /// colours together. A colour fade moves nothing, like `DSMotion`'s reduced colour fades.
+    static let reducedFade: Double = 0.25
+
+    /// `fillDelay`, or under Reduce Motion the same short lead for every cell, so they fade in as one.
+    static func fillDelay(position: Int, count: Int, reduceMotion: Bool) -> Double {
+        reduceMotion ? fillLead : fillDelay(position: position, count: count)
+    }
+
+    /// `recolourDelay`, or none under Reduce Motion, so every cell changes at the same moment.
+    static func recolourDelay(position: Int, count: Int, reduceMotion: Bool) -> Double {
+        reduceMotion ? 0 : recolourDelay(position: position, count: count)
+    }
+
+    /// How long each cell's colour cross-fade takes.
+    static func recolourLength(reduceMotion: Bool) -> Double {
+        reduceMotion ? reducedFade : recolourDuration
+    }
+
     private static func step(_ position: Int, _ count: Int, _ spread: Double) -> Double {
         guard count > 1 else { return 0 }
         let p = min(max(position, 0), count - 1)
