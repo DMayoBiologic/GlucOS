@@ -75,7 +75,7 @@ struct OutlookSection: View {
                 } else {
                     // The forecast draws in from the newest reading as the page opens, once this
                     // card is most of the way in, and bends into each new forecast rather than
-                    // jumping (as in the popover). Under Reduce Motion it just changes.
+                    // jumping (as in the popover). Under Reduce Motion it cross-fades in.
                     ForecastMotion(forecast: current?.forecast ?? [], drawInDelay: Self.forecastDelay) { forecast, reveal in
                         GlucoseChart(readings: plotted, unit: unit, lowMgdl: snapshot.lowMgdl, highMgdl: snapshot.highMgdl,
                                      hours: 3, interactive: true, forecast: forecast, forecastReveal: reveal,
