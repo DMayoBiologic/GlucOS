@@ -8251,3 +8251,119 @@ clears 3% on the disagreement ticks with 100 or more of them and warns no low or
 
 **Dosing.** Not touched: the insulin curve, insulin on board, sensitivity, carb ratios, the carb
 curve and the bolus calculator are unchanged. No app or relay code changed.
+
+## 106. Is the drawn range calibrated by rate of change? (20 Nov 2026)
+
+**Question.** The range aims for 8 in 10 readings inside. §99 found it holds overall at 15 to 60
+minutes, and §100 looked at fast falls inside the target range. This asks the next question: split
+by how fast glucose was moving when the forecast was made, does the range still hold 8 in 10 in
+each group, and would one width factor per group and horizon do better on days it wasn't learnt
+from? §21 (16 Nov, 467 points) tried finer speed bands for the old steady/fast widening and found
+nothing better; this reruns it on twice the data against today's learnt range (per horizon,
+`fastTrend`, the last 12 hours), and checks §21's side finding that flat forecasts miss more than
+slow ones.
+
+**Data.** The accuracy log's clean shown points (nothing logged after, drawn, range not cut at the
+sensor limits), Mac, iPhone and relay, 12–20 Nov Perth: 1,267 points on 9 days (826 at 15, 341 at
+30, 100 at 60 minutes; relay 15 only). Bins by |trend| at the start: **steady** under 0.5 mg/dL a
+minute, **slow** 0.5 to under 1.5, **fast** 1.5 or more (`ForecastRangeScale.fastTrendPerMinute`,
+the split the app already widens on). Score: the 80% interval score (width + 10 × how far outside,
+lower is better). Script: `scripts/range-by-rate.py` (reads the export below).
+
+| Horizon | Bin | Points (days) | Inside | Above / below | Width | Score |
+|---|---|---|---|---|---|---|
+| 15 min | steady | 263 (9) | 82.5% | 11.0 / 6.5% | 49.2 | 73.7 |
+| 15 min | slow | 333 (9) | 84.7% | 9.6 / 5.7% | 49.0 | 70.0 |
+| 15 min | fast | 230 (9) | **75.7%** | 11.3 / 13.0% | 62.7 | 104.2 |
+| 30 min | steady | 105 (9) | 75.2% | 14.3 / 10.5% | 81.8 | 127.6 |
+| 30 min | slow | 143 (8) | 83.2% | 8.4 / 8.4% | 80.3 | 123.1 |
+| 30 min | fast | 93 (9) | 76.3% | 7.5 / 16.1% | 98.8 | 148.5 |
+| 60 min | steady | 31 (6) | 83.9% | 9.7 / 6.5% | 99.2 | 118.2 |
+| 60 min | slow | 39 (6) | **64.1%** | 7.7 / 28.2% | 104.0 | 218.2 |
+| 60 min | fast | 30 (4) | **66.7%** | 6.7 / 26.7% | 119.5 | 214.0 |
+
+- **Slow moves are covered best**, 85 / 83% at 15 / 30 minutes, a little over the target.
+- **Fast moves stay short at about 76%** at 15 and 30 minutes, even with `fastTrend` widening
+  (range already about 28% wider at 15 minutes), on apps and relay alike (75 / 77% at 15). That matches
+  §99's 75 / 74%.
+- **The misses fall where the move stopped sooner than the line expected.** Fast rises end below
+  the range (17% below against 7% above at 15 minutes, 17 / 6% at 30), fast falls end above it at
+  15 minutes (18% above against 7% below). That is the line overshooting at turns (§45, §71,
+  §100), not a range that is too narrow on both sides, so a width factor that widens both sides
+  is the wrong lever.
+- **At 60 minutes, slow and fast moves both end below the range** (28% and 27% below), on rises
+  and falls alike, but on 39 and 30 points over 6 and 4 days.
+- **§21's flat-misses-more holds at 30 minutes and is mostly turning points.** Steady forecasts
+  are 75% inside at 30 minutes against 83% for slow. Split by the reading 30 minutes earlier,
+  steady points after a 20 mg/dL or bigger move are 76% inside at 15 minutes against 84% for calm
+  ones (58 against 205 points), 73 against 76% at 30 minutes.
+- **Lows are covered at 15 minutes**: 15 of 15 readings under 70 had the range bottom under 70. At
+  30 and 60 minutes there were 3 and 2 such readings (1 and 0 covered), too few to say more.
+
+**Held out: one factor per bin and horizon.** Leave one Perth day out: both sides of the range
+scaled about the line by the 80th percentile of the other days' miss ratios (miss ÷ drawn
+half-width on the side it fell) for that bin and horizon, clamped 0.7–2.5; bins with fewer than
+25 training points keep the drawn range. Also a widen-only version (factor at least 1) and a
+walk-forward one (each day learnt only from the days before it). "Days better" counts held-out
+days with 10+ points whose score improved.
+
+| Horizon | Shipped: inside / width / score | Factor held out | Score | Days better | Widen only | Walk-forward |
+|---|---|---|---|---|---|---|
+| 15 min | 81.5% / 52.9 / 80.7 | 79.8% / 52.4 / 82.0 | +1.6% | 3/9 | +1.3%, 5/9 | +6.3%, 2/9 |
+| 30 min | 78.9% / 85.8 / 131.4 | 79.5% / 88.3 / 137.7 | +4.8% | 1/6 | +3.6%, 2/6 | +10.4%, 1/6 |
+| 60 min | 71.0% / 107.2 / 185.9 | 73.0% / 126.4 / 179.6 | −3.4% | 3/4 | −3.8%, 3/4 | −2.1%, 2/4 |
+
+By bin, fast loses at every horizon (+3.7 / +5.9 / +2.0% held out at 15 / 30 / 60 minutes; it
+needs 13% more width at 15 minutes to reach 79%). The only win is slow at 60 minutes (−9.9%), by
+drawing the range 44% wider on 39 points over 2 scorable days. Learnt on all days the factors sit
+close to 1 (steady 0.93 / 1.09 / 0.94, slow 0.87 / 0.81 / 1.45, fast 1.10 / 1.08 / 1.25 at 15 / 30
+/ 60), so the learnt range is already roughly right by speed except where the data is thin. Low
+coverage doesn't change under any version.
+
+**Decision.** Ship nothing. The bar (held-out interval score better at 30 **and** 60 minutes on
+most days, lows covered no worse) isn't met: every version loses at 30 minutes (+3.6 to +10.4%,
+1–2 of 6 days), and the 60-minute gain rests on 100 points over 4 scorable days. Fast moves are
+short by about 4 points, but on the side where the move stops, which is a line problem for the §45
+retest (damping at turns), not a range-width one. Retest on **10 Dec 2026** with §100 and §45: by
+then aim for 80+ points per bin at 60 minutes on 8+ days; ship a per-bin factor only if it wins
+the interval score held out at 30 and 60 minutes on most days with lows covered no worse, and try
+one-sided widening (bottom after fast rises, top after fast falls) before any two-sided factor.
+
+Live-log check, in the Supabase SQL editor (horizon × bin: points, days, inside / above / below
+and width; on 20 Nov it gives the first table within a point, a few points changing bin because
+it reads the trend unrounded where the export rounds it to two places):
+
+```sql
+with p as (select c.issued_at t, abs(coalesce(c.trend_per_minute,0)) r, (e->>'minutes')::int m,
+    (e->>'actual')::float a, (e->>'lower')::float lo, (e->>'upper')::float hi
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,60)
+    and (e->>'lower')::float > 40 and (e->>'upper')::float < 400)
+select m minutes, case when r >= 1.5 then 'fast' when r >= 0.5 then 'slow' else 'steady' end bin,
+  count(*) pts, count(distinct (t at time zone 'Australia/Perth')::date) days,
+  round(100 * avg((a between lo and hi)::int)::numeric, 1) inside_pct,
+  round(100 * avg((a > hi)::int)::numeric, 1) above_pct, round(100 * avg((a < lo)::int)::numeric, 1) below_pct,
+  round(avg(hi - lo)::numeric, 1) width
+from p group by 1, 2 order by 1, 2;
+```
+
+Export for the script (save the `rows` value one point per line, `;` → newline):
+
+```sql
+with p as (select c.issued_at t, c.device, c.basis, c.start_mgdl s, c.trend_per_minute tr, (e->>'minutes')::int m,
+    (e->>'mgdl')::float f, (e->>'actual')::float a, (e->>'lower')::float lo, (e->>'upper')::float hi
+  from glucos.forecast_checks c, jsonb_array_elements(c.points) e
+  where e->>'actual' is not null and not coalesce((e->>'after_log')::boolean,false)
+    and coalesce(e->>'shown','true')='true' and (e->>'minutes')::int in (15,30,60))
+select string_agg(concat_ws(',', extract(epoch from p.t)::bigint, p.device, p.basis, round(p.s::numeric,1), p.m,
+  round(p.f::numeric,1), round(p.a::numeric,1), round(p.lo::numeric,1), round(p.hi::numeric,1),
+  round(coalesce(p.tr,0)::numeric,2),
+  coalesce((select round(r.mgdl::numeric,1)::text from glucos.readings r
+    where r.at between p.t - interval '32 min' and p.t - interval '28 min'
+    order by abs(extract(epoch from r.at - (p.t - interval '30 min'))) limit 1),'')
+ ), ';' order by p.t, p.m) rows from p;
+```
+
+**Dosing.** Not touched: carb ratios, the carb curve, the insulin curve, insulin on board,
+sensitivity and the bolus calculator are unchanged. No app or relay code changed.
