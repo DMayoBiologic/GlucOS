@@ -95,6 +95,11 @@ struct LogbookSection: View {
     @State private var dayRanges = DayInRangeCache()
     /// Day bars that have drawn in, so each plays once.
     @State private var drawnBars = DrawnOnce()
+    /// The listed days and the 14 before each, from the whole archive, for the "vs your usual"
+    /// notes (`DayVsUsual`), so the toolbar's period never cuts the usual short.
+    @State private var usualRanges = DayInRangeCache()
+    /// The day whose "vs your usual" explanation is open.
+    @State private var explainingUsual: Date?
     /// What each Day cell's totals last showed, so they roll from there (`DayTotalsLabel`).
     @State private var dayTotalsShown = DayTotalsMemory()
     /// The day whose chart is showing in a popover from its Day cell (`DayMiniChart`).
@@ -1007,6 +1012,12 @@ struct LogbookSection: View {
         let firsts = LogbookDays.firstRows(lines.map { (id: $0.id, timestamp: $0.timestamp) })
         let ranges = dayRanges.figures(readings: data.readings, days: Array(Set(firsts.values)).sorted(),
                                        low: data.lowMgdl, high: data.highMgdl, now: now)
+        let listedDays = Array(Set(firsts.values)).sorted()
+        let usual = DayVsUsual.notable(listedDays,
+                                       figures: usualRanges.figures(readings: store.archive,
+                                                                    days: DayVsUsual.daysNeeded(for: listedDays),
+                                                                    low: data.lowMgdl, high: data.highMgdl, now: now),
+                                       now: now)
         let groups: [UUID: LogbookGroup] = Dictionary(uniqueKeysWithValues: lines.compactMap { $0.group.map { ($0.id, $0) } })
         let folded: [UUID: LogbookTableLine.Fold] = Dictionary(uniqueKeysWithValues: lines.compactMap { l in l.fold.map { (l.id, $0) } })
         let lineDays: [UUID: Date] = Dictionary(lines.map { ($0.id, Calendar.autoupdatingCurrent.startOfDay(for: $0.timestamp)) },
@@ -1023,7 +1034,7 @@ struct LogbookSection: View {
                 if let start = firsts[l.id] {
                     dayCell(start, range: ranges[start], now: now, fold: l.fold,
                             count: l.fold?.count ?? counts[start] ?? LogbookDayCount(), totals: sums[start],
-                            note: logbook.dayNote(on: start), terms: terms)
+                            note: logbook.dayNote(on: start), terms: terms, vsUsual: usual[start])
                 } else {
                     Text("").accessibilityHidden(true)
                 }
@@ -1246,7 +1257,8 @@ struct LogbookSection: View {
     /// whole note in its tooltip; clicking it edits it. It fades in and out, at once under Reduce
     /// Motion, and VoiceOver reads it as "Note: sick day" with Edit Note as its action.
     private func dayCell(_ start: Date, range: DayInRange?, now: Date, fold: LogbookTableLine.Fold?,
-                         count: LogbookDayCount, totals: LogbookDayTotals?, note: String?, terms: [String]) -> some View {
+                         count: LogbookDayCount, totals: LogbookDayTotals?, note: String?, terms: [String],
+                         vsUsual: DayVsUsual? = nil) -> some View {
         let isFolded = fold != nil
         let day = ClockLabel.day(of: start, now: now)
         return HStack(spacing: DS.Space.xs) {
@@ -1266,7 +1278,14 @@ struct LogbookSection: View {
                 : LogbookCollapseText.spokenState(folded: false))
             .accessibilityAction(named: LogbookCollapseText.actionName(folded: isFolded)) { toggleFold(start, count: count) }
             .accessibilityAction(named: DayCompareText.menuName) { startCompare(start) }
-            dayName(start, range: range, day: day, totals: totals)
+            dayName(start, range: range, day: day, totals: totals, vsUsual: vsUsual)
+            // "+12 vs your usual" on a day well above or below its usual; a click explains it.
+            if let vsUsual {
+                DayVsUsualNote(comparison: vsUsual, spokenDay: DayInRangeText.spokenDay(day),
+                               explaining: Binding(get: { explainingUsual == start },
+                                                   set: { if $0 { explainingUsual = start } else if explainingUsual == start { explainingUsual = nil } }))
+                    .transition(.opacity)
+            }
             if let note {
                 Button { editNote(start) } label: {
                     HStack(spacing: 3) {
@@ -1290,6 +1309,7 @@ struct LogbookSection: View {
             }
         }
         .dsAnimation(.standard, value: note)
+        .dsAnimation(.standard, value: vsUsual)
     }
 
     private var noteTitle: String {
@@ -1328,9 +1348,12 @@ struct LogbookSection: View {
     /// moves to the day's new first row, and the bar glides to its new split; both change at once
     /// under Reduce Motion, and VoiceOver hears the new totals once.
     @ViewBuilder
-    private func dayName(_ start: Date, range: DayInRange?, day: ClockLabel.Day, totals: LogbookDayTotals?) -> some View {
+    private func dayName(_ start: Date, range: DayInRange?, day: ClockLabel.Day, totals: LogbookDayTotals?,
+                         vsUsual: DayVsUsual? = nil) -> some View {
         let id = "\(Int(start.timeIntervalSince1970))"
-        let spokenTotals = totals.map { DayTotalsText.summary($0) } ?? ""
+        // The "vs your usual" note is said once, here, before the totals.
+        let spokenTotals = [vsUsual.map(DayVsUsualText.spoken) ?? "", totals.map { DayTotalsText.summary($0) } ?? ""]
+            .filter { !$0.isEmpty }.joined(separator: ", ")
         let content = HStack(spacing: DS.Space.sm) {
             Text(ClockLabel.dayTitle(day))
                 .fontWeight(.semibold)
@@ -1365,6 +1388,11 @@ struct LogbookSection: View {
                 .accessibilityLabel(DayInRangeText.spoken(day, range))
                 .accessibilityValue(spokenTotals)
                 .accessibilityHint("Shows the day's chart")
+                .accessibilityActions {
+                    if vsUsual != nil {
+                        Button(DayVsUsualText.actionName) { explainingUsual = start }
+                    }
+                }
                 .popover(isPresented: Binding(get: { openDay == start },
                                               set: { if !$0, openDay == start { openDay = nil } }),
                          arrowEdge: .trailing) {

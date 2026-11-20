@@ -120,6 +120,10 @@ struct PhoneLogbookView: View {
     @State private var dayRanges = DayInRangeCache()
     /// Day bars that have drawn in, so each plays once.
     @State private var drawnBars = DrawnOnce()
+    /// The listed days and the 14 before each, for the "vs your usual" notes (`DayVsUsual`).
+    @State private var usualRanges = DayInRangeCache()
+    /// The day whose "vs your usual" explanation is open, by its id.
+    @State private var explainingUsual: String?
     /// What each day header's totals last showed, so they roll from there (`DayTotalsLabel`).
     @State private var dayTotalsShown = DayTotalsMemory()
     /// The day opened into its chart from its bar (`DayMiniChart`), one at a time.
@@ -420,6 +424,12 @@ struct PhoneLogbookView: View {
         let ranges = dayRanges.figures(readings: store.archive, days: days.map(\.start),
                                        low: snapshot.lowMgdl, high: snapshot.highMgdl, now: now)
         let shownDays = Set(days.map(\.start))
+        // Days 10+ points from the median of the 14 before them (`DayVsUsual`), from the archive.
+        let usual = DayVsUsual.notable(days.map(\.start),
+                                       figures: usualRanges.figures(readings: store.archive,
+                                                                    days: DayVsUsual.daysNeeded(for: days.map(\.start)),
+                                                                    low: snapshot.lowMgdl, high: snapshot.highMgdl, now: now),
+                                       now: now)
         ForEach(Array(days.enumerated()), id: \.element.id) { i, day in
             // A meal and its insulin logged within 15 minutes show as one row, opening out into the
             // entries (`LogbookGrouping`). Worked out on the rows the chips and search leave.
@@ -445,7 +455,7 @@ struct PhoneLogbookView: View {
                 dayHeader(day, totals: totals[day.id] ?? day.totals, sums: sums[day.id] ?? LogbookDayTotals(day.entries),
                           range: ranges[day.start], all: all, now: now,
                           shownDays: shownDays, folded: folded,
-                          note: logbook.dayNote(on: day.start), terms: terms)
+                          note: logbook.dayNote(on: day.start), terms: terms, vsUsual: usual[day.start])
                     .opacity(rowsFade)
                     // A day whose every row is shrinking out fades its header with them.
                     .opacity(!leaving.isEmpty && day.items.allSatisfy { leaving.contains($0.id) } ? 0 : 1)
@@ -806,7 +816,8 @@ struct PhoneLogbookView: View {
     /// edits it. It slides in under the name on a spring, or fades under Reduce Motion, and
     /// VoiceOver reads it with the header and offers the same actions.
     private func dayHeader(_ day: PhoneLogbookDay, totals: String, sums: LogbookDayTotals, range: DayInRange?, all: [LogEntry],
-                           now: Date, shownDays: Set<Date>, folded: Bool, note: String?, terms: [String]) -> some View {
+                           now: Date, shownDays: Set<Date>, folded: Bool, note: String?, terms: [String],
+                           vsUsual: DayVsUsual? = nil) -> some View {
         let open = range != nil && openDay == day.id
         let snapshot = store.snapshot
         let segments: [[DayChartPoint]] = open
@@ -821,7 +832,9 @@ struct PhoneLogbookView: View {
             ? [LogbookCollapseText.spokenState(folded: true), LogbookCollapseText.spokenCount(count), totals]
                 .filter { !$0.isEmpty }.joined(separator: ", ")
             : [LogbookCollapseText.spokenState(folded: false), totals].filter { !$0.isEmpty }.joined(separator: ", ")
-        let spokenValue = [note.map(DayNoteText.spoken) ?? "", spokenTotals].filter { !$0.isEmpty }.joined(separator: ", ")
+        // The "vs your usual" note is said once, here, right after the day's own figures.
+        let spokenValue = [vsUsual.map(DayVsUsualText.spoken) ?? "", note.map(DayNoteText.spoken) ?? "", spokenTotals]
+            .filter { !$0.isEmpty }.joined(separator: ", ")
         return VStack(alignment: .leading, spacing: DS.Space.xs) {
             HStack(alignment: .firstTextBaseline) {
                 // Folds the day: points down while open, right while folded.
@@ -876,6 +889,13 @@ struct PhoneLogbookView: View {
                     .onTapGesture { editNote(day.start) }
                     .transition(DS.Transition.banner(reduceMotion: reduceMotion))
             }
+            // "+12 vs your usual" on a day well above or below its usual; a tap explains it.
+            if let vsUsual {
+                DayVsUsualNote(comparison: vsUsual, spokenDay: DayInRangeText.spokenDay(spokenDay),
+                               explaining: Binding(get: { explainingUsual == day.id },
+                                                   set: { if $0 { explainingUsual = day.id } else if explainingUsual == day.id { explainingUsual = nil } }))
+                    .transition(.opacity)
+            }
             if let range {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     if open {
@@ -918,6 +938,7 @@ struct PhoneLogbookView: View {
             }
         }
         .textCase(nil)
+        .dsAnimation(.standard, value: vsUsual)
         .contextMenu {
             Button { editNote(day.start) } label: {
                 Label(DayNoteText.actionName(hasNote: note != nil), systemImage: "note.text")
@@ -950,6 +971,11 @@ struct PhoneLogbookView: View {
         .accessibilityAction(named: "Jump to a Date") { openCalendar(day.id) }
         .accessibilityAction(named: DayCompareText.menuName) { openCalendar(day.id, comparing: true) }
         .accessibilityAction(named: DayNoteText.actionName(hasNote: note != nil)) { editNote(day.start) }
+        .accessibilityActions {
+            if vsUsual != nil {
+                Button(DayVsUsualText.actionName) { explainingUsual = day.id }
+            }
+        }
     }
 
     /// The day's note under its name: a small note icon and one line, the search's words lit.
